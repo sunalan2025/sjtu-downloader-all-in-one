@@ -1,0 +1,17 @@
+node_modules
+out
+dist
+release
+.vite
+*.log
+*.tsbuildinfo
+.DS_Store
+.idea
+.claude/
+CLAUDE.md
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+build/icons/*.icns
+build/icons/*.ico

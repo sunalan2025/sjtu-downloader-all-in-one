@@ -1,0 +1,270 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Theme Variables ─── */
+:root,
+[data-theme='dark'] {
+  /* Surface */
+  --bg-base: #121212;
+  --bg-surface-1: #1E1E1E;
+  --bg-surface-2: #272727;
+  --bg-surface-3: rgba(255,255,255,0.03);
+  --bg-body: #121212;
+  --bg-body-accent-1: rgba(64, 128, 255, 0.04);
+  --bg-body-accent-2: rgba(64, 128, 255, 0.02);
+
+  /* Text */
+  --text-primary: #F5F5F5;
+  --text-secondary: #A0A0A0;
+  --text-tertiary: #737373;
+  --text-muted: #525252;
+
+  /* Border */
+  --border-default: #333333;
+  --border-strong: #333333;
+
+  /* Accent (tech blue) */
+  --accent: #4080FF;
+  --accent-light: #69B1FF;
+  --accent-dark: #2563EB;
+  --accent-5: rgba(64,128,255,0.05);
+  --accent-10: rgba(64,128,255,0.10);
+  --accent-15: rgba(64,128,255,0.15);
+  --accent-20: rgba(64,128,255,0.20);
+  --accent-25: rgba(64,128,255,0.25);
+  --accent-30: rgba(64,128,255,0.30);
+  --accent-40: rgba(64,128,255,0.40);
+  --accent-50: rgba(64,128,255,0.50);
+  --accent-60: rgba(64,128,255,0.60);
+  --accent-80: rgba(64,128,255,0.80);
+  --accent-85: rgba(64,128,255,0.85);
+
+  /* Cloud (secondary blue) */
+  --cloud: #69B1FF;
+  --cloud-light: #93C5FD;
+  --cloud-dim: rgba(105,177,255,0.10);
+  --cloud-25: rgba(105,177,255,0.25);
+  --cloud-40: rgba(105,177,255,0.40);
+
+  /* Status colors */
+  --emerald: #36D399;
+  --amber: #FB923C;
+  --rose: #F87171;
+  --sky: #69B1FF;
+
+  --success: #36D399;
+  --success-bg: rgba(54,211,153,0.10);
+  --success-ring: rgba(54,211,153,0.20);
+  --warning: #FB923C;
+  --warning-bg: rgba(251,146,60,0.10);
+  --warning-ring: rgba(251,146,60,0.20);
+  --info: #4080FF;
+  --info-bg: rgba(64,128,255,0.08);
+  --info-ring: rgba(64,128,255,0.18);
+  --danger: #F87171;
+  --danger-bg: rgba(248,113,113,0.10);
+  --danger-ring: rgba(248,113,113,0.20);
+
+  /* Task status background (for highlighted rows) */
+  --task-done-bg: #1A2E28;
+  --task-downloading-bg: #1F2937;
+  --task-paused-bg: #2E2316;
+  --task-error-bg: #2E1F1F;
+  --queue: #737373;
+
+  --progress-track: #1F2937;
+  --selection-bg: rgba(64, 128, 255, 0.3);
+
+  --scrollbar-thumb: rgba(160, 160, 160, 0.2);
+  --scrollbar-thumb-hover: rgba(160, 160, 160, 0.35);
+
+  color-scheme: dark;
+}
+
+/* 浅色模式 — 科技蓝方案 */
+[data-theme='light'] {
+  /* Surface */
+  --bg-base: #F5F7FA;
+  --bg-surface-1: #FFFFFF;
+  --bg-surface-2: #F2F3F5;
+  --bg-surface-3: rgba(0,0,0,0.03);
+  --bg-body: #F5F7FA;
+  --bg-body-accent-1: rgba(22, 93, 255, 0.03);
+  --bg-body-accent-2: rgba(22, 93, 255, 0.01);
+
+  /* Text */
+  --text-primary: #1D2129;
+  --text-secondary: #4E5969;
+  --text-tertiary: #86909C;
+  --text-muted: #C9CDD4;
+
+  /* Border */
+  --border-default: #E5E6EB;
+  --border-strong: #C9CDD4;
+
+  /* Accent (tech blue) */
+  --accent: #165DFF;
+  --accent-light: #4080FF;
+  --accent-dark: #0E42D2;
+  --accent-5: rgba(22,93,255,0.05);
+  --accent-10: rgba(22,93,255,0.10);
+  --accent-15: rgba(22,93,255,0.15);
+  --accent-20: rgba(22,93,255,0.20);
+  --accent-25: rgba(22,93,255,0.25);
+  --accent-30: rgba(22,93,255,0.30);
+  --accent-40: rgba(22,93,255,0.40);
+  --accent-50: rgba(22,93,255,0.50);
+  --accent-60: rgba(22,93,255,0.60);
+  --accent-80: rgba(22,93,255,0.80);
+  --accent-85: rgba(22,93,255,0.85);
+
+  /* Cloud (secondary blue) */
+  --cloud: #165DFF;
+  --cloud-light: #4080FF;
+  --cloud-dim: rgba(22,93,255,0.07);
+  --cloud-25: rgba(22,93,255,0.15);
+  --cloud-40: rgba(22,93,255,0.25);
+
+  /* Status colors */
+  --emerald: #00B42A;
+  --amber: #FF7D00;
+  --rose: #F53F3F;
+  --sky: #165DFF;
+
+  --success: #00B42A;
+  --success-bg: rgba(0,180,42,0.08);
+  --success-ring: rgba(0,180,42,0.20);
+  --warning: #FF7D00;
+  --warning-bg: rgba(255,125,0,0.08);
+  --warning-ring: rgba(255,125,0,0.20);
+  --info: #165DFF;
+  --info-bg: rgba(22,93,255,0.06);
+  --info-ring: rgba(22,93,255,0.18);
+  --danger: #F53F3F;
+  --danger-bg: rgba(245,63,63,0.08);
+  --danger-ring: rgba(245,63,63,0.20);
+
+  /* Task status background */
+  --task-done-bg: #E6FFED;
+  --task-downloading-bg: #E8F3FF;
+  --task-paused-bg: #FFF7E6;
+  --task-error-bg: #FFF1F0;
+  --queue: #86909C;
+
+  --progress-track: #E8F3FF;
+  --selection-bg: rgba(22, 93, 255, 0.15);
+
+  --scrollbar-thumb: rgba(100, 100, 100, 0.2);
+  --scrollbar-thumb-hover: rgba(100, 100, 100, 0.35);
+
+  color-scheme: light;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    font-family: theme('fontFamily.sans');
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    background: var(--bg-body);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* ─── Scrollbar ─── */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+/* ─── Drag regions ─── */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ─── Focus styles ─── */
+@layer utilities {
+  .focus-ring {
+    @apply outline-none ring-2 ring-offset-1 ring-offset-transparent;
+    --tw-ring-color: var(--accent);
+    --tw-ring-opacity: 0.4;
+  }
+}
+
+/* ─── Selection color ─── */
+::selection {
+  background: var(--selection-bg);
+  color: #fff;
+}
+
+[data-theme='light'] ::selection {
+  color: var(--text-primary);
+}
+
+/* ─── Glass card base ─── */
+.glass-card {
+  background: var(--bg-surface-3);
+  border: 1px solid var(--border-default);
+  backdrop-filter: blur(12px);
+}
+.glass-card:hover {
+  border-color: var(--border-strong);
+}
+
+/* ─── Input range custom style ─── */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--progress-track);
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 2px 8px var(--accent-40);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 12px var(--accent-60);
+}
+input[type='range']:focus {
+  outline: none;
+}
+
+[data-theme='light'] input[type='range']::-webkit-slider-thumb {
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15), 0 0 0 1px var(--accent-20);
+}
