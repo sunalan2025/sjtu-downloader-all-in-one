@@ -1,0 +1,20 @@
+node_modules
+out
+dist
+release
+.vite
+*.log
+*.tsbuildinfo
+.DS_Store
+.idea
+.claude/
+CLAUDE.md
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.playwright-mcp/
+*.network-response
+
+# 图标产物（由 scripts/generate-icons.mjs 从 build/icon.png 生成，CI/本地 build 前自动跑 npm run icons）
+build/icons/
