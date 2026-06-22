@@ -2,6 +2,132 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── 主题过渡：用 @property 把颜色变量注册成可动画类型 ───
+ * 注册后自定义属性本身可过渡；在 :root 上声明 transition，
+ * 切换 data-theme 时变量值平滑插值，所有 var() 引用处自动跟随，
+ * 无需给每个组件加 transition。Chromium 原生支持。 */
+@property --bg-base { syntax: '<color>'; inherits: true; initial-value: #121212; }
+@property --bg-surface-1 { syntax: '<color>'; inherits: true; initial-value: #1e1e1e; }
+@property --bg-surface-2 { syntax: '<color>'; inherits: true; initial-value: #272727; }
+@property --bg-surface-3 { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,0.03); }
+@property --bg-body { syntax: '<color>'; inherits: true; initial-value: #121212; }
+@property --bg-body-accent-1 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.04); }
+@property --bg-body-accent-2 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.02); }
+@property --text-primary { syntax: '<color>'; inherits: true; initial-value: #f5f5f5; }
+@property --text-secondary { syntax: '<color>'; inherits: true; initial-value: #a0a0a0; }
+@property --text-tertiary { syntax: '<color>'; inherits: true; initial-value: #737373; }
+@property --text-muted { syntax: '<color>'; inherits: true; initial-value: #525252; }
+@property --border-default { syntax: '<color>'; inherits: true; initial-value: #333333; }
+@property --border-strong { syntax: '<color>'; inherits: true; initial-value: #333333; }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #4080ff; }
+@property --accent-light { syntax: '<color>'; inherits: true; initial-value: #69b1ff; }
+@property --accent-dark { syntax: '<color>'; inherits: true; initial-value: #2563eb; }
+@property --accent-5 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.05); }
+@property --accent-10 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.10); }
+@property --accent-15 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.15); }
+@property --accent-20 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.20); }
+@property --accent-25 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.25); }
+@property --accent-30 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.30); }
+@property --accent-40 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.40); }
+@property --accent-50 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.50); }
+@property --accent-60 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.60); }
+@property --accent-80 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.80); }
+@property --accent-85 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.85); }
+@property --cloud { syntax: '<color>'; inherits: true; initial-value: #69b1ff; }
+@property --cloud-light { syntax: '<color>'; inherits: true; initial-value: #93c5fd; }
+@property --cloud-dim { syntax: '<color>'; inherits: true; initial-value: rgba(105,177,255,0.10); }
+@property --cloud-25 { syntax: '<color>'; inherits: true; initial-value: rgba(105,177,255,0.25); }
+@property --cloud-40 { syntax: '<color>'; inherits: true; initial-value: rgba(105,177,255,0.40); }
+@property --emerald { syntax: '<color>'; inherits: true; initial-value: #36d399; }
+@property --amber { syntax: '<color>'; inherits: true; initial-value: #fb923c; }
+@property --rose { syntax: '<color>'; inherits: true; initial-value: #f87171; }
+@property --sky { syntax: '<color>'; inherits: true; initial-value: #69b1ff; }
+@property --success { syntax: '<color>'; inherits: true; initial-value: #36d399; }
+@property --success-bg { syntax: '<color>'; inherits: true; initial-value: rgba(54,211,153,0.10); }
+@property --success-ring { syntax: '<color>'; inherits: true; initial-value: rgba(54,211,153,0.20); }
+@property --warning { syntax: '<color>'; inherits: true; initial-value: #fb923c; }
+@property --warning-bg { syntax: '<color>'; inherits: true; initial-value: rgba(251,146,60,0.10); }
+@property --warning-ring { syntax: '<color>'; inherits: true; initial-value: rgba(251,146,60,0.20); }
+@property --info { syntax: '<color>'; inherits: true; initial-value: #4080ff; }
+@property --info-bg { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.08); }
+@property --info-ring { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.18); }
+@property --danger { syntax: '<color>'; inherits: true; initial-value: #f87171; }
+@property --danger-bg { syntax: '<color>'; inherits: true; initial-value: rgba(248,113,113,0.10); }
+@property --danger-ring { syntax: '<color>'; inherits: true; initial-value: rgba(248,113,113,0.20); }
+@property --task-done-bg { syntax: '<color>'; inherits: true; initial-value: #1a2e28; }
+@property --task-downloading-bg { syntax: '<color>'; inherits: true; initial-value: #1f2937; }
+@property --task-paused-bg { syntax: '<color>'; inherits: true; initial-value: #2e2316; }
+@property --task-error-bg { syntax: '<color>'; inherits: true; initial-value: #2e1f1f; }
+@property --queue { syntax: '<color>'; inherits: true; initial-value: #737373; }
+@property --progress-track { syntax: '<color>'; inherits: true; initial-value: #1f2937; }
+@property --selection-bg { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.30); }
+@property --scrollbar-thumb { syntax: '<color>'; inherits: true; initial-value: rgba(160,160,160,0.20); }
+@property --scrollbar-thumb-hover { syntax: '<color>'; inherits: true; initial-value: rgba(160,160,160,0.35); }
+
+/* 切换 data-theme 时，所有注册的颜色变量在 :root 上平滑插值。
+ * 使用精确的属性列表替代 `all`，避免触发非颜色属性的意外过渡。
+ * 所有 @property 注册的自定义属性 syntax 均为 '<color>'，浏览器原生可动画。 */
+:root {
+  transition:
+    --bg-base 0.35s ease,
+    --bg-surface-1 0.35s ease,
+    --bg-surface-2 0.35s ease,
+    --bg-surface-3 0.35s ease,
+    --bg-body 0.35s ease,
+    --bg-body-accent-1 0.35s ease,
+    --bg-body-accent-2 0.35s ease,
+    --text-primary 0.35s ease,
+    --text-secondary 0.35s ease,
+    --text-tertiary 0.35s ease,
+    --text-muted 0.35s ease,
+    --border-default 0.35s ease,
+    --border-strong 0.35s ease,
+    --accent 0.35s ease,
+    --accent-light 0.35s ease,
+    --accent-dark 0.35s ease,
+    --accent-5 0.35s ease,
+    --accent-10 0.35s ease,
+    --accent-15 0.35s ease,
+    --accent-20 0.35s ease,
+    --accent-25 0.35s ease,
+    --accent-30 0.35s ease,
+    --accent-40 0.35s ease,
+    --accent-50 0.35s ease,
+    --accent-60 0.35s ease,
+    --accent-80 0.35s ease,
+    --accent-85 0.35s ease,
+    --cloud 0.35s ease,
+    --cloud-light 0.35s ease,
+    --cloud-dim 0.35s ease,
+    --cloud-25 0.35s ease,
+    --cloud-40 0.35s ease,
+    --emerald 0.35s ease,
+    --amber 0.35s ease,
+    --rose 0.35s ease,
+    --sky 0.35s ease,
+    --success 0.35s ease,
+    --success-bg 0.35s ease,
+    --success-ring 0.35s ease,
+    --warning 0.35s ease,
+    --warning-bg 0.35s ease,
+    --warning-ring 0.35s ease,
+    --info 0.35s ease,
+    --info-bg 0.35s ease,
+    --info-ring 0.35s ease,
+    --danger 0.35s ease,
+    --danger-bg 0.35s ease,
+    --danger-ring 0.35s ease,
+    --task-done-bg 0.35s ease,
+    --task-downloading-bg 0.35s ease,
+    --task-paused-bg 0.35s ease,
+    --task-error-bg 0.35s ease,
+    --queue 0.35s ease,
+    --progress-track 0.35s ease,
+    --selection-bg 0.35s ease,
+    --scrollbar-thumb 0.35s ease,
+    --scrollbar-thumb-hover 0.35s ease;
+}
+
 /* ─── Theme Variables ─── */
 :root,
 [data-theme='dark'] {
@@ -193,10 +319,28 @@
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: content-box;
+  transition: background 0.15s ease;
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   background-clip: content-box;
+}
+/* 滚动条在容器 hover 时变宽一点，提示可滚动 */
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+/* ─── 全局焦点环（键盘可达性） ─── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+button:focus-visible,
+[role='checkbox']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ─── Drag regions ─── */

@@ -18,25 +18,32 @@ export function Welcome() {
             为 SJTU 同学打造
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-text-1 sm:text-4xl">
-            SJTU 旁听课程<span className="text-accent-light">转存</span>
+            SJTU 课程<span className="text-accent-light">下载</span>
           </h1>
           <p className="mx-auto mt-4 max-w-lg text-base leading-relaxed text-text-2">
-            一键扫描你在 <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-sm text-text-1">v.sjtu.edu.cn</span> 的「我的旁听」课程，
-            批量转存回放视频到 <span className="font-medium text-cloud-light">交大云盘</span>，不占本地空间。
+            一站式下载 <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-sm text-text-1">v.sjtu.edu.cn</span> 旁听课程视频
+            和 <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-sm text-text-1">oc.sjtu.edu.cn</span> Canvas 课程资料，
+            支持本地下载和 <span className="font-medium text-cloud-light">交大云盘</span> 上传。
           </p>
         </header>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <FeatureCard
             icon={<IconShield />}
             title="jAccount 安全登录"
-            desc="嵌入官方扫码登录，session 持久化保存在本地"
+            desc="一次扫码登录，v.sjtu 和 Canvas 共享会话"
             accent="accent"
           />
           <FeatureCard
             icon={<IconList />}
-            title="一键扫描旁听课"
-            desc="自动抓取你有权访问的全部课程，按学期归类"
+            title="旁听课程视频"
+            desc="扫描 v.sjtu 旁听课，批量下载教师/PPT 双视角"
+            accent="accent"
+          />
+          <FeatureCard
+            icon={<IconBook />}
+            title="Canvas 课程资料"
+            desc="课件、大纲、课堂视频，一键批量下载"
             accent="accent"
           />
           <FeatureCard
@@ -114,6 +121,14 @@ function IconList() {
       <circle cx="4" cy="6" r="1.2" fill="currentColor" />
       <circle cx="4" cy="12" r="1.2" fill="currentColor" />
       <circle cx="4" cy="18" r="1.2" fill="currentColor" />
+    </svg>
+  )
+}
+function IconBook() {
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z" />
+      <path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z" />
     </svg>
   )
 }

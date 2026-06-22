@@ -95,6 +95,18 @@ type WebviewElement = HTMLElement & {
   removeEventListener(type: string, listener: (e: Event) => void): void
 }
 
+// [2.4] Allowed domains for the login webview — prevents navigation to attacker-controlled domains
+const ALLOWED_NAV_DOMAINS = ['sjtu.edu.cn', 'jaccount.sjtu.edu.cn', 'oc.sjtu.edu.cn']
+
+function isAllowedNavDomain(url: string): boolean {
+  try {
+    const host = new URL(url).hostname
+    return ALLOWED_NAV_DOMAINS.some(d => host === d || host.endsWith('.' + d))
+  } catch {
+    return false
+  }
+}
+
 export function Login() {
   const webviewRef = useRef<WebviewElement | null>(null)
   const setStage = useAppStore(s => s.setStage)
@@ -180,6 +192,12 @@ export function Login() {
 
     const onNav = (): void => {
       const url = wv.getURL()
+      // [2.4] Block navigation to domains outside the allowed SJTU list
+      if (!isAllowedNavDomain(url)) {
+        console.warn('[Login] blocked navigation to unexpected domain:', url)
+        void wv.loadURL(LOGIN_URL)
+        return
+      }
       // 一旦离开 jaccount 域立刻藏 webview，避免 v.sjtu 首页/中转页内容闪现。
       // 在跳到 Browser 之前，先把 SPA 写入 localStorage 的 jwt 抽出来推给 main。
       if (!url.includes('jaccount.sjtu.edu.cn')) {
@@ -201,7 +219,7 @@ export function Login() {
       wv.removeEventListener('did-navigate', onNav)
       wv.removeEventListener('did-navigate-in-page', onNav)
     }
-  }, [checkAuth, pullJwt, setStage])
+  }, [checkAuth, pullJwt, setStage, theme])
 
   const onReload = (): void => {
     setReady(false)

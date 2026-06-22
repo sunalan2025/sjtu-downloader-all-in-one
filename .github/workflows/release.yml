@@ -40,6 +40,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Generate app icons
+        run: npm run icons
+
       - name: Build renderer & main
         run: node scripts/run-electron-vite.mjs build
 

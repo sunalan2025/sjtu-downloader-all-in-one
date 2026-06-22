@@ -112,10 +112,6 @@ module.exports = {
           '0%': { opacity: '0', transform: 'translateY(16px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' }
         },
-        slideDown: {
-          '0%': { opacity: '0', maxHeight: '0' },
-          '100%': { opacity: '1', maxHeight: '3000px' }
-        },
         pulse: {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.5' }
@@ -126,10 +122,9 @@ module.exports = {
         }
       },
       animation: {
-        shimmer: 'shimmer 1.6s ease-in-out infinite',
-        fadeIn: 'fadeIn 0.35s ease-out',
-        fadeInUp: 'fadeInUp 0.45s ease-out',
-        slideDown: 'slideDown 0.3s ease-out',
+        shimmer: 'shimmer 2s ease-in-out infinite',
+        fadeIn: 'fadeIn 0.3s ease-out',
+        fadeInUp: 'fadeInUp 0.4s ease-out',
         pulse: 'pulse 2s ease-in-out infinite',
         breathe: 'breathe 3s ease-in-out infinite'
       },

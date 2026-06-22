@@ -1,19 +1,26 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, DownloadProgress, DownloadState, VideoTask } from '@shared/types'
+import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasDownloadTaskSpec, CanvasTeacherSelection, CanvasVideoSession } from '@shared/types'
 
+/** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
 export type Stage = 'welcome' | 'login' | 'browser'
 
+/** 扫描状态机（旁听课程和 Canvas 课程共用） */
 export type ScanState = 'idle' | 'scanning' | 'done' | 'error'
 
+/** UI 主题偏好 */
 export type Theme = 'light' | 'dark' | 'system'
+
+/** renderer 侧讲次分组类型，与 shared/types 的 CanvasLectureGroup 同构 */
+export type LectureGroup = CanvasLectureGroup
 
 interface AppState {
   theme: Theme
   stage: Stage
+  activeTab: ActiveTab
   auth: AuthStatus
-  // 扫描结果
+  // v.sjtu 旁听课程扫描结果
   scanState: ScanState
   scanMessage: string
   courses: Course[]
@@ -23,39 +30,126 @@ interface AppState {
   selected: Set<string>
   /** 展开的课程 id */
   expandedCourses: Set<number>
+  // Canvas 课程状态
+  canvasCourses: CanvasCourse[]
+  canvasScanState: ScanState
+  canvasScanMessage: string
+  canvasExpandedCourses: Set<number>
+  /** Canvas 课程文件扫描结果 */
+  canvasCourseData: Record<number, {
+    files: import('@shared/types').CanvasFileItem[]
+    folderMap: Record<number, string>
+    moduleFileIds: number[]
+    syllabusFileIds: number[]
+  }>
+  /** Canvas 课堂视频会话 */
+  canvasVideoSessions: Record<number, CanvasVideoSession[]>
+  /** Canvas 教师选择 */
+  canvasTeachers: Record<number, CanvasTeacherSelection[]>
+  canvasSelectedTeachers: Record<number, string[]>
+  /** Canvas LTI token 缓存 */
+  canvasLtiTokens: Record<number, { token: string; canvasCourseId: string }>
+  /** Canvas 讲次分组（courseId → lectures[]） */
+  canvasLectures: Record<number, LectureGroup[]>
+  /** 每门课程的分类选择（预设置：课件/教师/PPT） */
+  canvasCourseCategorySelections: Record<number, { files: boolean; teacher: boolean; ppt: boolean }>
   // 交大云盘
   cloudUserToken: string | null
   cloudSpaceInfo: CloudPanSpaceInfo | null
+  // [2.14] Cloud connection status shared across tabs (was per-component useState)
+  cloudConnStatus: 'idle' | 'connecting' | 'error'
+  cloudConnMessage: string
   // 下载模式
   downloadMode: DownloadMode
+  /** 同名文件冲突策略：skip=跳过，overwrite=先删除再下载/上传 */
+  fileConflictStrategy: FileConflictStrategy
   localDestRoot: string
   /** both 模式下 localTaskId → cloudTaskId 映射，用于进度聚合 */
   cloudLinkedIds: Record<string, string>
   // 下载状态
   downloading: boolean
   progress: Record<string, DownloadProgress>
-  /** 并发下载数，2-16，会同步到主进程 */
+  /** 并发下载数，2-16，会同步到主进程。0 = 自动 */
   concurrency: number
+  /** 是否处于自动并发模式 */
+  autoConcurrency: boolean
   // setters
+  /** 切换 UI 主题（dark/light/system） */
   setTheme: (t: Theme) => void
+  /** 切换主界面 stage */
   setStage: (s: Stage) => void
+  /** 切换顶部 tab（旁听/Canvas） */
+  setActiveTab: (t: ActiveTab) => void
+  /** 更新 v.sjtu 登录状态 */
   setAuth: (a: AuthStatus) => void
+  /** 更新旁听课程扫描状态和消息 */
   setScan: (s: ScanState, msg?: string) => void
+  /** 替换全部旁听课程列表 */
   setCourses: (c: Course[]) => void
+  /** 设置指定课程的视频任务列表 */
   setTasksForCourse: (id: number, t: VideoTask[]) => void
+  /** 清空旁听课程扫描结果和选中态 */
   resetScanResults: () => void
+  /** 覆盖全选集合 */
   setSelected: (s: Set<string>) => void
+  /** 切换单个 taskId 的选中状态 */
   toggleSelect: (taskId: string) => void
+  /** 批量设置多个 taskId 的选中状态 */
   toggleSelectMany: (ids: string[], on: boolean) => void
+  /** 切换课程的展开/折叠状态 */
   toggleExpand: (courseId: number) => void
+  // Canvas setters
+  /** 替换全部 Canvas 课程列表 */
+  setCanvasCourses: (c: CanvasCourse[]) => void
+  /** 更新 Canvas 课程扫描状态和消息 */
+  setCanvasScanState: (s: ScanState, msg?: string) => void
+  /** 切换 Canvas 课程的展开/折叠状态 */
+  toggleCanvasExpand: (courseId: number) => void
+  /** 设置指定 Canvas 课程的文件扫描数据 */
+  setCanvasCourseData: (id: number, data: AppState['canvasCourseData'][number]) => void
+  /** 设置指定 Canvas 课程的课堂视频会话列表 */
+  setCanvasVideoSessions: (id: number, sessions: CanvasVideoSession[]) => void
+  /** 设置指定 Canvas 课程的教师筛选选项 */
+  setCanvasTeachers: (id: number, teachers: CanvasTeacherSelection[]) => void
+  /** 设置指定 Canvas 课程已选中的教师列表 */
+  setCanvasSelectedTeachers: (id: number, teachers: string[]) => void
+  /** 缓存指定 Canvas 课程的 LTI token 和 canvasCourseId */
+  setCanvasLtiToken: (id: number, data: { token: string; canvasCourseId: string }) => void
+  /** 设置指定 Canvas 课程的讲次分组列表 */
+  setCanvasLectures: (id: number, lectures: LectureGroup[]) => void
+  /** 更新指定 Canvas 课程的分类选择（课件/教师/PPT） */
+  setCanvasCourseCategorySelection: (id: number, sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean }>) => void
+  /** 批量更新多个 Canvas 课程的分类选择 */
+  setAllCanvasCourseCategorySelections: (ids: number[], sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean }>) => void
+  /** 清空所有 Canvas 课程扫描数据和选中态 */
+  resetCanvasScanResults: () => void
+  /** 删除单门课程的扫描数据，释放内存 */
+  deleteCanvasCourseData: (id: number) => void
+  // 共享 setters
+  /** 设置交大云盘 USER_TOKEN */
   setCloudUserToken: (token: string | null) => void
+  /** 更新云盘空间容量信息 */
   setCloudSpaceInfo: (info: CloudPanSpaceInfo | null) => void
+  // [2.14] Setters for shared cloud connection status
+  setCloudConnStatus: (status: 'idle' | 'connecting' | 'error', message?: string) => void
+  /** 切换下载模式（local/cloud/both） */
   setDownloadMode: (m: DownloadMode) => void
+  /** 设置同名文件冲突策略（skip/overwrite） */
+  setFileConflictStrategy: (s: FileConflictStrategy) => void
+  /** 设置本地下载目录路径 */
   setLocalDestRoot: (p: string) => void
-  setCloudLinkedIds: (m: Record<string, string>) => void
+  /** 更新 both 模式下 localTaskId → cloudTaskId 的映射 */
+  setCloudLinkedIds: (m: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void
+  /** 标记是否有任务正在下载中 */
   setDownloading: (b: boolean) => void
+  /** 清空所有下载进度记录 */
+  resetProgress: () => void
+  /** 合并单条下载进度到进度表 */
   applyProgress: (p: DownloadProgress) => void
+  /** 设置下载并发数（0 = 自动） */
   setConcurrency: (n: number) => void
+  /** 切换自动并发模式开关 */
+  setAutoConcurrency: (on: boolean) => void
 }
 
 const emptyScanResults = {
@@ -81,7 +175,11 @@ const clampConcurrency = (n: number): number =>
 export function useEffectiveProgress(taskId: string): DownloadProgress | undefined {
   const [local, cloud] = useAppStore(
     useShallow(s => {
-      const cloudId = s.cloudLinkedIds[taskId]
+      // [Bug Fix] 仅在 both 模式下才查云端镜像并合并。原先只要 cloudLinkedIds[taskId]
+      // 存在就合并，而 cloudLinkedIds 在 both 模式跑完后并不清空 → 用户切到 local/cloud
+      // 单模式后，进度条仍显示"本地完成 · 云端上传中"等陈旧合并态，直到下次下载开始。
+      // 加 downloadMode === 'both' 守卫，单模式下直接走本地进度分支。
+      const cloudId = s.downloadMode === 'both' ? s.cloudLinkedIds[taskId] : undefined
       return [s.progress[taskId], cloudId ? s.progress[cloudId] : undefined]
     })
   )
@@ -112,21 +210,87 @@ export function useEffectiveProgress(taskId: string): DownloadProgress | undefin
   return { taskId, state: mergedState, received: mergedReceived, total: mergedTotal, message: mergedMsg }
 }
 
+/** 顶层下载统计：对一组 taskIds 聚合 done/failed/active 计数，编码成单个数字返回。
+ *  只有当 done/failed/active 任一计数真正变化时才触发重渲染 ——
+ *  避免每条任务每 2s 的进度回调都让顶层 Browser/CanvasBrowser + ActionBar 重渲。
+ *  沿用 CourseSection 里 dlAndErr 的编码思路，提到顶层并支持 both 模式。
+ *
+ *  返回 { done, failed, active }；active = 尚未到达终态（含 pending/downloading/paused）的任务数。
+ *  allFinal ≡ active === 0（当 taskIds 非空时）。 */
+export function useDownloadStats(
+  taskIds: string[],
+  isBothMode: boolean
+): { done: number; failed: number; active: number } {
+  const encoded = useAppStore(s => {
+    let done = 0
+    let failed = 0
+    let active = 0
+    for (const id of taskIds) {
+      const st = s.progress[id]?.state
+      if (isBothMode) {
+        const cloudId = s.cloudLinkedIds[id]
+        const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
+        const localFinal = st === 'done' || st === 'skipped' || st === 'error' || st === 'cancelled'
+        const cloudFinal = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'error' || cloudSt === 'cancelled'
+        if (st === 'error' || cloudSt === 'error') failed++
+        const localDone = st === 'done' || st === 'skipped'
+        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped'
+        if (localDone && cloudDone) done++
+        if (!(localFinal && cloudFinal)) active++
+      } else {
+        if (st === 'done' || st === 'skipped') done++
+        else if (st === 'error') failed++
+        else if (st !== 'cancelled') active++
+      }
+    }
+    // [Bug Fix] 使用基数 10000 替代 1000，支持最多 9999 个任务不溢出
+    return done * 100_000_000 + failed * 10_000 + active
+  })
+  return {
+    done: Math.floor(encoded / 100_000_000),
+    failed: Math.floor(encoded / 10_000) % 10_000,
+    active: encoded % 10_000
+  }
+}
+
+// applyProgress 的批处理缓冲（模块级，便于 resetProgress 同步清零，见下）。
+let progressPending: Map<string, DownloadProgress> | null = null
+let progressScheduled = false
+
 export const useAppStore = create<AppState>()(
   persist(
     set => ({
       theme: 'dark',
       stage: 'welcome',
+      activeTab: 'audited' as ActiveTab,
       auth: { loggedIn: false },
       ...emptyScanResults,
+      // Canvas 状态
+      canvasCourses: [] as CanvasCourse[],
+      canvasScanState: 'idle' as ScanState,
+      canvasScanMessage: '',
+      canvasExpandedCourses: new Set<number>(),
+      canvasCourseData: {},
+      canvasVideoSessions: {},
+      canvasTeachers: {},
+      canvasSelectedTeachers: {},
+      canvasLtiTokens: {},
+      canvasLectures: {},
+      canvasCourseCategorySelections: {},
+      // 共享
       cloudUserToken: null,
       cloudSpaceInfo: null,
+      cloudConnStatus: 'idle' as 'idle' | 'connecting' | 'error',
+      cloudConnMessage: '',
       downloadMode: 'cloud',
+      fileConflictStrategy: 'skip' as FileConflictStrategy,
       localDestRoot: '',
       cloudLinkedIds: {},
       concurrency: 3,
+      autoConcurrency: false,
       setTheme: theme => set({ theme }),
       setStage: stage => set({ stage }),
+      setActiveTab: activeTab => set({ activeTab }),
       setAuth: auth => set({ auth }),
       setScan: (scanState, scanMessage = '') => set({ scanState, scanMessage }),
       setCourses: courses => set({ courses }),
@@ -157,15 +321,107 @@ export const useAppStore = create<AppState>()(
           else next.add(courseId)
           return { expandedCourses: next }
         }),
+      // ─── Canvas setters ───
+      setCanvasCourses: canvasCourses => set({ canvasCourses }),
+      setCanvasScanState: (canvasScanState, canvasScanMessage = '') => set({ canvasScanState, canvasScanMessage }),
+      toggleCanvasExpand: courseId =>
+        set(state => {
+          const next = new Set(state.canvasExpandedCourses)
+          if (next.has(courseId)) next.delete(courseId)
+          else next.add(courseId)
+          return { canvasExpandedCourses: next }
+        }),
+      setCanvasCourseData: (id, data) =>
+        set(state => ({ canvasCourseData: { ...state.canvasCourseData, [id]: data } })),
+      setCanvasVideoSessions: (id, sessions) =>
+        set(state => ({ canvasVideoSessions: { ...state.canvasVideoSessions, [id]: sessions } })),
+      setCanvasTeachers: (id, teachers) =>
+        set(state => ({ canvasTeachers: { ...state.canvasTeachers, [id]: teachers } })),
+      setCanvasSelectedTeachers: (id, teachers) =>
+        set(state => ({ canvasSelectedTeachers: { ...state.canvasSelectedTeachers, [id]: teachers } })),
+      setCanvasLtiToken: (id, data) =>
+        set(state => ({ canvasLtiTokens: { ...state.canvasLtiTokens, [id]: data } })),
+      setCanvasLectures: (id, lectures) =>
+        set(state => ({ canvasLectures: { ...state.canvasLectures, [id]: lectures } })),
+      setCanvasCourseCategorySelection: (id, sel) =>
+        set(state => ({
+          canvasCourseCategorySelections: {
+            ...state.canvasCourseCategorySelections,
+            [id]: { ...state.canvasCourseCategorySelections[id], ...sel }
+          }
+        })),
+      setAllCanvasCourseCategorySelections: (ids, sel) =>
+        set(state => {
+          const next = { ...state.canvasCourseCategorySelections }
+          for (const id of ids) next[id] = { ...next[id], ...sel }
+          return { canvasCourseCategorySelections: next }
+        }),
+      resetCanvasScanResults: () => set({
+        canvasCourses: [],
+        canvasScanState: 'idle',
+        canvasScanMessage: '',
+        canvasExpandedCourses: new Set(),
+        canvasCourseData: {},
+        canvasVideoSessions: {},
+        canvasTeachers: {},
+        canvasSelectedTeachers: {},
+        canvasLtiTokens: {},
+        canvasLectures: {},
+        canvasCourseCategorySelections: {},
+      }),
+      deleteCanvasCourseData: id =>
+        set(state => {
+          const { [id]: _1, ...restCourseData } = state.canvasCourseData
+          const { [id]: _2, ...restLectures } = state.canvasLectures
+          const { [id]: _3, ...restLti } = state.canvasLtiTokens
+          return { canvasCourseData: restCourseData, canvasLectures: restLectures, canvasLtiTokens: restLti }
+        }),
+      // ─── 共享 setters ───
       setCloudUserToken: cloudUserToken => set({ cloudUserToken }),
       setCloudSpaceInfo: cloudSpaceInfo => set({ cloudSpaceInfo }),
+      setCloudConnStatus: (cloudConnStatus, cloudConnMessage = '') => set({ cloudConnStatus, cloudConnMessage }),
       setDownloadMode: downloadMode => set({ downloadMode }),
+      setFileConflictStrategy: fileConflictStrategy => set({ fileConflictStrategy }),
       setLocalDestRoot: localDestRoot => set({ localDestRoot }),
-      setCloudLinkedIds: cloudLinkedIds => set({ cloudLinkedIds }),
+      setCloudLinkedIds: (m: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) =>
+        set(state => ({ cloudLinkedIds: typeof m === 'function' ? m(state.cloudLinkedIds) : m })),
       setDownloading: downloading => set({ downloading }),
-      applyProgress: p =>
-        set(state => ({ progress: { ...state.progress, [p.taskId]: p } })),
-      setConcurrency: n => set({ concurrency: clampConcurrency(n) })
+      resetProgress: () => {
+        // [Bug Fix] 同步丢弃尚未 flush 的批处理。原实现只 set({progress:{}})，但
+        // applyProgress 的微任务 pending map 不清：若重置与一个在途进度事件同 tick，
+        // resetProgress 先执行，随后微任务把 pending 里的旧条目 flush 回新 store，
+        // 导致刚清空的进度表里又冒出陈旧终态条目。这里把 pending/scheduled 一并清零，
+        // 让随后的 flush 无条目可写。
+        progressPending = null
+        progressScheduled = false
+        set({ progress: {} })
+      },
+      // PERF: batch rapid progress updates into a single microtask.
+      // Multiple applyProgress calls within the same event loop tick (e.g. 2+ tasks
+      // completing simultaneously, or scan + download progress arriving together)
+      // are merged into one store.set(), reducing React re-render count.
+      // Each call accumulates into a Map; a queueMicrotask fires once to flush.
+      // pending/scheduled 提升到模块级，让 resetProgress 能同步清零（见上）。
+      applyProgress: (p: DownloadProgress) => {
+        if (!progressPending) progressPending = new Map()
+        progressPending.set(p.taskId, p)
+        if (!progressScheduled) {
+          progressScheduled = true
+          queueMicrotask(() => {
+            const batch = progressPending
+            progressPending = null
+            progressScheduled = false
+            if (!batch || batch.size === 0) return
+            set(state => {
+              const next = { ...state.progress }
+              for (const [tid, prog] of batch) next[tid] = prog
+              return { progress: next }
+            })
+          })
+        }
+      },
+      setConcurrency: n => set({ concurrency: n === 0 ? 0 : clampConcurrency(n) }),
+      setAutoConcurrency: on => set({ autoConcurrency: on })
     }),
     {
       name: 'sjtu-audited-downloader',
@@ -173,9 +429,12 @@ export const useAppStore = create<AppState>()(
       // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据
       partialize: state => ({
         theme: state.theme,
+        activeTab: state.activeTab,
         cloudUserToken: state.cloudUserToken,
         concurrency: state.concurrency,
+        autoConcurrency: state.autoConcurrency,
         downloadMode: state.downloadMode,
+        fileConflictStrategy: state.fileConflictStrategy,
         localDestRoot: state.localDestRoot
       })
     }
