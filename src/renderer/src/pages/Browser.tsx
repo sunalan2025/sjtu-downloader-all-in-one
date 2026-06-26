@@ -1098,7 +1098,7 @@ function buildTasksForCourse(course: Course, detail: AuditCourseDetail): VideoTa
         sort: lectureNo,
         sortTime: e.sortTime,
         fileName: buildFileName(lectureLabel, viewLabel),
-        courseName: [course.name, course.teacher || '未署名', course.term || ''].filter(Boolean).join('-'),
+        courseName: [course.name, course.teacher || '未署名'].filter(Boolean).join('-'),
         teacher: course.teacher || '',
         term: course.term || ''
       })

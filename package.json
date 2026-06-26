@@ -1,6 +1,6 @@
 {
   "name": "sjtu-audited-downloader",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "批量下载 v.sjtu.edu.cn 旁听课程视频的桌面工具（需连接 SJTU 校园网或交大 VPN）",
   "main": "out/main/index.js",
   "author": "SJTU Audited Downloader Contributors",
@@ -17,7 +17,10 @@
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
-    "@electron-toolkit/utils": "^4.0.0"
+    "@electron-toolkit/utils": "^4.0.0",
+    "cheerio": "^1.2.0",
+    "ffmpeg-static": "^5.3.0",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
@@ -50,11 +53,16 @@
       "out/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "**/node_modules/ffmpeg-static/**"
+    ],
     "extraResources": [
       {
         "from": "build/icons",
         "to": "icons",
-        "filter": ["*.png"]
+        "filter": [
+          "*.png"
+        ]
       }
     ],
     "win": {

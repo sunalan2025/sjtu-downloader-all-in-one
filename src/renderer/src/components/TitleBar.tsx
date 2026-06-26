@@ -4,6 +4,7 @@ import { Segmented, type SegmentedOption } from './Segmented'
 import { formatBytes } from './DownloadUI'
 import { handleWindowAction } from './WindowConfirmModal'
 
+/** 应用主题：直接设置 data-theme，瞬时切换（无过渡动画）。 */
 function applyTheme(theme: Theme): void {
   const resolved = theme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
@@ -107,9 +108,6 @@ export function TitleBar({ onLogout }: { onLogout?: () => void }) {
       {/* Mac 交通灯窗口按钮（左侧）— macOS 用原生，Win/Linux 自绘 */}
       {!isMac && <CaptionButtons />}
       <div className="flex shrink-0 items-center gap-2.5">
-        <span className="relative inline-block h-2.5 w-2.5 rounded-full bg-accent">
-          <span className="absolute inset-0 animate-breathe rounded-full bg-accent opacity-50 blur-sm" />
-        </span>
         <span className="font-semibold tracking-wide text-text-1">SJTU 课程下载器</span>
       </div>
       <div className="flex-1" />
@@ -119,11 +117,11 @@ export function TitleBar({ onLogout }: { onLogout?: () => void }) {
           {onLogout && (
             <>
               <span
-                className="inline-flex max-w-[160px] items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-xs font-medium text-success ring-1 ring-success-ring"
-                title={auth.accountName ? `账号：${auth.accountName}` : '已登录'}
+                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-xs font-medium text-success ring-1 ring-success-ring"
+                title={auth.accountName ? `账号：${auth.accountName}${auth.studentId ? ` (${auth.studentId})` : ''}` : '已登录'}
               >
                 <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success shadow-[0_0_8px_var(--success-ring)]" />
-                <span className="truncate">{auth.accountName ?? '已登录'}</span>
+                <span className="truncate">{auth.accountName ? `${auth.accountName}${auth.studentId ? ` (${auth.studentId})` : ''}` : '已登录'}</span>
               </span>
               <button
                 type="button"

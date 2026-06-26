@@ -18,7 +18,7 @@
 ├─────────────────────────── contextBridge ────────────────────────────┤
 │  预加载脚本                                                          │
 │  src/preload/index.ts                                               │
-│    window.api = { auth, vsjtu, download, cloudpan, canvas }         │
+│    window.api = { auth, vsjtu, download, cloudpan, canvas, ppt }    │
 │    contextIsolation: true, nodeIntegration: false                    │
 ├─────────────────────────── IPC invoke/on ────────────────────────────┤
 │  主进程 (Node.js)                                                   │
@@ -27,7 +27,8 @@
 │  src/main/canvas/api.ts     ← Canvas REST API                       │
 │  src/main/canvas/orchestrator.ts ← Canvas IPC handler + 编排        │
 │  src/main/canvas/video-tokens.ts ← LTI token + vod API + 缓存      │
-│  src/main/canvas/hls-download.ts ← HLS 下载 + ffmpeg remux          │
+│  src/main/canvas/hls-download.ts ← HLS 下载 + ffmpeg remux（内置 ffmpeg-static 二进制）│
+│  src/main/canvas/ppt-download.ts ← PPT 课件图片下载 + PDF 合并      │
 ├─────────────────────────── 共享类型 ─────────────────────────────────┤
 │  src/shared/types.ts                                                │
 └─────────────────────────────────────────────────────────────────────┘
@@ -89,9 +90,10 @@
 | 文件 | 职责 |
 |------|------|
 | `api.ts` | REST API 封装：`listCourses()`、`fetchFolderMap()`、`fetchCourseFiles()`、`fetchCourseModules()`、`fetchSyllabusBody()`、`fetchPageBody()`、`fetchFileMeta()` 等。支持自动翻页、并发模块页面批量获取（concurrency limit）。429 限流退避重试（读 `Retry-After`，缺省指数退避，最多 4 次）。 |
-| `orchestrator.ts` | IPC handler 注册和流程编排：课程扫描、文件下载 spec 构建、课堂视频扫描（LTI token + vod API）、模块视频扫描、讲次下载。事件驱动并发槽位等待（`waitForConcurrencySlot` + `notifyConcurrencySlotAvailable`）。视频 spec 生成接收 `conflictStrategy`（overwrite 不预跳过同名文件）。 |
+| `orchestrator.ts` | IPC handler 注册和流程编排：课程扫描、文件下载 spec 构建、课堂视频扫描（LTI token + vod API）、单元视频扫描（浏览器「单元」tab 三类来源）、讲次下载。事件驱动并发槽位等待（`waitForConcurrencySlot` + `notifyConcurrencySlotAvailable`）。视频 spec 生成接收 `conflictStrategy`（overwrite 不预跳过同名文件）和 `term`（学期名，作为上级文件夹层）。 |
 | `video-tokens.ts` | LTI token 提取（`extractLtiToken`）、vod 视频列表获取（`fetchVodVideoList`）、视频通道缓存（TTL 5 分钟 + 上界 500 条目淘汰）。 |
-| `hls-download.ts` | m3u8 捕获（`webRequest.onCompleted` 监听 `.m3u8` 请求）、HLS segment 下载（HTTPS keep-alive）、ffmpeg remux 为 MP4。 |
+| `hls-download.ts` | m3u8 捕获（`webRequest.onCompleted` 监听 `.m3u8` 请求）、HLS segment 下载（HTTPS keep-alive）、ffmpeg remux 为 MP4。ffmpeg 二进制由 [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) 提供，作为生产依赖打包进 `app.asar/node_modules` 并经 `build.asarUnpack` 解包到 `app.asar.unpacked/` 使其可执行（asar 内无法 exec native 二进制）；运行时 `require('ffmpeg-static')` 解析路径，缺失时回退系统 PATH 的 `ffmpeg`。 |
+| `ppt-download.ts` | PPT 课件图片下载 + PDF 合并：调 `query-ppt-slice-es` API 获取幻灯片图片列表、`ses.fetch` 下载 S3 预签名图片、`pdf-lib` 合并为 16:9 PDF。落盘路径与课堂视频同目录（`videos/课堂视频/`）。 |
 
 **事件驱动并发槽位等待：**
 
@@ -125,6 +127,7 @@ async function waitForConcurrencySlot(): Promise<void> {
 | `api.download` | `start(destRoot, specs, {mode, conflictStrategy, localDestRoot})`, `pause()`, `cancel()`, `resume()`, `pauseAll()`, `cancelAll()`, `resumeAll()`, `setConcurrency()`, `onProgress()`, `onConcurrencyChanged()` |
 | `api.cloudpan` | `getCachedToken()`, `validateToken()`, `spaceInfo()`, `directLogin()`, `logout()` |
 | `api.canvas` | `listCourses()`, `scanCourse()`, `buildDownloadSpecs()`, `classVideoScan()`, `classVideoDownload(...,conflictStrategy?)`, `moduleVideoScan()`, `moduleVideoDownload(...,conflictStrategy?)`, `downloadModuleVideoNow()`, `downloadLectures(...,conflictStrategy?)`, `onScanProgress()`, `onHlsProgress()` |
+| `api.ppt` | `download({ivsVideoId, courseName, lectureName, destRoot, term?, videoSession?})`, `downloadBatch({lectures, courseName, destRoot, term?})`, `onProgress()` |
 | `api` | `setTheme()`, `selectFolder()`, `notify(title, body)` |
 
 **安全设计：** `validateToken()` 和 `spaceInfo()` 不接收 token 参数，main 进程使用内部缓存的 USER_TOKEN。
@@ -138,6 +141,7 @@ async function waitForConcurrencySlot(): Promise<void> {
 - **下载** — `DownloadMode`、`FileConflictStrategy`（skip/overwrite）、`DownloadTaskSpec`、`DownloadState`、`DownloadProgress`
 - **云盘** — `CloudPanSpaceCred`、`CloudPanUploadPart`、`CloudPanStartUploadResult`、`CloudPanConfirmResult`、`CloudPanSpaceInfo`
 - **Canvas** — `CanvasCourse`、`CanvasFileItem`、`CanvasModule`、`CanvasVideoSession`、`CanvasClassVideoInfo`、`CanvasDownloadTaskSpec`、`CanvasTaskSource`、`CanvasTeacherSelection`、`CanvasLectureGroup`
+- **PPT** — `PptSlice`（API 响应）、`PptDownloadOpts`（下载请求参数，含 `videoSession` 用于构建与视频一致的文件名）
 - **常量** — `SJTU_PARTITION`、`V_SJTU_ORIGIN`、`V_SJTU_API_BASE`、`CANVAS_BASE_URL`、`CANVAS_API_BASE`
 
 ### 2.6 渲染端
@@ -170,7 +174,7 @@ Browser 与 CanvasBrowser 共享的 hooks：
 | `Welcome.tsx` | 欢迎页：功能介绍 + 登录入口 |
 | `Login.tsx` | 登录页：内嵌 jAccount 扫码 webview，域名白名单导航限制，JWT token 轮询提取 |
 | `Browser.tsx` | v.sjtu 旁听课程页：自动扫描、双视角卡片、全选/单选、下载控制、实时进度。使用 `memo` + `useShallow` + `tasksKey` 稳定化优化 |
-| `CanvasBrowser.tsx` | Canvas 课程页：学期筛选、分类选择（课件/教师/PPT）、串行课程处理（扫描→下载→等待→清理→下一门） |
+| `CanvasBrowser.tsx` | Canvas 课程页：学期筛选、分类选择（课件/视频-教师/视频-PPT/单元视频）、串行课程处理（扫描→下载→等待→清理→下一门）。课堂视频每讲含「📄PPT」下载按钮 + 「下载全部PPT」批量按钮，PPT PDF 与视频同目录 |
 
 #### 共享组件
 

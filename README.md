@@ -30,7 +30,8 @@
 - **学期筛选** — 按学期快速筛选课程
 - **课件文件下载** — 支持下载课程文件、模块补漏文件、大纲嵌入文件，保留 Canvas 文件夹层级
 - **课堂视频下载** — 扫描课堂视频后按讲次展示，每讲含教师 + PPT 两路流
-- **模块嵌入视频** — 支持下载 Canvas 模块页面中嵌入的 HLS 视频
+- **PPT 课件下载** — 将课堂视频中的 PPT 幻灯片截图下载并合并为单个 PDF 文件，与视频保存在同一目录
+- **单元视频下载** — 下载 Canvas「单元」tab 里嵌入的视频（HLS 网页嵌入 / v.sjtu / vshare 三类来源）
 - **教师筛选** — 多教师课程可按教师筛选
 
 ### 下载模式
@@ -77,32 +78,35 @@
 ```
 D:\Downloads/
 ├── SJTU旁听课程/                          ← v.sjtu 旁听课程
-│   ├── 线性代数-张老师-2024-2025-1/
-│   │   ├── 第1讲-教师.mp4
-│   │   ├── 第1讲-PPT.mp4
-│   │   ├── 第2讲-教师.mp4
-│   │   └── ...
-│   └── 大学英语-李老师-2024-2025-1/
-│       └── ...
+│   └── 2024-2025-1/                       ← 学期文件夹
+│       ├── 课程A-张老师/
+│       │   ├── 第1讲-教师.mp4
+│       │   ├── 第1讲-PPT.mp4
+│       │   ├── 第2讲-教师.mp4
+│       │   └── ...
+│       └── 课程B-李老师/
+│           └── ...
 │
 └── Canvas课程/                             ← Canvas 课程
-    ├── 高等数学-王老师-2024-2025-2/
-    │   ├── files/                          ← 课件文件
-    │   │   ├── 第1章/
-    │   │   │   ├── 讲义.pdf
-    │   │   │   └── 习题.pdf
-    │   │   ├── 第2章/
-    │   │   │   └── ...
-    │   │   ├── _from_modules/              ← 模块补漏文件
-    │   │   │   └── 补充材料.pdf
-    │   │   └── _from_syllabus/             ← 大纲嵌入文件
-    │   │       └── 课程大纲.pdf
-    │   └── videos/                         ← 课堂视频
-    │       ├── 2025-09-16_08-00-王老师-东上院301-教师.mp4
-    │       ├── 2025-09-16_08-00-王老师-东上院301-PPT.mp4
-    │       └── ...
-    └── 线性代数-赵老师-2024-2025-2/
-        └── ...
+    └── 2024-2025-2/                       ← 学期文件夹
+        ├── 课程C-王老师/
+        │   ├── files/                      ← 课件文件（按 Canvas 真实文件夹层级）
+        │   │   ├── 第1章/
+        │   │   │   ├── 讲义.pdf
+        │   │   │   └── 习题.pdf
+        │   │   ├── 第2章/
+        │   │   │   └── ...
+        │   │   └── 大纲/                    ← 大纲正文引用的文件（对应「大纲」tab）
+        │   │       └── 课程大纲.pdf
+        │   └── videos/                     ← 视频文件
+        │       ├── 课堂视频/                ← 来自「课堂视频new」tab
+        │       │   ├── 2025-09-16_08-00-王老师-教学楼101-教师.mp4
+        │       │   ├── 2025-09-16_08-00-王老师-教学楼101-PPT.mp4
+        │       │   └── 2025-09-16_08-00-王老师-教学楼101-PPT课件.pdf  ← PPT 课件 PDF
+        │       └── 单元视频/                ← 来自「单元」tab
+        │           └── 课程C-第3讲录播.mp4
+        └── 课程D-赵老师/
+            └── ...
 ```
 
 ### 云端保存路径（交大云盘）
@@ -110,30 +114,35 @@ D:\Downloads/
 ```
 交大云盘/
 ├── SJTU旁听课程/                           ← v.sjtu 旁听课程
-│   ├── 线性代数-张老师-2024-2025-1/
-│   │   ├── 第1讲-教师.mp4
-│   │   └── ...
-│   └── ...
+│   └── 2024-2025-1/                       ← 学期文件夹
+│       ├── 课程A-张老师/
+│       │   ├── 第1讲-教师.mp4
+│       │   └── ...
+│       └── ...
 │
 └── SJTU Canvas课程/                        ← Canvas 课程（独立根目录）
-    ├── 高等数学-王老师-2024-2025-2/
-    │   ├── files/
-    │   │   └── ...
-    │   └── videos/
-    │       └── ...
-    └── ...
+    └── 2024-2025-2/                       ← 学期文件夹
+        ├── 课程C-王老师/
+        │   ├── files/
+        │   │   └── ...
+        │   └── videos/
+        │       ├── 课堂视频/
+        │       │   └── ...
+        │       └── 单元视频/
+        │           └── ...
+        └── ...
 ```
 
 ### 各类型文件命名详情
 
-#### 文件夹名（课程名）
+#### 文件夹名（学期 + 课程名）
 
-| 来源 | 格式 | 示例 |
+| 层级 | 格式 | 示例 |
 |------|------|------|
-| v.sjtu 旁听 | `{课程名}-{教师}-{学期}` | `线性代数-张老师-2024-2025-1` |
-| Canvas | `{课程名}-{教师}-{学期}` | `高等数学-王老师/赵老师-2024-2025-2` |
+| 学期文件夹 | `{学期}` | `2024-2025-1`、`2024-2025学年第2学期` |
+| 课程文件夹 | `{课程名}-{教师}` | `课程A-张老师`、`课程C-王老师/赵老师` |
 
-- v.sjtu 教师名取自课程 API 的 `teacName` 字段
+- 学期取自课程 API 的 `term` / `acteTerm` 字段，无学期信息时不创建学期文件夹
 - Canvas 教师名优先取课堂视频扫描结果，未扫描时回退到课程 API 的注册教师
 - 多教师用 `/` 连接（如 `王老师/赵老师`）
 
@@ -143,8 +152,9 @@ D:\Downloads/
 |------|------|------|
 | v.sjtu 视频 | `第{N}讲-{视角}.mp4` | `第1讲-教师.mp4`、`第3讲-PPT.mp4` |
 | Canvas 课件 | `{原始文件名}` | `lecture_notes_week1.pdf`、`homework3.docx` |
-| Canvas 课堂视频 | `{日期}_{时间}-{教师}-{教室}-{视角}.mp4` | `2025-09-16_08-00-王老师-东上院301-教师.mp4` |
-| Canvas 模块视频 | `{课程名}-{页面标题}.mp4` | `高等数学-第3讲录播.mp4` |
+| Canvas 课堂视频 | `{日期}_{时间}-{教师}-{教室}-{视角}.mp4` | `2025-09-16_08-00-王老师-教学楼101-教师.mp4` |
+| Canvas PPT 课件 | `{日期}_{时间}-{教师}-{教室}-PPT课件.pdf` | `2025-09-16_08-00-王老师-教学楼101-PPT课件.pdf` |
+| Canvas 单元视频 | `{课程名}-{条目标题}.mp4` | `课程C-第3讲录播.mp4` |
 
 - v.sjtu 的 `N` 是按上课时间排序后的稳定序号（非原始课次编号）
 - Canvas 课堂视频的日期时间格式：原始 `2025-09-16 08:00:00` → `2025-09-16_08-00`（冒号替换为 `-`，空格替换为 `_`，秒数去掉）
@@ -155,7 +165,7 @@ D:\Downloads/
 | 文件 | 说明 |
 |------|------|
 | `{文件名}.part` | 下载过程中的临时文件，用于断点续传，完成后自动删除 |
-| `{文件名}.ts` | HLS 模块视频下载时的临时 TS 文件，合并为 MP4 后自动删除 |
+| `{文件名}.ts` | HLS 单元视频下载时的临时 TS 文件，合并为 MP4 后自动删除 |
 
 #### Canvas 文件夹层级
 
@@ -163,10 +173,11 @@ Canvas 课程文件保留 Canvas 上的文件夹结构：
 
 | 类型 | 路径前缀 | 说明 |
 |------|---------|------|
-| 课程文件 | `files/` | 按 Canvas 文件夹层级组织 |
-| 模块补漏 | `files/_from_modules/` | 出现在模块中但不在文件列表中的文件 |
-| 大纲补漏 | `files/_from_syllabus/` | 出现在课程大纲中但不在文件列表中的文件 |
-| 课堂视频 | `videos/` | 按讲次平铺 |
+| 课程文件 | `files/` 或真实子目录 | 按 Canvas 文件夹层级组织；模块里引用的文件若不在文件列表则按其真实 Canvas 文件夹落盘 |
+| 大纲补漏 | `files/大纲/` | 大纲正文引用、但「文件」tab 看不到的文件，对应浏览器「大纲」tab |
+| 课堂视频 | `videos/课堂视频/` | 来自「课堂视频new」tab，按讲次平铺 |
+| PPT 课件 | `videos/课堂视频/` | 来自「课堂视频new」tab 的 PPT 截图，与视频同目录 |
+| 单元视频 | `videos/单元视频/` | 来自「单元」tab（HLS 网页嵌入 / v.sjtu / vshare 三类来源） |
 
 ---
 
@@ -181,6 +192,8 @@ Canvas 课程文件保留 Canvas 上的文件夹结构：
 | Windows | `.exe` | NSIS 安装程序，支持自定义安装路径 |
 | macOS | `.dmg` / `.zip` | DMG 拖拽安装，或 ZIP 解压即用 |
 | Linux | `.AppImage` | 无需安装，添加执行权限后直接运行 |
+
+> 💡 安装包已内置 ffmpeg（各平台对应二进制），Canvas「单元视频」中的网页嵌入视频（HLS）会自动无损转封装为 MP4，可选重编码修复花屏，**无需用户另装 ffmpeg**。如需改用系统 PATH 中的 ffmpeg，可设置环境变量 `FFMPEG_BIN` 指向其路径。
 
 ### 方式二：从源码构建
 
@@ -229,9 +242,11 @@ npm run build:linux   # Linux
 #### Canvas 课程
 
 - 点击课程名旁的复选框，全选 / 取消该课程所有内容
-- 顶部三个分类按钮可按类型批量选择：**课件**、**视频-教师**、**视频-PPT**
-- 展开课程卡片可查看课件文件列表和课堂视频列表
-- 课件文件默认已扫描；课堂视频需点击「扫描课堂视频」触发
+- 顶部四个分类按钮可按类型批量选择：**课件**、**视频-教师**、**视频-PPT**、**单元视频**
+- 展开课程卡片可查看课件文件列表、课堂视频列表和单元视频列表
+- 课件文件默认已扫描；课堂视频需点击「扫描课堂视频」触发，单元视频需点击「扫描单元视频」触发
+- 课堂视频每讲右侧有「📄PPT」按钮，可将该讲的 PPT 幻灯片截图下载为 PDF；也可点击「下载全部PPT」批量下载所有讲次
+- PPT PDF 与课堂视频保存在同一目录下（`videos/课堂视频/`）
 - 支持按学期筛选课程
 
 ### 第四步：选择下载模式
@@ -359,7 +374,8 @@ npm run build:linux   # Linux
 | [Tailwind CSS](https://tailwindcss.com/) | 原子化 CSS 框架 |
 | [Zustand](https://zustand-demo.pmnd.rs/) | 轻量级状态管理（含 persist 中间件） |
 | [Node.js https](https://nodejs.org/api/https.html) | 原生 HTTP 流式下载（绕过 Chromium CORS） |
-| [ffmpeg](https://ffmpeg.org/) | HLS TS → MP4 无损 remux（Canvas 模块视频） |
+| [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) | 内置 ffmpeg 静态二进制（各平台安装包自带，无需用户另装）：HLS TS → MP4 无损 remux + 可选重编码（Canvas 单元视频） |
+| [pdf-lib](https://pdf-lib.js.org/) | PPT 截图合并为 PDF（Canvas 课堂视频配套） |
 
 ---
 
@@ -372,9 +388,10 @@ src/
 │   ├── cloudpan.ts               # 交大云盘 API：认证、文件夹创建与缓存、分片上传（含断点续传、凭证 renew 重试）、文件删除（移入回收站）
 │   └── canvas/
 │       ├── api.ts                # Canvas REST API 封装（自动翻页、文件夹树、模块/大纲解析、文件元数据查询）
-│       ├── orchestrator.ts       # Canvas IPC handler 注册（课程扫描、文件下载、视频下载、OIDC SSO、事件驱动并发槽位等待）
+│       ├── orchestrator.ts       # Canvas IPC handler 注册（课程扫描、文件下载、视频下载、OIDC SSO、事件驱动并发槽位等待、PPT 下载）
 │       ├── video-tokens.ts       # Canvas 课堂视频 LTI token 获取、vod API 调用、视频通道缓存（TTL + 上界 500）
-│       └── hls-download.ts       # Canvas 模块嵌入视频的 m3u8 捕获、HLS 下载、ffmpeg remux
+│       ├── hls-download.ts       # Canvas 单元视频的 m3u8 捕获、HLS 下载、ffmpeg remux
+│       └── ppt-download.ts       # Canvas PPT 课件图片下载 + pdf-lib PDF 合并（与课堂视频同目录）
 ├── preload/
 │   └── index.ts                  # IPC 桥接：通过 contextBridge 安全暴露主进程 API 给渲染端
 ├── shared/
@@ -398,7 +415,7 @@ src/
             ├── Welcome.tsx       # 欢迎页：功能介绍 + 登录入口
             ├── Login.tsx         # 登录页：内嵌 jAccount 扫码 webview（含域名白名单导航限制）
             ├── Browser.tsx       # v.sjtu 旁听课程页：课程列表、双视角卡片、选择、下载、实时进度
-            └── CanvasBrowser.tsx # Canvas 课程页：学期筛选、分类选择、课件/视频下载、串行课程处理
+            └── CanvasBrowser.tsx # Canvas 课程页：学期筛选、分类选择、课件/视频下载、串行课程处理、PPT 课件 PDF 下载
 ```
 
 ### 数据流
@@ -421,7 +438,7 @@ Browser.tsx / CanvasBrowser.tsx ← applyProgress ← ipcRenderer.on ← emitPro
 |----|---------|------|
 | 主进程 | `main/index.ts` | 窗口管理、jAccount 登录验证（含 5 分钟结果缓存）、v.sjtu API 调用、本地下载引擎（惰性任务物化、任务队列、并发调度、HTTP 流式下载、断点续传、自动重试、HTTPS keep-alive、Canvas Cookie 注入直链解析、Canvas 429/403 限流退避重试）、云盘上传引擎（CDN→COS 边下载边分片上传、凭证 renew 重试、COS PUT 中止、覆盖模式远端删除）、自动并发控制（AIMD + 吞吐增益反馈 + 自适应周期 + 瓶颈冷却）、网络健康监测、IPC 进度批处理（setImmediate 合并）、系统通知（下载完成弹窗）、uncaughtException 安全退出 |
 | 主进程 | `main/cloudpan.ts` | 交大云盘 API 封装：UserToken 验证、空间凭证获取与缓存、文件夹逐级创建（路径缓存避免重复 PUT）、COS 分片上传（含 renew 凭证、单次重试、断点续传会话状态）、文件存在性检查、文件删除（移入回收站，供替换策略使用）、`ChunkedUploader.abort()` 中止在途 PUT |
-| 主进程 | `main/canvas/` | Canvas 课程相关：REST API 封装（自动翻页、并发模块页面批量获取）、OIDC SSO 登录、文件/视频扫描、LTI token 提取、vod 视频通道缓存（TTL 5 分钟 + 上界 500 条目淘汰）、HLS m3u8 捕获与 ffmpeg remux、事件驱动并发槽位等待 |
+| 主进程 | `main/canvas/` | Canvas 课程相关：REST API 封装（自动翻页、并发模块页面批量获取）、OIDC SSO 登录、文件/视频扫描、LTI token 提取、vod 视频通道缓存（TTL 5 分钟 + 上界 500 条目淘汰）、HLS m3u8 捕获与 ffmpeg remux、事件驱动并发槽位等待、PPT 课件图片下载与 PDF 合成（pdf-lib） |
 | 预加载 | `preload/index.ts` | IPC 通信桥（contextBridge.exposeInMainWorld），让渲染端通过 `window.api.xxx` 安全调用主进程功能。云盘 token 验证/空间查询不再接收 renderer 参数，由 main 进程使用内部缓存 |
 | 共享层 | `shared/types.ts` | 跨层共享 TypeScript 类型：API 响应结构、课程/视频模型、下载任务规格、进度状态、云盘类型、Canvas 类型、vod API 结构 |
 | 渲染端 | `store/app.ts` | Zustand 全局状态：登录态、课程列表、选中态、下载进度（queueMicrotask 微任务批处理）、云盘信息、并发数、云盘连接状态。`persist` 中间件持久化用户偏好（主题、下载目录）。`useEffectiveProgress` 聚合 both 模式本地+云端进度；`useDownloadStats` 编码统计为单个数字避免级联重渲染 |
@@ -440,6 +457,8 @@ Browser.tsx / CanvasBrowser.tsx ← applyProgress ← ipcRenderer.on ← emitPro
 
 - [Node.js](https://nodejs.org/) >= 18
 - npm
+
+> `npm install` 会通过 [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) 的安装脚本从 GitHub Releases 下载对应平台的 ffmpeg 二进制（约 80MB，仅下载到 `node_modules`）。国内若 GitHub 访问慢，可设环境变量 `FFMPEG_BINARIES_URL` 指向镜像，或设 `FFMPEG_BIN` 直接指向本地已有 ffmpeg 跳过下载。
 
 ### 常用命令
 
@@ -500,7 +519,7 @@ npm run build:unpack   # 仅构建不打包（输出目录）
 - **跳过 / 替换** — 新增同名文件冲突策略选项，与本地/云盘/两者三种保存模式正交
   - **跳过**（默认）：目标文件已存在则跳过，保留旧文件
   - **替换**：本地下载先删除旧文件再重新下载；云盘上传先将远端同名文件移入回收站再上传
-- **Canvas 视频覆盖** — 课堂视频、模块视频、讲次下载均支持冲突策略，替换模式不再预先跳过同名文件
+- **Canvas 视频覆盖** — 课堂视频、单元视频、讲次下载均支持冲突策略，替换模式不再预先跳过同名文件
 
 #### 暂停/取消响应性
 

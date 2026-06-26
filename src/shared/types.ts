@@ -137,8 +137,10 @@ export interface AuditCourseVideo {
 
 export interface AuthStatus {
   loggedIn: boolean
-  /** 当前已登录 jAccount 账号名（显示用，托盘/标题栏）；登录但解析失败时为 undefined */
+  /** 当前已登录用户的显示名（真实姓名）；登录但解析失败时为 undefined */
   accountName?: string
+  /** 学号 / jAccount 登录名 */
+  studentId?: string
   /** 登录检测的最后一次时间，ISO 字符串 */
   checkedAt?: string
 }
@@ -204,6 +206,8 @@ export interface DownloadTaskSpec {
   url: string
   /** 课程名（main 会做 sanitize 并拼到 destRoot 之下） */
   courseName: string
+  /** 学期名（如"2024-2025学年第1学期"），主进程用作上级文件夹 */
+  term?: string
   fileName: string
   /** 交大云盘 UserToken；存在时走云盘上传而非本地下载 */
   cloudUserToken?: string
@@ -305,6 +309,13 @@ export const CANVAS_BASE_URL = 'https://oc.sjtu.edu.cn'
 export const CANVAS_API_BASE = 'https://oc.sjtu.edu.cn/api/v1'
 export const VSJTU_CANVAS_BASE = 'https://v.sjtu.edu.cn/jy-application-canvas-sjtu'
 
+/** 好大学在线 (CNMOOC) 站点 origin */
+export const CNMOOC_BASE_URL = 'https://cnmooc.sjtu.cn'
+/** cnmooc 我的课程页（兼作登录态探测端点） */
+export const CNMOOC_MY_COURSES_URL = 'https://cnmooc.sjtu.cn/portal/myCourseIndex/1.mooc'
+/** cnmooc 静态资源域（课件 rsUrl 拼接前缀） */
+export const CNMOOC_STATIC_BASE = 'https://static.cnmooc.sjtu.cn'
+
 /** Canvas 课程 */
 export interface CanvasCourse {
   courseId: number
@@ -339,6 +350,10 @@ export interface CanvasModuleItem {
   contentId: number | null
   title: string
   pageUrl: string | null
+  /** 模块项 id（ExternalTool LTI 跳转用：/courses/{cid}/modules/items/{id}） */
+  id: number | null
+  /** ExternalTool/ExternalUrl 的 external_url（v.sjtu playerPage 或 vshare play 页） */
+  externalUrl: string | null
 }
 
 /** "课堂视频new" 一次录课会话 */
@@ -364,7 +379,10 @@ export type CanvasTaskSource =
   | 'canvas-modules'
   | 'canvas-syllabus'
   | 'canvas-class-video'
-  | 'canvas-module-video'
+  | 'canvas-module-video'      // Page iframe 嵌入的 v.sjtu 公开课分享页（HLS，走 downloadModuleVideoNow）
+  | 'canvas-exttool-video'    // ExternalTool 模块项 → v.sjtu LTI → /file/{id} → S3 直链 MP4
+  | 'canvas-exturl-video'     // ExternalUrl 模块项 → vshare /api/video/play/{uuid} → S3 直链 MP4
+  | 'cnmooc'                  // 好大学在线 (cnmooc.sjtu.cn)：下载时懒解析 play.mooc+detail.mooc 取直链
 
 /** 扩展 DownloadTaskSpec，增加 Canvas 来源标记和路径信息 */
 export interface CanvasDownloadTaskSpec extends DownloadTaskSpec {
@@ -382,6 +400,27 @@ export interface CanvasDownloadTaskSpec extends DownloadTaskSpec {
   canvasVideoToken?: string
   /** 流序号：0=教师, 1=PPT（决定取 channels 的哪一路） */
   canvasStreamIdx?: number
+  /** ExternalTool 模块项 ID（source='canvas-exttool-video'）：用于 LTI 跳转，
+   *  loadURL `/courses/{cid}/modules/items/{itemId}` 提交隐藏表单拿 tokenId。
+   *  token 是课程级的，任选一个 ExternalTool 模块项跳转即可服务全课所有 fileId。 */
+  canvasModuleItemId?: number
+  /** v.sjtu 视频 fileId（source='canvas-exttool-video'）：从 external_url 的 hash 解析。
+   *  resolveDirectUrl 用课程级 token 调 GET /file/{fileId} 拿 S3 预签名 vodUrl。 */
+  canvasFileId?: string
+  /** vshare 视频 uuid（source='canvas-exturl-video'）：从 external_url 提取。
+   *  resolveDirectUrl 调 vshare /api/video/play/{uuid} 拿 S3 预签名 playUrl。 */
+  canvasVshareUuid?: string
+
+  // ─── 好大学在线 (cnmooc.sjtu.cn) ───
+  /** cnmooc 条目 itemId（source='cnmooc'）：下载前 POST play.mooc+detail.mooc 取直链用 */
+  cnmoocItemId?: string
+  /** cnmooc 条目 itemType（如 "10"）；30/50/60 是测验（扫描时已过滤） */
+  cnmoocItemType?: string
+  /** cnmooc 条目所属章节名（落盘子目录用） */
+  cnmoocChapter?: string
+  /** cnmooc 资源类型过滤：下载时懒解析直链后，不符合的标 skipped。
+   *  all=不过滤，video=仅视频(flvUrl)，document=仅课件(rsUrl)。 */
+  cnmoocResourceFilter?: 'all' | 'video' | 'document'
 }
 
 /** 教师筛选选项（多教师课程用） */
@@ -400,7 +439,38 @@ export interface CanvasLectureGroup {
 }
 
 /** 渲染端顶部 tab */
-export type ActiveTab = 'audited' | 'canvas'
+export type ActiveTab = 'audited' | 'canvas' | 'cnmooc'
+
+// ─────────────────────────────────────────────────────────────
+// 好大学在线 (cnmooc.sjtu.cn) 相关
+// ─────────────────────────────────────────────────────────────
+
+/** cnmooc 课程（courseId 即 portal session/openId） */
+export interface CnmoocCourse {
+  courseId: string
+  name: string
+}
+
+/** cnmooc 章节里的一个可下载条目 */
+export interface CnmoocItem {
+  itemId: string
+  itemType: string
+  title: string
+}
+
+/** cnmooc 章节（含若干条目） */
+export interface CnmoocChapter {
+  chapter: string
+  items: CnmoocItem[]
+}
+
+/** cnmooc 已选中条目（带所属章节名，供 build-specs 拼落盘路径） */
+export interface CnmoocSelectedItem extends CnmoocItem {
+  chapter: string
+}
+
+/** cnmooc 资源类型过滤 */
+export type CnmoocResourceFilter = 'all' | 'video' | 'document'
 
 // ─────────────────────────────────────────────────────────────
 // vod-info API 响应结构（用于 resolveDirectUrl 类型安全）
@@ -417,4 +487,43 @@ export interface VodVideoInfo {
 /** vod-info-by-course-id 接口返回的 data 字段结构 */
 export interface VodInfoData {
   videoInfos?: VodVideoInfo[]
+}
+
+// ─────────────────────────────────────────────────────────────
+// Canvas PPT 课件下载相关
+// ─────────────────────────────────────────────────────────────
+
+/** query-ppt-slice-es API 返回的单张 PPT 幻灯片。
+ *  注意：服务端 code/hide/createSec 字段可能是字符串或数字，解析时统一用 String()/Number() 容错。 */
+export interface PptSlice {
+  /** 视频中的秒数（可能是字符串或数字） */
+  createSec: string | number
+  /** 是否隐藏：0=显示, 1=隐藏（可能是字符串或数字） */
+  hide: number | string
+  /** 图片文件名（S3 key），可能缺失 */
+  key?: string
+  /** 预签名图片 URL */
+  pptImgUrl: string
+  /** OCR 识别结果 */
+  ocr?: Array<{ word: string }>
+}
+
+/** PPT 下载请求参数 */
+export interface PptDownloadOpts {
+  /** vod 系统的 ivsVideoId（从 findVodVideoList 获取） */
+  ivsVideoId: number
+  /** 课程显示名（落盘路径用） */
+  courseName: string
+  /** 讲次显示名，如 "第41讲 2026-06-09 10:00" */
+  lectureName: string
+  /** 本地下载根目录；空串表示 cloud-only（PDF 仅作上传中间产物，落到系统临时目录，上传后清理） */
+  destRoot: string
+  /** 学期名（上级文件夹） */
+  term?: string
+  /** 课堂视频会话信息（用于构建与视频一致的文件名） */
+  videoSession?: {
+    beginTime: string
+    teacher: string
+    classroom: string
+  }
 }

@@ -11,6 +11,10 @@ import type {
   CanvasTeacherSelection,
   CanvasVideoSession,
   CloudPanSpaceInfo,
+  CnmoocChapter,
+  CnmoocCourse,
+  CnmoocResourceFilter,
+  CnmoocSelectedItem,
   DownloadMode,
   FileConflictStrategy,
   DownloadProgress,
@@ -139,6 +143,8 @@ const api = {
       folderMap?: Record<number, string>
       moduleFileIds?: number[]
       syllabusFileIds?: number[]
+      moduleFiles?: CanvasFileItem[]
+      syllabusFiles?: CanvasFileItem[]
       error?: string
     }> =>
       ipcRenderer.invoke('canvas:scan-course', courseId),
@@ -150,9 +156,10 @@ const api = {
       folderMap: Record<number, string>,
       moduleFileIds: number[],
       syllabusFileIds: number[],
-      destRoot: string
+      destRoot: string,
+      term?: string
     ): Promise<{ ok: boolean; specs?: CanvasDownloadTaskSpec[]; error?: string }> =>
-      ipcRenderer.invoke('canvas:build-download-specs', courseName, courseId, files, folderMap, moduleFileIds, syllabusFileIds, destRoot),
+      ipcRenderer.invoke('canvas:build-download-specs', courseName, courseId, files, folderMap, moduleFileIds, syllabusFileIds, destRoot, term),
     /** 扫描课程的课堂视频录播会话，返回教师筛选和讲次分组 */
     classVideoScan: (courseId: number): Promise<{
       ok: boolean
@@ -173,33 +180,45 @@ const api = {
       token: string,
       canvasCourseId: string,
       destRoot: string,
-      conflictStrategy?: FileConflictStrategy
+      conflictStrategy?: FileConflictStrategy,
+      term?: string
     ): Promise<{ ok: boolean; specs?: CanvasDownloadTaskSpec[]; error?: string }> =>
-      ipcRenderer.invoke('canvas:class-video-download', courseName, courseId, sessions, selectedTeachers, token, canvasCourseId, destRoot, conflictStrategy),
-    /** 扫描课程模块中的内嵌视频（iframe 页面） */
+      ipcRenderer.invoke('canvas:class-video-download', courseName, courseId, sessions, selectedTeachers, token, canvasCourseId, destRoot, conflictStrategy, term),
+    /** 扫描课程模块中的视频（三类来源：Page iframe HLS / ExternalTool 直接MP4 / ExternalUrl 直接MP4） */
     moduleVideoScan: (courseId: number): Promise<{
       ok: boolean
       tasks?: Array<{ moduleName: string; pageTitle: string; iframeUrl: string }>
+      extTools?: Array<{ moduleItemId: number; fileId: string; title: string }>
+      extUrls?: Array<{ uuid: string; title: string }>
       error?: string
     }> =>
       ipcRenderer.invoke('canvas:module-video-scan', courseId),
-    /** 为模块内嵌视频生成下载 spec */
+    /** 为 ExternalTool/ExternalUrl 模块视频生成下载 spec（直接 MP4，走 download:start） */
     moduleVideoDownload: (
       courseName: string,
       courseId: number,
-      tasks: Array<{ moduleName: string; pageTitle: string; iframeUrl: string }>,
+      extTools: Array<{ moduleItemId: number; fileId: string; title: string }>,
+      extUrls: Array<{ uuid: string; title: string }>,
       destRoot: string,
-      conflictStrategy?: FileConflictStrategy
+      conflictStrategy?: FileConflictStrategy,
+      term?: string
     ): Promise<{ ok: boolean; specs?: CanvasDownloadTaskSpec[]; error?: string }> =>
-      ipcRenderer.invoke('canvas:module-video-download', courseName, courseId, tasks, destRoot, conflictStrategy),
-    /** 立即下载单个模块内嵌视频（不经 queue，同步返回落盘路径） */
+      ipcRenderer.invoke('canvas:module-video-download', courseName, courseId, extTools, extUrls, destRoot, conflictStrategy, term),
+    /** 立即下载单个模块内嵌视频（不经 queue，同步返回落盘路径）。
+     *  cloudUserToken 存在时，下载完 mp4 后上传到云盘。
+     *  transcodeMaxHeight: 720/1080 时，remux 后重编码（缩放+标准GOP），0 或不传 = 不重编码。 */
     downloadModuleVideoNow: (
       courseName: string,
       iframeUrl: string,
       baseName: string,
-      destRoot: string
-    ): Promise<{ ok: boolean; path?: string; format?: string; error?: string }> =>
-      ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot),
+      destRoot: string,
+      taskId: string,
+      cloudUserToken?: string,
+      conflictStrategy?: FileConflictStrategy,
+      transcodeMaxHeight?: number,
+      term?: string
+    ): Promise<{ ok: boolean; path?: string; format?: string; cloudPath?: string; error?: string }> =>
+      ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot, taskId, cloudUserToken, conflictStrategy, transcodeMaxHeight, term),
     /** 下载指定讲次列表（按 lectureItems 按需解析流直链） */
     downloadLectures: (
       courseName: string,
@@ -207,11 +226,71 @@ const api = {
       lectureItems: CanvasLectureGroup[],
       token: string,
       destRoot: string,
-      conflictStrategy?: FileConflictStrategy
+      conflictStrategy?: FileConflictStrategy,
+      term?: string
     ): Promise<{ ok: boolean; specs?: CanvasDownloadTaskSpec[]; error?: string }> =>
-      ipcRenderer.invoke('canvas:download-lectures', courseName, courseId, lectureItems, token, destRoot, conflictStrategy),
+      ipcRenderer.invoke('canvas:download-lectures', courseName, courseId, lectureItems, token, destRoot, conflictStrategy, term),
     onScanProgress: (cb: (p: { courseId: number; phase: string; message: string }) => void) => subscribe<{ courseId: number; phase: string; message: string }>('canvas:scan-progress', cb),
-    onHlsProgress: (cb: (p: { baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }) => void) => subscribe<{ baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }>('canvas:hls-progress', cb)
+    onHlsProgress: (cb: (p: { taskId: string; baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }) => void) => subscribe<{ taskId: string; baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }>('canvas:hls-progress', cb)
+  },
+  // ─── 好大学在线 (cnmooc.sjtu.cn) ───
+  cnmooc: {
+    /** 查询好大学在线登录状态（含课程列表，未登录不报错） */
+    status: (): Promise<{ ok: boolean; loggedIn?: boolean; courses?: CnmoocCourse[]; error?: string }> =>
+      ipcRenderer.invoke('cnmooc:status'),
+    /** 显式触发 jAccount SSO 登录（前端「连接好大学在线」按钮） */
+    login: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cnmooc:login'),
+    /** 扫描好大学在线「正在学习」课程列表（自动 SSO） */
+    scan: (): Promise<{ ok: boolean; courses?: CnmoocCourse[]; error?: string }> =>
+      ipcRenderer.invoke('cnmooc:scan'),
+    /** 扫描一门课的章节结构（仅 HTML 解析，不预探直链） */
+    scanCourse: (courseId: string): Promise<{ ok: boolean; chapters?: CnmoocChapter[]; error?: string }> =>
+      ipcRenderer.invoke('cnmooc:scan-course', courseId),
+    /** 为选中的条目构建下载 spec（占位 url，下载时懒解析直链并按类型过滤） */
+    buildSpecs: (
+      courseName: string,
+      courseId: string,
+      items: CnmoocSelectedItem[],
+      resourceFilter: CnmoocResourceFilter
+    ): Promise<{ ok: boolean; specs?: CanvasDownloadTaskSpec[]; error?: string }> =>
+      ipcRenderer.invoke('cnmooc:build-specs', courseName, courseId, items, resourceFilter),
+    /** 订阅扫描进度事件，返回取消订阅函数 */
+    onScanProgress: (cb: (p: { courseId: string; phase: string; message: string }) => void) => subscribe<{ courseId: string; phase: string; message: string }>('cnmooc:scan-progress', cb)
+  },
+  // ─── Canvas PPT 课件下载 ───
+  ppt: {
+    /** 下载单讲 PPT 课件图片并合并为 PDF（cloudUserToken 存在时上传云盘）。
+     *  taskId 存在时进度通过 canvas:ppt-progress 推送（用于 UI 进度条）。
+     *  destRoot 空 = cloud-only（PDF 仅作上传中间产物，上传后清理）。 */
+    download: (opts: {
+      taskId?: string
+      /** vod 系统的 videoId（加密串，非数值）。主进程用 resolveIvsVideoId 解析成 PPT API 需要的数值型 ivsVideoId。 */
+      ivsVideoId: string
+      courseName: string
+      lectureName: string
+      destRoot: string
+      cloudUserToken?: string
+      conflictStrategy?: FileConflictStrategy
+      term?: string
+      videoSession?: { beginTime: string; teacher: string; classroom: string }
+    }): Promise<{ ok: boolean; path?: string; cloudPath?: string; error?: string }> =>
+      ipcRenderer.invoke('canvas:ppt-download', opts),
+    /** 批量下载多讲 PPT 课件（可选云盘上传）。进度事件 canvas:ppt-progress 带 taskId，
+     *  current/total 为讲次级（X/Y 讲），单讲内图片进度折进 phase。 */
+    downloadBatch: (opts: {
+      taskId?: string
+      lectures: Array<{ ivsVideoId: string; lectureName: string; videoSession?: { beginTime: string; teacher: string; classroom: string } }>
+      courseName: string
+      destRoot: string
+      cloudUserToken?: string
+      conflictStrategy?: FileConflictStrategy
+      term?: string
+    }): Promise<{ ok: boolean; results?: Array<{ lectureName: string; ok: boolean; path?: string; cloudPath?: string; error?: string }>; error?: string }> =>
+      ipcRenderer.invoke('canvas:ppt-download-batch', opts),
+    /** 订阅 PPT 下载进度事件（含 taskId，用于映射到 UI 进度条） */
+    onProgress: (cb: (p: { taskId?: string; ivsVideoId: number; current: number; total: number; phase: string; lectureName?: string }) => void) =>
+      subscribe<{ taskId?: string; ivsVideoId: number; current: number; total: number; phase: string; lectureName?: string }>('canvas:ppt-progress', cb)
   }
 }
 

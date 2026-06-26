@@ -3,7 +3,7 @@ import { useAppStore, useDownloadStats, useEffectiveProgress, type LectureGroup 
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
 import { useCachedCloudTokenValidation, useCloudConnection } from '../hooks/useSharedBrowserHooks'
-import { Chevron, TriCheckbox, ProgressBar, SmallCheck, GlobalCtrlButton, ModeSegmented, ConflictStrategySegmented, TaskCtrlButtons, CourseProgressSummary, formatBytes, type TriState } from '../components/DownloadUI'
+import { Chevron, TriCheckbox, ProgressBar, SmallCheck, GlobalCtrlButton, ModeSegmented, ConflictStrategySegmented, HlsTranscodeSegmented, TaskCtrlButtons, CourseProgressSummary, formatBytes, type TriState } from '../components/DownloadUI'
 import type {
   CanvasCourse,
   CanvasDownloadTaskSpec,
@@ -56,6 +56,63 @@ function lectureStreamTaskId(courseId: number, lectureNum: number, role: 'teache
   return `canvas_lecture_${courseId}_${lectureNum}_${role}`
 }
 
+// 模块视频 taskId / baseName。sanitize 保证 taskId 稳定、落盘文件名合法。
+// 三类来源的 taskId 前缀对齐 main 端 orchestrator 的产 spec 方案：
+//   iframe(HLS) → canvas_mvid_ / extTool(直接MP4) → canvas_exttool_ / extUrl → canvas_exturl_
+function sanitizeFsName(name: string): string {
+  const cleaned = name
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    .replace(/[. ]+$/, '')
+    .trim()
+  return cleaned.slice(0, 180) || '未命名'
+}
+
+function iframeVideoTaskId(courseId: number, pageTitle: string): string {
+  return `canvas_mvid_${courseId}_${sanitizeFsName(pageTitle)}`
+}
+
+function extToolVideoTaskId(courseId: number, fileId: string): string {
+  return `canvas_exttool_${courseId}_${fileId}`
+}
+
+function extUrlVideoTaskId(courseId: number, uuid: string): string {
+  return `canvas_exturl_${courseId}_${uuid}`
+}
+
+function moduleVideoBaseName(courseName: string, title: string): string {
+  return sanitizeFsName(`${courseName}-${title}`)
+}
+
+// 哨兵 folderId：大纲补漏文件的真实 folder 不在课程 folderMap 里（「文件」tab 也看不到），
+// 用 -3 占位，配合 folderMap 映射到 files/大纲/ 子目录，对应浏览器「大纲」tab。
+// 模块补漏文件已带真实 folderId（由 fetchFileMeta 返回），folderMap 自动映射到真实 Canvas 文件夹，
+// 真实 folderId 查不到时兜底落 files/ 根，不再用 _from_modules 自造目录。
+const SYLLABUS_FOLDER_ID = -3
+
+// 空数组常量：zustand selector 兜底用，返回稳定引用避免无限重渲染（?? [] 每次新建数组会触发白屏）。
+const EMPTY_TASK_IDS: string[] = []
+
+/** 从 scanCourse 结果构建 CourseData，注入大纲补漏的哨兵文件夹映射。 */
+function buildCourseData(r: {
+  files?: CanvasFileItem[]
+  folderMap?: Record<number, string>
+  moduleFileIds?: number[]
+  syllabusFileIds?: number[]
+  moduleFiles?: CanvasFileItem[]
+  syllabusFiles?: CanvasFileItem[]
+}): CourseData {
+  const folderMap: Record<number, string> = { ...(r.folderMap ?? {}) }
+  if ((r.syllabusFiles?.length ?? 0) > 0) folderMap[SYLLABUS_FOLDER_ID] = '大纲'
+  return {
+    files: r.files ?? [],
+    folderMap,
+    moduleFileIds: r.moduleFileIds ?? [],
+    syllabusFileIds: r.syllabusFileIds ?? [],
+    moduleFiles: r.moduleFiles ?? [],
+    syllabusFiles: r.syllabusFiles ?? []
+  }
+}
+
 // ─── 三态纯函数（不依赖任何独立布尔，消除 selectedCourseIds 冲突） ───
 //
 // 模型：selected 是真值（已解析任务实际勾选）；categorySelections 是
@@ -71,10 +128,19 @@ function catStateOf(ids: string[], selected: Set<string>, intent?: boolean): Tri
   return sel === ids.length ? 'all' : sel > 0 ? 'some' : 'none'
 }
 
-/** 课程级态 = 三个分类态的聚合 */
-function aggCourseState(f: TriState, t: TriState, p: TriState): TriState {
-  if (f === 'all' && t === 'all' && p === 'all') return 'all'
-  if (f === 'none' && t === 'none' && p === 'none') return 'none'
+/** 课程级态 = 四个分类态的聚合 */
+function aggCourseState(f: TriState, t: TriState, p: TriState, m: TriState): TriState {
+  if (f === 'all' && t === 'all' && p === 'all' && m === 'all') return 'all'
+  if (f === 'none' && t === 'none' && p === 'none' && m === 'none') return 'none'
+  return 'some'
+}
+
+/** 把 PPT课件（pptPdf，二元分类 none/all）并入课程级态。
+ *  四分类全 all + pptPdf 选中 → all；四分类全 none + pptPdf 未选 → none；否则 some。
+ *  pptPdf 是课程级聚合任务（非逐讲 taskId），故无 'some' 中间态。 */
+function combinePptPdf(base: TriState, pptPdfOn: boolean | undefined): TriState {
+  if (base === 'all' && pptPdfOn) return 'all'
+  if (base === 'none' && !pptPdfOn) return 'none'
   return 'some'
 }
 
@@ -85,15 +151,16 @@ export function CanvasBrowser() {
   // Group 1: rarely-changing state (courses, scan results, config)
   const {
     localDestRoot, cloudUserToken, cloudSpaceInfo,
-    downloadMode, fileConflictStrategy, cloudLinkedIds, canvasCourses, canvasScanState, canvasScanMessage,
+    downloadMode, fileConflictStrategy, hlsTranscodeMaxHeight, cloudLinkedIds, canvasCourses, canvasScanState, canvasScanMessage,
     canvasExpandedCourses, canvasCourseData, canvasTeachers, canvasSelectedTeachers,
-    canvasLtiTokens, canvasLectures, canvasCourseCategorySelections
+    canvasLtiTokens, canvasLectures, canvasModuleVideos, canvasCourseCategorySelections
   } = useAppStore(useShallow(s => ({
     localDestRoot: s.localDestRoot,
     cloudUserToken: s.cloudUserToken,
     cloudSpaceInfo: s.cloudSpaceInfo,
     downloadMode: s.downloadMode,
     fileConflictStrategy: s.fileConflictStrategy,
+    hlsTranscodeMaxHeight: s.hlsTranscodeMaxHeight,
     cloudLinkedIds: s.cloudLinkedIds,
     canvasCourses: s.canvasCourses,
     canvasScanState: s.canvasScanState,
@@ -104,6 +171,7 @@ export function CanvasBrowser() {
     canvasSelectedTeachers: s.canvasSelectedTeachers,
     canvasLtiTokens: s.canvasLtiTokens,
     canvasLectures: s.canvasLectures,
+    canvasModuleVideos: s.canvasModuleVideos,
     canvasCourseCategorySelections: s.canvasCourseCategorySelections
   })))
   // Group 2: frequently-changing (downloading flag — derived from progress)
@@ -111,11 +179,11 @@ export function CanvasBrowser() {
   // Group 3: stable action references (setters are stable, but grouped for clarity)
   const {
     setCanvasCourses, setCanvasScanState, setCanvasCourseData, setCanvasTeachers,
-    setCanvasSelectedTeachers, setCanvasLtiToken, setCanvasLectures,
+    setCanvasSelectedTeachers, setCanvasLtiToken, setCanvasLectures, setCanvasModuleVideos,
     setCanvasCourseCategorySelection, setAllCanvasCourseCategorySelections,
     resetCanvasScanResults, deleteCanvasCourseData, toggleCanvasExpand,
     setLocalDestRoot, setDownloading, resetProgress, applyProgress,
-    setDownloadMode, setFileConflictStrategy, setCloudLinkedIds
+    setDownloadMode, setFileConflictStrategy, setHlsTranscodeMaxHeight, setCloudLinkedIds
   } = useAppStore(useShallow(s => ({
     setCanvasCourses: s.setCanvasCourses,
     setCanvasScanState: s.setCanvasScanState,
@@ -124,6 +192,7 @@ export function CanvasBrowser() {
     setCanvasSelectedTeachers: s.setCanvasSelectedTeachers,
     setCanvasLtiToken: s.setCanvasLtiToken,
     setCanvasLectures: s.setCanvasLectures,
+    setCanvasModuleVideos: s.setCanvasModuleVideos,
     setCanvasCourseCategorySelection: s.setCanvasCourseCategorySelection,
     setAllCanvasCourseCategorySelections: s.setAllCanvasCourseCategorySelections,
     resetCanvasScanResults: s.resetCanvasScanResults,
@@ -135,6 +204,7 @@ export function CanvasBrowser() {
     applyProgress: s.applyProgress,
     setDownloadMode: s.setDownloadMode,
     setFileConflictStrategy: s.setFileConflictStrategy,
+    setHlsTranscodeMaxHeight: s.setHlsTranscodeMaxHeight,
     setCloudLinkedIds: s.setCloudLinkedIds
   })))
 
@@ -203,6 +273,50 @@ export function CanvasBrowser() {
   // [2.15] useDownloadProgressSubscription moved to App level — removed here
   const { cloudConn, onConnectCloud, onDisconnectCloud } = useCloudConnection()
 
+  // ── HLS 模块视频进度订阅：把 canvas:hls-progress 落到 store.progress ──
+  // 模块视频不走 download:start 队列，进度由 main 端 downloadModuleVideo 通过
+  // canvas:hls-progress 推送；这里映射成 DownloadProgress 喂给 applyProgress，
+  // 让 UI 进度条、waitForCourseCompletion、完成统计都能感知。
+  const applyProgressRef = useRef(applyProgress)
+  applyProgressRef.current = applyProgress
+  useEffect(() => {
+    const unsub = window.api.canvas.onHlsProgress(p => {
+      if (!p.taskId) return
+      const phaseLabel = p.phase === 'capturing' ? '捕获 m3u8…'
+        : p.phase === 'remuxing' ? '转换 mp4…'
+        : p.phase === 'downloading' ? `下载切片 ${p.segmentsDone}/${p.segmentsTotal}`
+        : p.phase === 'transcoding' ? (p.message || '重编码中…')
+        : p.phase === 'uploading' ? (p.message || '上传中…')
+        : p.phase
+      applyProgressRef.current({
+        taskId: p.taskId,
+        state: 'downloading',
+        received: p.bytesWritten,
+        total: 0,
+        message: p.message || phaseLabel
+      })
+    })
+    return unsub
+  }, [])
+
+  // ── PPT 课件进度订阅：把 canvas:ppt-progress 落到 store.progress ──
+  // PPT 课件不走 download:start 队列，进度由 main 端 runPptLecture 通过
+  // canvas:ppt-progress 推送（带 taskId，current/total 为讲次级 X/Y）；这里映射成
+  // DownloadProgress 喂给 applyProgress，让 PPT课件 区块的进度条能实时显示。
+  useEffect(() => {
+    const unsub = window.api.ppt.onProgress(p => {
+      if (!p.taskId) return
+      applyProgressRef.current({
+        taskId: p.taskId,
+        state: 'downloading',
+        received: p.current,
+        total: p.total,
+        message: p.phase
+      })
+    })
+    return unsub
+  }, [])
+
   // ── downloading 生命周期由 onDownload 的循环自行管理 ──
   // [Bug Fix] 不再使用 useDownloadCompletion(selectedArr, stats.active, true)。
   // 该 hook 只看当前页 selected 集合里的 taskId，但 Canvas 多课程下载是按课程串行
@@ -228,14 +342,21 @@ export function CanvasBrowser() {
     })
   }, [])
 
-  // ── 课程已解析任务 id 派生（files / teacher / ppt 三类） ──
+  // ── 课程已解析任务 id 派生（files / teacher / ppt / moduleVideo 四类） ──
   // 顶层复用：onToggleAll / toggleCourse / toggleAllCategory / 三态判定 / onDownload
   const courseTaskIds = useCallback((courseId: number): {
-    files: string[]; teacher: string[]; ppt: string[]; all: string[]
+    files: string[]; teacher: string[]; ppt: string[]; moduleVideo: string[]; all: string[]
   } => {
     const cd = canvasCourseData[courseId]
     const lec = canvasLectures[courseId]
-    const files = cd ? cd.files.map(f => fileTaskId(courseId, f.fileId)) : []
+    const mv = canvasModuleVideos[courseId]
+    // 课件 = 常规文件 + 模块补漏 + 大纲补漏（统一 canvas_file_* taskId）
+    const files: string[] = []
+    if (cd) {
+      for (const f of cd.files) files.push(fileTaskId(courseId, f.fileId))
+      for (const f of cd.moduleFiles) files.push(fileTaskId(courseId, f.fileId))
+      for (const f of cd.syllabusFiles) files.push(fileTaskId(courseId, f.fileId))
+    }
     const teacher: string[] = []
     const ppt: string[] = []
     if (lec) for (const l of lec) {
@@ -243,17 +364,26 @@ export function CanvasBrowser() {
       teacher.push(lectureStreamTaskId(courseId, l.lectureNum, 'teacher'))
       ppt.push(lectureStreamTaskId(courseId, l.lectureNum, 'ppt'))
     }
-    return { files, teacher, ppt, all: [...files, ...teacher, ...ppt] }
-  }, [canvasCourseData, canvasLectures])
+    const moduleVideo: string[] = []
+    if (mv) {
+      for (const t of mv.iframes) moduleVideo.push(iframeVideoTaskId(courseId, t.pageTitle))
+      for (const t of mv.extTools) moduleVideo.push(extToolVideoTaskId(courseId, t.fileId))
+      for (const t of mv.extUrls) moduleVideo.push(extUrlVideoTaskId(courseId, t.uuid))
+    }
+    return { files, teacher, ppt, moduleVideo, all: [...files, ...teacher, ...ppt, ...moduleVideo] }
+  }, [canvasCourseData, canvasLectures, canvasModuleVideos])
 
-  /** 单课程的三分类态 + 课程级态（纯派生，不依赖 selectedCourseIds） */
+  /** 单课程的四分类态 + pptPdf + 课程级态（纯派生，不依赖 selectedCourseIds） */
   const courseStates = useCallback((courseId: number) => {
-    const { files, teacher, ppt } = courseTaskIds(courseId)
+    const { files, teacher, ppt, moduleVideo } = courseTaskIds(courseId)
     const sel = canvasCourseCategorySelections[courseId]
     const f = catStateOf(files, selected, sel?.files)
     const t = catStateOf(teacher, selected, sel?.teacher)
     const p = catStateOf(ppt, selected, sel?.ppt)
-    return { files: f, teacher: t, ppt: p, course: aggCourseState(f, t, p) }
+    const m = catStateOf(moduleVideo, selected, sel?.moduleVideo)
+    const pptPdf: TriState = sel?.pptPdf ? 'all' : 'none'
+    const course = combinePptPdf(aggCourseState(f, t, p, m), sel?.pptPdf)
+    return { files: f, teacher: t, ppt: p, moduleVideo: m, pptPdf, course }
   }, [courseTaskIds, canvasCourseCategorySelections, selected])
 
   // ── 课程级全选（顶层，作用于 filteredCourses） ──
@@ -261,10 +391,10 @@ export function CanvasBrowser() {
     if (filteredCourses.length === 0) return
     const allFull = filteredCourses.every(c => courseStates(c.courseId).course === 'all')
     if (allFull) {
-      // 全清：三分类意图 false + 所有已解析任务从 selected 删除
+      // 全清：五分类意图 false + 所有已解析任务从 selected 删除
       setAllCanvasCourseCategorySelections(
         filteredCourses.map(c => c.courseId),
-        { files: false, teacher: false, ppt: false }
+        { files: false, teacher: false, ppt: false, moduleVideo: false, pptPdf: false }
       )
       setSelected(prev => {
         const next = new Set(prev)
@@ -274,10 +404,10 @@ export function CanvasBrowser() {
         return next
       })
     } else {
-      // 全选：三分类意图 true + 所有已解析任务加入 selected
+      // 全选：五分类意图 true + 所有已解析任务加入 selected
       setAllCanvasCourseCategorySelections(
         filteredCourses.map(c => c.courseId),
-        { files: true, teacher: true, ppt: true }
+        { files: true, teacher: true, ppt: true, moduleVideo: true, pptPdf: true }
       )
       setSelected(prev => {
         const next = new Set(prev)
@@ -294,14 +424,14 @@ export function CanvasBrowser() {
     const st = courseStates(courseId)
     const { all } = courseTaskIds(courseId)
     if (st.course === 'none') {
-      setCanvasCourseCategorySelection(courseId, { files: true, teacher: true, ppt: true })
+      setCanvasCourseCategorySelection(courseId, { files: true, teacher: true, ppt: true, moduleVideo: true, pptPdf: true })
       setSelected(prev => {
         const next = new Set(prev)
         for (const id of all) next.add(id)
         return next
       })
     } else {
-      setCanvasCourseCategorySelection(courseId, { files: false, teacher: false, ppt: false })
+      setCanvasCourseCategorySelection(courseId, { files: false, teacher: false, ppt: false, moduleVideo: false, pptPdf: false })
       setSelected(prev => {
         const next = new Set(prev)
         for (const id of all) next.delete(id)
@@ -311,8 +441,17 @@ export function CanvasBrowser() {
   }, [courseStates, courseTaskIds, setCanvasCourseCategorySelection])
 
   // ── 顶层分类全选/全取消（作用于 filteredCourses 的某一分类） ──
-  const toggleAllCategory = useCallback((cat: 'files' | 'teacher' | 'ppt') => {
+  const toggleAllCategory = useCallback((cat: 'files' | 'teacher' | 'ppt' | 'moduleVideo' | 'pptPdf') => {
     if (filteredCourses.length === 0) return
+    // pptPdf 是课程级聚合任务（无逐讲 taskId），只切换意图，不操作 selected
+    if (cat === 'pptPdf') {
+      const allOn = filteredCourses.every(c => canvasCourseCategorySelections[c.courseId]?.pptPdf)
+      setAllCanvasCourseCategorySelections(
+        filteredCourses.map(c => c.courseId),
+        { pptPdf: !allOn }
+      )
+      return
+    }
     const allOn = filteredCourses.every(c => courseStates(c.courseId)[cat] === 'all')
     setAllCanvasCourseCategorySelections(
       filteredCourses.map(c => c.courseId),
@@ -326,7 +465,7 @@ export function CanvasBrowser() {
       }
       return next
     })
-  }, [filteredCourses, courseStates, courseTaskIds, setAllCanvasCourseCategorySelections])
+  }, [filteredCourses, courseStates, courseTaskIds, canvasCourseCategorySelections, setAllCanvasCourseCategorySelections])
 
   const onSelectFolder = useCallback(async () => {
     const p = await window.api.selectFolder()
@@ -346,7 +485,7 @@ export function CanvasBrowser() {
     if (st.downloading) return
     const needsLocal = st.downloadMode === 'local' || st.downloadMode === 'both'
     if (needsLocal && !st.localDestRoot) return
-    const hasCatSel = Object.values(st.canvasCourseCategorySelections).some(s => s && (s.files || s.teacher || s.ppt))
+    const hasCatSel = Object.values(st.canvasCourseCategorySelections).some(s => s && (s.files || s.teacher || s.ppt || s.moduleVideo || s.pptPdf))
     if (selected.size === 0 && !hasCatSel) return
     st.resetProgress()
     st.setDownloading(true)
@@ -357,18 +496,22 @@ export function CanvasBrowser() {
       const all = st.canvasTeachers[c.courseId]?.filter(t => t.selected).map(t => t.teacher)
       const teachers = sel?.length ? sel : (all?.length ? all : c.teachers)
       const teacherStr = teachers.length > 0 ? teachers.join('/') : ''
-      return [c.name, teacherStr, c.term || ''].filter(Boolean).join('-')
+      return [c.name, teacherStr].filter(Boolean).join('-')
     }
 
     // 待处理课程 = selected 解析出的 courseId ∪ 任一分类意图为 true 的 courseId
     const coursesToProcess = new Set<number>()
     for (const id of selected) {
-      const m = id.match(/^canvas_(?:file|lecture)_(\d+)_/)
+      const m = id.match(/^canvas_(?:file|lecture|mvid|exttool|exturl)_(\d+)_/)
       if (m) coursesToProcess.add(Number(m[1]))
     }
     for (const id of Object.keys(st.canvasCourseCategorySelections)) {
       const sel = st.canvasCourseCategorySelections[Number(id)]
-      if (sel && (sel.files || sel.teacher || sel.ppt)) coursesToProcess.add(Number(id))
+      // [Bug Fix] 漏了 sel.pptPdf：只勾「PPT课件」分类时该课程不进队列，
+      // processCourse 的 pptPdf 分支(639-709行)不会执行 → 点击下载毫无反应。
+      // pptPdf 是课程级聚合意图（无逐讲 taskId），不会从前面的 selected 正则解析出 courseId，
+      // 必须在这里显式纳入。其他分类(files/teacher/ppt/moduleVideo)也由 selected 解析兜底，故补充 pptPdf 不影响它们。
+      if (sel && (sel.files || sel.teacher || sel.ppt || sel.moduleVideo || sel.pptPdf)) coursesToProcess.add(Number(id))
     }
 
     const downloadOpts = {
@@ -412,13 +555,17 @@ export function CanvasBrowser() {
         timer = setTimeout(finish, 2 * 60 * 60 * 1000)
       })
 
-    const processCourse = async (courseId: number): Promise<{ started: boolean; taskIds: string[] }> => {
+    const processCourse = async (courseId: number): Promise<{ started: boolean; taskIds: string[]; localOnlyTaskIds: string[] }> => {
       const snap = useAppStore.getState() // fresh snapshot after awaits
       const c = snap.canvasCourses.find(cc => cc.courseId === courseId)
-      if (!c) return { started: false, taskIds: [] }
+      if (!c) return { started: false, taskIds: [], localOnlyTaskIds: [] }
       const courseName = buildCanvasCourseName(c)
       const catSel = snap.canvasCourseCategorySelections[courseId]
       const courseSpecs: CanvasDownloadTaskSpec[] = []
+      // Page iframe 模块视频（HLS，本地Only，不走 download:start 队列）
+      const iframeTasks: Array<{ taskId: string; iframeUrl: string; baseName: string }> = []
+      // PPT 课件聚合任务 id（batch 已 await 完成，计入返回用于完成统计；无云端镜像 → localOnly）
+      let pptAggregateTaskId: string | undefined
 
       // 课件文件
       const filesWanted = catSel?.files
@@ -429,17 +576,19 @@ export function CanvasBrowser() {
             snap.applyProgress({ taskId: `canvas_course_scan_${courseId}`, state: 'pending', received: 0, total: 0, message: `正在扫描 ${c.name}…` })
             const r = await window.api.canvas.scanCourse(courseId)
             if (r.ok && r.files) {
-              cd = { files: r.files, folderMap: r.folderMap ?? {}, moduleFileIds: r.moduleFileIds ?? [], syllabusFileIds: r.syllabusFileIds ?? [] }
+              cd = buildCourseData(r)
               snap.setCanvasCourseData(courseId, cd)
             }
           } catch { /* skip */ }
           snap.applyProgress({ taskId: `canvas_course_scan_${courseId}`, state: 'done', received: 0, total: 0 })
         }
-        if (cancelRequestedRef.current) return { started: false, taskIds: [] }
+        if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
         if (cd) {
-          const selFiles = catSel?.files ? cd.files : cd.files.filter(f => selected.has(fileTaskId(courseId, f.fileId)))
+          // 合并常规文件 + 模块补漏 + 大纲补漏，统一走 canvas-files 下载路径
+          const allFiles = [...cd.files, ...cd.moduleFiles, ...cd.syllabusFiles]
+          const selFiles = catSel?.files ? allFiles : allFiles.filter(f => selected.has(fileTaskId(courseId, f.fileId)))
           if (selFiles.length > 0) {
-            const r = await window.api.canvas.buildDownloadSpecs(courseName, courseId, selFiles, cd.folderMap, [], [], needsLocal ? st.localDestRoot : '')
+            const r = await window.api.canvas.buildDownloadSpecs(courseName, courseId, selFiles, cd.folderMap, [], [], needsLocal ? st.localDestRoot : '', c.term || '')
             for (const spec of r.specs ?? []) {
               const origFile = selFiles.find(f => spec.taskId.includes(String(f.fileId)))
               if (origFile) spec.taskId = fileTaskId(courseId, origFile.fileId)
@@ -476,7 +625,7 @@ export function CanvasBrowser() {
           snap.applyProgress({ taskId: `canvas_video_scan_${courseId}`, state: 'done', received: 0, total: 0 })
         }
 
-        if (cancelRequestedRef.current) return { started: false, taskIds: [] }
+        if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
         if (lectures?.length && lti) {
           const selLectures = lectures.filter(l => {
             if (!l.teacher) return false
@@ -485,18 +634,147 @@ export function CanvasBrowser() {
             return teacherWanted || pptWanted
           })
           if (selLectures.length > 0) {
-            const r = await window.api.canvas.downloadLectures(courseName, courseId, selLectures, lti.token, needsLocal ? st.localDestRoot : '', st.fileConflictStrategy)
+            const r = await window.api.canvas.downloadLectures(courseName, courseId, selLectures, lti.token, needsLocal ? st.localDestRoot : '', st.fileConflictStrategy, c.term || '')
             if (r.ok && r.specs) courseSpecs.push(...r.specs)
           }
         }
       }
 
-      if (courseSpecs.length === 0) return { started: false, taskIds: [] }
+      // PPT 课件 PDF（需要课堂视频的 LTI token + 讲次列表）
+      // 支持 local/cloud/both：cloud/both 模式生成 PDF 后由主进程上传云盘；
+      // cloud-only（destRoot 空）PDF 仅作中间产物，上传后主进程清理。
+      const pptPdfWanted = catSel?.pptPdf
+      if (pptPdfWanted) {
+        let pdfLectures = snap.canvasLectures[courseId]
+        let pdfLti = snap.canvasLtiTokens[courseId]
+
+        // 若课堂视频未扫描，自动触发扫描获取 LTI token
+        if (!pdfLectures || !pdfLti) {
+          try {
+            snap.applyProgress({ taskId: `canvas_ppt_scan_${courseId}`, state: 'pending', received: 0, total: 0, message: `正在扫描 ${c.name} 课堂视频（PPT）…` })
+            const r = await window.api.canvas.classVideoScan(courseId)
+            if (r.ok) {
+              if (!pdfLectures) {
+                pdfLectures = r.lectures ?? []
+                snap.setCanvasLectures(courseId, pdfLectures)
+                snap.setCanvasTeachers(courseId, r.teachers ?? [])
+                const allTeachers = (r.teachers ?? []).filter(t => t.selected).map(t => t.teacher)
+                if (allTeachers.length > 0) snap.setCanvasSelectedTeachers(courseId, allTeachers)
+              }
+              if (!pdfLti && r.token && r.canvasCourseId) {
+                pdfLti = { token: r.token, canvasCourseId: r.canvasCourseId }
+                snap.setCanvasLtiToken(courseId, pdfLti)
+              }
+            }
+          } catch { /* skip */ }
+          snap.applyProgress({ taskId: `canvas_ppt_scan_${courseId}`, state: 'done', received: 0, total: 0 })
+        }
+
+        if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
+        if (pdfLectures?.length && pdfLti) {
+          const validLectures = pdfLectures.filter(l => l.teacher)
+          if (validLectures.length > 0) {
+            const pptTaskId = `canvas_ppt_pdf_${courseId}`
+            // local/both 用用户目录；cloud-only 传空串，主进程走系统临时目录兜底
+            const pptDestRoot = needsLocal ? st.localDestRoot : ''
+            const needsCloudPpt = st.downloadMode === 'cloud' || st.downloadMode === 'both'
+            const cloudToken = needsCloudPpt ? useAppStore.getState().cloudUserToken ?? undefined : undefined
+            snap.applyProgress({ taskId: pptTaskId, state: 'pending', received: 0, total: validLectures.length, message: `正在下载PPT课件 (${validLectures.length} 讲)…` })
+            try {
+              const r = await window.api.ppt.downloadBatch({
+                taskId: pptTaskId,
+                lectures: validLectures.map(l => ({
+                  // 传加密串 videoId 原值（不是 Number()，那会变 NaN）。
+                  // 主进程 runPptLecture 用 resolveIvsVideoId 把它解析成 PPT API 需要的数值型 ivsVideoId。
+                  ivsVideoId: l.teacher!.videoId,
+                  lectureName: `第${l.lectureNum}讲 ${l.date}`,
+                  videoSession: {
+                    beginTime: l.teacher!.beginTime,
+                    teacher: l.teacher!.teacher,
+                    classroom: l.teacher!.classroom
+                  }
+                })),
+                courseName,
+                destRoot: pptDestRoot,
+                cloudUserToken: cloudToken,
+                conflictStrategy: st.fileConflictStrategy,
+                term: c.term
+              })
+              const successCount = r.results?.filter(x => x.ok).length ?? 0
+              const failCount = (r.results?.length ?? 0) - successCount
+              snap.applyProgress({
+                taskId: pptTaskId,
+                state: failCount > 0 ? 'error' : 'done',
+                received: successCount, total: validLectures.length,
+                message: failCount > 0 ? `PPT: ${successCount}成功 ${failCount}失败` : `PPT: 全部${successCount}项完成`
+              })
+              pptAggregateTaskId = pptTaskId
+            } catch {
+              snap.applyProgress({ taskId: pptTaskId, state: 'error', received: 0, total: validLectures.length, message: 'PPT下载失败' })
+              pptAggregateTaskId = pptTaskId
+            }
+          }
+        }
+      }
+
+      // 模块视频：三类来源。
+      //   iframe(Page HLS) — 通过 downloadModuleVideoNow（可选云盘上传）
+      //   extTool/ExternalUrl(直接MP4) — 走 download:start，支持 cloud/both
+      const moduleVideoWanted = catSel?.moduleVideo
+      const hasMvSelection = [...selected].some(id =>
+        id.startsWith(`canvas_mvid_${courseId}_`) ||
+        id.startsWith(`canvas_exttool_${courseId}_`) ||
+        id.startsWith(`canvas_exturl_${courseId}_`)
+      )
+      if (moduleVideoWanted || hasMvSelection) {
+        let mv = snap.canvasModuleVideos[courseId]
+        if (!mv) {
+          try {
+            snap.applyProgress({ taskId: `canvas_mvid_scan_${courseId}`, state: 'pending', received: 0, total: 0, message: `正在扫描 ${c.name} 单元视频…` })
+            const r = await window.api.canvas.moduleVideoScan(courseId)
+            if (r.ok) {
+              mv = { iframes: r.tasks ?? [], extTools: r.extTools ?? [], extUrls: r.extUrls ?? [] }
+              snap.setCanvasModuleVideos(courseId, mv)
+            }
+          } catch { /* skip */ }
+          snap.applyProgress({ taskId: `canvas_mvid_scan_${courseId}`, state: 'done', received: 0, total: 0 })
+        }
+        if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
+
+        if (mv) {
+          // iframe HLS：支持 cloud/both 模式（下载完自动上传云盘）。
+          // downloadModuleVideoNow 需要本地目录做中间存储（localDestRoot 或 tmpdir），
+          // 因此 cloud-only 模式下如果 localDestRoot 为空也允许（主进程侧用 os.tmpdir）。
+          for (const t of mv.iframes) {
+            const tid = iframeVideoTaskId(courseId, t.pageTitle)
+            if (moduleVideoWanted || selected.has(tid)) {
+              iframeTasks.push({ taskId: tid, iframeUrl: t.iframeUrl, baseName: moduleVideoBaseName(courseName, t.pageTitle) })
+            }
+          }
+          // extTool/extUrl 直接 MP4：走 download:start（支持 cloud/both）
+          const selExtTools = mv.extTools.filter(t => moduleVideoWanted || selected.has(extToolVideoTaskId(courseId, t.fileId)))
+          const selExtUrls = mv.extUrls.filter(t => moduleVideoWanted || selected.has(extUrlVideoTaskId(courseId, t.uuid)))
+          if (selExtTools.length > 0 || selExtUrls.length > 0) {
+            try {
+              const r = await window.api.canvas.moduleVideoDownload(courseName, courseId, selExtTools, selExtUrls, needsLocal ? st.localDestRoot : '', st.fileConflictStrategy, c.term || '')
+              if (r.ok && r.specs) courseSpecs.push(...r.specs)
+            } catch { /* skip */ }
+          }
+        }
+      }
+
+      if (courseSpecs.length === 0 && iframeTasks.length === 0 && !pptAggregateTaskId) return { started: false, taskIds: [], localOnlyTaskIds: [] }
       // [Bug Fix] 取消后不再 download:start 入队，避免主进程清空队列后又重新入队
-      if (cancelRequestedRef.current) return { started: false, taskIds: [] }
+      if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
       for (const spec of courseSpecs) {
         if (!useAppStore.getState().progress[spec.taskId]) {
           useAppStore.getState().applyProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
+        }
+      }
+      // iframe HLS：进入 pending，随后在 download.start 之后串行跑
+      for (const mvt of iframeTasks) {
+        if (!useAppStore.getState().progress[mvt.taskId]) {
+          useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'pending', received: 0, total: 0, message: '排队中' })
         }
       }
       if (st.downloadMode === 'both') {
@@ -506,7 +784,9 @@ export function CanvasBrowser() {
       }
       let result: { ok: boolean; error?: string }
       try {
-        result = await window.api.download.start(st.localDestRoot, courseSpecs, downloadOpts)
+        result = courseSpecs.length > 0
+          ? await window.api.download.start(st.localDestRoot, courseSpecs, downloadOpts)
+          : { ok: true }
       } catch (err) {
         result = { ok: false, error: err instanceof Error ? err.message : 'IPC 通信失败' }
       }
@@ -519,26 +799,81 @@ export function CanvasBrowser() {
         for (const spec of courseSpecs) {
           useAppStore.getState().applyProgress({ taskId: spec.taskId, state: 'error', received: 0, total: 0, message: result.error || '启动失败' })
         }
-        return { started: false, taskIds: [] }
+        // 常规启动失败也把 iframe HLS 标记为取消，避免悬空 pending
+        for (const mvt of iframeTasks) {
+          useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'cancelled', received: 0, total: 0, message: '本课程下载未启动' })
+        }
+        return { started: false, taskIds: [], localOnlyTaskIds: [] }
       }
       const localTaskIds = courseSpecs.filter(s => !s.taskId.endsWith('_cloud')).map(s => s.taskId)
-      return { started: true, taskIds: localTaskIds }
+
+      // iframe HLS 串行下载。download.start 已立即返回，常规下载在主进程异步跑，
+      // 这里并行处理 iframe HLS。每个完成后 applyProgress 落终态，waitForCourseCompletion
+      // 据此推进。取消后不再启动后续（当前在跑的那个跑完才停）。
+      // iframe HLS：下载完 mp4 后可选上传云盘。
+      // 与 downloadOpts.localDestRoot 对齐：cloud 模式传空串，主进程走跨平台临时目录兜底
+      // 并在上传成功后清理；local/both 模式 localDestRoot 必非空（onDownload 守卫），作本地副本目录。
+      const localDestForIframe = st.downloadMode !== 'cloud' ? st.localDestRoot : ''
+      for (const mvt of iframeTasks) {
+        if (cancelRequestedRef.current) {
+          useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'cancelled', received: 0, total: 0, message: '已取消' })
+          continue
+        }
+        // cloud/both 模式：传 cloudUserToken 让主进程下载完 mp4 后自动上传云盘
+        const needsCloud = st.downloadMode === 'cloud' || st.downloadMode === 'both'
+        const cloudToken = needsCloud ? useAppStore.getState().cloudUserToken ?? undefined : undefined
+        try {
+          const r = await window.api.canvas.downloadModuleVideoNow(
+            courseName, mvt.iframeUrl, mvt.baseName, localDestForIframe, mvt.taskId,
+            cloudToken, cloudToken ? st.fileConflictStrategy : undefined,
+            useAppStore.getState().hlsTranscodeMaxHeight,
+            c.term || ''
+          )
+          if (r.ok) {
+            useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'done', received: 0, total: 0, filePath: r.path })
+          } else {
+            useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'error', received: 0, total: 0, message: r.error || 'HLS 下载失败' })
+          }
+        } catch (err) {
+          useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'error', received: 0, total: 0, message: err instanceof Error ? err.message : 'HLS 下载异常' })
+        }
+      }
+
+      // cloud 模式下 iframe HLS 也传了云盘，不再是 localOnly
+      const iframeLocalOnly = (st.downloadMode === 'cloud') ? [] : iframeTasks.map(m => m.taskId)
+      // PPT 聚合任务：batch 已 await 到终态，计入 taskIds 用于完成统计；
+      // 无云端镜像（上传在主进程内部完成），both 模式下也归入 localOnly 不等 _cloud
+      const taskIds = [...localTaskIds, ...iframeTasks.map(m => m.taskId)]
+      const localOnlyIds = [...iframeLocalOnly]
+      if (pptAggregateTaskId) {
+        taskIds.push(pptAggregateTaskId)
+        localOnlyIds.push(pptAggregateTaskId)
+      }
+      return { started: true, taskIds, localOnlyTaskIds: localOnlyIds }
     }
 
     try {
       const allLocalTaskIds: string[] = []  // 累积所有已提交任务的本地 taskId，完成后用于统计通知
+      // localOnlyTaskIds = 模块视频（HLS，无云盘镜像）；both 模式下不加 _cloud 等待/统计
+      const allLocalOnlyTaskIds: string[] = []
       for (const id of coursesToProcess) {
         // [Bug Fix] 取消后立即停止处理后续课程，不再 scan/入队
         if (cancelRequestedRef.current) break
-        const { started, taskIds } = await processCourse(id)
+        const { started, taskIds, localOnlyTaskIds } = await processCourse(id)
         if (cancelRequestedRef.current) break
         if (started && taskIds.length > 0) {
           allLocalTaskIds.push(...taskIds)
-          // both 模式下，云端镜像任务 taskId 为 `${localId}_cloud`，需一并等待，
-          // 否则本地下载完成就推进下一门课，云端上传仍在跑却被 finally 收尾。
+          allLocalOnlyTaskIds.push(...localOnlyTaskIds)
+          // 记录该课程已提交的 taskIds，供 CourseProgressSummary 在扫描数据
+          // 被 deleteCanvasCourseData 清掉后仍能统计 done/total（下载完成后进度条不消失）。
+          useAppStore.getState().setCanvasCourseTaskIds(id, taskIds)
+          // 模块视频（localOnly）在 processCourse 内已 await 到终态，且不发 download:progress
+          // IPC，故不纳入 waitForCourseCompletion 的等待集，只等常规任务（含 both 模式 _cloud 镜像）。
+          const localOnlySet = new Set(localOnlyTaskIds)
+          const queuedIds = taskIds.filter(t => !localOnlySet.has(t))
           const waitIds = st.downloadMode === 'both'
-            ? [...taskIds, ...taskIds.map(t => t + '_cloud')]
-            : taskIds
+            ? [...queuedIds, ...queuedIds.map(t => t + '_cloud')]
+            : queuedIds
           await waitForCourseCompletion(waitIds)
         }
         useAppStore.getState().deleteCanvasCourseData(id)
@@ -547,11 +882,13 @@ export function CanvasBrowser() {
       if (allLocalTaskIds.length > 0) {
         const progress = useAppStore.getState().progress
         const isBoth = useAppStore.getState().downloadMode === 'both'
+        const localOnlySet = new Set(allLocalOnlyTaskIds)
         let done = 0
         let failed = 0
         for (const tid of allLocalTaskIds) {
           const localSt = progress[tid]?.state
-          if (isBoth) {
+          // 模块视频（localOnly）无云盘镜像：只看本地态
+          if (isBoth && !localOnlySet.has(tid)) {
             const cloudId = tid + '_cloud'
             const cloudSt = progress[cloudId]?.state
             if (localSt === 'error' || cloudSt === 'error') failed++
@@ -598,7 +935,7 @@ export function CanvasBrowser() {
     return states.some(s => s !== 'none') ? 'some' : 'none'
   }, [filteredCourseIds, courseStates])
 
-  const categoryTriState = useCallback((cat: 'files' | 'teacher' | 'ppt'): TriState => {
+  const categoryTriState = useCallback((cat: 'files' | 'teacher' | 'ppt' | 'moduleVideo' | 'pptPdf'): TriState => {
     if (filteredCourseIds.length === 0) return 'none'
     const states = filteredCourseIds.map(id => courseStates(id)[cat])
     if (states.every(s => s === 'all')) return 'all'
@@ -662,6 +999,8 @@ export function CanvasBrowser() {
             <TopCategoryBtn label="课件" icon="file" state={categoryTriState('files')} color="violet" onClick={() => toggleAllCategory('files')} />
             <TopCategoryBtn label="视频-教师" icon="user" state={categoryTriState('teacher')} color="blue" onClick={() => toggleAllCategory('teacher')} />
             <TopCategoryBtn label="视频-PPT" icon="screen" state={categoryTriState('ppt')} color="green" onClick={() => toggleAllCategory('ppt')} />
+            <TopCategoryBtn label="PPT课件PDF" icon="file" state={categoryTriState('pptPdf')} color="green" onClick={() => toggleAllCategory('pptPdf')} />
+            <TopCategoryBtn label="单元视频" icon="screen" state={categoryTriState('moduleVideo')} color="violet" onClick={() => toggleAllCategory('moduleVideo')} />
             <div className="h-4 w-px bg-bd-strong" />
             {/* 云盘连接 */}
             {needsCloud && cloudUserToken ? (
@@ -710,10 +1049,20 @@ export function CanvasBrowser() {
               </div>
             )}
             <div className="flex-1" />
+          </div>
+          {/* 第二行：模式 + 冲突策略 + 视频质量（全部右对齐）。
+              视频质量仅对网页嵌入(HLS)类单元视频生效，未勾选单元视频时隐藏避免误导。 */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-3">
+            <div className="flex-1" />
             <ModeSegmented value={downloadMode} onChange={setDownloadMode} />
             <ConflictStrategySegmented value={fileConflictStrategy} onChange={setFileConflictStrategy} />
+            {categoryTriState('moduleVideo') !== 'none' && (
+              <HlsTranscodeSegmented value={hlsTranscodeMaxHeight} onChange={setHlsTranscodeMaxHeight} />
+            )}
           </div>
-          <div className="mt-2.5 flex flex-wrap items-center justify-end gap-3">
+          {/* 第三行：全局控制 + 开始下载（右对齐） */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-3">
+            <div className="flex-1" />
             {downloading && (
               <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
                 <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部" />
@@ -772,6 +1121,7 @@ export function CanvasBrowser() {
                 lectures={canvasLectures[c.courseId]}
                 teachers={canvasTeachers[c.courseId]}
                 selectedTeachers={canvasSelectedTeachers[c.courseId]}
+                moduleVideos={canvasModuleVideos[c.courseId]}
                 categorySelections={canvasCourseCategorySelections[c.courseId]}
                 selected={selected}
                 onToggleExpand={() => toggleCanvasExpand(c.courseId)}
@@ -780,6 +1130,7 @@ export function CanvasBrowser() {
                 onSetTeachers={t => setCanvasTeachers(c.courseId, t)}
                 onSetSelectedTeachers={t => setCanvasSelectedTeachers(c.courseId, t)}
                 onSetLtiToken={d => setCanvasLtiToken(c.courseId, d)}
+                onSetModuleVideos={v => setCanvasModuleVideos(c.courseId, v)}
                 onSetCategorySelection={sel => setCanvasCourseCategorySelection(c.courseId, sel)}
                 toggleSelect={toggleSelect}
                 toggleSelectMany={toggleSelectMany}
@@ -801,13 +1152,15 @@ interface CourseData {
   folderMap: Record<number, string>
   moduleFileIds: number[]
   syllabusFileIds: number[]
+  moduleFiles: CanvasFileItem[]
+  syllabusFiles: CanvasFileItem[]
 }
 
 const CanvasCourseCard = memo(function CanvasCourseCard({
   course, expanded, courseData, lectures, teachers, selectedTeachers,
-  categorySelections, selected,
+  moduleVideos, categorySelections, selected,
   onToggleExpand, onSetCourseData, onSetLectures, onSetTeachers, onSetSelectedTeachers, onSetLtiToken,
-  onSetCategorySelection, toggleSelect, toggleSelectMany, onToggleCourseSelect
+  onSetModuleVideos, onSetCategorySelection, toggleSelect, toggleSelectMany, onToggleCourseSelect
 }: {
   course: CanvasCourse
   expanded: boolean
@@ -815,7 +1168,12 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   lectures?: LectureGroup[]
   teachers?: CanvasTeacherSelection[]
   selectedTeachers?: string[]
-  categorySelections?: { files: boolean; teacher: boolean; ppt: boolean }
+  moduleVideos?: {
+    iframes: Array<{ moduleName: string; pageTitle: string; iframeUrl: string }>
+    extTools: Array<{ moduleItemId: number; fileId: string; title: string }>
+    extUrls: Array<{ uuid: string; title: string }>
+  }
+  categorySelections?: { files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }
   selected: Set<string>
   onToggleExpand: () => void
   onSetCourseData: (d: CourseData) => void
@@ -823,7 +1181,12 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   onSetTeachers: (t: CanvasTeacherSelection[]) => void
   onSetSelectedTeachers: (t: string[]) => void
   onSetLtiToken: (d: { token: string; canvasCourseId: string }) => void
-  onSetCategorySelection: (sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean }>) => void
+  onSetModuleVideos: (v: {
+    iframes: Array<{ moduleName: string; pageTitle: string; iframeUrl: string }>
+    extTools: Array<{ moduleItemId: number; fileId: string; title: string }>
+    extUrls: Array<{ uuid: string; title: string }>
+  }) => void
+  onSetCategorySelection: (sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }>) => void
   toggleSelect: (id: string) => void
   toggleSelectMany: (ids: string[], on: boolean) => void
   onToggleCourseSelect: () => void
@@ -833,8 +1196,13 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   const [scanningVideo, setScanningVideo] = useState(false)
 
   // 共享订阅课堂视频扫描进度
+  // [Bug Fix] 之前只在 phase==='class-video' 时置 true，从不复位 → PPT 下载等自动触发
+  // classVideoScan 的路径会让课堂视频区块转圈永远卡住（doClassVideoScan 的 finally 不在这些路径上执行）。
+  // 现在收到该课程的 'class-video-done' phase（classVideoScan 主进程补发）时复位为 false。
   useCanvasScanProgress(course.courseId, (p) => {
-    if (p.courseId === course.courseId && p.phase === 'class-video') setScanningVideo(true)
+    if (p.courseId !== course.courseId) return
+    if (p.phase === 'class-video') setScanningVideo(true)
+    else if (p.phase === 'class-video-done') setScanningVideo(false)
   })
 
   // ── 扫描数据首次到达后，按分类意图落地到 selected（仅一次） ──
@@ -842,18 +1210,20 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   // 且意图为 true 时，把这些任务加入 selected。用 ref 记录已落地过的分类签名，
   // 避免重复 add，也避免用户手动取消个别后被 effect 再补回。
   // 意图为 false 时不 add；意图从 false→true 的切换由点击 handler 直接落地。
-  const landedRef = useRef<{ files: boolean; teacher: boolean; ppt: boolean }>({
-    files: false, teacher: false, ppt: false
+  const landedRef = useRef<{ files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }>({
+    files: false, teacher: false, ppt: false, moduleVideo: false, pptPdf: false
   })
   useEffect(() => {
     const catSel = categorySelections
     if (!catSel) return
     const idsToAdd: string[] = []
-    // 课件：首次有文件且意图 true → 落地
-    if (!landedRef.current.files && courseData && courseData.files.length > 0) {
+    // 课件：首次有文件且意图 true → 落地（含模块/大纲补漏）
+    if (!landedRef.current.files && courseData && courseData.files.length + courseData.moduleFiles.length + courseData.syllabusFiles.length > 0) {
       landedRef.current.files = true
       if (catSel.files) {
         for (const f of courseData.files) idsToAdd.push(fileTaskId(course.courseId, f.fileId))
+        for (const f of courseData.moduleFiles) idsToAdd.push(fileTaskId(course.courseId, f.fileId))
+        for (const f of courseData.syllabusFiles) idsToAdd.push(fileTaskId(course.courseId, f.fileId))
       }
     }
     // 课堂视频：首次有讲次且意图 true → 落地 teacher/ppt
@@ -866,8 +1236,17 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
         if (catSel.ppt) idsToAdd.push(lectureStreamTaskId(course.courseId, l.lectureNum, 'ppt'))
       }
     }
+    // 模块视频：首次有列表且意图 true → 落地（三类来源）
+    if (!landedRef.current.moduleVideo && moduleVideos && (moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length) > 0) {
+      landedRef.current.moduleVideo = true
+      if (catSel.moduleVideo) {
+        for (const t of moduleVideos.iframes) idsToAdd.push(iframeVideoTaskId(course.courseId, t.pageTitle))
+        for (const t of moduleVideos.extTools) idsToAdd.push(extToolVideoTaskId(course.courseId, t.fileId))
+        for (const t of moduleVideos.extUrls) idsToAdd.push(extUrlVideoTaskId(course.courseId, t.uuid))
+      }
+    }
     if (idsToAdd.length > 0) toggleSelectMany(idsToAdd, true)
-  }, [courseData, lectures, categorySelections, course.courseId, toggleSelectMany])
+  }, [courseData, lectures, moduleVideos, categorySelections, course.courseId, toggleSelectMany])
 
   // 展开时自动扫描文件
   const scannedRef = useRef(false)
@@ -882,7 +1261,7 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
     try {
       const r = await window.api.canvas.scanCourse(course.courseId)
       if (r.ok && r.files) {
-        onSetCourseData({ files: r.files, folderMap: r.folderMap ?? {}, moduleFileIds: r.moduleFileIds ?? [], syllabusFileIds: r.syllabusFileIds ?? [] })
+        onSetCourseData(buildCourseData(r))
       }
     } catch { /* ignore */ }
     setScanning(false); setScanPhase('')
@@ -903,23 +1282,57 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
     setScanningVideo(false)
   }
 
+  const [scanningModuleVideo, setScanningModuleVideo] = useState(false)
+  const doModuleVideoScan = async (): Promise<void> => {
+    setScanningModuleVideo(true)
+    try {
+      const r = await window.api.canvas.moduleVideoScan(course.courseId)
+      if (r.ok) onSetModuleVideos({ iframes: r.tasks ?? [], extTools: r.extTools ?? [], extUrls: r.extUrls ?? [] })
+    } catch { /* ignore */ }
+    setScanningModuleVideo(false)
+  }
+
   // 本课程的所有可选 ID
   const courseIds = useMemo(() => {
     const ids: string[] = []
-    if (courseData) for (const f of courseData.files) ids.push(fileTaskId(course.courseId, f.fileId))
+    if (courseData) {
+      for (const f of courseData.files) ids.push(fileTaskId(course.courseId, f.fileId))
+      for (const f of courseData.moduleFiles) ids.push(fileTaskId(course.courseId, f.fileId))
+      for (const f of courseData.syllabusFiles) ids.push(fileTaskId(course.courseId, f.fileId))
+    }
     if (lectures) for (const l of lectures) {
       if (l.teacher) {
         ids.push(lectureStreamTaskId(course.courseId, l.lectureNum, 'teacher'))
         ids.push(lectureStreamTaskId(course.courseId, l.lectureNum, 'ppt'))
       }
     }
+    if (moduleVideos) {
+      for (const t of moduleVideos.iframes) ids.push(iframeVideoTaskId(course.courseId, t.pageTitle))
+      for (const t of moduleVideos.extTools) ids.push(extToolVideoTaskId(course.courseId, t.fileId))
+      for (const t of moduleVideos.extUrls) ids.push(extUrlVideoTaskId(course.courseId, t.uuid))
+    }
     return ids
-  }, [course.courseId, courseData, lectures])
+  }, [course.courseId, courseData, lectures, moduleVideos])
   const selCount = courseIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
+
+  // [Bug Fix] 下载完成后 deleteCanvasCourseData 清掉扫描数据 → courseIds 变空 → 进度条消失。
+  // 回退用 store 里该课程已提交的 taskIds（processCourse 写入，不被 delete 清），让进度条继续显示。
+  // 注意 selector 必须返回稳定引用：?? [] 每次新建数组会让 zustand 判定 state 变化 → 无限重渲染 → 白屏。
+  // 用模块级 EMPTY_TASK_IDS 常量兜底，命中时返回同一引用。
+  const committedTaskIds = useAppStore(s => s.canvasCourseTaskIds[course.courseId] ?? EMPTY_TASK_IDS)
+  const progressIds = courseIds.length > 0 ? courseIds : committedTaskIds
 
   const catSel = categorySelections
 
-  const fileIds = useMemo(() => courseData?.files.map(f => fileTaskId(course.courseId, f.fileId)) ?? [], [course.courseId, courseData])
+  // 课件分类 = 常规文件 + 模块补漏 + 大纲补漏
+  const fileIds = useMemo(() => {
+    if (!courseData) return []
+    return [
+      ...courseData.files.map(f => fileTaskId(course.courseId, f.fileId)),
+      ...courseData.moduleFiles.map(f => fileTaskId(course.courseId, f.fileId)),
+      ...courseData.syllabusFiles.map(f => fileTaskId(course.courseId, f.fileId))
+    ]
+  }, [course.courseId, courseData])
   const fileSel = fileIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
 
   const teacherIds = useMemo(() => {
@@ -933,11 +1346,23 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   const teacherSel = teacherIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
   const pptSel = pptIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
 
+  const moduleVideoIds = useMemo(() => {
+    if (!moduleVideos) return []
+    return [
+      ...moduleVideos.iframes.map(t => iframeVideoTaskId(course.courseId, t.pageTitle)),
+      ...moduleVideos.extTools.map(t => extToolVideoTaskId(course.courseId, t.fileId)),
+      ...moduleVideos.extUrls.map(t => extUrlVideoTaskId(course.courseId, t.uuid))
+    ]
+  }, [course.courseId, moduleVideos])
+  const moduleVideoSel = moduleVideoIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
+
   // ── 三态：纯派生自 selected 聚合 + 未解析意图，不再依赖 courseSelected ──
   const filesTriState: TriState = catStateOf(fileIds, selected, catSel?.files)
   const teacherTriState: TriState = catStateOf(teacherIds, selected, catSel?.teacher)
   const pptTriState: TriState = catStateOf(pptIds, selected, catSel?.ppt)
-  const courseTriState: TriState = aggCourseState(filesTriState, teacherTriState, pptTriState)
+  const moduleVideoTriState: TriState = catStateOf(moduleVideoIds, selected, catSel?.moduleVideo)
+  // PPT课件（pptPdf）并入课程级态：四分类全 all + pptPdf 选中 → all，否则按 combinePptPdf
+  const courseTriState: TriState = combinePptPdf(aggCourseState(filesTriState, teacherTriState, pptTriState, moduleVideoTriState), catSel?.pptPdf)
 
   // ── 回调：点分类只动该分类，绝不联动整课 ──
   const onToggleFiles = useCallback(() => {
@@ -956,13 +1381,18 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
     onSetCategorySelection({ ppt: newOn })
     if (pptIds.length > 0) toggleSelectMany(pptIds, newOn)
   }, [pptIds, pptTriState, onSetCategorySelection, toggleSelectMany])
+  const onToggleModuleVideo = useCallback(() => {
+    const newOn = moduleVideoTriState !== 'all'
+    onSetCategorySelection({ moduleVideo: newOn })
+    if (moduleVideoIds.length > 0) toggleSelectMany(moduleVideoIds, newOn)
+  }, [moduleVideoIds, moduleVideoTriState, onSetCategorySelection, toggleSelectMany])
 
   // PERF: subscribe to progress stats from store with encoding trick,
   // avoiding the entire progress map as a prop (which defeats memo every 2s tick).
   // Encodes done/dl/err counts into a single number for stable selector return.
   const progressStats = useAppStore(s => {
     let done = 0, dl = 0, err = 0
-    for (const id of courseIds) {
+    for (const id of progressIds) {
       const st = s.progress[id]?.state
       if (st === 'done' || st === 'skipped') done++
       else if (st === 'downloading' || st === 'pending') dl++
@@ -974,7 +1404,7 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   const dlCount = Math.floor(progressStats / 1000) % 1000
   const errCount = progressStats % 1000
 
-  const totalFiles = courseData ? courseData.files.length + courseData.moduleFileIds.length + courseData.syllabusFileIds.length : 0
+  const totalFiles = courseData ? courseData.files.length + courseData.moduleFiles.length + courseData.syllabusFiles.length : 0
 
   return (
     <section className="overflow-hidden rounded-2xl border border-bd bg-surface-3 shadow-card transition-shadow hover:shadow-card-hover">
@@ -999,19 +1429,25 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
             <Spinner size={12} /> {scanPhase === 'files' ? '扫描文件…' : scanPhase === 'modules' ? '扫描模块…' : scanPhase === 'syllabus' ? '扫描大纲…' : '扫描中…'}
           </span>
         )}
-        {/* 分类复选框：课件 | 教师 | PPT */}
+        {/* 分类复选框：课件 | 视频-教师 | 视频-PPT | PPT课件PDF | 单元视频 */}
         <div className="flex shrink-0 items-center gap-2" onClick={e => e.stopPropagation()}>
           <CategoryCheckBtn label="课件" state={filesTriState} color="violet" onClick={onToggleFiles} />
           <CategoryCheckBtn label="视频-教师" state={teacherTriState} color="blue" onClick={onToggleTeacher} />
           <CategoryCheckBtn label="视频-PPT" state={pptTriState} color="green" onClick={onTogglePpt} />
+          <CategoryCheckBtn label="PPT课件PDF" state={catSel?.pptPdf ? 'all' : 'none'} color="green" onClick={() => onSetCategorySelection({ pptPdf: !catSel?.pptPdf })} />
+          <CategoryCheckBtn label="单元视频" state={moduleVideoTriState} color="violet" onClick={onToggleModuleVideo} />
         </div>
         <div className="flex shrink-0 items-center gap-2 text-xs text-text-3">
-          <span>{courseIds.length > 0 ? <>{lectures?.length ?? 0} 讲 · 已选 <span className="font-medium text-text-1">{selCount}</span> / {courseIds.length}</> : courseData ? `${totalFiles} 个文件` : ''}</span>
+          {/* 扫描数据在时显示讲次/已选；被清（下载完成释放内存）但有已提交任务时回退显示完成统计 */}
+          <span>{courseIds.length > 0
+            ? <>{lectures?.length ?? 0} 讲 · 已选 <span className="font-medium text-text-1">{selCount}</span> / {courseIds.length}</>
+            : courseData ? `${totalFiles} 个文件`
+            : committedTaskIds.length > 0 ? <>已完成 <span className="font-medium text-success">{doneCount}</span> / {committedTaskIds.length}</> : ''}</span>
         </div>
       </header>
 
       {/* 进度条 */}
-      <CourseProgressSummary done={doneCount} downloading={dlCount} errors={errCount} total={courseIds.length} />
+      <CourseProgressSummary done={doneCount} downloading={dlCount} errors={errCount} total={progressIds.length} />
 
       {expanded && (
         <div className="animate-fadeIn origin-top border-t border-bd">
@@ -1020,19 +1456,31 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
           )}
 
           {/* 课件文件 */}
-          {courseData && courseData.files.length > 0 && (
+          {courseData && totalFiles > 0 && (
             <div className="px-5 py-4">
               <div className="mb-2 text-sm font-medium text-text-1">
                 课件文件 ({courseData.files.length}
-                {courseData.moduleFileIds.length > 0 && <span className="text-text-3"> + {courseData.moduleFileIds.length} 模块补漏</span>}
-                {courseData.syllabusFileIds.length > 0 && <span className="text-text-3"> + {courseData.syllabusFileIds.length} 大纲嵌入</span>})
+                {courseData.moduleFiles.length > 0 && <span className="text-text-3"> + {courseData.moduleFiles.length} 模块</span>}
+                {courseData.syllabusFiles.length > 0 && <span className="text-text-3"> + {courseData.syllabusFiles.length} 大纲</span>})
               </div>
               <ul className="divide-y divide-bd">
                 {courseData.files.map(f => (
                   <FileRow key={f.fileId} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
                 ))}
-                {courseData.files.length > 20 && (
-                  <li className="py-1.5 text-center text-xs text-accent">共 {courseData.files.length} 个文件</li>
+                {courseData.moduleFiles.length > 0 && (
+                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">模块文件</li>
+                )}
+                {courseData.moduleFiles.map(f => (
+                  <FileRow key={`m_${f.fileId}`} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
+                ))}
+                {courseData.syllabusFiles.length > 0 && (
+                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">大纲嵌入</li>
+                )}
+                {courseData.syllabusFiles.map(f => (
+                  <FileRow key={`s_${f.fileId}`} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
+                ))}
+                {totalFiles > 20 && (
+                  <li className="py-1.5 text-center text-xs text-accent">共 {totalFiles} 个文件</li>
                 )}
               </ul>
             </div>
@@ -1044,10 +1492,12 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
               <div className="text-sm font-medium text-text-1">
                 课堂视频{lectures && <span className="ml-2 text-text-3">({lectures.length} 讲)</span>}
               </div>
-              {!lectures && !scanningVideo && (
-                <button type="button" onClick={() => void doClassVideoScan()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-bd-strong bg-surface-3 px-3 text-xs text-text-2 transition-all hover:border-info-ring hover:text-info">扫描课堂视频</button>
-              )}
-              {scanningVideo && <Spinner size={12} />}
+              <div className="flex items-center gap-2">
+                {!lectures && !scanningVideo && (
+                  <button type="button" onClick={() => void doClassVideoScan()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-bd-strong bg-surface-3 px-3 text-xs text-text-2 transition-all hover:border-info-ring hover:text-info">扫描课堂视频</button>
+                )}
+                {scanningVideo && <Spinner size={12} />}
+              </div>
             </div>
             {lectures && lectures.length > 0 && (
               <ul className="divide-y divide-bd">
@@ -1058,6 +1508,55 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
             )}
             {lectures && lectures.length === 0 && !scanningVideo && (
               <div className="py-3 text-center text-xs text-text-4">该课程未发现课堂视频</div>
+            )}
+          </div>
+
+          {/* PPT 课件（PDF）—— 选了 pptPdf 分类时显示，进度条由 canvas:ppt-progress 驱动 */}
+          {catSel?.pptPdf && (
+            <div className="border-t border-bd px-5 py-4">
+              <div className="mb-2 text-sm font-medium text-text-1">
+                PPT课件（PDF）
+                {lectures && <span className="ml-2 text-text-3">({lectures.filter(l => l.teacher).length} 讲)</span>}
+              </div>
+              <PptPdfProgressRow courseId={course.courseId} />
+            </div>
+          )}
+
+          {/* 单元视频（来自浏览器「单元」tab，三类来源：Page iframe HLS / ExternalTool 直接MP4 / ExternalUrl 直接MP4） */}
+          <div className="border-t border-bd px-5 py-4">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-medium text-text-1">
+                单元视频{moduleVideos && <span className="ml-2 text-text-3">({moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length} 个)</span>}
+              </div>
+              {!moduleVideos && !scanningModuleVideo && (
+                <button type="button" onClick={() => void doModuleVideoScan()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-bd-strong bg-surface-3 px-3 text-xs text-text-2 transition-all hover:border-info-ring hover:text-info">扫描单元视频</button>
+              )}
+              {scanningModuleVideo && <Spinner size={12} />}
+            </div>
+            {moduleVideos && (moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length) > 0 && (
+              <ul className="divide-y divide-bd">
+                {moduleVideos.iframes.length > 0 && (
+                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">网页嵌入视频（HLS）</li>
+                )}
+                {moduleVideos.iframes.map(t => (
+                  <ModuleVideoRow key={`if_${t.iframeUrl}`} title={t.pageTitle} subTitle={t.moduleName} taskId={iframeVideoTaskId(course.courseId, t.pageTitle)} selected={selected} onToggle={toggleSelect} />
+                ))}
+                {moduleVideos.extTools.length > 0 && (
+                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">v.sjtu 嵌入视频</li>
+                )}
+                {moduleVideos.extTools.map(t => (
+                  <ModuleVideoRow key={`et_${t.fileId}`} title={t.title} taskId={extToolVideoTaskId(course.courseId, t.fileId)} selected={selected} onToggle={toggleSelect} />
+                ))}
+                {moduleVideos.extUrls.length > 0 && (
+                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">vshare 嵌入视频</li>
+                )}
+                {moduleVideos.extUrls.map(t => (
+                  <ModuleVideoRow key={`eu_${t.uuid}`} title={t.title} taskId={extUrlVideoTaskId(course.courseId, t.uuid)} selected={selected} onToggle={toggleSelect} />
+                ))}
+              </ul>
+            )}
+            {moduleVideos && (moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length) === 0 && !scanningModuleVideo && (
+              <div className="py-3 text-center text-xs text-text-4">该课程未发现单元视频</div>
             )}
           </div>
         </div>
@@ -1094,6 +1593,38 @@ const FileRow = memo(function FileRow({ courseId, file, folderMap, selected, onT
 })
 
 // ─── 讲次行（教师 + PPT 两路） ──────────────────────────────
+
+const ModuleVideoRow = memo(function ModuleVideoRow({ title, subTitle, taskId, selected, onToggle }: {
+  title: string; subTitle?: string; taskId: string; selected: Set<string>; onToggle: (id: string) => void
+}) {
+  const isOn = selected.has(taskId)
+  const p = useEffectiveProgress(taskId)
+  // iframe HLS（canvas_mvid_）不可中断/暂停，不显示控制按钮；exttool/exturl 走主队列可控
+  const controllable = !taskId.startsWith('canvas_mvid_')
+  return (
+    <li className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-2">
+      <button type="button" onClick={() => onToggle(taskId)} className="shrink-0">
+        <SmallCheck on={isOn} />
+      </button>
+      <svg className="h-3.5 w-3.5 shrink-0 text-text-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
+      <span className="min-w-0 flex-1 truncate text-xs text-text-2">
+        {subTitle && <span className="text-text-4">{subTitle}/</span>}
+        {title}
+      </span>
+      <div className="min-w-[5rem] flex-1 shrink-0">
+        {p ? <ProgressBar p={p} /> : <div className="h-2 rounded-full bg-surface-3" />}
+      </div>
+      {controllable && p && (
+        <TaskCtrlButtons
+          state={p.state}
+          onPause={() => window.api.download.pause(taskId).catch(() => undefined)}
+          onCancel={() => window.api.download.cancel(taskId).catch(() => undefined)}
+          onResume={() => window.api.download.resume(taskId).catch(() => undefined)}
+        />
+      )}
+    </li>
+  )
+})
 
 const LectureRow = memo(function LectureRow({ courseId, lecture, selected, onToggle }: {
   courseId: number; lecture: LectureGroup; selected: Set<string>; onToggle: (id: string) => void
@@ -1142,6 +1673,39 @@ const VideoStreamCell = memo(function VideoStreamCell({ label, taskId, session, 
           onResume={() => window.api.download.resume(taskId).catch(() => undefined)}
         />
       )}
+    </div>
+  )
+})
+
+// ─── PPT 课件聚合进度行（讲次级 X/Y，不走 ProgressBar 的字节显示） ────
+
+/** PPT 课件 PDF 的课程级聚合进度：current/total 为讲次级（X/Y 讲），
+ *  单讲内的图片下载进度折进 message。进度由 canvas:ppt-progress → applyProgress 写入。 */
+const PptPdfProgressRow = memo(function PptPdfProgressRow({ courseId }: { courseId: number }) {
+  const tid = `canvas_ppt_pdf_${courseId}`
+  const p = useEffectiveProgress(tid)
+  if (!p) {
+    return <div className="py-1.5 text-xs text-text-4">已选择，点击「开始下载」生成 PPT 课件 PDF</div>
+  }
+  const isDone = p.state === 'done' || p.state === 'skipped'
+  const isErr = p.state === 'error'
+  const isDl = p.state === 'downloading' || p.state === 'pending'
+  const pct = p.total > 0 ? Math.round((p.received / p.total) * 100) : (isDone ? 100 : 0)
+  const barWidth = isDl ? Math.max(pct, 3) : pct
+  const fill = isErr ? 'bg-warning'
+    : isDone ? 'bg-success'
+    : 'bg-gradient-to-r from-accent to-accent-light'
+  const text = isErr ? (p.message || '失败')
+    : isDone ? (p.message || '完成')
+    : isDl ? (p.total > 0 ? `${p.received}/${p.total} 讲` : '下载中…') + (p.message ? ` · ${p.message}` : '')
+    : '等待中'
+  const textColor = isErr ? 'text-warning' : isDone ? 'text-success' : 'text-text-2'
+  return (
+    <div className="space-y-1.5">
+      <div className="relative h-2 overflow-hidden rounded-full bg-surface-2">
+        <div className={`h-full rounded-full transition-[width] duration-300 ${fill}`} style={{ width: `${barWidth}%` }} />
+      </div>
+      <div className={`truncate text-xs tabular-nums ${textColor}`} title={text}>{text}</div>
     </div>
   )
 })
