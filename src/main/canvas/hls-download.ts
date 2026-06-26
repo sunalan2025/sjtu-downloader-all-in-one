@@ -15,6 +15,16 @@ import type Electron from 'electron'
 /** 跟踪所有活跃的 ffmpeg 子进程，退出时 kill 防止残留 */
 const activeFfmpegProcesses = new Set<ChildProcess>()
 
+/** ffmpeg 可执行路径。
+ *  优先用 ffmpeg-static 内置二进制（npm install 时按宿主平台下载到
+ *  node_modules/ffmpeg-static/ffmpeg(.exe)）；externalizeDepsPlugin 外置该依赖，
+ *  打包后 electron-builder 复制进 app.asar/node_modules，并经 build.asarUnpack 解包到
+ *  app.asar.unpacked/ 使 native 二进制可被执行（asar 内无法 exec）。
+ *  缺失时（未安装/平台不支持/文件损坏）回退 'ffmpeg' 走系统 PATH，保留旧行为。 */
+let bundledFfmpegPath = ''
+try { bundledFfmpegPath = require('ffmpeg-static') as string } catch { /* 未安装，走系统 ffmpeg 兜底 */ }
+const FFMPEG_PATH = (bundledFfmpegPath && existsSync(bundledFfmpegPath)) ? bundledFfmpegPath : 'ffmpeg'
+
 /** 退出时杀死所有 ffmpeg 子进程 */
 export function killAllFfmpeg(): void {
   for (const proc of activeFfmpegProcesses) {
@@ -31,10 +41,11 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 const hlsKeepAliveAgent = new HttpsAgent({ keepAlive: true, maxSockets: 5 })
 
 export interface HlsProgress {
-  phase: 'capturing' | 'downloading' | 'remuxing'
+  phase: 'capturing' | 'downloading' | 'remuxing' | 'transcoding' | 'uploading'
   segmentsDone: number
   segmentsTotal: number
   bytesWritten: number
+  /** uploading/transcoding 阶段的附加说明（如 "正在重编码为 720p…"） */
   message?: string
 }
 
@@ -325,29 +336,98 @@ function fetchSegment(url: string, maxRetries = 3): Promise<Buffer> {
 // ─── ffmpeg remux ────────────────────────────────────────────
 
 /** 无损 remux .ts → .mp4（只换容器，不重编码）。
- *  成功删除 .ts 返回 true；失败保留 .ts 返回 false。 */
+ *  成功删除 .ts 返回 true；失败保留 .ts 返回 false。
+ *  [Bug Fix] windowsHide:true：Electron 主进程是 GUI 子系统无控制台，Windows 下 spawn
+ *  控制台程序若不隐藏会尝试分配新控制台，在杀软/AppContainer/权限策略下报 EPERM，
+ *  表现为 remux 卡住、downloadModuleVideoNow 返回 "spawn EPERM"。 */
 export async function remuxTsToMp4(tsPath: string, mp4Path: string): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    const proc = execFile('ffmpeg', [
-      '-y', '-loglevel', 'error',
-      '-i', tsPath,
-      '-c', 'copy',
-      '-bsf:a', 'aac_adtstoasc',
-      '-movflags', '+faststart',
-      mp4Path
-    ], { timeout: 600_000 }, (err) => {
-      activeFfmpegProcesses.delete(proc)
-      if (err) {
-        // ffmpeg 不在 PATH 或转换失败
-        try { unlinkSync(mp4Path) } catch { /* ignore */ }
-        resolve(false)
-      } else {
-        // 成功，删 .ts
-        try { unlinkSync(tsPath) } catch { /* ignore */ }
-        resolve(true)
-      }
-    })
-    activeFfmpegProcesses.add(proc)
+    let proc: ChildProcess | null = null
+    try {
+      proc = execFile(FFMPEG_PATH, [
+        '-y', '-loglevel', 'error',
+        '-i', tsPath,
+        '-c', 'copy',
+        '-bsf:a', 'aac_adtstoasc',
+        '-movflags', '+faststart',
+        mp4Path
+      ], { timeout: 600_000, windowsHide: true }, (err) => {
+        activeFfmpegProcesses.delete(proc!)
+        if (err) {
+          // 内置/系统 ffmpeg 缺失或失败：保留 .ts，返回 false 让上层 fallback 到 .ts 格式
+          console.warn(`[hls:remux] ffmpeg 失败: ${(err as NodeJS.ErrnoException).code || ''} ${err.message}`)
+          try { unlinkSync(mp4Path) } catch { /* ignore */ }
+          resolve(false)
+        } else {
+          // 成功，删 .ts
+          try { unlinkSync(tsPath) } catch { /* ignore */ }
+          resolve(true)
+        }
+      })
+    } catch (err) {
+      // execFile 同步抛出（如 EPERM 未进 callback 的边界情况）
+      console.warn(`[hls:remux] execFile 同步抛出: ${err instanceof Error ? err.message : String(err)}`)
+      resolve(false)
+    }
+    if (proc) activeFfmpegProcesses.add(proc)
+  })
+}
+
+// ─── 视频重编码（缩放 + 标准 GOP 结构） ──────────────────────
+
+/** 重编码 mp4：缩放到目标高度（保持纵横比），使用标准 GOP 结构替换 I-frame-only。
+ *  超高分辨率 + I-frame-only 的 HLS 源在系统播放器中会花屏/卡死，
+ *  此函数通过重编码让文件在任何播放器中都能正常播放。
+ *  源视频高度 <= maxHeight 时跳过缩放但仍重建 GOP（-c:v libx264）。
+ *  成功覆盖原 mp4 并返回 true；失败保留原文件返回 false。 */
+export async function transcodeVideo(
+  srcPath: string,
+  dstPath: string,
+  maxHeight: number,
+  onProgress?: (p: HlsProgress) => void
+): Promise<boolean> {
+  onProgress?.({
+    phase: 'transcoding', segmentsDone: 0, segmentsTotal: 0,
+    bytesWritten: 0, message: `正在重编码为 ${maxHeight}p…（可能需要较长时间）`
+  })
+
+  // scale=-2:maxHeight：宽度自动等比缩放，-2 保证 mod2 对齐
+  // 若源高度 <= maxHeight 则跳过缩放只重建 GOP
+  const filter = `scale=-2:${maxHeight}`
+
+  return new Promise<boolean>((resolve) => {
+    let proc: ChildProcess | null = null
+    try {
+      proc = execFile(FFMPEG_PATH, [
+        '-y', '-loglevel', 'warning', '-stats',
+        '-i', srcPath,
+        '-vf', filter,
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '23',
+        '-c:a', 'copy',
+        '-movflags', '+faststart',
+        dstPath
+      ], { timeout: 3600_000, windowsHide: true }, (err) => {
+        activeFfmpegProcesses.delete(proc!)
+        if (err) {
+          console.warn(`[hls:transcode] ffmpeg 失败: ${(err as NodeJS.ErrnoException).code || ''} ${err.message}`)
+          try { unlinkSync(dstPath) } catch { /* ignore */ }
+          resolve(false)
+        } else {
+          // 成功：用新文件覆盖原文件
+          try {
+            unlinkSync(srcPath)
+            renameSync(dstPath, srcPath)
+          } catch { /* ignore */ }
+          resolve(true)
+        }
+      })
+    } catch (err) {
+      console.warn(`[hls:transcode] execFile 同步抛出: ${err instanceof Error ? err.message : String(err)}`)
+      resolve(false)
+    }
+    if (proc) activeFfmpegProcesses.add(proc)
   })
 }
 
@@ -358,7 +438,8 @@ export async function downloadModuleVideo(
   iframeUrl: string,
   destDir: string,
   baseName: string,
-  onProgress?: (p: HlsProgress) => void
+  onProgress?: (p: HlsProgress) => void,
+  transcodeMaxHeight?: number
 ): Promise<{ path: string; format: 'mp4' | 'ts' }> {
   const mp4Path = join(destDir, `${baseName}.mp4`)
   const tsPath = join(destDir, `${baseName}.ts`)
@@ -387,6 +468,14 @@ export async function downloadModuleVideo(
   // remux
   onProgress?.({ phase: 'remuxing', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0, message: '正在转换为 mp4…' })
   if (await remuxTsToMp4(tsPath, mp4Path)) {
+    // remux 成功后可选重编码（缩放 + 标准 GOP 结构）
+    if (transcodeMaxHeight) {
+      const tmpOut = mp4Path + '.transcode.mp4'
+      const ok = await transcodeVideo(mp4Path, tmpOut, transcodeMaxHeight, onProgress)
+      if (ok) return { path: mp4Path, format: 'mp4' }
+      // 重编码失败（保留原始 remux 文件）
+      console.warn(`[hls:download] 重编码失败，保留原始 remux 文件`)
+    }
     return { path: mp4Path, format: 'mp4' }
   }
   return { path: tsPath, format: 'ts' }

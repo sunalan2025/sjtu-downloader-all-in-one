@@ -20,6 +20,7 @@ import {
   V_SJTU_API_BASE,
   V_SJTU_ORIGIN,
   CANVAS_BASE_URL,
+  CNMOOC_BASE_URL,
   type DownloadMode,
   type FileConflictStrategy,
   type DownloadProgress,
@@ -51,12 +52,18 @@ import {
   notifyConcurrencySlotAvailable
 } from './canvas/orchestrator'
 import { killAllFfmpeg } from './canvas/hls-download'
-import { getVodChannelsCached, clearVodChannelsCache } from './canvas/video-tokens'
+import { getVodChannelsCached, clearVodChannelsCache, clearExtToolTokenCache, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from './canvas/video-tokens'
 import {
   fetchFileMeta,
   sanitizeFsName
 } from './canvas/api'
 import type { CanvasDownloadTaskSpec } from '../shared/types'
+import {
+  registerCnmoocHandlers,
+  setCnmoocSession,
+  setCnmoocEmitter
+} from './cnmooc/orchestrator'
+import { fetchCnmoocResourceUrl, inferCnmoocExt } from './cnmooc/api'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -65,41 +72,28 @@ let isQuitting = false
  *  只放在内存里，进程退出即丢；下次启动需要重新登录拿。 */
 let jwtToken: string | null = null
 
-/** 当前已登录 jAccount 账号名（显示用）。由 getAuthInfo 登录成功时写入；
+/** 当前已登录用户的显示名和学号。由 getAuthInfo 登录成功时写入；
  *  登出/未登录时置 null。供托盘右键菜单、auth:status 读取。 */
 let accountName: string | null = null
+let studentId: string | null = null
 
-/** 从 /cloud-rbac/authority/me 的 result 或 jwt payload 中防御式抽取账号名。
- *  SJTU 各接口字段名不统一，按优先级尝试多个常见键；result 为字符串时直接用。 */
-function pickAccountName(result: unknown): string | undefined {
-  if (typeof result === 'string' && result.trim()) return result.trim()
+/** 从 /cloud-rbac/authority/me 的 result 中取用户显示名和学号。
+ *  API 结构: { result: { user: { name: "真实姓名", username: "学号", code: "学号" } } } */
+function pickAccountInfo(result: unknown): { name?: string; studentId?: string } {
   if (result && typeof result === 'object') {
     const r = result as Record<string, unknown>
-    const keys = ['loginName', 'login', 'account', 'userName', 'username', 'name', 'nickName', 'realName', 'displayName', 'login_name']
-    for (const k of keys) {
-      const v = r[k]
-      if (typeof v === 'string' && v.trim()) return v.trim()
+    if (r.user && typeof r.user === 'object') {
+      const u = r.user as Record<string, unknown>
+      const name = typeof u.name === 'string' && u.name.trim() ? u.name.trim() : undefined
+      const studentId = typeof u.username === 'string' && u.username.trim() ? u.username.trim()
+        : typeof u.code === 'string' && u.code.trim() ? u.code.trim() : undefined
+      return { name, studentId }
     }
   }
-  return undefined
+  return {}
 }
 
-/** 兜底：解码 jwtToken 的 payload，从 claims 里取账号名。 */
-function accountNameFromJwt(): string | undefined {
-  if (!jwtToken || jwtToken.length < 20) return undefined
-  try {
-    const parts = jwtToken.split('.')
-    if (parts.length < 2) return undefined
-    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-    const json = JSON.parse(Buffer.from(payload, 'base64').toString('utf8')) as Record<string, unknown>
-    const keys = ['login_name', 'loginName', 'account', 'username', 'userName', 'name', 'sub']
-    for (const k of keys) {
-      const v = json[k]
-      if (typeof v === 'string' && v.trim()) return v.trim()
-    }
-  } catch { /* ignore */ }
-  return undefined
-}
+
 
 /** 应用窗口图标路径。dev 下从项目 build/icons 解析；打包后从 extraResources(icons) 解析。
  *  PNG 跨平台可用；Windows 打包后任务栏图标取自 exe (win.icon)，此处主要用于
@@ -218,7 +212,7 @@ function createTray(): void {
   tray.on('right-click', () => {
     if (!tray) return
     const menu = Menu.buildFromTemplate([
-      { label: `账号：${accountName ?? '未登录'}`, enabled: false },
+      { label: `账号：${accountName ?? '未登录'}${studentId ? ` (${studentId})` : ''}`, enabled: false },
       { label: `↓ ${formatBytes(speedDownEma)}/s   ↑ ${formatBytes(speedUpEma)}/s`, enabled: false },
       { type: 'separator' },
       { label: '显示主窗口', click: () => showMainWindow() },
@@ -249,8 +243,8 @@ async function clearSjtuSession(): Promise<void> {
 /** 登录判定：先看 sjtu cookie，再用 jwt 敲 /authority/me 验真。
  *  cloud-rbac 单接受 cookie 即可，但拿到 jwt 才能调 resmgr 系列。
  *  PERF: cache auth result for 5 minutes to skip network round-trip on fast restarts.
- *  同时从 /authority/me 的 result（或 jwt payload 兜底）抽取账号名供 UI/托盘显示。 */
-interface AuthInfo { loggedIn: boolean; accountName?: string }
+ *  同时从 /authority/me 的 result.user 中抽取真实姓名和学号供 UI/托盘显示。 */
+interface AuthInfo { loggedIn: boolean; accountName?: string; studentId?: string }
 let _authCache: { result: AuthInfo; ts: number } | null = null
 async function getAuthInfo(): Promise<AuthInfo> {
   if (_authCache && Date.now() - _authCache.ts < 300_000) return _authCache.result
@@ -271,8 +265,8 @@ async function getAuthInfo(): Promise<AuthInfo> {
     }
     const json = JSON.parse(text) as { code?: string; result?: unknown }
     const ok = json?.code === '0'
-    const name = ok ? (pickAccountName(json?.result) ?? accountNameFromJwt()) : undefined
-    _authCache = { result: { loggedIn: ok, accountName: name }, ts: Date.now() }
+    const info = ok ? pickAccountInfo(json?.result) : {}
+    _authCache = { result: { loggedIn: ok, accountName: info.name, studentId: info.studentId }, ts: Date.now() }
     return _authCache.result
   } catch {
     _authCache = { result: { loggedIn: false }, ts: Date.now() }
@@ -379,6 +373,18 @@ const canvasCookiesByTask = new Map<string, string>()
 /** Canvas HTML 站点主机名（oc.sjtu.edu.cn）。Cookie/Referer 只注入给这一跳；
  *  跟随 302 到 s3.jcloud 预签名直链时不带 Canvas cookie（签名直链自包含，无需 cookie）。 */
 const CANVAS_HOST = new URL(CANVAS_BASE_URL).hostname
+
+/** 好大学在线 (cnmooc.sjtu.cn) 文件下载所需的会话 cookie 头：taskId → "name=val; ..."。
+ *  resolveDirectUrl 的 'cnmooc' 分支下载前从 sjtuSession 取 cookie 写入；downloadStream /
+ *  cloudDownloadAndUpload 发 node:https 请求时仅对 cnmooc 域注入（视频 CDN 直链自包含，无需 cookie）。
+ *  任务完成由 scheduleCleanupTask 清理。 */
+const cnmoocCookiesByTask = new Map<string, string>()
+
+/** cnmooc 会话 cookie 需注入的主机：cnmooc.sjtu.cn 及其子域（如 static.cnmooc.sjtu.cn 课件）。
+ *  视频 flvUrl 多落在第三方 CDN，不在此列 → 不注入（避免把 cnmooc cookie 泄漏给无关域）。 */
+function isCnmoocCookieHost(hostname: string): boolean {
+  return hostname === 'cnmooc.sjtu.cn' || hostname.endsWith('.cnmooc.sjtu.cn')
+}
 
 /** Canvas 下载端点在高并发下偶发 403/429 限流，按指数退避重试。
  *  仅对 Canvas 站点（oc.sjtu.edu.cn）的 429/403 重试；S3 的 403（签名/权限）是永久错误，不重试。 */
@@ -731,6 +737,7 @@ function scheduleCleanupTask(taskId: string, isCloud: boolean): void {
   }
   conflictStrategyByTask.delete(taskId)
   canvasCookiesByTask.delete(taskId)
+  cnmoocCookiesByTask.delete(taskId)
 }
 
 // ─── 网络健康监测 ─────────────────────────────────────────────
@@ -1025,6 +1032,13 @@ function downloadStream(t: TaskRuntime): Promise<void> {
         headers.Cookie = canvasCookie
         headers.Referer = `${CANVAS_BASE_URL}/`
       }
+      // 好大学在线：仅对 cnmooc.sjtu.cn 及其子域（含 static.cnmooc 课件）注入会话 cookie。
+      // 与 Canvas 互斥（任务来源单一），视频 CDN 直链不在 cnmooc 域 → 不注入。
+      const cnmoocCookie = cnmoocCookiesByTask.get(t.spec.taskId)
+      if (cnmoocCookie && isCnmoocCookieHost(u.hostname)) {
+        headers.Cookie = cnmoocCookie
+        headers.Referer = `${CNMOOC_BASE_URL}/`
+      }
 
       const req = httpsRequest(
         {
@@ -1199,16 +1213,17 @@ function destroyCloudHandles(t: CloudTaskRuntime, reason: string): void {
 
 /** Canvas 任务 courseName 带 'Canvas课程/' 前缀，落盘/云端路径要剥掉避免重复 */
 function effectiveCourseName(spec: DownloadTaskSpec): string {
-  return isCanvasSpec(spec) && spec.courseName.startsWith('Canvas课程/')
+  const raw = isCanvasSpec(spec) && spec.courseName.startsWith('Canvas课程/')
     ? spec.courseName.slice('Canvas课程/'.length)
     : spec.courseName
+  return spec.term ? `${sanitizeFsName(spec.term)}/${raw}` : raw
 }
 
 /** 按需解析直链（Canvas 签名 URL + vod-info），runTask 与 cloudRunTask 共用。
  *  await 期间检查 cancel 竞态（统一了两处重复逻辑，并补上 runTask 原先缺失的 cancel 守卫）。
  *  返回 true=可继续下载，false=已被取消或解析失败（调用方直接 return）。 */
 async function resolveDirectUrl(
-  t: { spec: DownloadTaskSpec; state: DownloadState; total: number },
+  t: { spec: DownloadTaskSpec; state: DownloadState; total: number; filePath?: string; partPath?: string },
   isCloud: boolean
 ): Promise<boolean> {
   const src = (t.spec as CanvasDownloadTaskSpec).source
@@ -1282,6 +1297,78 @@ async function resolveDirectUrl(
     }
   }
 
+  // 好大学在线 (cnmooc)：注入会话 cookie（视频/课件直链下载用），url 为空时懒解析直链。
+  // 扫描阶段不预探直链（用户选择「仅下载时懒解析」），build-specs 产 url:'' 占位 spec；
+  // 此处逐任务 POST play.mooc+detail.mooc 取直链，按 cnmoocResourceFilter 过滤，并补全扩展名。
+  // pause/resume 或 error 重试时 url 被清空（reEnqueueLocal/Cloud），会重新解析（防直链过期）。
+  if (src === 'cnmooc') {
+    // 注入 cnmooc 会话 cookie（无论 url 是否已填，下载请求都需要）
+    try {
+      const cookies = await sjtuSession().cookies.get({ url: CNMOOC_BASE_URL })
+      const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join('; ')
+      if (cookieHeader) cnmoocCookiesByTask.set(t.spec.taskId, cookieHeader)
+    } catch {
+      /* cookie 拉取失败不致命：视频 CDN 直链可能本就不需要 cookie */
+    }
+
+    // 懒解析直链（url 已填则跳过）
+    if (!t.spec.url) {
+      const cs = t.spec as CanvasDownloadTaskSpec
+      if (cs.cnmoocItemId) {
+        if (t.state !== 'cancelled') {
+          t.state = 'downloading'
+          emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: 0, total: 0, message: '解析资源直链…' })
+        }
+        try {
+          const r = await fetchCnmoocResourceUrl(sjtuSession(), {
+            itemId: cs.cnmoocItemId,
+            itemType: cs.cnmoocItemType ?? '10',
+            title: t.spec.fileName
+          })
+          if (t.state === 'cancelled') return false
+          if (!r?.url) throw new Error('未获取到资源直链')
+
+          // 资源类型过滤：仅视频/仅课件时不匹配则标 skipped
+          const filter = cs.cnmoocResourceFilter
+          if (filter && filter !== 'all' && r.type !== filter) {
+            t.state = 'skipped'
+            emitProgress({
+              taskId: t.spec.taskId,
+              state: 'skipped',
+              received: 0,
+              total: 0,
+              message: filter === 'video' ? '已按筛选条件跳过（仅视频）' : '已按筛选条件跳过（仅课件）'
+            })
+            scheduleCleanupTask(t.spec.taskId, isCloud)
+            return false
+          }
+
+          t.spec.url = r.url
+
+          // 补全扩展名：扫描阶段 fileName 无扩展名，按直链推断补上（.mp4/.pdf 等）。
+          // 本地任务同步更新 filePath/partPath（download:start 时按无扩展名 fileName 算的）；
+          // 云端无 filePath，cloudRemotePath 用更新后的 fileName 自动生效。
+          const ext = inferCnmoocExt(r.url)
+          if (ext && !t.spec.fileName.toLowerCase().endsWith(ext.toLowerCase())) {
+            t.spec.fileName = t.spec.fileName + ext
+            if (t.filePath && !t.filePath.toLowerCase().endsWith(ext.toLowerCase())) {
+              t.filePath = t.filePath + ext
+              t.partPath = t.filePath + '.part'
+            }
+          }
+        } catch (err) {
+          if (t.state === 'cancelled') return false
+          t.state = 'error'
+          noteTaskError()
+          const msg = err instanceof Error ? err.message : String(err)
+          emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
+          scheduleCleanupTask(t.spec.taskId, isCloud)
+          return false
+        }
+      }
+    }
+  }
+
   if (t.spec.url) return true
 
   // Canvas 课堂视频：按 videoId 解析流直链（带缓存，同 videoId 教师+PPT 共享一次解析）
@@ -1297,6 +1384,73 @@ async function resolveDirectUrl(
         const ch = channels[cs.canvasStreamIdx ?? 0]
         if (!ch?.url) throw new Error(`未找到该路视频流（streamIdx=${cs.canvasStreamIdx ?? 0}）`)
         t.spec.url = ch.url
+      } catch (err) {
+        if (t.state === 'cancelled') return false
+        t.state = 'error'
+        noteTaskError()
+        const msg = err instanceof Error ? err.message : String(err)
+        emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
+        scheduleCleanupTask(t.spec.taskId, isCloud)
+        return false
+      }
+    }
+  }
+
+  // ExternalTool 模块视频：v.sjtu LTI（课程级 token 缓存）→ /file/{fileId} → S3 MP4 直链。
+  // token 是课程级的，任选一个 ExternalTool 模块项跳转即服务全课所有 fileId，24h 内复用。
+  // S3 直链（etv.sjtu.edu.cn）自包含签名，downloadStream 不需注入 cookie。
+  if (src === 'canvas-exttool-video' && !t.spec.url) {
+    const cs = t.spec as CanvasDownloadTaskSpec
+    if (cs.canvasFileId && cs.canvasCourseId && cs.canvasModuleItemId) {
+      if (t.state !== 'cancelled') {
+        t.state = 'downloading'
+        emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: 0, total: 0, message: 'LTI 解析视频…' })
+      }
+      try {
+        const token = await getExtToolToken(sjtuSession(), cs.canvasCourseId, cs.canvasModuleItemId)
+        const vod = await fetchExtToolVodUrl(sjtuSession(), cs.canvasCourseId, cs.canvasFileId, token)
+        if (!vod.url) throw new Error('未获取到视频直链')
+        t.spec.url = vod.url
+        if (vod.fileSize > 0) t.total = vod.fileSize
+      } catch (err) {
+        if (t.state === 'cancelled') return false
+        const msg = err instanceof Error ? err.message : String(err)
+        // token 失效：fetchExtToolVodUrl 已清缓存，重试一次（重新 LTI 跳转换新 token）
+        if (/登录信息无效|未登录|过期|无效的token|token已失效/.test(msg)) {
+          try {
+            const token2 = await getExtToolToken(sjtuSession(), cs.canvasCourseId, cs.canvasModuleItemId)
+            const vod2 = await fetchExtToolVodUrl(sjtuSession(), cs.canvasCourseId, cs.canvasFileId, token2)
+            if (vod2.url) {
+              t.spec.url = vod2.url
+              if (vod2.fileSize > 0) t.total = vod2.fileSize
+            } else { throw new Error('重试仍未获取到视频直链') }
+          } catch { /* 重试也失败，走下面的 error 路径 */ }
+        }
+        if (!t.spec.url) {
+          t.state = 'error'
+          noteTaskError()
+          emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
+          scheduleCleanupTask(t.spec.taskId, isCloud)
+          return false
+        }
+      }
+    }
+  }
+
+  // ExternalUrl 模块视频：vshare /api/video/play/{uuid}（带 vshare cookie）→ S3 MP4 直链。
+  // vshare 经 jAccount SSO 登录，ses 已有 cookie；S3 直链自包含签名。
+  if (src === 'canvas-exturl-video' && !t.spec.url) {
+    const cs = t.spec as CanvasDownloadTaskSpec
+    if (cs.canvasVshareUuid) {
+      if (t.state !== 'cancelled') {
+        t.state = 'downloading'
+        emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: 0, total: 0, message: '解析 vshare 视频…' })
+      }
+      try {
+        const vod = await fetchVsharePlayUrl(sjtuSession(), cs.canvasVshareUuid)
+        if (!vod.url) throw new Error('未获取到视频直链')
+        t.spec.url = vod.url
+        if (vod.fileSize > 0) t.total = vod.fileSize
       } catch (err) {
         if (t.state === 'cancelled') return false
         t.state = 'error'
@@ -1508,10 +1662,18 @@ const CHUNK_SIZE = 4 * 1024 * 1024 // 4 MB per COS part
 const MAX_BUFFER_CHUNKS = 2 // 内存中最多缓冲 2 个 4MB 块 → 8MB
 const CLOUD_ROOT_FOLDER = 'SJTU旁听课程'
 const CLOUD_CANVAS_ROOT_FOLDER = 'SJTU Canvas课程'
+const CLOUD_CNMOOC_ROOT_FOLDER = 'SJTU好大学在线'
+/** 好大学在线本地下载子目录名（destRoot 之下） */
+const CNMOOC_LOCAL_DIR = '好大学在线'
 
 /** 判断是否为 Canvas 任务 */
 function isCanvasSpec(spec: DownloadTaskSpec): boolean {
   return !!(spec as CanvasDownloadTaskSpec).source?.startsWith?.('canvas')
+}
+
+/** 判断是否为好大学在线 (cnmooc) 任务 */
+function isCnmoocSpec(spec: DownloadTaskSpec): boolean {
+  return (spec as CanvasDownloadTaskSpec).source === 'cnmooc'
 }
 
 /** 提取错误消息字符串，统一处理 unknown 类型的 error 入参 */
@@ -1604,7 +1766,9 @@ function cloudScheduleNext(): void {
 
 /** 根据任务 spec 计算云盘远端路径 */
 function cloudRemotePath(spec: DownloadTaskSpec): string {
-  const root = isCanvasSpec(spec) ? CLOUD_CANVAS_ROOT_FOLDER : CLOUD_ROOT_FOLDER
+  const root = isCnmoocSpec(spec) ? CLOUD_CNMOOC_ROOT_FOLDER
+    : isCanvasSpec(spec) ? CLOUD_CANVAS_ROOT_FOLDER
+    : CLOUD_ROOT_FOLDER
   // 逐段 sanitize，保留目录层级（Canvas courseName 的 "Canvas课程/" 前缀由 effectiveCourseName 剥掉）
   return [root, ...effectiveCourseName(spec).split('/'), spec.fileName]
     .map(sanitizeFsName)
@@ -1613,7 +1777,9 @@ function cloudRemotePath(spec: DownloadTaskSpec): string {
 
 /** 计算 ensureFolderPath 的参数列表（逐级创建文件夹） */
 function cloudFolderSegments(spec: DownloadTaskSpec): string[] {
-  const root = isCanvasSpec(spec) ? CLOUD_CANVAS_ROOT_FOLDER : CLOUD_ROOT_FOLDER
+  const root = isCnmoocSpec(spec) ? CLOUD_CNMOOC_ROOT_FOLDER
+    : isCanvasSpec(spec) ? CLOUD_CANVAS_ROOT_FOLDER
+    : CLOUD_ROOT_FOLDER
   return [root, ...effectiveCourseName(spec).split('/').map(sanitizeFsName)]
 }
 
@@ -1856,6 +2022,12 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, resumeFromByte: number): Pr
         if (canvasCookie && u.hostname === CANVAS_HOST) {
           headers.Cookie = canvasCookie
           headers.Referer = `${CANVAS_BASE_URL}/`
+        }
+        // 好大学在线：仅对 cnmooc.sjtu.cn 及其子域注入会话 cookie（与 Canvas 互斥）。
+        const cnmoocCookie = cnmoocCookiesByTask.get(t.spec.taskId)
+        if (cnmoocCookie && isCnmoocCookieHost(u.hostname)) {
+          headers.Cookie = cnmoocCookie
+          headers.Referer = `${CNMOOC_BASE_URL}/`
         }
 
         const req = httpsRequest(
@@ -2218,6 +2390,14 @@ app.whenReady().then(() => {
   setHlsActiveReporter((delta: number) => { hlsActive += delta; if (hlsActive < 0) hlsActive = 0 })
   registerCanvasHandlers()
 
+  // 好大学在线 (cnmooc.sjtu.cn) — 复用同一 persist:sjtu session（共享 jAccount 登录态）
+  setCnmoocSession(sjtuSession())
+  setCnmoocEmitter((channel, data) => {
+    if (!mainWindow) return
+    mainWindow.webContents.send(channel, data)
+  })
+  registerCnmoocHandlers()
+
   // 标题栏按钮颜色跟随主题
   ipcMain.handle('app:set-theme', (_e, theme: 'dark' | 'light') => {
     // 标题栏已改用自绘按钮（无 titleBarOverlay），setTitleBarOverlay 在无 overlay 时无效；
@@ -2298,13 +2478,15 @@ app.whenReady().then(() => {
     jwtToken = null
     _authCache = null
     accountName = null
+    studentId = null
     await clearSjtuSession()
     return { loggedIn: false, checkedAt: new Date().toISOString() }
   })
   ipcMain.handle('auth:status', async () => {
     const info = await getAuthInfo()
     accountName = info.accountName ?? null
-    return { loggedIn: info.loggedIn, accountName: info.accountName, checkedAt: new Date().toISOString() }
+    studentId = info.studentId ?? null
+    return { loggedIn: info.loggedIn, accountName: info.accountName, studentId: info.studentId, checkedAt: new Date().toISOString() }
   })
 
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
@@ -2372,9 +2554,12 @@ app.whenReady().then(() => {
           const root = options?.localDestRoot || destRoot
           if (!root) throw new Error('请先选择本地下载目录')
 
-          // 区分 Canvas 课程和旁听课程的下载路径
+          // 区分 Canvas 课程 / 好大学在线 / 旁听课程的下载路径
           const isCanvas = specs.some(s => isCanvasSpec(s))
-          const localBase = isCanvas ? join(root, 'Canvas课程') : join(root, CLOUD_ROOT_FOLDER)
+          const isCnmooc = specs.some(s => isCnmoocSpec(s))
+          const localBase = isCnmooc ? join(root, CNMOOC_LOCAL_DIR)
+            : isCanvas ? join(root, 'Canvas课程')
+            : join(root, CLOUD_ROOT_FOLDER)
           mkdirSync(localBase, { recursive: true })
 
           // 首次下载时在目录写入说明文件
@@ -2598,6 +2783,12 @@ function cleanupOnQuit(): void {
 
   // 清除 vod channels 缓存（释放内存、丢弃 token 关联结果）
   clearVodChannelsCache()
+
+  // 清除 ExternalTool 模块视频的课程级 LTI token 缓存
+  clearExtToolTokenCache()
+
+  // 清除 cnmooc 会话 cookie 缓存（释放内存）
+  cnmoocCookiesByTask.clear()
 
   // 清除云盘全量重试计数（释放内存）
   cloudFullRetries.clear()

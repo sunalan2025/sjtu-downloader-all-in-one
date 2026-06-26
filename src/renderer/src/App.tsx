@@ -7,6 +7,7 @@ import { Welcome } from './pages/Welcome'
 import { Login } from './pages/Login'
 import { Browser } from './pages/Browser'
 import { CanvasBrowser } from './pages/CanvasBrowser'
+import { CnmoocBrowser } from './pages/CnmoocBrowser'
 import { useDownloadProgressSubscription } from './hooks/useSharedBrowserHooks'
 import type { ActiveTab } from '@shared/types'
 
@@ -84,6 +85,7 @@ export default function App() {
             <div key={activeTab} className="animate-fadeIn flex-1 overflow-hidden">
               {activeTab === 'audited' && <Browser />}
               {activeTab === 'canvas' && <CanvasBrowser />}
+              {activeTab === 'cnmooc' && <CnmoocBrowser />}
             </div>
           </StagePane>
         )}
@@ -124,6 +126,17 @@ function BrowserTabBar({
           <rect x="2" y="3" width="20" height="14" rx="2" />
           <path d="M8 21h8" />
           <path d="M12 17v4" />
+        </svg>
+      )
+    },
+    {
+      key: 'cnmooc',
+      label: '好大学在线',
+      title: '好大学在线 (cnmooc.sjtu.cn) 课程资源',
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
         </svg>
       )
     }

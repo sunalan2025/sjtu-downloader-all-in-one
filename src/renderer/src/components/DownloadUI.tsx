@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import type { DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState } from '@shared/types'
+import type { DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, CnmoocResourceFilter } from '@shared/types'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { Spinner } from './Spinner'
 
@@ -392,6 +392,61 @@ export function ConflictStrategySegmented({
   onChange: (s: FileConflictStrategy) => void
 }) {
   return <Segmented options={CONFLICT_OPTIONS} value={value} onChange={onChange} size="md" />
+}
+
+// ─────────────────────────────────────────────────────────────
+// HLS 重编码分段选择器 — 解决超高分辨率 I-frame-only 源花屏问题
+// ─────────────────────────────────────────────────────────────
+
+const TRANSCODE_OPTIONS: SegmentedOption<string>[] = [
+  { key: '0', label: '原始', title: '保留原始分辨率和编码（不重编码）' },
+  { key: '720', label: '720P', title: '缩放到 720p + 标准 GOP（推荐，解决花屏）' },
+  { key: '1080', label: '1080P', title: '缩放到 1080p + 标准 GOP' }
+]
+
+export function HlsTranscodeSegmented({
+  value,
+  onChange
+}: {
+  value?: 720 | 1080
+  onChange: (h?: 720 | 1080) => void
+}) {
+  const key = value ? String(value) : '0'
+  const handleChange = (k: string) => onChange(k === '0' ? undefined : (k === '720' ? 720 : 1080) as 720 | 1080)
+  return (
+    <div className="flex items-center gap-1.5" title="仅对「网页嵌入」类单元视频生效；其他视频类型（v.sjtu / vshare MP4）不经过重编码">
+      <span className="whitespace-nowrap text-xs text-text-3">视频质量</span>
+      <Segmented options={TRANSCODE_OPTIONS} value={key} onChange={handleChange} size="sm" />
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// 好大学在线 资源类型分段选择器（全部 / 仅视频 / 仅课件）
+// 下载时懒解析直链后按此过滤：不匹配的资源标 skipped
+// ─────────────────────────────────────────────────────────────
+
+const RESOURCE_TYPE_OPTIONS: SegmentedOption<string>[] = [
+  { key: 'all', label: '全部', title: '视频和课件都下载' },
+  { key: 'video', label: '仅视频', title: '仅下载视频，课件在下载阶段自动跳过' },
+  { key: 'document', label: '仅课件', title: '仅下载课件文档，视频在下载阶段自动跳过' }
+]
+
+export function ResourceTypeSegmented({
+  value,
+  onChange
+}: {
+  value: CnmoocResourceFilter
+  onChange: (f: CnmoocResourceFilter) => void
+}) {
+  return (
+    <Segmented
+      options={RESOURCE_TYPE_OPTIONS}
+      value={value}
+      onChange={k => onChange(k as CnmoocResourceFilter)}
+      size="md"
+    />
+  )
 }
 
 // ─────────────────────────────────────────────────────────────

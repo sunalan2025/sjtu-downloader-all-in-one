@@ -1,4 +1,5 @@
 import { request as httpsRequest } from 'node:https'
+import { openSync, readSync, closeSync, statSync } from 'node:fs'
 import type { ClientRequest } from 'node:http'
 import type Electron from 'electron'
 import type {
@@ -406,5 +407,64 @@ function buildUploader(
       }
       throw lastErr
     }
+  }
+}
+
+// ─── 本地文件 → 云盘（HLS 模块视频下载后上传） ────────────────
+
+const LOCAL_UPLOAD_CHUNK = 4 * 1024 * 1024 // 4MB per COS part（与 CHUNK_SIZE 一致）
+
+/** 把本地文件按 4MB 分片上传到云盘。
+ *  - skip 策略：远端已存在 → 抛 FileExistsError（调用方据此标 skipped）
+ *  - overwrite 策略：先 deleteCloudFile 再 startChunkedUpload
+ *  - 自动 ensureFolderPath（逐级创建父目录）
+ *  onProgress(bytesUploaded, totalBytes) 用于进度推送。
+ *  返回 confirm 结果（含云盘 path）。 */
+export async function uploadLocalFileToCloud(
+  userToken: string,
+  localPath: string,
+  remotePath: string,
+  conflictStrategy: 'skip' | 'overwrite',
+  onProgress?: (bytesUploaded: number, totalBytes: number) => void
+): Promise<CloudPanConfirmResult> {
+  const stat = statSync(localPath)
+  const total = stat.size
+
+  // 确保父目录存在（逐级创建）
+  const segments = remotePath.split('/')
+  const folderSegments = segments.slice(0, -1) // 去掉文件名，保留目录层级
+  if (folderSegments.length > 0) {
+    await ensureFolderPath(userToken, ...folderSegments)
+  }
+
+  // overwrite：先删远端同名文件（404 幂等）
+  if (conflictStrategy === 'overwrite') {
+    await deleteCloudFile(userToken, remotePath).catch(() => undefined)
+  }
+
+  const uploader = await startChunkedUpload(userToken, remotePath)
+  try {
+    const fd = openSync(localPath, 'r')
+    try {
+      const buf = Buffer.allocUnsafe(LOCAL_UPLOAD_CHUNK)
+      let uploaded = 0
+      let partNum = 0
+      while (uploaded < total) {
+        const n = readSync(fd, buf, 0, LOCAL_UPLOAD_CHUNK, uploaded)
+        if (n <= 0) break
+        partNum++
+        // 最后一片不足 4MB：只传实际读到的字节
+        const chunk = n < LOCAL_UPLOAD_CHUNK ? buf.subarray(0, n) : buf
+        await uploader.uploadChunk(chunk)
+        uploaded += n
+        onProgress?.(uploaded, total)
+      }
+    } finally {
+      closeSync(fd)
+    }
+    return await uploader.confirm()
+  } catch (err) {
+    uploader.abort()
+    throw err
   }
 }

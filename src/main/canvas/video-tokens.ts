@@ -173,7 +173,7 @@ export async function fetchVodVideoList(
   const rootData = (data.data || {}) as Record<string, unknown>
   const records = (rootData.records as Array<Record<string, unknown>>) || []
   // 按 videoName 中的讲次编号排序，每条记录 = 1 讲（内含教师+PPT 两路流）
-  // 例："大学物理(第1讲)" "大学物理(第2讲)" 各自独立，getVodVideoInfos 可取两路
+  // 例："课程名(第1讲)" "课程名(第2讲)" 各自独立，getVodVideoInfos 可取两路
   const sorted = records
     .filter(r => r.videoId)
     .sort((a, b) => {
@@ -224,6 +224,19 @@ async function fetchVodVideoInfos(
   }
   const info = (data.data || {}) as Record<string, unknown>
   const streams = (info.videoPlayResponseVoList as Array<Record<string, unknown>>) || []
+
+  // [PPT Fix] getVodVideoInfos 返回的 data.courId（数值型）即 PPT 切片 API 需要的 ivsVideoId。
+  // 它与 findVodVideoList record 里的 courId 不同（后者是另一套加密串），也与 videoId（加密串）不同。
+  // 经浏览器真实链路验证：query-ppt-slice-es?ivsVideoId={courId数值} 才能拿到切片，传 videoId 会 500。
+  // 这里解析流直链时顺手缓存 (token, videoId) → courId，供 PPT 下载复用，避免重复请求。
+  const courIdNum = Number(info.courId)
+  if (Number.isFinite(courIdNum) && courIdNum > 0) {
+    ivsVideoIdCache.set(`${token}::${videoId}`, { ts: Date.now(), ivsVideoId: courIdNum })
+    if (ivsVideoIdCache.size > VOD_CACHE_MAX_SIZE) {
+      const oldest = ivsVideoIdCache.keys().next().value
+      if (oldest) ivsVideoIdCache.delete(oldest)
+    }
+  }
 
   const valid = streams.filter(v => v.rtmpUrlHdv)
   if (valid.length === 0) return []
@@ -291,6 +304,34 @@ export async function getVodChannelsCached(
 /** 清空缓存（退出时调用，释放内存、丢弃可能过期的 token 关联结果） */
 export function clearVodChannelsCache(): void {
   vodChannelsCache.clear()
+  ivsVideoIdCache.clear()
+}
+
+// ─── PPT 课件 ivsVideoId 缓存 ────────────────────────────────
+//
+// query-ppt-slice-es API 需要的 ivsVideoId 是 getVodVideoInfos 返回的 data.courId（数值型），
+// 不是 findVodVideoList 的 videoId（加密串）。fetchVodVideoInfos 解析流直链时已把
+// (token, videoId) → courId 缓存到这里；PPT 下载先查缓存，未命中再调 getVodVideoInfos 现取。
+const ivsVideoIdCache = new Map<string, { ts: number; ivsVideoId: number }>()
+
+/** 解析 PPT API 需要的 ivsVideoId（= getVodVideoInfos 的 data.courId 数值）。
+ *  命中缓存直接返回；未命中则调一次 getVodVideoInfos（其内部会回填缓存）。
+ *  返回 null 表示该讲无可用 vod 信息（如视频未发布/无流）。 */
+export async function resolveIvsVideoId(
+  ses: Electron.Session,
+  token: string,
+  videoId: string
+): Promise<number | null> {
+  const cacheKey = `${token}::${videoId}`
+  const hit = ivsVideoIdCache.get(cacheKey)
+  if (hit && Date.now() - hit.ts < VOD_CACHE_TTL) return hit.ivsVideoId
+  // 未命中：调 getVodVideoInfos 现取（会顺带回填缓存 + 流直链缓存）
+  const channels = await getVodChannelsCached(ses, token, videoId)
+  const after = ivsVideoIdCache.get(cacheKey)
+  if (after) return after.ivsVideoId
+  // channels 为空也可能没回填（视频无流），此时无 ivsVideoId 可用
+  if (channels.length === 0) return null
+  return null
 }
 
 // ─── 频道标签映射 ────────────────────────────────────────────
@@ -320,8 +361,163 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
 }
 
-/** 从 videoName 中提取讲次编号，例如 "大学物理(第1讲)" → 1 */
+/** 从 videoName 中提取讲次编号，例如 "课程名(第1讲)" → 1 */
 export function extractLectureNum(name: string): number {
   const m = name.match(/第(\d+)讲/)
   return m ? Number(m[1]) : 0
+}
+
+// ─── ExternalTool 模块视频：LTI 跳转 + /file/{id} → S3 直链 MP4 ─────
+//
+// 部分课程的模块视频是 ExternalTool 类型，external_url 指向
+// v.sjtu.edu.cn/jy-application-canvas-sjtu-ui/#/playerPage/index?fileId=XXX。
+// 真实链路（已验证）：
+//   1. Canvas 模块项页 /courses/{cid}/modules/items/{itemId} 有隐藏 POST 表单
+//      action=v.sjtu/oidc/login_initiations，带 LTI 签名 + target_link_uri(含fileId)
+//   2. 提交表单 → v.sjtu 验签 → 跳 #/playerPage/index?tokenId=XXX
+//   3. getAccessTokenByTokenId?tokenId=XXX → data.token (JWT, 24h, 课程级)
+//   4. GET /file/{fileId} 带 token 头 → data.vodUrl = S3 预签名 MP4 (Range)
+//
+// 关键：token 是课程级的，任选一个 ExternalTool 模块项跳转即可服务全课所有 fileId。
+// 每门课只需 1 次 LTI 跳转，缓存 24h。
+
+const EXTTOOL_TOKEN_TTL = 23 * 60 * 60 * 1000 // 23h（略小于服务端 24h，留安全余量）
+const extToolTokenCache = new Map<number, { token: string; expAt: number }>()
+
+/** 清空 ExternalTool token 缓存（退出/登出时调用） */
+export function clearExtToolTokenCache(): void {
+  extToolTokenCache.clear()
+}
+
+/** 取课程级 ExternalTool token：命中缓存直接返回，否则用 moduleItemId 做 LTI 跳转。
+ *  moduleItemId 仅用于首次 LTI 跳转，跳转后 token 服务全课所有 fileId。 */
+export async function getExtToolToken(
+  ses: Electron.Session,
+  courseId: number,
+  moduleItemId: number
+): Promise<string> {
+  const hit = extToolTokenCache.get(courseId)
+  if (hit && Date.now() < hit.expAt) return hit.token
+
+  const tokenId = await launchExtToolLti(ses, courseId, moduleItemId)
+  const token = await getExtToolAccessToken(ses, tokenId)
+  extToolTokenCache.set(courseId, { token, expAt: Date.now() + EXTTOOL_TOKEN_TTL })
+  console.log(`[canvas:exttool] 课程 ${courseId} LTI token 已缓存（24h）`)
+  return token
+}
+
+/** 拉取 v.sjtu ExternalTool 视频的 S3 直链 + 元数据。
+ *  token 失效（返回登录无效）时清缓存让调用方重试。 */
+export async function fetchExtToolVodUrl(
+  ses: Electron.Session,
+  courseId: number,
+  fileId: string,
+  token: string
+): Promise<{ url: string; fileName: string; fileSize: number }> {
+  const resp = await safeFetch(ses, `${VSJTU_CANVAS_BASE}/file/${fileId}`, {
+    headers: { token, Accept: 'application/json' }
+  })
+  const data = await resp.json() as { code: string; message: string | null; data?: { vodUrl?: string; fileName?: string; fileSize?: number } }
+  if (data.code !== '0' || !data.data?.vodUrl) {
+    // token 过期：清缓存让下次重新 LTI 跳转
+    if (data.message && /登录信息无效|未登录|过期|无效的token|token已失效/i.test(data.message)) {
+      extToolTokenCache.delete(courseId)
+      console.log(`[canvas:exttool] 课程 ${courseId} token 失效，已清缓存`)
+    }
+    throw new Error(`v.sjtu /file/${fileId} 失败: ${data.message || data.code}`)
+  }
+  return {
+    url: data.data.vodUrl,
+    fileName: data.data.fileName || `exttool_${fileId}.mp4`,
+    fileSize: Number(data.data.fileSize || 0)
+  }
+}
+
+/** LTI 跳转：loadURL Canvas 模块项页 → 提交隐藏表单 → 捕获跳转 URL 里的 tokenId。
+ *  表单 target=_blank，改为本窗口提交后页面会跳到 v.sjtu，URL 含 tokenId=XXX。 */
+async function launchExtToolLti(
+  ses: Electron.Session,
+  courseId: number,
+  moduleItemId: number
+): Promise<string> {
+  const url = `${CANVAS_BASE_URL}/courses/${courseId}/modules/items/${moduleItemId}`
+  console.log(`[canvas:exttool] LTI 跳转: ${url}`)
+  const win = new BrowserWindow({
+    show: false,
+    width: 1000,
+    height: 700,
+    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
+  })
+  win.webContents.setAudioMuted(true)
+
+  try {
+    await win.loadURL(url)
+    // 等表单渲染（10 秒超时，防页面异常时 Promise 永不 resolve）
+    await win.webContents.executeJavaScript(
+      `new Promise((resolve, reject) => {
+        const deadline = Date.now() + 10000
+        const check = () => {
+          const f = document.querySelector('#tool_form')
+          if (f) { resolve(true); return }
+          if (Date.now() > deadline) { reject(new Error('tool_form 未出现（超时 10s）')); return }
+          setTimeout(check, 200)
+        }
+        check()
+      })`
+    )
+    // 改 target 为本窗口并提交（原 target=_blank 会开新窗口）
+    await win.webContents.executeJavaScript(
+      `(() => { const f = document.querySelector('#tool_form'); f.target = ''; f.submit(); })()`
+    )
+    // 等 v.sjtu 跳转完成，从 URL hash 提取 tokenId
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline) {
+      const cur = win.webContents.getURL()
+      const m = cur.match(/tokenId=([^&]+)/)
+      if (m) return decodeURIComponent(m[1])
+      await sleep(300)
+    }
+    throw new Error('LTI 跳转超时，未捕获到 tokenId')
+  } finally {
+    win.destroy()
+  }
+}
+
+/** 用 tokenId 换 access token（JWT，课程级） */
+async function getExtToolAccessToken(ses: Electron.Session, tokenId: string): Promise<string> {
+  const resp = await safeFetch(ses, `${VSJTU_CANVAS_BASE}/lti3/getAccessTokenByTokenId?tokenId=${encodeURIComponent(tokenId)}`, {
+    headers: { Accept: 'application/json' }
+  })
+  const data = await resp.json() as { code: string; message: string | null; data?: { token?: string } }
+  if (data.code !== '0' || !data.data?.token) {
+    throw new Error(`getAccessTokenByTokenId 失败: ${data.message || data.code}`)
+  }
+  return data.data.token
+}
+
+// ─── ExternalUrl 模块视频：vshare → S3 直链 MP4 ──────────────────
+
+const VSHARE_BASE = 'https://vshare.sjtu.edu.cn'
+
+/** 拉取 vshare 视频 S3 直链：GET /api/video/play/{uuid}（带 vshare cookie）。
+ *  vshare 通过 jAccount SSO 登录，ses 已有 cookie。 */
+export async function fetchVsharePlayUrl(
+  ses: Electron.Session,
+  uuid: string
+): Promise<{ url: string; fileName: string; fileSize: number }> {
+  const resp = await safeFetch(ses, `${VSHARE_BASE}/api/video/play/${uuid}?locale=zh`, {
+    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+  })
+  const data = await resp.json() as { errno: number; error: string; entities?: Array<{ playUrl?: string; title?: string; fileSize?: number; type?: string }> }
+  const e = data.entities?.[0]
+  const playUrl = e?.playUrl
+  if (data.errno !== 0 || !playUrl) {
+    throw new Error(`vshare /play/${uuid} 失败: ${data.error || data.errno}`)
+  }
+  const ext = e?.type || 'mp4'
+  return {
+    url: playUrl,
+    fileName: `${e?.title || uuid}.${ext}`,
+    fileSize: Number(e?.fileSize || 0)
+  }
 }

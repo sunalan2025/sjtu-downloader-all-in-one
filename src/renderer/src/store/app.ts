@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasDownloadTaskSpec, CanvasTeacherSelection, CanvasVideoSession } from '@shared/types'
+import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasDownloadTaskSpec, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter } from '@shared/types'
 
 /** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
 export type Stage = 'welcome' | 'login' | 'browser'
@@ -41,6 +41,8 @@ interface AppState {
     folderMap: Record<number, string>
     moduleFileIds: number[]
     syllabusFileIds: number[]
+    moduleFiles: import('@shared/types').CanvasFileItem[]
+    syllabusFiles: import('@shared/types').CanvasFileItem[]
   }>
   /** Canvas 课堂视频会话 */
   canvasVideoSessions: Record<number, CanvasVideoSession[]>
@@ -51,8 +53,28 @@ interface AppState {
   canvasLtiTokens: Record<number, { token: string; canvasCourseId: string }>
   /** Canvas 讲次分组（courseId → lectures[]） */
   canvasLectures: Record<number, LectureGroup[]>
-  /** 每门课程的分类选择（预设置：课件/教师/PPT） */
-  canvasCourseCategorySelections: Record<number, { files: boolean; teacher: boolean; ppt: boolean }>
+  /** Canvas 模块内嵌视频（iframe 页面，HLS 下载） */
+  canvasModuleVideos: Record<number, {
+    iframes: Array<{ moduleName: string; pageTitle: string; iframeUrl: string }>
+    extTools: Array<{ moduleItemId: number; fileId: string; title: string }>
+    extUrls: Array<{ uuid: string; title: string }>
+  }>
+  /** 每门课程的分类选择（预设置：课件/教师/PPT/模块视频/PPT课件PDF） */
+  canvasCourseCategorySelections: Record<number, { files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }>
+  /** 每门课程已提交下载的 taskIds（processCourse 写入）。
+   *  独立于扫描数据，deleteCanvasCourseData 不清空它 → 下载完成后进度条仍能显示 done/total，
+   *  直到 resetProgress/刷新整个清空。用于 CourseProgressSummary 在扫描数据被清后的回退统计。 */
+  canvasCourseTaskIds: Record<number, string[]>
+  // 好大学在线 (cnmooc) 状态
+  cnmoocCourses: CnmoocCourse[]
+  cnmoocScanState: ScanState
+  cnmoocScanMessage: string
+  /** 展开的 cnmooc 课程 id（courseId 为字符串） */
+  cnmoocExpandedCourses: Set<string>
+  /** cnmooc 课程章节扫描结果（courseId → chapters） */
+  cnmoocCourseData: Record<string, { chapters: CnmoocChapter[] }>
+  /** 资源类型过滤：all=不过滤，video=仅视频，document=仅课件（下载时懒解析后过滤） */
+  cnmoocResourceFilter: CnmoocResourceFilter
   // 交大云盘
   cloudUserToken: string | null
   cloudSpaceInfo: CloudPanSpaceInfo | null
@@ -64,6 +86,9 @@ interface AppState {
   /** 同名文件冲突策略：skip=跳过，overwrite=先删除再下载/上传 */
   fileConflictStrategy: FileConflictStrategy
   localDestRoot: string
+  /** HLS 模块视频重编码目标高度（720/1080）；不设置 = 不重编码（保留原始质量）。
+   *  解决 tv.sjtu.edu.cn 超高分辨率 I-frame-only 源在系统播放器中花屏/卡死的问题。 */
+  hlsTranscodeMaxHeight?: 720 | 1080
   /** both 模式下 localTaskId → cloudTaskId 映射，用于进度聚合 */
   cloudLinkedIds: Record<string, string>
   // 下载状态
@@ -117,14 +142,37 @@ interface AppState {
   setCanvasLtiToken: (id: number, data: { token: string; canvasCourseId: string }) => void
   /** 设置指定 Canvas 课程的讲次分组列表 */
   setCanvasLectures: (id: number, lectures: LectureGroup[]) => void
-  /** 更新指定 Canvas 课程的分类选择（课件/教师/PPT） */
-  setCanvasCourseCategorySelection: (id: number, sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean }>) => void
+  /** 设置指定 Canvas 课程的模块内嵌视频列表 */
+  setCanvasModuleVideos: (id: number, videos: {
+    iframes: Array<{ moduleName: string; pageTitle: string; iframeUrl: string }>
+    extTools: Array<{ moduleItemId: number; fileId: string; title: string }>
+    extUrls: Array<{ uuid: string; title: string }>
+  }) => void
+  /** 更新指定 Canvas 课程的分类选择（课件/教师/PPT/模块视频） */
+  setCanvasCourseCategorySelection: (id: number, sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }>) => void
   /** 批量更新多个 Canvas 课程的分类选择 */
-  setAllCanvasCourseCategorySelections: (ids: number[], sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean }>) => void
+  setAllCanvasCourseCategorySelections: (ids: number[], sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }>) => void
   /** 清空所有 Canvas 课程扫描数据和选中态 */
   resetCanvasScanResults: () => void
   /** 删除单门课程的扫描数据，释放内存 */
   deleteCanvasCourseData: (id: number) => void
+  /** 设置单门 Canvas 课程已提交下载的 taskIds（processCourse 写入，deleteCanvasCourseData 不清空） */
+  setCanvasCourseTaskIds: (id: number, taskIds: string[]) => void
+  // ─── cnmooc setters ───
+  /** 替换全部好大学在线课程列表 */
+  setCnmoocCourses: (c: CnmoocCourse[]) => void
+  /** 更新好大学在线扫描状态和消息 */
+  setCnmoocScanState: (s: ScanState, msg?: string) => void
+  /** 切换好大学在线课程的展开/折叠状态 */
+  toggleCnmoocExpand: (courseId: string) => void
+  /** 设置指定好大学在线课程的章节扫描数据 */
+  setCnmoocCourseData: (id: string, data: { chapters: CnmoocChapter[] }) => void
+  /** 设置好大学在线资源类型过滤（全部/仅视频/仅课件） */
+  setCnmoocResourceFilter: (f: CnmoocResourceFilter) => void
+  /** 清空所有好大学在线扫描数据和选中态 */
+  resetCnmoocScanResults: () => void
+  /** 删除单门好大学在线课程的扫描数据，释放内存 */
+  deleteCnmoocCourseData: (id: string) => void
   // 共享 setters
   /** 设置交大云盘 USER_TOKEN */
   setCloudUserToken: (token: string | null) => void
@@ -136,6 +184,8 @@ interface AppState {
   setDownloadMode: (m: DownloadMode) => void
   /** 设置同名文件冲突策略（skip/overwrite） */
   setFileConflictStrategy: (s: FileConflictStrategy) => void
+  /** 设置 HLS 重编码目标高度 */
+  setHlsTranscodeMaxHeight: (h?: 720 | 1080) => void
   /** 设置本地下载目录路径 */
   setLocalDestRoot: (p: string) => void
   /** 更新 both 模式下 localTaskId → cloudTaskId 的映射 */
@@ -276,7 +326,16 @@ export const useAppStore = create<AppState>()(
       canvasSelectedTeachers: {},
       canvasLtiTokens: {},
       canvasLectures: {},
+      canvasModuleVideos: {},
       canvasCourseCategorySelections: {},
+      canvasCourseTaskIds: {},
+      // 好大学在线 (cnmooc)
+      cnmoocCourses: [] as CnmoocCourse[],
+      cnmoocScanState: 'idle' as ScanState,
+      cnmoocScanMessage: '',
+      cnmoocExpandedCourses: new Set<string>(),
+      cnmoocCourseData: {},
+      cnmoocResourceFilter: 'all' as CnmoocResourceFilter,
       // 共享
       cloudUserToken: null,
       cloudSpaceInfo: null,
@@ -343,6 +402,8 @@ export const useAppStore = create<AppState>()(
         set(state => ({ canvasLtiTokens: { ...state.canvasLtiTokens, [id]: data } })),
       setCanvasLectures: (id, lectures) =>
         set(state => ({ canvasLectures: { ...state.canvasLectures, [id]: lectures } })),
+      setCanvasModuleVideos: (id, videos) =>
+        set(state => ({ canvasModuleVideos: { ...state.canvasModuleVideos, [id]: videos } })),
       setCanvasCourseCategorySelection: (id, sel) =>
         set(state => ({
           canvasCourseCategorySelections: {
@@ -367,14 +428,46 @@ export const useAppStore = create<AppState>()(
         canvasSelectedTeachers: {},
         canvasLtiTokens: {},
         canvasLectures: {},
+        canvasModuleVideos: {},
         canvasCourseCategorySelections: {},
+        canvasCourseTaskIds: {},
       }),
       deleteCanvasCourseData: id =>
         set(state => {
           const { [id]: _1, ...restCourseData } = state.canvasCourseData
           const { [id]: _2, ...restLectures } = state.canvasLectures
           const { [id]: _3, ...restLti } = state.canvasLtiTokens
-          return { canvasCourseData: restCourseData, canvasLectures: restLectures, canvasLtiTokens: restLti }
+          const { [id]: _4, ...restModuleVideos } = state.canvasModuleVideos
+          // 注意：不清 canvasCourseTaskIds —— 下载完成后扫描数据释放，
+          // 但进度条仍需 taskIds 统计 done/total，故保留到 resetProgress/刷新才清。
+          return { canvasCourseData: restCourseData, canvasLectures: restLectures, canvasLtiTokens: restLti, canvasModuleVideos: restModuleVideos }
+        }),
+      setCanvasCourseTaskIds: (id, taskIds) =>
+        set(state => ({ canvasCourseTaskIds: { ...state.canvasCourseTaskIds, [id]: taskIds } })),
+      // ─── cnmooc setters ───
+      setCnmoocCourses: cnmoocCourses => set({ cnmoocCourses }),
+      setCnmoocScanState: (cnmoocScanState, cnmoocScanMessage = '') => set({ cnmoocScanState, cnmoocScanMessage }),
+      toggleCnmoocExpand: courseId =>
+        set(state => {
+          const next = new Set(state.cnmoocExpandedCourses)
+          if (next.has(courseId)) next.delete(courseId)
+          else next.add(courseId)
+          return { cnmoocExpandedCourses: next }
+        }),
+      setCnmoocCourseData: (id, data) =>
+        set(state => ({ cnmoocCourseData: { ...state.cnmoocCourseData, [id]: data } })),
+      setCnmoocResourceFilter: cnmoocResourceFilter => set({ cnmoocResourceFilter }),
+      resetCnmoocScanResults: () => set({
+        cnmoocCourses: [],
+        cnmoocScanState: 'idle',
+        cnmoocScanMessage: '',
+        cnmoocExpandedCourses: new Set(),
+        cnmoocCourseData: {}
+      }),
+      deleteCnmoocCourseData: id =>
+        set(state => {
+          const { [id]: _cn, ...rest } = state.cnmoocCourseData
+          return { cnmoocCourseData: rest }
         }),
       // ─── 共享 setters ───
       setCloudUserToken: cloudUserToken => set({ cloudUserToken }),
@@ -382,6 +475,7 @@ export const useAppStore = create<AppState>()(
       setCloudConnStatus: (cloudConnStatus, cloudConnMessage = '') => set({ cloudConnStatus, cloudConnMessage }),
       setDownloadMode: downloadMode => set({ downloadMode }),
       setFileConflictStrategy: fileConflictStrategy => set({ fileConflictStrategy }),
+      setHlsTranscodeMaxHeight: hlsTranscodeMaxHeight => set({ hlsTranscodeMaxHeight }),
       setLocalDestRoot: localDestRoot => set({ localDestRoot }),
       setCloudLinkedIds: (m: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) =>
         set(state => ({ cloudLinkedIds: typeof m === 'function' ? m(state.cloudLinkedIds) : m })),
@@ -435,7 +529,8 @@ export const useAppStore = create<AppState>()(
         autoConcurrency: state.autoConcurrency,
         downloadMode: state.downloadMode,
         fileConflictStrategy: state.fileConflictStrategy,
-        localDestRoot: state.localDestRoot
+        localDestRoot: state.localDestRoot,
+        cnmoocResourceFilter: state.cnmoocResourceFilter
       })
     }
   )

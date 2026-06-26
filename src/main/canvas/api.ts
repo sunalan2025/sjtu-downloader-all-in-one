@@ -208,16 +208,18 @@ export async function fetchCourseFiles(
 }
 
 /** 获取单个文件的元数据（含签名 URL）
- *  [Bug 35 Fix] 不再静默吞掉异常，让调用方看到真实错误原因（如 401 鉴权过期）。 */
+ *  [Bug 35 Fix] 不再静默吞掉异常，让调用方看到真实错误原因（如 401 鉴权过期）。
+ *  返回 folderId 供补漏文件落盘到真实 Canvas 文件夹（不再用哨兵目录）。 */
 export async function fetchFileMeta(
   ses: Electron.Session,
   fileId: number
-): Promise<{ url: string; displayName: string; size: number } | null> {
+): Promise<{ url: string; displayName: string; size: number; folderId: number | null } | null> {
   const f = await canvasFetch<Record<string, unknown>>(ses, `/files/${fileId}`)
   return {
     url: (f.url as string) || '',
     displayName: (f.display_name as string) || (f.filename as string) || `file_${fileId}`,
-    size: Number(f.size || 0)
+    size: Number(f.size || 0),
+    folderId: f.folder_id != null ? Number(f.folder_id) : null
   }
 }
 
@@ -227,20 +229,48 @@ export async function fetchCourseModules(
   ses: Electron.Session,
   courseId: number
 ): Promise<CanvasModule[]> {
-  const items = await canvasFetchAll<Record<string, unknown>>(
+  // Step 1: 拉模块列表（不含 items），快速拿到所有模块 id/name。
+  // 不能用 include[]=items——Canvas 平台在某些模块上会截断或返回空 items。
+  const mods = await canvasFetchAll<Record<string, unknown>>(
     ses,
-    `/courses/${courseId}/modules?per_page=100&include[]=items&include[]=content_details`
+    `/courses/${courseId}/modules?per_page=100`
   )
-  return items.map(m => ({
-    id: Number(m.id),
-    name: (m.name as string) || `module_${m.id}`,
-    items: ((m.items as Array<Record<string, unknown>>) || []).map(i => ({
-      type: (i.type as string) || '',
-      contentId: i.content_id != null ? Number(i.content_id) : null,
-      title: (i.title as string) || '',
-      pageUrl: (i.page_url as string) || null
-    }))
-  }))
+
+  // Step 2: 并发 5 逐模块拉 items（canvasFetchAll 自动翻页，不会截断）。
+  // 与 Page body / File meta 批量获取保持相同并发度。
+  const CONCURRENCY = 5
+  const mapItem = (i: Record<string, unknown>) => ({
+    type: (i.type as string) || '',
+    contentId: i.content_id != null ? Number(i.content_id) : null,
+    title: (i.title as string) || '',
+    pageUrl: (i.page_url as string) || null,
+    id: i.id != null ? Number(i.id) : null,
+    externalUrl: (i.external_url as string) || null
+  })
+
+  const results: CanvasModule[] = []
+  for (let i = 0; i < mods.length; i += CONCURRENCY) {
+    const batch = mods.slice(i, i + CONCURRENCY)
+    const settled = await Promise.allSettled(
+      batch.map(async m => {
+        const moduleId = Number(m.id)
+        const items = await canvasFetchAll<Record<string, unknown>>(
+          ses,
+          `/courses/${courseId}/modules/${moduleId}/items?per_page=100`
+        )
+        return {
+          id: moduleId,
+          name: (m.name as string) || `module_${moduleId}`,
+          items: items.map(mapItem)
+        }
+      })
+    )
+    for (const r of settled) {
+      if (r.status === 'fulfilled') results.push(r.value)
+      else console.warn('[canvas] fetchCourseModules: 模块 items 拉取失败', r.reason)
+    }
+  }
+  return results
 }
 
 // ─── Syllabus ────────────────────────────────────────────────
@@ -316,6 +346,19 @@ export function extractVideoIframes(html: string): string[] {
     }
   }
   return urls
+}
+
+/** 从 HTML 的 <a href> 中提取 vshare.sjtu.edu.cn 视频链接的 UUID。
+ *  某些课程的 Page body 用 <a href="vshare.../play/{uuid}"> 而非 <iframe> 嵌入视频。 */
+export function extractVshareLinks(html: string): string[] {
+  const re = /href=["'][^"']*vshare\.sjtu\.edu\.cn\/play\/([a-f0-9-]+)/gi
+  const uuids: string[] = []
+  const seen = new Set<string>()
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html)) !== null) {
+    if (!seen.has(m[1])) { seen.add(m[1]); uuids.push(m[1]) }
+  }
+  return uuids
 }
 
 /** 列出课程所有 Module Page 的 (module_name, page_title, page_url) */

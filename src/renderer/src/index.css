@@ -64,69 +64,8 @@
 @property --scrollbar-thumb { syntax: '<color>'; inherits: true; initial-value: rgba(160,160,160,0.20); }
 @property --scrollbar-thumb-hover { syntax: '<color>'; inherits: true; initial-value: rgba(160,160,160,0.35); }
 
-/* 切换 data-theme 时，所有注册的颜色变量在 :root 上平滑插值。
- * 使用精确的属性列表替代 `all`，避免触发非颜色属性的意外过渡。
- * 所有 @property 注册的自定义属性 syntax 均为 '<color>'，浏览器原生可动画。 */
-:root {
-  transition:
-    --bg-base 0.35s ease,
-    --bg-surface-1 0.35s ease,
-    --bg-surface-2 0.35s ease,
-    --bg-surface-3 0.35s ease,
-    --bg-body 0.35s ease,
-    --bg-body-accent-1 0.35s ease,
-    --bg-body-accent-2 0.35s ease,
-    --text-primary 0.35s ease,
-    --text-secondary 0.35s ease,
-    --text-tertiary 0.35s ease,
-    --text-muted 0.35s ease,
-    --border-default 0.35s ease,
-    --border-strong 0.35s ease,
-    --accent 0.35s ease,
-    --accent-light 0.35s ease,
-    --accent-dark 0.35s ease,
-    --accent-5 0.35s ease,
-    --accent-10 0.35s ease,
-    --accent-15 0.35s ease,
-    --accent-20 0.35s ease,
-    --accent-25 0.35s ease,
-    --accent-30 0.35s ease,
-    --accent-40 0.35s ease,
-    --accent-50 0.35s ease,
-    --accent-60 0.35s ease,
-    --accent-80 0.35s ease,
-    --accent-85 0.35s ease,
-    --cloud 0.35s ease,
-    --cloud-light 0.35s ease,
-    --cloud-dim 0.35s ease,
-    --cloud-25 0.35s ease,
-    --cloud-40 0.35s ease,
-    --emerald 0.35s ease,
-    --amber 0.35s ease,
-    --rose 0.35s ease,
-    --sky 0.35s ease,
-    --success 0.35s ease,
-    --success-bg 0.35s ease,
-    --success-ring 0.35s ease,
-    --warning 0.35s ease,
-    --warning-bg 0.35s ease,
-    --warning-ring 0.35s ease,
-    --info 0.35s ease,
-    --info-bg 0.35s ease,
-    --info-ring 0.35s ease,
-    --danger 0.35s ease,
-    --danger-bg 0.35s ease,
-    --danger-ring 0.35s ease,
-    --task-done-bg 0.35s ease,
-    --task-downloading-bg 0.35s ease,
-    --task-paused-bg 0.35s ease,
-    --task-error-bg 0.35s ease,
-    --queue 0.35s ease,
-    --progress-track 0.35s ease,
-    --selection-bg 0.35s ease,
-    --scrollbar-thumb 0.35s ease,
-    --scrollbar-thumb-hover 0.35s ease;
-}
+/* 主题切换为瞬时切换（无过渡动画）。@property 注册保留供 Tailwind 颜色变量引用，
+ * 不设 :root transition → 变量值变化即时生效，无插值延迟。 */
 
 /* ─── Theme Variables ─── */
 :root,
@@ -298,7 +237,7 @@
   body {
     font-family: theme('fontFamily.sans');
     font-size: 0.875rem;
-    color: var(--text-secondary);
+    color: var(--text-primary);
     background: var(--bg-body);
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
