@@ -2337,7 +2337,7 @@ function cloudResumeAll(): void {
   cloudScheduleNext()
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // ─── 全局兜底：防止未捕获的 promise rejection 导致任务卡在 downloading 永不结束 ───
   process.on('unhandledRejection', (reason) => {
     console.error('[unhandledRejection]', reason)
@@ -2365,6 +2365,21 @@ app.whenReady().then(() => {
       })
     }
   })
+
+  // ─── 启动即清登录凭证：无论如何，每次打开 APP 都强制重新扫码登录 ───
+  // 在预热 session 之前抹掉 persist:sjtu 的 cookies/localStorage 等持久化凭证，
+  // 并重置内存态 jwt token / auth 缓存。渲染端 auth:status 必返回未登录 → 停在 welcome，
+  // 用户必须重新扫码。避免上次会话的 jAccount / 云盘 token 残留带来过期态或串号风险。
+  // 清理失败也不阻塞启动（最多凭证残留，用户可手动登出）。
+  jwtToken = null
+  _authCache = null
+  accountName = null
+  studentId = null
+  try {
+    await clearSjtuSession()
+  } catch (e) {
+    console.error('[startup] 清理登录凭证失败（不阻塞启动）:', e)
+  }
 
   sjtuSession() // 预热持久化 session
   setSession(sjtuSession()) // 云盘 API 使用 Electron session（走系统代理）
