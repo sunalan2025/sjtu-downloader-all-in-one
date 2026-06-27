@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAppStore, type Theme } from '../store/app'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { formatBytes } from './DownloadUI'

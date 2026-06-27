@@ -6,7 +6,7 @@
  * 支持 cloud/both 模式：生成 PDF 后由 orchestrator 上传云盘（destRoot 空时 PDF 仅作中间产物）。
  */
 import type Electron from 'electron'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { PDFDocument, type PDFImage } from 'pdf-lib'
@@ -144,9 +144,8 @@ export async function downloadPptAsPdf(
     }
     console.log(`[ppt] 获取到 ${slices.length} 张 PPT 图片`)
 
-    // 2. 创建临时目录
-    tmpDir = join(tmpdir(), `sjtu-ppt-${ivsVideoId}-${Date.now()}`)
-    mkdirSync(tmpDir, { recursive: true })
+    // 2. 创建临时目录（mkdtempSync 原子创建 + 随机后缀，防符号链接预置攻击）
+    tmpDir = mkdtempSync(join(tmpdir(), 'sjtu-ppt-'))
 
     // 3. 并发下载图片（保留序号，合并时按序）
     const imagePaths: (string | null)[] = new Array(slices.length).fill(null)

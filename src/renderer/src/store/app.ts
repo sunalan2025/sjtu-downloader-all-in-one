@@ -235,7 +235,6 @@ export function useEffectiveProgress(taskId: string): DownloadProgress | undefin
   )
 
   if (!cloud) return local   // 非 both 模式或该任务无云端镜像 → 直接返回本地进度
-  if (!local && !cloud) return undefined
 
   const localDone = local?.state === 'done' || local?.state === 'skipped'
   const cloudDone = cloud?.state === 'done' || cloud?.state === 'skipped'
@@ -254,7 +253,7 @@ export function useEffectiveProgress(taskId: string): DownloadProgress | undefin
     // 本地已完成，显示云端上传进度而非本地 100%
     mergedReceived = cloud?.received ?? 0
     mergedTotal = cloud?.total ?? 0
-    const cpct = cloud && cloud.total > 0 ? Math.round((cloud.received / cloud.total) * 100) : 0
+    const cpct = cloud.total > 0 ? Math.round((cloud.received / cloud.total) * 100) : 0
     mergedMsg = `本地完成 · 云端上传中 ${cpct}%`
   }
   return { taskId, state: mergedState, received: mergedReceived, total: mergedTotal, message: mergedMsg }

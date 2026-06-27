@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, memo } from 'react'
 import { useShallow } from 'zustand/shallow'
 import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/app'
 import {
@@ -40,7 +40,7 @@ const EMPTY_CHAPTERS: CnmoocChapter[] = []
 export function CnmoocBrowser() {
   // 启动恢复：把持久化的云盘 token 同步给 main 缓存并校验
   useCachedCloudTokenValidation()
-  const { cloudConn, onConnectCloud, onDisconnectCloud } = useCloudConnection()
+  const { onConnectCloud, onDisconnectCloud } = useCloudConnection()
 
   const {
     courses,
@@ -58,7 +58,6 @@ export function CnmoocBrowser() {
     localDestRoot,
     resourceFilter,
     downloading,
-    cloudLinkedIds,
     setCourses,
     setScan,
     setCourseData,
@@ -90,7 +89,6 @@ export function CnmoocBrowser() {
       localDestRoot: s.localDestRoot,
       resourceFilter: s.cnmoocResourceFilter,
       downloading: s.downloading,
-      cloudLinkedIds: s.cloudLinkedIds,
       setCourses: s.setCnmoocCourses,
       setScan: s.setCnmoocScanState,
       setCourseData: s.setCnmoocCourseData,

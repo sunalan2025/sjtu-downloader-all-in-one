@@ -1,5 +1,5 @@
 import { request as httpsRequest } from 'node:https'
-import { openSync, readSync, closeSync, statSync } from 'node:fs'
+import { openSync, readSync, closeSync, fstatSync } from 'node:fs'
 import type { ClientRequest } from 'node:http'
 import type Electron from 'electron'
 import type {
@@ -427,9 +427,6 @@ export async function uploadLocalFileToCloud(
   conflictStrategy: 'skip' | 'overwrite',
   onProgress?: (bytesUploaded: number, totalBytes: number) => void
 ): Promise<CloudPanConfirmResult> {
-  const stat = statSync(localPath)
-  const total = stat.size
-
   // 确保父目录存在（逐级创建）
   const segments = remotePath.split('/')
   const folderSegments = segments.slice(0, -1) // 去掉文件名，保留目录层级
@@ -446,6 +443,8 @@ export async function uploadLocalFileToCloud(
   try {
     const fd = openSync(localPath, 'r')
     try {
+      // fd 持有期间文件不会被删/截断 → 用 fstatSync 拿 size，消除 stat→open 的 TOCTOU
+      const total = fstatSync(fd).size
       const buf = Buffer.allocUnsafe(LOCAL_UPLOAD_CHUNK)
       let uploaded = 0
       let partNum = 0

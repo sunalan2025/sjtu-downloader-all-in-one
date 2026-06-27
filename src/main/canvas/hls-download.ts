@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import type { IncomingMessage } from 'node:http'
 import { BrowserWindow } from 'electron'
 import type Electron from 'electron'
+import { sanitizeForLog } from './safe-fetch'
 
 /** 跟踪所有活跃的 ffmpeg 子进程，退出时 kill 防止残留 */
 const activeFfmpegProcesses = new Set<ChildProcess>()
@@ -93,7 +94,7 @@ export async function captureM3u8(
     // win.loadURL 可能因 DNS 失败抛出 net::ERR_NAME_NOT_RESOLVED
     const msg = err instanceof Error ? err.message : ''
     if (/ERR_NAME_NOT_RESOLVED|ENOTFOUND/i.test(msg)) {
-      console.warn(`[hls:capture] DNS 解析失败: ${iframeUrl}`)
+      console.warn(`[hls:capture] DNS 解析失败: ${sanitizeForLog(iframeUrl)}`)
     }
     return null
   } finally {
@@ -114,7 +115,6 @@ export async function resolveM3u8(
   let url = m3u8Url
   const MAX_FETCH_RETRIES = 3
   for (let i = 0; i < maxDepth; i++) {
-    let lastErr: unknown
     for (let retry = 0; retry <= MAX_FETCH_RETRIES; retry++) {
       try {
         const resp = await ses.fetch(url, {
@@ -135,7 +135,6 @@ export async function resolveM3u8(
         }
         break // 成功，跳出重试循环
       } catch (err) {
-        lastErr = err
         const msg = err instanceof Error ? err.message : ''
         const isDns = /ENOTFOUND|getaddrinfo|EAI_AGAIN|ERR_NAME_NOT_RESOLVED/i.test(msg)
         const isNet = /socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timeout|EPIPE/i.test(msg)

@@ -52,6 +52,7 @@ import {
   notifyConcurrencySlotAvailable
 } from './canvas/orchestrator'
 import { killAllFfmpeg } from './canvas/hls-download'
+import { sanitizeForLog } from './canvas/safe-fetch'
 import { getVodChannelsCached, clearVodChannelsCache, clearExtToolTokenCache, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from './canvas/video-tokens'
 import {
   fetchFileMeta,
@@ -632,7 +633,7 @@ function runConcurrencyEval(): number {
   if (acBaseRtt <= 0) acBaseRtt = 120 // 兜底默认
 
   const prev = concurrency
-  let nextMs = AC_EVAL_DEFAULT_MS
+  let nextMs: number
 
   if (memUse > AC_MEM_HIGH || diskUse > AC_DISK_HIGH) {
     // ── 资源超限兜底 → ×0.7 ──
@@ -839,7 +840,9 @@ async function runTask(t: TaskRuntime): Promise<void> {
   const strategy = conflictStrategyByTask.get(t.spec.taskId) ?? 'skip'
 
   // 最终文件已存在 → 跳过 或 先删后下载（overwrite）
-  if (existsSync(t.filePath)) {
+  // statSync(throwIfNoEntry:false) 一次调用拿存在性，替代 existsSync→unlink 的 TOCTOU
+  const existingStat = statSync(t.filePath, { throwIfNoEntry: false })
+  if (existingStat) {
     if (strategy === 'overwrite') {
       // 替换模式：删掉旧的目标文件（连同名 .part 一起清，避免续传到旧文件残留）
       try { unlinkSync(t.filePath) } catch { /* ignore */ }
@@ -895,7 +898,7 @@ async function runTask(t: TaskRuntime): Promise<void> {
         if (isNetErr && attempt < MAX_DL_RETRIES) {
           const delay = Math.pow(2, attempt + 1) * 1000
           noteNetworkError()
-          console.warn(`[download] ${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES}): ${msg}`)
+          console.warn(`[download] ${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES}): ${sanitizeForLog(msg)}`)
           emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: t.received, total: t.total, message: `${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES})` })
           await new Promise(r => setTimeout(r, delay))
           if (t.state !== 'downloading') throw retryErr // 等待期间被 pause/cancel
@@ -970,13 +973,11 @@ function downloadStream(t: TaskRuntime): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     // 续传探测：part 文件已存在且 size>0 → 发 Range
     let resumeFrom = 0
-    if (existsSync(t.partPath)) {
-      try {
-        const st = statSync(t.partPath)
-        if (st.size > 0) resumeFrom = st.size
-      } catch {
-        /* ignore */
-      }
+    try {
+      const partStat = statSync(t.partPath, { throwIfNoEntry: false })
+      if (partStat && partStat.size > 0) resumeFrom = partStat.size
+    } catch {
+      /* ignore */
     }
     t.received = resumeFrom
 
@@ -1716,13 +1717,6 @@ function isTransientCloudError(err: unknown): boolean {
   return false
 }
 
-function cloudEnqueue(spec: DownloadTaskSpec): void {
-  pendingCloud.push(spec)
-  pendingCloudIds.add(spec.taskId)
-  if (autoConcurrency) startAutoConcurrency()
-  emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
-}
-
 function cloudScheduleNext(): void {
   if (isQuitting) return
   while (sharedActiveCount() < concurrency && pendingCloud.length > 0) {
@@ -1807,7 +1801,7 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
       await deleteCloudFile(t.spec.cloudUserToken, cloudRemotePath(t.spec))
     } catch (err) {
       // 删除失败不致命：仍尝试上传，由 startChunkedUpload 的冲突判定兜底
-      console.warn('[cloudpan] 替换模式删除旧文件失败，继续尝试上传:', err instanceof Error ? err.message : err)
+      console.warn('[cloudpan] 替换模式删除旧文件失败，继续尝试上传:', sanitizeForLog(err instanceof Error ? err.message : err))
     }
   }
 

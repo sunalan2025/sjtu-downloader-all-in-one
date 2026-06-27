@@ -13,7 +13,6 @@ import { BrowserWindow, ipcMain } from 'electron'
 import type Electron from 'electron'
 import {
   CNMOOC_BASE_URL,
-  CNMOOC_MY_COURSES_URL,
   type CanvasDownloadTaskSpec,
   type CnmoocCourse,
   type CnmoocResourceFilter,

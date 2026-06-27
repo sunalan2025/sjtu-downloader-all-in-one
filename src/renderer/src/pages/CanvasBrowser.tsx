@@ -153,7 +153,7 @@ export function CanvasBrowser() {
     localDestRoot, cloudUserToken, cloudSpaceInfo,
     downloadMode, fileConflictStrategy, hlsTranscodeMaxHeight, cloudLinkedIds, canvasCourses, canvasScanState, canvasScanMessage,
     canvasExpandedCourses, canvasCourseData, canvasTeachers, canvasSelectedTeachers,
-    canvasLtiTokens, canvasLectures, canvasModuleVideos, canvasCourseCategorySelections
+    canvasLectures, canvasModuleVideos, canvasCourseCategorySelections
   } = useAppStore(useShallow(s => ({
     localDestRoot: s.localDestRoot,
     cloudUserToken: s.cloudUserToken,
@@ -169,7 +169,6 @@ export function CanvasBrowser() {
     canvasCourseData: s.canvasCourseData,
     canvasTeachers: s.canvasTeachers,
     canvasSelectedTeachers: s.canvasSelectedTeachers,
-    canvasLtiTokens: s.canvasLtiTokens,
     canvasLectures: s.canvasLectures,
     canvasModuleVideos: s.canvasModuleVideos,
     canvasCourseCategorySelections: s.canvasCourseCategorySelections
@@ -181,7 +180,7 @@ export function CanvasBrowser() {
     setCanvasCourses, setCanvasScanState, setCanvasCourseData, setCanvasTeachers,
     setCanvasSelectedTeachers, setCanvasLtiToken, setCanvasLectures, setCanvasModuleVideos,
     setCanvasCourseCategorySelection, setAllCanvasCourseCategorySelections,
-    resetCanvasScanResults, deleteCanvasCourseData, toggleCanvasExpand,
+    resetCanvasScanResults, toggleCanvasExpand,
     setLocalDestRoot, setDownloading, resetProgress, applyProgress,
     setDownloadMode, setFileConflictStrategy, setHlsTranscodeMaxHeight, setCloudLinkedIds
   } = useAppStore(useShallow(s => ({
@@ -196,7 +195,6 @@ export function CanvasBrowser() {
     setCanvasCourseCategorySelection: s.setCanvasCourseCategorySelection,
     setAllCanvasCourseCategorySelections: s.setAllCanvasCourseCategorySelections,
     resetCanvasScanResults: s.resetCanvasScanResults,
-    deleteCanvasCourseData: s.deleteCanvasCourseData,
     toggleCanvasExpand: s.toggleCanvasExpand,
     setLocalDestRoot: s.setLocalDestRoot,
     setDownloading: s.setDownloading,
@@ -1333,7 +1331,6 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
       ...courseData.syllabusFiles.map(f => fileTaskId(course.courseId, f.fileId))
     ]
   }, [course.courseId, courseData])
-  const fileSel = fileIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
 
   const teacherIds = useMemo(() => {
     if (!lectures) return []
@@ -1343,8 +1340,6 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
     if (!lectures) return []
     return lectures.flatMap(l => l.teacher ? [lectureStreamTaskId(course.courseId, l.lectureNum, 'ppt')] : [])
   }, [course.courseId, lectures])
-  const teacherSel = teacherIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
-  const pptSel = pptIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
 
   const moduleVideoIds = useMemo(() => {
     if (!moduleVideos) return []
@@ -1354,7 +1349,6 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
       ...moduleVideos.extUrls.map(t => extUrlVideoTaskId(course.courseId, t.uuid))
     ]
   }, [course.courseId, moduleVideos])
-  const moduleVideoSel = moduleVideoIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
 
   // ── 三态：纯派生自 selected 聚合 + 未解析意图，不再依赖 courseSelected ──
   const filesTriState: TriState = catStateOf(fileIds, selected, catSel?.files)
