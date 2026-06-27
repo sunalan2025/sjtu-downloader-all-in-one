@@ -2,7 +2,6 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, s
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
   createWriteStream,
-  existsSync,
   mkdirSync,
   renameSync,
   statSync,
@@ -2557,8 +2556,9 @@ app.whenReady().then(() => {
           mkdirSync(localBase, { recursive: true })
 
           // 首次下载时在目录写入说明文件
+          // 用 'wx' 独占创建：已存在则 EEXIST 忽略，消除 existsSync→writeFileSync 的 TOCTOU
           const readmePath = join(localBase, '下载说明.txt')
-          if (!existsSync(readmePath)) {
+          try {
             writeFileSync(readmePath, [
               '下载说明',
               '========',
@@ -2571,7 +2571,9 @@ app.whenReady().then(() => {
               '',
               '—— SJTU 旁听课程下载器',
               ''
-            ].join('\n'), 'utf-8')
+            ].join('\n'), { encoding: 'utf-8', flag: 'wx' })
+          } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
           }
           for (const spec of specs) {
             // PERF: O(1) duplicate-check via index Sets instead of O(n) .some() scans
