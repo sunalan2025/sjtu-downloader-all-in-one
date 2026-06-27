@@ -2371,7 +2371,7 @@ app.whenReady().then(async () => {
     app.quit()
   })
 
-  electronApp.setAppUserModelId('edu.sjtu.audited-downloader')
+  electronApp.setAppUserModelId('edu.sjtu.course-downloader')
 
   // 移除默认应用菜单（File/Edit/View/Window/Help，含开发者工具入口）。
   // autoHideMenuBar 仍可按 Alt 呼出，setApplicationMenu(null) 彻底移除，避免用户误触。
@@ -2681,7 +2681,7 @@ app.whenReady().then(async () => {
               '所有视频下载完成后，.part 文件会被自动删除。',
               '如果你想手动清理，可以安全删除任意 .part 文件，不会影响已下载完成的 .mp4 视频。',
               '',
-              '—— SJTU 旁听课程下载器',
+              '—— 上海交大课程下载器',
               ''
             ].join('\n'), { encoding: 'utf-8', flag: 'wx' })
           } catch (e) {
