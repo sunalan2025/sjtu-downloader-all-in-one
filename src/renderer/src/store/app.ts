@@ -517,7 +517,7 @@ export const useAppStore = create<AppState>()(
       setAutoConcurrency: on => set({ autoConcurrency: on })
     }),
     {
-      name: 'sjtu-audited-downloader',
+      name: 'sjtu-course-downloader',
       storage: createJSONStorage(() => localStorage),
       // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据
       partialize: state => ({
