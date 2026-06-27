@@ -1,9 +1,9 @@
 {
-  "name": "sjtu-audited-downloader",
-  "version": "2.2.0",
+  "name": "sjtu-course-downloader",
+  "version": "2.2.1",
   "description": "批量下载 SJTU v.sjtu 旁听、Canvas、好大学在线课程资源的 Electron 桌面应用，支持本地下载与直传交大云盘（需连接 SJTU 校园网或交大 VPN）",
   "main": "out/main/index.js",
-  "author": "SJTU Audited Downloader Contributors",
+  "author": "SJTU Course Downloader Contributors",
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/run-electron-vite.mjs dev",
@@ -42,9 +42,9 @@
     "zustand": "^5.0.2"
   },
   "build": {
-    "appId": "edu.sjtu.audited-downloader",
-    "productName": "SJTU 旁听下载器",
-    "artifactName": "sjtu-audited-downloader-${version}-${os}-${arch}.${ext}",
+    "appId": "edu.sjtu.course-downloader",
+    "productName": "SJTU 课程下载器",
+    "artifactName": "sjtu-course-downloader-${version}-${os}-${arch}.${ext}",
     "directories": {
       "buildResources": "build",
       "output": "release/${version}"
