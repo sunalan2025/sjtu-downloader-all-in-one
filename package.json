@@ -67,7 +67,8 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "msi"
       ],
       "icon": "build/icons/icon.ico"
     },
@@ -91,6 +92,13 @@
       "perMachine": false,
       "installerIcon": "build/icons/icon.ico",
       "uninstallerIcon": "build/icons/icon.ico"
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "warningsAsErrors": false,
+      "additionalLightArgs": ["-cultures:zh-CN"]
     }
   }
 }
