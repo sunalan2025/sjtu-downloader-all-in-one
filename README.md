@@ -1,5 +1,12 @@
 # SJTU 课程下载器
 
+[![stars](https://img.shields.io/github/stars/sunalan2025/sjtu-downloader-all-in-one?style=social)](https://github.com/sunalan2025/sjtu-downloader-all-in-one)
+[![release](https://img.shields.io/github/v/release/sunalan2025/sjtu-downloader-all-in-one?display_name=tag&include_prereleases)](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases)
+[![license](https://img.shields.io/github/license/sunalan2025/sjtu-downloader-all-in-one)](./LICENSE)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#获取方式)
+
+> ⭐ **如果这个工具帮到了你，欢迎点右上角的 Star 支持一下！** 这能让更多 SJTU 同学搜到它，也激励我持续更新。
+
 批量下载 [v.sjtu.edu.cn](https://v.sjtu.edu.cn) 旁听课程、[Canvas (oc.sjtu.edu.cn)](https://oc.sjtu.edu.cn) 课程资源和[好大学在线 (cnmooc.sjtu.cn)](https://cnmooc.sjtu.cn) 课程视频与课件的桌面工具。支持本地下载和直传交大云盘（pan.sjtu.edu.cn）。
 
 > **网络要求** — 需要连接 SJTU 校园网或使用交大 VPN 才能正常访问视频资源和下载。
