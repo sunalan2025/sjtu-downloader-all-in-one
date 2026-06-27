@@ -840,14 +840,14 @@ async function runTask(t: TaskRuntime): Promise<void> {
   const strategy = conflictStrategyByTask.get(t.spec.taskId) ?? 'skip'
 
   // 最终文件已存在 → 跳过 或 先删后下载（overwrite）
-  // statSync(throwIfNoEntry:false) 一次调用拿存在性，替代 existsSync→unlink 的 TOCTOU
-  const existingStat = statSync(t.filePath, { throwIfNoEntry: false })
-  if (existingStat) {
-    if (strategy === 'overwrite') {
-      // 替换模式：删掉旧的目标文件（连同名 .part 一起清，避免续传到旧文件残留）
-      try { unlinkSync(t.filePath) } catch { /* ignore */ }
-      try { unlinkSync(t.partPath) } catch { /* ignore */ }
-    } else {
+  if (strategy === 'overwrite') {
+    // 替换模式：无需预检存在性，直接删，不存在则 ENOENT 自然忽略
+    // （消除 existsSync/stat → unlink 的 TOCTOU 窗口）
+    try { unlinkSync(t.filePath) } catch { /* 不存在则忽略 */ }
+    try { unlinkSync(t.partPath) } catch { /* ignore */ }
+  } else {
+    // skip 策略：statSync(throwIfNoEntry:false) 单次调用判存在，之后仅 return 无文件操作
+    if (statSync(t.filePath, { throwIfNoEntry: false })) {
       t.state = 'skipped'
       emitProgress({
         taskId: t.spec.taskId,
