@@ -2,7 +2,6 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, s
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
   createWriteStream,
-  existsSync,
   mkdirSync,
   renameSync,
   statSync,
@@ -52,12 +51,13 @@ import {
   notifyConcurrencySlotAvailable
 } from './canvas/orchestrator'
 import { killAllFfmpeg } from './canvas/hls-download'
+import { sanitizeForLog } from './canvas/safe-fetch'
 import { getVodChannelsCached, clearVodChannelsCache, clearExtToolTokenCache, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from './canvas/video-tokens'
 import {
   fetchFileMeta,
   sanitizeFsName
 } from './canvas/api'
-import type { CanvasDownloadTaskSpec } from '../shared/types'
+import type { CanvasDownloadTaskSpec, UpdateCheckResult } from '../shared/types'
 import {
   registerCnmoocHandlers,
   setCnmoocSession,
@@ -67,6 +67,27 @@ import { fetchCnmoocResourceUrl, inferCnmoocExt } from './cnmooc/api'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
+
+// ─── 新版本检查配置 ───
+const UPDATE_REPO = 'sunalan2025/sjtu-downloader-all-in-one'
+const UPDATE_CHECK_TTL = 60 * 60 * 1000 // 1h 节流，避免触发 GitHub 未认证 60 次/h 限流
+let _updateCache: { result: UpdateCheckResult; ts: number } | null = null
+
+/** 语义版本比较：latest > current 返回 true。不引 semver 依赖，仅按 a.b.c 数字逐段比。
+ *  非 semver 字符串（解析失败）视为非新版，保守返回 false。 */
+function isNewerVersion(latest: string, current: string): boolean {
+  const a = latest.split('.').map(Number)
+  const b = current.split('.').map(Number)
+  if (a.some(n => Number.isNaN(n)) || b.some(n => Number.isNaN(n))) return false
+  const len = Math.max(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    const ai = a[i] ?? 0
+    const bi = b[i] ?? 0
+    if (ai > bi) return true
+    if (ai < bi) return false
+  }
+  return false
+}
 
 /** v.sjtu 的 jwt-token，由 renderer 在登录回跳后从 webview localStorage 抽取并推过来。
  *  只放在内存里，进程退出即丢；下次启动需要重新登录拿。 */
@@ -632,7 +653,7 @@ function runConcurrencyEval(): number {
   if (acBaseRtt <= 0) acBaseRtt = 120 // 兜底默认
 
   const prev = concurrency
-  let nextMs = AC_EVAL_DEFAULT_MS
+  let nextMs: number
 
   if (memUse > AC_MEM_HIGH || diskUse > AC_DISK_HIGH) {
     // ── 资源超限兜底 → ×0.7 ──
@@ -839,12 +860,14 @@ async function runTask(t: TaskRuntime): Promise<void> {
   const strategy = conflictStrategyByTask.get(t.spec.taskId) ?? 'skip'
 
   // 最终文件已存在 → 跳过 或 先删后下载（overwrite）
-  if (existsSync(t.filePath)) {
-    if (strategy === 'overwrite') {
-      // 替换模式：删掉旧的目标文件（连同名 .part 一起清，避免续传到旧文件残留）
-      try { unlinkSync(t.filePath) } catch { /* ignore */ }
-      try { unlinkSync(t.partPath) } catch { /* ignore */ }
-    } else {
+  if (strategy === 'overwrite') {
+    // 替换模式：无需预检存在性，直接删，不存在则 ENOENT 自然忽略
+    // （消除 existsSync/stat → unlink 的 TOCTOU 窗口）
+    try { unlinkSync(t.filePath) } catch { /* 不存在则忽略 */ }
+    try { unlinkSync(t.partPath) } catch { /* ignore */ }
+  } else {
+    // skip 策略：statSync(throwIfNoEntry:false) 单次调用判存在，之后仅 return 无文件操作
+    if (statSync(t.filePath, { throwIfNoEntry: false })) {
       t.state = 'skipped'
       emitProgress({
         taskId: t.spec.taskId,
@@ -895,7 +918,7 @@ async function runTask(t: TaskRuntime): Promise<void> {
         if (isNetErr && attempt < MAX_DL_RETRIES) {
           const delay = Math.pow(2, attempt + 1) * 1000
           noteNetworkError()
-          console.warn(`[download] ${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES}): ${msg}`)
+          console.warn(`[download] ${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES}): ${sanitizeForLog(msg)}`)
           emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: t.received, total: t.total, message: `${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES})` })
           await new Promise(r => setTimeout(r, delay))
           if (t.state !== 'downloading') throw retryErr // 等待期间被 pause/cancel
@@ -970,13 +993,11 @@ function downloadStream(t: TaskRuntime): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     // 续传探测：part 文件已存在且 size>0 → 发 Range
     let resumeFrom = 0
-    if (existsSync(t.partPath)) {
-      try {
-        const st = statSync(t.partPath)
-        if (st.size > 0) resumeFrom = st.size
-      } catch {
-        /* ignore */
-      }
+    try {
+      const partStat = statSync(t.partPath, { throwIfNoEntry: false })
+      if (partStat && partStat.size > 0) resumeFrom = partStat.size
+    } catch {
+      /* ignore */
     }
     t.received = resumeFrom
 
@@ -1716,13 +1737,6 @@ function isTransientCloudError(err: unknown): boolean {
   return false
 }
 
-function cloudEnqueue(spec: DownloadTaskSpec): void {
-  pendingCloud.push(spec)
-  pendingCloudIds.add(spec.taskId)
-  if (autoConcurrency) startAutoConcurrency()
-  emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
-}
-
 function cloudScheduleNext(): void {
   if (isQuitting) return
   while (sharedActiveCount() < concurrency && pendingCloud.length > 0) {
@@ -1807,7 +1821,7 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
       await deleteCloudFile(t.spec.cloudUserToken, cloudRemotePath(t.spec))
     } catch (err) {
       // 删除失败不致命：仍尝试上传，由 startChunkedUpload 的冲突判定兜底
-      console.warn('[cloudpan] 替换模式删除旧文件失败，继续尝试上传:', err instanceof Error ? err.message : err)
+      console.warn('[cloudpan] 替换模式删除旧文件失败，继续尝试上传:', sanitizeForLog(err instanceof Error ? err.message : err))
     }
   }
 
@@ -2344,7 +2358,7 @@ function cloudResumeAll(): void {
   cloudScheduleNext()
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // ─── 全局兜底：防止未捕获的 promise rejection 导致任务卡在 downloading 永不结束 ───
   process.on('unhandledRejection', (reason) => {
     console.error('[unhandledRejection]', reason)
@@ -2372,6 +2386,21 @@ app.whenReady().then(() => {
       })
     }
   })
+
+  // ─── 启动即清登录凭证：无论如何，每次打开 APP 都强制重新扫码登录 ───
+  // 在预热 session 之前抹掉 persist:sjtu 的 cookies/localStorage 等持久化凭证，
+  // 并重置内存态 jwt token / auth 缓存。渲染端 auth:status 必返回未登录 → 停在 welcome，
+  // 用户必须重新扫码。避免上次会话的 jAccount / 云盘 token 残留带来过期态或串号风险。
+  // 清理失败也不阻塞启动（最多凭证残留，用户可手动登出）。
+  jwtToken = null
+  _authCache = null
+  accountName = null
+  studentId = null
+  try {
+    await clearSjtuSession()
+  } catch (e) {
+    console.error('[startup] 清理登录凭证失败（不阻塞启动）:', e)
+  }
 
   sjtuSession() // 预热持久化 session
   setSession(sjtuSession()) // 云盘 API 使用 Electron session（走系统代理）
@@ -2469,6 +2498,82 @@ app.whenReady().then(() => {
     }
   )
 
+  // ─── 新版本检查（主进程请求 GitHub，绕开渲染端 CSP 限制） ───
+  // 渲染端 CSP connect-src 只允许 SJTU 域名，无法直连 api.github.com，
+  // 故由主进程用 node:https 拉取 releases/latest，结果经 IPC 给渲染端 TitleBar 徽章。
+  ipcMain.handle('app:check-update', async (): Promise<UpdateCheckResult> => {
+    const current = app.getVersion()
+    // 1h 节流：避免每次 TitleBar mount 都打 GitHub API（限流 60 次/h 未认证）
+    if (_updateCache && Date.now() - _updateCache.ts < UPDATE_CHECK_TTL) {
+      return _updateCache.result
+    }
+    const fail = (error: string): UpdateCheckResult => ({
+      hasUpdate: false, currentVersion: current, latestVersion: null, releaseUrl: null, releaseNotes: null, error
+    })
+    try {
+      const json = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const req = httpsRequest(
+          {
+            method: 'GET',
+            hostname: 'api.github.com',
+            path: `/repos/${UPDATE_REPO}/releases/latest`,
+            headers: {
+              'User-Agent': `sjtu-downloader/${current}`,
+              Accept: 'application/vnd.github+json'
+            },
+            timeout: 5000
+          },
+          resp => {
+            if (resp.statusCode !== 200) {
+              reject(new Error(`HTTP ${resp.statusCode}`))
+              resp.resume()
+              return
+            }
+            let body = ''
+            resp.setEncoding('utf8')
+            resp.on('data', (chunk: string) => { body += chunk })
+            resp.on('end', () => {
+              try { resolve(JSON.parse(body) as Record<string, unknown>) }
+              catch { reject(new Error('JSON 解析失败')) }
+            })
+          }
+        )
+        req.on('error', reject)
+        req.on('timeout', () => { req.destroy(new Error('timeout')) })
+        req.end()
+      })
+      const tag = typeof json.tag_name === 'string' ? json.tag_name.replace(/^v/, '') : ''
+      if (!tag) {
+        const r = fail('响应缺少 tag_name')
+        _updateCache = { result: r, ts: Date.now() }
+        return r
+      }
+      const result: UpdateCheckResult = {
+        hasUpdate: isNewerVersion(tag, current),
+        currentVersion: current,
+        latestVersion: tag,
+        releaseUrl: typeof json.html_url === 'string' ? json.html_url : `https://github.com/${UPDATE_REPO}/releases/latest`,
+        releaseNotes: typeof json.body === 'string' ? json.body.slice(0, 500) : null
+      }
+      _updateCache = { result, ts: Date.now() }
+      return result
+    } catch (err) {
+      // 网络失败静默返回 hasUpdate:false，不打扰用户
+      const r = fail(err instanceof Error ? err.message : String(err))
+      _updateCache = { result: r, ts: Date.now() }
+      return r
+    }
+  })
+
+  // ─── 打开外部 URL（限于 GitHub 域，防任意 URL 打开） ───
+  ipcMain.handle('app:open-external', (_e, url: string): { ok: boolean } => {
+    if (typeof url !== 'string' || !url.startsWith('https://github.com/')) {
+      return { ok: false }
+    }
+    void shell.openExternal(url)
+    return { ok: true }
+  })
+
   ipcMain.handle('auth:set-jwt-token', (_e, token: string | null) => {
     jwtToken = token && token.length > 20 ? token : null
     _authCache = null // JWT 变化后必须重新验证登录态
@@ -2563,8 +2668,9 @@ app.whenReady().then(() => {
           mkdirSync(localBase, { recursive: true })
 
           // 首次下载时在目录写入说明文件
+          // 用 'wx' 独占创建：已存在则 EEXIST 忽略，消除 existsSync→writeFileSync 的 TOCTOU
           const readmePath = join(localBase, '下载说明.txt')
-          if (!existsSync(readmePath)) {
+          try {
             writeFileSync(readmePath, [
               '下载说明',
               '========',
@@ -2577,7 +2683,9 @@ app.whenReady().then(() => {
               '',
               '—— SJTU 旁听课程下载器',
               ''
-            ].join('\n'), 'utf-8')
+            ].join('\n'), { encoding: 'utf-8', flag: 'wx' })
+          } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
           }
           for (const spec of specs) {
             // PERF: O(1) duplicate-check via index Sets instead of O(n) .some() scans

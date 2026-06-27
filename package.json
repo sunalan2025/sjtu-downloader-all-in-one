@@ -1,6 +1,6 @@
 {
   "name": "sjtu-audited-downloader",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "批量下载 SJTU v.sjtu 旁听、Canvas、好大学在线课程资源的 Electron 桌面应用，支持本地下载与直传交大云盘（需连接 SJTU 校园网或交大 VPN）",
   "main": "out/main/index.js",
   "author": "SJTU Audited Downloader Contributors",
@@ -26,11 +26,11 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
     "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
-    "electron-vite": "^2.3.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
     "png-to-ico": "^3.0.1",
     "postcss": "^8.4.49",
     "react": "^19.0.0",
@@ -38,7 +38,7 @@
     "sharp": "^0.35.1",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11",
+    "vite": "^7.0.0",
     "zustand": "^5.0.2"
   },
   "build": {
@@ -67,7 +67,8 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "msi"
       ],
       "icon": "build/icons/icon.ico"
     },
@@ -91,6 +92,13 @@
       "perMachine": false,
       "installerIcon": "build/icons/icon.ico",
       "uninstallerIcon": "build/icons/icon.ico"
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "warningsAsErrors": false,
+      "additionalLightArgs": ["-cultures:zh-CN"]
     }
   }
 }

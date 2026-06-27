@@ -57,6 +57,7 @@ jobs:
           name: release-${{ matrix.platform }}
           path: |
             release/**/*.exe
+            release/**/*.msi
             release/**/*.dmg
             release/**/*.zip
             release/**/*.AppImage

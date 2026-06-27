@@ -57,13 +57,17 @@ export default function App() {
         const a = await window.api.auth.status()
         if (cancelled) return
         setAuth(a)
-        if (a.loggedIn) setStage('browser')
+        // 主进程启动即清凭证 → 此处必返回未登录，强制重新扫码登录，
+        // 不会自动进入 browser 页（避免上次会话登录态残留）。
+        // 同时清掉持久化的云盘 token：云盘连接也必须在新登录后重新建立。
+        useAppStore.getState().setCloudUserToken(null)
+        useAppStore.getState().setCloudSpaceInfo(null)
       } catch {
         /* ignore */
       }
     })()
     return () => { cancelled = true }
-  }, [setAuth, setStage])
+  }, [setAuth])
 
   return (
     <div className="flex h-full w-full flex-col">

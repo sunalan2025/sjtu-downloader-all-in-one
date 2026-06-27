@@ -29,7 +29,6 @@ import {
   fetchPageBody,
   extractVideoIframes,
   extractVshareLinks,
-  listModulePages,
   fetchFileMeta,
   sanitizeFsName
 } from './api'
