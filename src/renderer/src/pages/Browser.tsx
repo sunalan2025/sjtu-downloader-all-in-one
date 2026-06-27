@@ -112,10 +112,15 @@ export function Browser() {
       const env = await window.api.vsjtu.scanAudit(1, 100)
       if (!env?.success) {
         const msg = env?.message || '拉取课程列表失败'
-        setScan('error', msg)
         if (msg.includes('未登录') || msg.includes('登录已过期')) {
+          // 登录态失效：先清空扫描结果（scanState→idle）再跳登录页。
+          // 用户在登录页扫码成功后 Browser 重新挂载，scanState=idle 会自动触发
+          // runScan 重新完整加载课程列表（=「确认登陆之后重新完整加载」）。
           setAuth({ loggedIn: false })
+          resetScanResults()
           setStage('login')
+        } else {
+          setScan('error', msg)
         }
         return
       }
@@ -184,6 +189,13 @@ export function Browser() {
     scanStartedRef.current = true
     void runScan()
   }, [runScan, scanState])
+
+  // 刷新键（与好大学在线页一致）：重走 runScan。
+  // scanAudit 调用即登录校验 —— 已登录则直接重载课程列表；
+  // 登录态失效则 runScan 内部跳登录页，登录成功后回到本页自动重扫（见上方 resetScanResults 注释）。
+  const onRefresh = useCallback((): void => {
+    void runScan()
+  }, [runScan])
 
   // 扫描结束默认全选（只执行一次，避免用户手动取消全选后又被 effect 重新勾上）
   const autoSelectedRef = useRef(false)
@@ -335,6 +347,7 @@ export function Browser() {
         scanMessage={scanMessage}
         courseCount={courses.length}
         total={total}
+        onRefresh={onRefresh}
       />
 
       {scanState === 'done' && total > 0 && (
@@ -408,12 +421,14 @@ const TopBar = memo(function TopBar({
   scanState,
   scanMessage,
   courseCount,
-  total
+  total,
+  onRefresh
 }: {
   scanState: 'idle' | 'scanning' | 'done' | 'error'
   scanMessage: string
   courseCount: number
   total: number
+  onRefresh: () => void
 }) {
   return (
     <div className="no-drag flex items-center gap-4 border-b border-bd px-6 py-3">
@@ -430,6 +445,16 @@ const TopBar = memo(function TopBar({
         )}
         {scanState === 'error' && <span className="text-warning">{scanMessage}</span>}
       </div>
+      {scanState === 'done' && courseCount > 0 && (
+        <button
+          type="button"
+          onClick={onRefresh}
+          title="重新校验登录态并完整重载课程列表"
+          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs text-text-3 transition-colors duration-150 hover:bg-surface-2 hover:text-text-1"
+        >
+          刷新 ↻
+        </button>
+      )}
     </div>
   )
 })
