@@ -145,6 +145,22 @@ export interface AuthStatus {
   checkedAt?: string
 }
 
+/** 新版本检查结果（主进程请求 GitHub releases/latest 后返回给渲染端） */
+export interface UpdateCheckResult {
+  /** 是否有比当前版本更新的版本 */
+  hasUpdate: boolean
+  /** 当前应用版本（app.getVersion()） */
+  currentVersion: string
+  /** GitHub 上最新正式版版本号（去 v 前缀），请求失败时为 null */
+  latestVersion: string | null
+  /** Release 页 URL，点击「前往下载」时打开 */
+  releaseUrl: string | null
+  /** Release notes 摘要（body 前 500 字），可能为 null */
+  releaseNotes: string | null
+  /** 检查失败时的错误信息（用于调试，正常路径下不展示给用户） */
+  error?: string
+}
+
 /** 列表展示用的简化课程 */
 export interface Course {
   /** resourceId（用来打 audit-course-detail） */

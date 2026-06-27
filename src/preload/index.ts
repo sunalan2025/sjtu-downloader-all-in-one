@@ -20,7 +20,8 @@ import type {
   DownloadProgress,
   DownloadTaskSpec,
   PageResult,
-  TransferSpeed
+  TransferSpeed,
+  UpdateCheckResult
 } from '../shared/types'
 
 /** 通用订阅器：注册 ipcRenderer 监听并返回取消订阅函数 */
@@ -42,6 +43,10 @@ const api = {
   /** 弹出系统通知（标题 + 正文）；点击通知聚焦主窗口 */
   notify: (title: string, body: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('app:notify', { title, body }),
+  /** 检查 GitHub 上是否有新版本（主进程请求，1h 缓存节流） */
+  checkUpdate: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('app:check-update'),
+  /** 在系统默认浏览器打开外部 URL（仅限 github.com，防任意 URL 打开） */
+  openExternal: (url: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('app:open-external', url),
   // ─── 自定义标题栏窗口控制（Mac 交通灯按钮） ───
   window: {
     /** 隐藏到系统托盘（最小化按钮/确认窗"最小化"选项） */

@@ -586,6 +586,43 @@ npm run build:unpack   # 仅构建不打包（输出目录）
 
 ## 更新日志
 
+### v2.2.0 — 新版本检查提醒 + 强制重新登录 + MSI 安装包 + 安全修复
+
+#### 新功能
+
+- **新版本检查提醒** — 应用启动时静默请求 GitHub Releases，发现新版本在标题栏显示「新版 vX.X.X」徽章，点击查看更新内容并跳转下载页（主进程请求，绕开渲染端 CSP；1h 缓存节流；网络失败静默不打扰）
+- **Windows MSI 安装包** — 新增 `.msi` 安装格式（与 `.exe` 并存），企业部署/组策略安装友好；WiX 配置 `-cultures:zh-CN` 解决中文产品名 codepage 问题
+- **强制重新登录** — 每次打开 APP 都清除上次会话的登录凭证（jAccount cookie + 云盘 token），强制重新扫码，避免过期态或串号残留
+
+#### 安全
+
+- **CodeQL 告警处理** — 清理 14 条代码质量问题（未使用变量/import、死赋值、永真条件）+ 修复 6 条安全告警（日志注入 `sanitizeForLog`、`mkdtempSync` 原子临时目录、`statSync(throwIfNoEntry)` / `open+fstat` 消除文件系统 TOCTOU）；`existsSync→unlink` 改直接删 + catch ENOENT；readme 写入改 `flag:'wx'` 独占创建
+- **依赖升级** — `electron-builder` 25→26（tar 6→7，清 8 条 CVE）、`vite` 5→7 + `electron-vite` 2→5 + `@vitejs/plugin-react` 4→5（清 3 条 CVE）；共自动关闭 13 条 Dependabot 告警
+- **安全工具开启** — CodeQL 代码扫描 + Dependabot 依赖更新 + 漏洞告警全部启用（此前为关闭状态）
+- **剩余告警已审计关闭** — 18 条 electron CVE（受 webview 兼容限制暂不升主版本，标记 tolerable_risk）+ 1 条 http-to-file（下载器核心功能，路径已 sanitizeFsName 清洗，won't fix）
+
+#### 文档
+
+- **杀软误报声明** — README 增加折叠区说明未签名个人软件被误报的原因及放行步骤（SmartScreen / Defender / 360 / 火绒 / 浏览器）
+- **可发现性优化** — 仓库描述改中英双语 + topics 换功能导向标签，`sjtu 旁听下载` / `好大学在线 下载` / `sjtu course downloader` 等搜索词均可命中
+- **Star 引导** — README 顶部加徽章（stars/release/license/platform）+ 点赞引导文案
+
+---
+
+### v2.1.0 — v.sjtu 刷新键 + 欢迎页重设计 + README 重组
+
+#### 新功能
+
+- **v.sjtu 旁听页刷新键** — 顶栏新增「刷新 ↻」，重新校验登录态并完整重载课程列表；登录态失效时跳登录页，扫码成功后回到本页自动重新扫描
+
+#### 改进
+
+- **欢迎页重设计** — 融入三大课程来源（v.sjtu 旁听 / Canvas / 好大学在线）与六项核心能力卡片
+- **README 重组** — 使用说明（获取方式 / 使用教程 / 状态说明）前置，机制原理（文件命名 / 下载引擎 / 安全模型）后置收口；补全好大学在线来源与路径结构
+- **新增 LICENSE** — 此前 README / package.json 声称 MIT 但缺失文件，已补上
+
+---
+
 ### v2.0.0 — 好大学在线来源 + PPT 课件 PDF + 内置 ffmpeg + Canvas 单元视频三来源
 
 #### 新增来源：好大学在线（cnmooc.sjtu.cn）

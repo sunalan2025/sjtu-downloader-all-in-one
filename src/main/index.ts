@@ -57,7 +57,7 @@ import {
   fetchFileMeta,
   sanitizeFsName
 } from './canvas/api'
-import type { CanvasDownloadTaskSpec } from '../shared/types'
+import type { CanvasDownloadTaskSpec, UpdateCheckResult } from '../shared/types'
 import {
   registerCnmoocHandlers,
   setCnmoocSession,
@@ -67,6 +67,27 @@ import { fetchCnmoocResourceUrl, inferCnmoocExt } from './cnmooc/api'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
+
+// ─── 新版本检查配置 ───
+const UPDATE_REPO = 'sunalan2025/sjtu-downloader-all-in-one'
+const UPDATE_CHECK_TTL = 60 * 60 * 1000 // 1h 节流，避免触发 GitHub 未认证 60 次/h 限流
+let _updateCache: { result: UpdateCheckResult; ts: number } | null = null
+
+/** 语义版本比较：latest > current 返回 true。不引 semver 依赖，仅按 a.b.c 数字逐段比。
+ *  非 semver 字符串（解析失败）视为非新版，保守返回 false。 */
+function isNewerVersion(latest: string, current: string): boolean {
+  const a = latest.split('.').map(Number)
+  const b = current.split('.').map(Number)
+  if (a.some(n => Number.isNaN(n)) || b.some(n => Number.isNaN(n))) return false
+  const len = Math.max(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    const ai = a[i] ?? 0
+    const bi = b[i] ?? 0
+    if (ai > bi) return true
+    if (ai < bi) return false
+  }
+  return false
+}
 
 /** v.sjtu 的 jwt-token，由 renderer 在登录回跳后从 webview localStorage 抽取并推过来。
  *  只放在内存里，进程退出即丢；下次启动需要重新登录拿。 */
@@ -2476,6 +2497,82 @@ app.whenReady().then(async () => {
       }
     }
   )
+
+  // ─── 新版本检查（主进程请求 GitHub，绕开渲染端 CSP 限制） ───
+  // 渲染端 CSP connect-src 只允许 SJTU 域名，无法直连 api.github.com，
+  // 故由主进程用 node:https 拉取 releases/latest，结果经 IPC 给渲染端 TitleBar 徽章。
+  ipcMain.handle('app:check-update', async (): Promise<UpdateCheckResult> => {
+    const current = app.getVersion()
+    // 1h 节流：避免每次 TitleBar mount 都打 GitHub API（限流 60 次/h 未认证）
+    if (_updateCache && Date.now() - _updateCache.ts < UPDATE_CHECK_TTL) {
+      return _updateCache.result
+    }
+    const fail = (error: string): UpdateCheckResult => ({
+      hasUpdate: false, currentVersion: current, latestVersion: null, releaseUrl: null, releaseNotes: null, error
+    })
+    try {
+      const json = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        const req = httpsRequest(
+          {
+            method: 'GET',
+            hostname: 'api.github.com',
+            path: `/repos/${UPDATE_REPO}/releases/latest`,
+            headers: {
+              'User-Agent': `sjtu-downloader/${current}`,
+              Accept: 'application/vnd.github+json'
+            },
+            timeout: 5000
+          },
+          resp => {
+            if (resp.statusCode !== 200) {
+              reject(new Error(`HTTP ${resp.statusCode}`))
+              resp.resume()
+              return
+            }
+            let body = ''
+            resp.setEncoding('utf8')
+            resp.on('data', (chunk: string) => { body += chunk })
+            resp.on('end', () => {
+              try { resolve(JSON.parse(body) as Record<string, unknown>) }
+              catch { reject(new Error('JSON 解析失败')) }
+            })
+          }
+        )
+        req.on('error', reject)
+        req.on('timeout', () => { req.destroy(new Error('timeout')) })
+        req.end()
+      })
+      const tag = typeof json.tag_name === 'string' ? json.tag_name.replace(/^v/, '') : ''
+      if (!tag) {
+        const r = fail('响应缺少 tag_name')
+        _updateCache = { result: r, ts: Date.now() }
+        return r
+      }
+      const result: UpdateCheckResult = {
+        hasUpdate: isNewerVersion(tag, current),
+        currentVersion: current,
+        latestVersion: tag,
+        releaseUrl: typeof json.html_url === 'string' ? json.html_url : `https://github.com/${UPDATE_REPO}/releases/latest`,
+        releaseNotes: typeof json.body === 'string' ? json.body.slice(0, 500) : null
+      }
+      _updateCache = { result, ts: Date.now() }
+      return result
+    } catch (err) {
+      // 网络失败静默返回 hasUpdate:false，不打扰用户
+      const r = fail(err instanceof Error ? err.message : String(err))
+      _updateCache = { result: r, ts: Date.now() }
+      return r
+    }
+  })
+
+  // ─── 打开外部 URL（限于 GitHub 域，防任意 URL 打开） ───
+  ipcMain.handle('app:open-external', (_e, url: string): { ok: boolean } => {
+    if (typeof url !== 'string' || !url.startsWith('https://github.com/')) {
+      return { ok: false }
+    }
+    void shell.openExternal(url)
+    return { ok: true }
+  })
 
   ipcMain.handle('auth:set-jwt-token', (_e, token: string | null) => {
     jwtToken = token && token.length > 20 ? token : null

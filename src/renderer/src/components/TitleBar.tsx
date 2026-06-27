@@ -3,6 +3,7 @@ import { useAppStore, type Theme } from '../store/app'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { formatBytes } from './DownloadUI'
 import { handleWindowAction } from './WindowConfirmModal'
+import type { UpdateCheckResult } from '@shared/types'
 
 /** 应用主题：直接设置 data-theme，瞬时切换（无过渡动画）。 */
 function applyTheme(theme: Theme): void {
@@ -109,6 +110,7 @@ export function TitleBar({ onLogout }: { onLogout?: () => void }) {
       {!isMac && <CaptionButtons />}
       <div className="flex shrink-0 items-center gap-2.5">
         <span className="font-semibold tracking-wide text-text-1">SJTU 课程下载器</span>
+        <UpdateBadge />
       </div>
       <div className="flex-1" />
       {stage === 'browser' && (
@@ -344,6 +346,70 @@ function HelpButton() {
             </div>
             <p className="mt-1.5 text-text-4">建议从低并发开始，逐步调高观察速度变化。如果速度反而下降或频繁出错，请降低并发数。</p>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 新版本提醒徽章：启动时检查 GitHub releases/latest，有新版显示在标题旁，点击弹 popover 跳转下载。
+ *  网络失败/无新版时静默不显示；主进程 1h 缓存节流避免重复请求。 */
+function UpdateBadge() {
+  const [info, setInfo] = useState<UpdateCheckResult | null>(null)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.checkUpdate().then(r => { if (!cancelled) setInfo(r) }).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: globalThis.MouseEvent): void => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  if (!info?.hasUpdate || !info.latestVersion) return null
+
+  return (
+    <div className="relative no-drag" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1 rounded-full bg-accent-15 px-2 py-0.5 text-2xs font-medium text-accent-light ring-1 ring-accent-25 transition-all hover:bg-accent-20"
+        title={`检测到新版本 v${info.latestVersion}（当前 v${info.currentVersion}），点击查看`}
+      >
+        <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-accent">
+          <span className="absolute inset-0 animate-pulse rounded-full bg-accent opacity-60" />
+        </span>
+        新版 v{info.latestVersion}
+      </button>
+      {open && (
+        <div className="animate-fadeIn absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-bd-strong bg-surface-1/95 p-4 text-xs leading-relaxed text-text-2 shadow-xl backdrop-blur-md">
+          <div className="mb-1 text-sm font-semibold text-text-1">发现新版本</div>
+          <div className="mb-2 text-text-3">
+            v{info.currentVersion} → <span className="font-medium text-accent-light">v{info.latestVersion}</span>
+          </div>
+          {info.releaseNotes && (
+            <div className="mb-3 max-h-32 overflow-y-auto rounded-lg bg-surface-3 p-2 text-2xs text-text-3">
+              <pre className="whitespace-pre-wrap font-sans">{info.releaseNotes}</pre>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (info.releaseUrl) void window.api.openExternal(info.releaseUrl)
+            }}
+            className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98]"
+          >
+            前往下载
+          </button>
+          <p className="mt-2 text-center text-2xs text-text-4">浏览器打开 GitHub Releases 页</p>
         </div>
       )}
     </div>
