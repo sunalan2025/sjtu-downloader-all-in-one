@@ -290,8 +290,6 @@ export function registerCanvasHandlers(): void {
         ok: true,
         files: files.filter(f => f.url && !f.locked),
         folderMap: Object.fromEntries(folderMap),
-        moduleFileIds,
-        syllabusFileIds,
         moduleFiles,
         syllabusFiles
       }
@@ -309,11 +307,11 @@ export function registerCanvasHandlers(): void {
       courseId: number,
       files: CanvasFileItem[],
       folderMap: Record<number, string>,
-      moduleFileIds: number[],
-      syllabusFileIds: number[],
       destRoot: string,
       term?: string
     ) => {
+      // 模块/大纲补漏文件在 scan-course 阶段已 fetchFileMetaBatch 取 meta、合并进 files
+      // 列表（taskId = canvas_file_*，统一走 canvas-files cookie 注入路径），此处只处理常规文件。
       const specs: CanvasDownloadTaskSpec[] = []
       const cPath = canvasCoursePath(courseName, term)
 
@@ -327,34 +325,7 @@ export function registerCanvasHandlers(): void {
           fileName: sanitizeFsName(f.displayName),
           source: 'canvas-files',
           canvasCourseId: courseId,
-          canvasRelPath: relDir,
-          term
-        })
-      }
-
-      // Module 补漏
-      for (const fid of moduleFileIds) {
-        specs.push({
-          taskId: `canvas_mod_${courseId}_${fid}`,
-          url: '', // lazy: 需要先获取 meta
-          courseName: `Canvas课程/${cPath}/files/_from_modules`,
-          fileName: '',
-          source: 'canvas-modules',
-          canvasCourseId: courseId,
-          term
-        })
-      }
-
-      // Syllabus 补漏
-      for (const fid of syllabusFileIds) {
-        specs.push({
-          taskId: `canvas_syl_${courseId}_${fid}`,
-          url: '',
-          courseName: `Canvas课程/${cPath}/files/_from_syllabus`,
-          fileName: '',
-          source: 'canvas-syllabus',
-          canvasCourseId: courseId,
-          term
+          canvasRelPath: relDir
         })
       }
 
@@ -464,8 +435,7 @@ export function registerCanvasHandlers(): void {
               canvasCourseId: courseId,
               canvasVideoId: s.videoId,
               canvasVideoToken: token,
-              canvasStreamIdx: chIdx,
-              term
+              canvasStreamIdx: chIdx
             })
           }
         }
@@ -525,8 +495,7 @@ export function registerCanvasHandlers(): void {
               canvasCourseId: courseId,
               canvasVideoId: session.videoId,
               canvasVideoToken: token,
-              canvasStreamIdx: chIdx,
-              term
+              canvasStreamIdx: chIdx
             })
           }
         }
@@ -657,8 +626,7 @@ export function registerCanvasHandlers(): void {
             source: 'canvas-exttool-video',
             canvasCourseId: courseId,
             canvasModuleItemId: t.moduleItemId,
-            canvasFileId: t.fileId,
-            term
+            canvasFileId: t.fileId
           })
         }
 
@@ -678,8 +646,7 @@ export function registerCanvasHandlers(): void {
             fileName: `${baseName}.mp4`,
             source: 'canvas-exturl-video',
             canvasCourseId: courseId,
-            canvasVshareUuid: u.uuid,
-            term
+            canvasVshareUuid: u.uuid
           })
         }
 
@@ -996,7 +963,7 @@ function getCachedToken(): string | null {
 /** 批量取文件 meta（并发 5），把补漏 fileId 列表转成完整 CanvasFileItem[]。
  *  失败的单个文件被跳过（meta 拿不到就不显示，不影响其它文件）。
  *
- *  落盘目录策略（对齐浏览器「文件」tab 真实结构，不再用 _from_modules/_from_syllabus 自造目录）：
+ *  落盘目录策略（对齐浏览器「文件」tab 真实结构）：
  *  - 模块补漏（folderIdOverride 未传）：用 meta 返回的真实 folderId，folderMap 自动映射到真实目录；
  *    真实 folderId 查不到时兜底落 files/ 根。
  *  - 大纲补漏（folderIdOverride = -3）：固定映射到 files/大纲/，对应浏览器「大纲」tab 引用的文件
