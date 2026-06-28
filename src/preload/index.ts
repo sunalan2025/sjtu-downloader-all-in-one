@@ -146,8 +146,6 @@ const api = {
       ok: boolean
       files?: CanvasFileItem[]
       folderMap?: Record<number, string>
-      moduleFileIds?: number[]
-      syllabusFileIds?: number[]
       moduleFiles?: CanvasFileItem[]
       syllabusFiles?: CanvasFileItem[]
       error?: string
@@ -159,12 +157,10 @@ const api = {
       courseId: number,
       files: CanvasFileItem[],
       folderMap: Record<number, string>,
-      moduleFileIds: number[],
-      syllabusFileIds: number[],
       destRoot: string,
       term?: string
     ): Promise<{ ok: boolean; specs?: CanvasDownloadTaskSpec[]; error?: string }> =>
-      ipcRenderer.invoke('canvas:build-download-specs', courseName, courseId, files, folderMap, moduleFileIds, syllabusFileIds, destRoot, term),
+      ipcRenderer.invoke('canvas:build-download-specs', courseName, courseId, files, folderMap, destRoot, term),
     /** 扫描课程的课堂视频录播会话，返回教师筛选和讲次分组 */
     classVideoScan: (courseId: number): Promise<{
       ok: boolean

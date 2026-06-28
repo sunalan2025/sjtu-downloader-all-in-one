@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell, Tray } from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
   createWriteStream,
@@ -53,10 +53,7 @@ import {
 import { killAllFfmpeg } from './canvas/hls-download'
 import { sanitizeForLog } from './canvas/safe-fetch'
 import { getVodChannelsCached, clearVodChannelsCache, clearExtToolTokenCache, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from './canvas/video-tokens'
-import {
-  fetchFileMeta,
-  sanitizeFsName
-} from './canvas/api'
+import { sanitizeFsName } from './canvas/api'
 import type { CanvasDownloadTaskSpec, UpdateCheckResult } from '../shared/types'
 import {
   registerCnmoocHandlers,
@@ -118,11 +115,16 @@ function pickAccountInfo(result: unknown): { name?: string; studentId?: string }
 
 /** 应用窗口图标路径。dev 下从项目 build/icons 解析；打包后从 extraResources(icons) 解析。
  *  PNG 跨平台可用；Windows 打包后任务栏图标取自 exe (win.icon)，此处主要用于
- *  开发期窗口图标与 Linux 窗口装饰。 */
+ *  开发期窗口图标与 Linux 窗口装饰。
+ *
+ *  跟随系统深浅主题: 深色主题 (shouldUseDarkColors) 任务栏为深底 → 用浅色 logo
+ *  (icons/light/); 浅色主题 → 用深色 logo (icons/)。两版均透明背景+圆角, 在对应底色上可见。
+ *  .exe / 安装包图标为编译时嵌入的深色 icon.ico, 运行时无法切换, 保持深色默认。 */
 function resolveAppIcon(): string {
+  const sub = nativeTheme.shouldUseDarkColors ? 'light' : ''
   return is.dev
-    ? join(app.getAppPath(), 'build', 'icons', '256.png')
-    : join(process.resourcesPath, 'icons', '256.png')
+    ? join(app.getAppPath(), 'build', 'icons', sub, '256.png')
+    : join(process.resourcesPath, 'icons', sub, '256.png')
 }
 
 function createMainWindow(): void {
@@ -202,11 +204,29 @@ function createMainWindow(): void {
 let tray: Tray | null = null
 
 /** 托盘图标路径：dev 下从项目 build/icons 取 32.png；打包后从 extraResources(icons) 取。
- *  Electron Tray 在 Windows 上接受 PNG；32px 兼顾 HiDPI 清晰度。 */
+ *  Electron Tray 在 Windows 上接受 PNG；32px 兼顾 HiDPI 清晰度。
+ *  跟随系统深浅主题 (同 resolveAppIcon): 深色主题用浅色 logo, 浅色主题用深色 logo。 */
 function resolveTrayIcon(): string {
+  const sub = nativeTheme.shouldUseDarkColors ? 'light' : ''
   return is.dev
-    ? join(app.getAppPath(), 'build', 'icons', '32.png')
-    : join(process.resourcesPath, 'icons', '32.png')
+    ? join(app.getAppPath(), 'build', 'icons', sub, '32.png')
+    : join(process.resourcesPath, 'icons', sub, '32.png')
+}
+
+/** 系统主题变化时刷新窗口/托盘图标到当前主题版本。
+ *  - 窗口图标 (任务栏): Win/Linux 切换; macOS dock 图标也切换 (深色模式 dock 深底需浅色 logo)。
+ *  - 托盘: Win/Linux 切换; macOS 菜单栏图标用 setTemplateImage(true) 自动跟随深浅反色, 不手动切。
+ *  图标文件缺失 (nativeImage.isEmpty) 时跳过, 保持当前图标不动。 */
+function applyThemeIcons(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.setIcon(resolveAppIcon()) } catch { /* 图标缺失等, 忽略 */ }
+  }
+  if (tray && process.platform !== 'darwin') {
+    const img = nativeImage.createFromPath(resolveTrayIcon())
+    if (!img.isEmpty()) {
+      try { tray.setImage(img) } catch { /* 忽略 */ }
+    }
+  }
 }
 
 function showMainWindow(): void {
@@ -1232,12 +1252,18 @@ function destroyCloudHandles(t: CloudTaskRuntime, reason: string): void {
   t.cancel = undefined
 }
 
-/** Canvas 任务 courseName 带 'Canvas课程/' 前缀，落盘/云端路径要剥掉避免重复 */
+/** 计算落盘/云盘的「课程相对路径」(root 之下、fileName 之上)。
+ *  Canvas courseName 形如 "Canvas课程/{term}/{course}/files/..." —— term 已由
+ *  canvasCoursePath 拼入 courseName, 这里只剥掉 "Canvas课程/" 前缀, 不可再用
+ *  spec.term 补层, 否则 term 重复两层 → 落盘成 .../Canvas课程/{term}/{term}/{course}/...
+ *  (本地与云盘同病)。iframe HLS / PPT 走 cPath 直接拼字符串, 本就不经此函数, 路径正确。
+ *  cnmooc / v.sjtu 的 courseName 不含 term, 若 spec.term 存在则在此补一层学期。 */
 function effectiveCourseName(spec: DownloadTaskSpec): string {
-  const raw = isCanvasSpec(spec) && spec.courseName.startsWith('Canvas课程/')
+  const isCanvas = isCanvasSpec(spec)
+  const raw = isCanvas && spec.courseName.startsWith('Canvas课程/')
     ? spec.courseName.slice('Canvas课程/'.length)
     : spec.courseName
-  return spec.term ? `${sanitizeFsName(spec.term)}/${raw}` : raw
+  return (!isCanvas && spec.term) ? `${sanitizeFsName(spec.term)}/${raw}` : raw
 }
 
 /** 按需解析直链（Canvas 签名 URL + vod-info），runTask 与 cloudRunTask 共用。
@@ -1249,36 +1275,6 @@ async function resolveDirectUrl(
 ): Promise<boolean> {
   const src = (t.spec as CanvasDownloadTaskSpec).source
 
-  // Canvas modules/syllabus 文件：先按 fileId 取文件元数据拿到 /files/{id}/download 链接
-  if (src === 'canvas-modules' || src === 'canvas-syllabus') {
-    const parts = t.spec.taskId.split('_')
-    const fileId = Number(parts[parts.length - 1])
-    if (fileId > 0) {
-      if (t.state !== 'cancelled') {
-        t.state = 'downloading'
-        emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: 0, total: 0, message: '获取文件链接…' })
-      }
-      try {
-        const meta = await fetchFileMeta(sjtuSession(), fileId)
-        if (meta?.url) {
-          t.spec.url = meta.url
-          if (!t.spec.fileName) t.spec.fileName = meta.displayName
-          if (meta.size > 0) t.total = meta.size
-        } else {
-          throw new Error('无法获取文件链接')
-        }
-      } catch (err) {
-        if (t.state === 'cancelled') return false
-        t.state = 'error'
-        noteTaskError()
-        const msg = err instanceof Error ? err.message : String(err)
-        emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-        scheduleCleanupTask(t.spec.taskId, isCloud)
-        return false
-      }
-    }
-  }
-
   // canvas-files：url 可能在 resume 时被清空（reEnqueueLocal/Cloud 强制重解析），
   // 按 fileId 重建 /files/{id}/download 端点。
   if (src === 'canvas-files' && !t.spec.url) {
@@ -1289,8 +1285,8 @@ async function resolveDirectUrl(
     }
   }
 
-  // Canvas 文件（files / modules / syllabus）：t.spec.url 现在是 /files/{id}/download
-  // 这个 HTML 端点。下载引擎用裸 node:https 不带 cookie，直接下载会被 302 到
+  // Canvas 文件（files）：t.spec.url 是 /files/{id}/download 这个 HTML 端点。
+  // 下载引擎用裸 node:https 不带 cookie，直接下载会被 302 到
   // /login/canvas（拿到 HTML 登录页存成课件 → 全部损坏）。
   // 这里把 Canvas 会话 cookie 取出来存进 canvasCookiesByTask，由 downloadStream /
   // cloudDownloadAndUpload 在发请求时注入 Cookie 头；node:https 的 fetchOnce 本就
@@ -1299,7 +1295,7 @@ async function resolveDirectUrl(
   // 又无法可靠中止 S3 流，并发时幽灵下载会把真正的 node:https 下载拖死）。
   // 附带好处：HTML 端点每次访问都签发新 URL，暂停数小时后 resume 也不会因签名过期失败。
   if (
-    (src === 'canvas-files' || src === 'canvas-modules' || src === 'canvas-syllabus') &&
+    src === 'canvas-files' &&
     /\/files\/\d+\/download/.test(t.spec.url)
   ) {
     try {
@@ -2874,6 +2870,9 @@ app.whenReady().then(async () => {
   createMainWindow()
   createTray()
   startSpeedTicker()
+
+  // 系统深浅主题切换 → 同步窗口/托盘图标 (深色主题用浅色logo, 浅色主题用深色logo)
+  nativeTheme.on('updated', applyThemeIcons)
 
   app.on('activate', () => {
     // macOS dock 点击：有窗口则显示，无则重建

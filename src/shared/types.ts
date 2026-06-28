@@ -392,8 +392,6 @@ export interface CanvasClassVideoInfo {
 /** Canvas 下载任务的来源分类 */
 export type CanvasTaskSource =
   | 'canvas-files'
-  | 'canvas-modules'
-  | 'canvas-syllabus'
   | 'canvas-class-video'
   | 'canvas-module-video'      // Page iframe 嵌入的 v.sjtu 公开课分享页（HLS，走 downloadModuleVideoNow）
   | 'canvas-exttool-video'    // ExternalTool 模块项 → v.sjtu LTI → /file/{id} → S3 直链 MP4

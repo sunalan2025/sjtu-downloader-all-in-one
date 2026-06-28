@@ -39,8 +39,6 @@ interface AppState {
   canvasCourseData: Record<number, {
     files: import('@shared/types').CanvasFileItem[]
     folderMap: Record<number, string>
-    moduleFileIds: number[]
-    syllabusFileIds: number[]
     moduleFiles: import('@shared/types').CanvasFileItem[]
     syllabusFiles: import('@shared/types').CanvasFileItem[]
   }>
