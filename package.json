@@ -1,6 +1,6 @@
 {
   "name": "sjtu-course-downloader",
-  "version": "2.2.3",
+  "version": "2.3.0",
   "description": "批量下载 SJTU v.sjtu 旁听、Canvas、好大学在线课程资源的 Electron 桌面应用，支持本地下载与直传交大云盘（需连接 SJTU 校园网或交大 VPN）",
   "main": "out/main/index.js",
   "author": "SJTU Course Downloader Contributors",

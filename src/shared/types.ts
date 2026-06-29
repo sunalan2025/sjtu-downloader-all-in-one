@@ -145,6 +145,27 @@ export interface AuthStatus {
   checkedAt?: string
 }
 
+/** 当前平台可用的更新安装器资产（GitHub release asset），用于应用内自动下载安装。
+ *  无匹配（平台/架构无对应资产）时为 null，渲染端回退「前往下载」。 */
+export interface UpdateAsset {
+  /** release asset 直链（browser_download_url，302 到 CDN） */
+  url: string
+  /** 文件大小（bytes），asset 无 size 字段时为 null */
+  size: number | null
+  /** 资产文件名（用于落盘 + 校验） */
+  fileName: string
+}
+
+/** 自动更新下载进度推送载荷（update:progress 事件） */
+export interface UpdateProgress {
+  /** 已下载字节 */
+  loaded: number
+  /** 总字节（content-length 缺失时为 null） */
+  total: number | null
+  /** 进度百分比 0-100；total 缺失时为 null */
+  percent: number | null
+}
+
 /** 新版本检查结果（主进程请求 GitHub releases/latest 后返回给渲染端） */
 export interface UpdateCheckResult {
   /** 是否有比当前版本更新的版本 */
@@ -157,6 +178,8 @@ export interface UpdateCheckResult {
   releaseUrl: string | null
   /** Release notes 摘要（body 前 500 字），可能为 null */
   releaseNotes: string | null
+  /** 当前平台匹配到的安装器资产；无匹配时为 null。供应用内自动下载安装使用 */
+  asset: UpdateAsset | null
   /** 检查失败时的错误信息（用于调试，正常路径下不展示给用户） */
   error?: string
 }
