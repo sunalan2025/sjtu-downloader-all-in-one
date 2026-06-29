@@ -520,7 +520,8 @@ src/
 | 预加载 | `preload/index.ts` | IPC 通信桥（contextBridge.exposeInMainWorld），让渲染端通过 `window.api.xxx` 安全调用主进程功能。云盘 token 验证/空间查询不再接收 renderer 参数，由 main 进程使用内部缓存 |
 | 共享层 | `shared/types.ts` | 跨层共享 TypeScript 类型：API 响应结构、课程/视频模型、下载任务规格、进度状态、云盘类型、Canvas 类型、好大学在线类型、vod API 结构 |
 | 渲染端 | `store/app.ts` | Zustand 全局状态：登录态、课程列表、选中态、下载进度（queueMicrotask 微任务批处理）、云盘信息、并发数、云盘连接状态。`persist` 中间件持久化用户偏好（主题、下载目录）。`useEffectiveProgress` 聚合 both 模式本地+云端进度；`useDownloadStats` 编码统计为单个数字避免级联重渲染 |
-| 渲染端 | `hooks/useSharedBrowserHooks.ts` | Browser / CanvasBrowser / CnmoocBrowser 共享的 hooks：`useCachedCloudTokenValidation`（启动时验证缓存 token）、`useCloudConnection`（云盘连接/断开、状态管理，状态存 zustand 跨 tab 共享）、`useDownloadProgressSubscription`（App 级进度订阅）、`useDownloadCompletion`（选中任务全部终态后自动停止下载状态，弹出系统通知汇报成功/失败数量） |
+| 渲染端 | `hooks/useSharedBrowserHooks.ts` | Browser / CanvasBrowser / CnmoocBrowser 共享的 hooks：`useCloudConnection`（云盘连接/断开、状态管理，状态存 zustand 跨 tab 共享；连接逻辑委托 `services/prefetch.ts` 的 `prefetchCloudConnection`）、`useDownloadProgressSubscription`（App 级进度订阅）、`useDownloadCompletion`（选中任务全部终态后自动停止下载状态，弹出系统通知汇报成功/失败数量） |
+| 渲染端 | `services/prefetch.ts` | 登录后后台预加载：`prefetchCanvasCourses` / `prefetchCnmoocCourses` / `prefetchCloudConnection`，由 App.tsx 在 `stage==='browser'` 时并行触发；各页面 `loadCourses`/`runScan`/`onConnectCloud` 也复用以去重 |
 | 渲染端 | `pages/Browser.tsx` | v.sjtu 旁听课程页：自动扫描、双视角卡片、全选/单选、下载控制、实时进度（memo + useShallow 优化、tasksKey 稳定化避免不必要重算）、刷新键（重走扫描，登录失效跳登录页后自动重载） |
 | 渲染端 | `pages/CanvasBrowser.tsx` | Canvas 课程页：学期筛选、分类选择（课件/教师/PPT/单元视频/PPT课件）、串行课程处理（扫描→下载→等待→清理→下一门）、内存优化 |
 | 渲染端 | `pages/CnmoocBrowser.tsx` | 好大学在线页：章节折叠卡片、资源类型分段（全部/仅视频/仅课件）、懒解析下载、刷新键 |
@@ -585,6 +586,28 @@ npm run build:unpack   # 仅构建不打包（输出目录）
 ---
 
 ## 更新日志
+
+### v2.3.2 — 登录后自动预加载 + PPT 课件云盘冲突修复
+
+#### 新功能
+
+- **登录后自动预加载课程 + 自动连接云盘** — 此前 jAccount 扫码登录成功后只进入主界面，Canvas 课程 / 好大学在线课程要逐个切到对应 tab 才开始扫描，云盘也需手动点「连接云盘」按钮。现改为登录后后台并行预加载：Canvas 课程列表、好大学在线课程列表（含章节）、自动连接云盘三者同时进行，用户切到对应 tab 时数据已就绪，云盘已连上可立即用 cloud/both 模式下载。
+  - 三个预加载任务各自独立、互不影响（`Promise.allSettled`）。各来源的 SSO（Canvas OIDC / 好大学在线 jAccount / 云盘 SSO）均复用 `persist:sjtu` 中已有的 jAccount 会话 cookie 在隐藏窗口自动完成，**无需额外扫码**。
+  - 失败静默不打扰：Canvas / 好大学在线扫描失败置 error 态（切到 tab 可见、可点刷新重试），云盘连接失败置 error 态（页面可见、可点重连）。
+  - 登出再登录会重新触发预加载；与默认 tab（v.sjtu 旁听课程）的扫描并行进行，不互相阻塞。
+  - 提取 `services/prefetch.ts` 收敛三段预加载逻辑，各页面（`CanvasBrowser.loadCourses` / `CnmoocBrowser.runScan` / 云盘连接按钮）也复用以去重。
+
+#### 修复 / 改进
+
+- **PPT 课件上传云盘前检查重复文件** — 此前选「上传云盘」时，PPT 课件会先下载全部切片图片、用 pdf-lib 合并成 PDF，上传时才发现云盘已有同名文件，纯 cloud 模式下整门课重复下载纯属浪费。现按 skip/overwrite 策略在上传前检查：
+  - cloud-only + skip：下载图片前先查云盘是否已有该 PDF，已有则跳过整个下载（不下载图片、不合并 PDF）。
+  - overwrite：先删远端同名文件再上传。
+  - 本地 PDF 此前直接覆盖不检查冲突，现一并遵守 skip/overwrite（local/both + skip + 本地已存在则跳过下载，both 模式复用本地 PDF 继续上传云端）。
+  - 三层检查 + `uploadLocalFileToCloud` 内部的 `FileExistsError` 兜底，覆盖提前检查的竞态空窗。
+- **无 PPT 图片的讲次不再显示「失败」** — 部分课程「课堂视频new」下没有 PPT 切片，此前这些讲次被标记为下载失败，完成通知误报「成功 X 失败 Y」。现改为跳过：无 PPT 切片 / 视频无录播流 / 云盘或本地已存在均返回跳过（非失败）。进度与通知区分「成功 / 跳过 / 失败」三种状态，文案显示「成功 X，跳过 Y，失败 Z」（仅非零项）。
+- **每次启动彻底销毁所有登录凭证** — 强化既有安全机制：云盘 UserToken 此前被持久化到 localStorage，启动时存在「持久化恢复 → App 清空」的短暂窗口期（属凭证残留）。现把云盘 token 移出持久化，重启天然为空；启动时主进程额外清云盘内存态凭证（`clearCachedCredentials`）。移除已失效的云盘 token 启动恢复 hook（`useCachedCloudTokenValidation`）——不再持久化即成死代码，登录后由自动预加载重新连接接管。每次开 APP 仍必须重新扫码登录，登录后自动重新连云盘。
+
+---
 
 ### v2.3.1 — Canvas 课堂视频按角色下载修复
 

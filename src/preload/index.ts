@@ -290,7 +290,7 @@ const api = {
       conflictStrategy?: FileConflictStrategy
       term?: string
       videoSession?: { beginTime: string; teacher: string; classroom: string }
-    }): Promise<{ ok: boolean; path?: string; cloudPath?: string; error?: string }> =>
+    }): Promise<{ ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download', opts),
     /** 批量下载多讲 PPT 课件（可选云盘上传）。进度事件 canvas:ppt-progress 带 taskId，
      *  current/total 为讲次级（X/Y 讲），单讲内图片进度折进 phase。 */
@@ -302,7 +302,7 @@ const api = {
       cloudUserToken?: string
       conflictStrategy?: FileConflictStrategy
       term?: string
-    }): Promise<{ ok: boolean; results?: Array<{ lectureName: string; ok: boolean; path?: string; cloudPath?: string; error?: string }>; error?: string }> =>
+    }): Promise<{ ok: boolean; results?: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }>; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download-batch', opts),
     /** 订阅 PPT 下载进度事件（含 taskId，用于映射到 UI 进度条） */
     onProgress: (cb: (p: { taskId?: string; ivsVideoId: number; current: number; total: number; phase: string; lectureName?: string }) => void) =>

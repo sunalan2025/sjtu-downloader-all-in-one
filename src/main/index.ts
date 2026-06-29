@@ -2415,6 +2415,10 @@ app.whenReady().then(async () => {
   _authCache = null
   accountName = null
   studentId = null
+  // 清云盘内存态凭证（cachedToken/cachedCred/credExpAt + createdFolderPaths 缓存）。
+  // 重启虽天然为空，但显式清与"销毁所有凭证"语义对齐，并清掉 createdFolderPaths
+  // 避免跨会话脏路径（上次会话缓存的已建目录路径在新会话已无意义）。
+  clearCachedCredentials()
   try {
     await clearSjtuSession()
   } catch (e) {

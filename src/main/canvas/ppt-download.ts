@@ -6,11 +6,11 @@
  * 支持 cloud/both 模式：生成 PDF 后由 orchestrator 上传云盘（destRoot 空时 PDF 仅作中间产物）。
  */
 import type Electron from 'electron'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { PDFDocument, type PDFImage } from 'pdf-lib'
-import type { PptSlice, PptDownloadOpts } from '../../shared/types'
+import type { FileConflictStrategy, PptSlice, PptDownloadOpts } from '../../shared/types'
 import { VSJTU_CANVAS_BASE } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
 import { sanitizeFsName } from './api'
@@ -35,6 +35,18 @@ export function buildPptFileName(session: { beginTime: string; teacher: string; 
   const parts = t.split('-')
   if (parts.length >= 5) t = parts.slice(0, 4).join('-')
   return sanitizeFsName(`${t}-${session.teacher}-${session.classroom}-PPT课件`) + '.pdf'
+}
+
+/** 构建单讲 PPT 的文件名（含 .pdf 后缀）。
+ *  有 videoSession 时复用课堂视频命名，否则退化为讲次名。
+ *  runPptLecture 预算云盘 remotePath 与 downloadPptAsPdf 内部落盘共用此函数，保证两端文件名一致。 */
+export function buildPptFileNameForLecture(
+  lectureName: string,
+  videoSession?: { beginTime: string; teacher: string; classroom: string }
+): string {
+  return videoSession
+    ? buildPptFileName(videoSession)
+    : sanitizeFsName(lectureName) + '.pdf'
 }
 
 // ─── 获取 PPT 图片列表 ────────────────────────────────────────
@@ -131,8 +143,8 @@ export async function downloadPptAsPdf(
   token: string,
   opts: PptDownloadOpts,
   onProgress?: PptProgressCallback
-): Promise<{ ok: boolean; path?: string; fileName?: string; error?: string }> {
-  const { ivsVideoId, courseName, lectureName, destRoot, term, videoSession } = opts
+): Promise<{ ok: boolean; skipped?: boolean; path?: string; fileName?: string; error?: string }> {
+  const { ivsVideoId, courseName, lectureName, destRoot, term, videoSession, conflictStrategy } = opts
   let tmpDir: string | null = null
 
   try {
@@ -140,14 +152,27 @@ export async function downloadPptAsPdf(
     onProgress?.(0, 0, '获取PPT列表...')
     const slices = await fetchPptSliceList(ses, token, ivsVideoId)
     if (slices.length === 0) {
-      return { ok: false, error: '该讲没有PPT课件' }
+      // 无 PPT 切片：跳过而非失败（部分课程"课堂视频new"下没有 PPT 课件）
+      console.log('[ppt] 该讲没有 PPT 课件，跳过')
+      return { ok: true, skipped: true }
     }
     console.log(`[ppt] 获取到 ${slices.length} 张 PPT 图片`)
 
-    // 2. 创建临时目录（mkdtempSync 原子创建 + 随机后缀，防符号链接预置攻击）
+    // 2. 算落盘路径；local/both（destRoot 非空）+ skip 模式下本地已存在则跳过下载图片
+    //    （与常规文件下载一致；cloud-only destRoot 空 → 不检查本地，PDF 仅作上传中间产物）
+    const outDir = canvasVideoDir(destRoot, courseName, term)
+    mkdirSync(outDir, { recursive: true })
+    const fileName = buildPptFileNameForLecture(lectureName, videoSession)
+    const outputPath = join(outDir, fileName)
+    if (destRoot && conflictStrategy !== 'overwrite' && existsSync(outputPath) && statSync(outputPath).size > 0) {
+      console.log(`[ppt] 本地已存在，跳过: ${outputPath}`)
+      return { ok: true, skipped: true, path: outputPath, fileName }
+    }
+
+    // 3. 创建临时目录（mkdtempSync 原子创建 + 随机后缀，防符号链接预置攻击）
     tmpDir = mkdtempSync(join(tmpdir(), 'sjtu-ppt-'))
 
-    // 3. 并发下载图片（保留序号，合并时按序）
+    // 4. 并发下载图片（保留序号，合并时按序）
     const imagePaths: (string | null)[] = new Array(slices.length).fill(null)
     let downloaded = 0
     for (let i = 0; i < slices.length; i += PPT_IMG_CONCURRENCY) {
@@ -171,15 +196,8 @@ export async function downloadPptAsPdf(
       return { ok: false, error: '所有PPT图片下载失败' }
     }
 
-    // 4. 合并为 PDF（与课堂视频同目录；cloud-only 时落到临时目录）
+    // 5. 合并为 PDF（outputPath / fileName 已在第 2 步算好）
     onProgress?.(slices.length, slices.length, '合并为PDF...')
-    const outDir = canvasVideoDir(destRoot, courseName, term)
-    mkdirSync(outDir, { recursive: true })
-    const fileName = videoSession
-      ? buildPptFileName(videoSession)
-      : sanitizeFsName(lectureName) + '.pdf'
-    const outputPath = join(outDir, fileName)
-
     await mergeImagesToPdf(validPaths, outputPath)
     console.log(`[ppt] PDF 已保存: ${outputPath}`)
 

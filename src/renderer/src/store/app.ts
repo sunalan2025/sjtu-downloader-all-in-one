@@ -524,11 +524,13 @@ export const useAppStore = create<AppState>()(
     {
       name: 'sjtu-course-downloader',
       storage: createJSONStorage(() => localStorage),
-      // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据
+      // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据。
+      // cloudUserToken 不持久化：每次启动必须重新扫码登录 + 重新连接云盘，
+      // 避免凭证残留（符合"每次开 APP 销毁所有凭证"）。登录后由 App.tsx 的
+      // prefetchCloudConnection 自动隐式 SSO 重新连接。
       partialize: state => ({
         theme: state.theme,
         activeTab: state.activeTab,
-        cloudUserToken: state.cloudUserToken,
         concurrency: state.concurrency,
         autoConcurrency: state.autoConcurrency,
         downloadMode: state.downloadMode,

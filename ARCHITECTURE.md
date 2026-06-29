@@ -161,7 +161,7 @@ Browser 与 CanvasBrowser 共享的 hooks：
 
 | Hook | 职责 |
 |------|------|
-| `useCachedCloudTokenValidation` | 启动时验证 localStorage 持久化的云盘 token 是否有效 |
+| `prefetchCloudConnection`（services/prefetch.ts） | 登录后自动隐式 SSO 连云盘（复用 jAccount 会话）；`useCloudConnection.onConnectCloud` 与 App.tsx 预加载共用 |
 | `useCloudConnection` | 云盘连接/断开操作，状态从 zustand store 读取（跨 tab 共享） |
 | `useDownloadProgressSubscription` | 订阅主进程进度事件，写入 store（App 级单次订阅） |
 | `useDownloadCompletion` | 选中任务全部到达终态时自动将 `downloading` 置为 false；弹出系统通知汇报成功/失败数量（`notifiedRef` 保证每批次只通知一次） |

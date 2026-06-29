@@ -41,7 +41,7 @@ import {
   resolveIvsVideoId
 } from './video-tokens'
 import { downloadModuleVideo } from './hls-download'
-import { uploadLocalFileToCloud } from '../cloudpan'
+import { cloudFileExists, uploadLocalFileToCloud } from '../cloudpan'
 
 let ses: Electron.Session | null = null
 
@@ -783,30 +783,52 @@ export function registerCanvasHandlers(): void {
     cPath: string,
     taskId: string | undefined,
     onLectureProgress: (imgCurrent: number, imgTotal: number, phase: string) => void
-  ): Promise<{ ok: boolean; path?: string; cloudPath?: string; error?: string }> {
+  ): Promise<{ ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> {
     // lecture.ivsVideoId 是加密串 videoId（前端原样传入），用 resolveIvsVideoId 解析成
     // PPT API 真正需要的数值型 ivsVideoId（= getVodVideoInfos.data.courId）。
     const videoIdStr = lecture.ivsVideoId
     const realIvsVideoId = await resolveIvsVideoId(session, token, videoIdStr)
     if (!realIvsVideoId) {
-      return { ok: false, error: '无法解析该讲视频信息（可能未发布或无录播流）' }
+      // 视频无流/未发布：跳过而非失败（自然也没有 PPT 课件可下）
+      return { ok: true, skipped: true }
     }
-    const { downloadPptAsPdf } = await import('./ppt-download')
+
+    // 动态 import（懒加载 pdf-lib 等重依赖）
+    const { downloadPptAsPdf, buildPptFileNameForLecture } = await import('./ppt-download')
+
+    // cloud-only（destRoot 空）+ skip：下载图片前先查云盘是否已有该 PDF，已有则跳过整个下载，
+    // 避免先下几十张图 + 合并 PDF 再发现远端已存在。overwrite 不提前查（由 uploadLocalFileToCloud
+    // 内部 deleteCloudFile 处理）；both 模式本地需要 PDF，不提前查（云端 skip 由 uploadLocalFileToCloud 兜底）。
+    if (cloudOpts.cloudUserToken && !baseOpts.destRoot && (cloudOpts.conflictStrategy ?? 'skip') === 'skip') {
+      const fileName = buildPptFileNameForLecture(lecture.lectureName, lecture.videoSession)
+      const remotePath = `SJTU Canvas课程/${cPath}/videos/课堂视频/${fileName}`
+      if (await cloudFileExists(cloudOpts.cloudUserToken, remotePath)) {
+        console.log(`[ppt] 云盘已存在，跳过: ${remotePath}`)
+        return { ok: true, skipped: true, cloudPath: remotePath }
+      }
+    }
+
     const result = await downloadPptAsPdf(session, token, {
       ivsVideoId: realIvsVideoId,
       courseName: baseOpts.courseName,
       lectureName: lecture.lectureName,
       destRoot: baseOpts.destRoot,
       term: baseOpts.term,
-      videoSession: lecture.videoSession
+      videoSession: lecture.videoSession,
+      conflictStrategy: cloudOpts.conflictStrategy
     }, onLectureProgress)
+
+    // 无 PPT 课件（skipped 且无 path）→ 跳过；本地已存在 PDF（skipped 但有 path）→ 继续走上传
+    if (result.skipped && !result.path) {
+      return { ok: true, skipped: true }
+    }
     if (!result.ok || !result.path || !result.fileName) {
       return { ok: false, error: result.error }
     }
 
-    // cloud/both：上传 PDF 到云盘
+    // local 模式（无云盘目标）：不上传，保留 skipped 标记（本地是否跳过）
     if (!cloudOpts.cloudUserToken) {
-      return { ok: true, path: result.path }
+      return { ok: true, skipped: result.skipped, path: result.path }
     }
     const remotePath = `SJTU Canvas课程/${cPath}/videos/课堂视频/${result.fileName}`
     if (taskId) {
@@ -827,14 +849,15 @@ export function registerCanvasHandlers(): void {
       if (!baseOpts.destRoot) {
         try { unlinkSync(result.path) } catch { /* ignore */ }
       }
+      // 上传成功 = 云端有新产出，算成功（不标 skipped，即便本地是跳过复用的已有 PDF）
       return { ok: true, path: result.path, cloudPath }
     } catch (err) {
-      // skip 策略下远端已存在 → 视为成功（跳过上传）
+      // skip 策略下远端已存在 → 跳过上传（云端无新产出，标 skipped）
       if (err instanceof Error && err.name === 'FileExistsError') {
         if (!baseOpts.destRoot) {
           try { unlinkSync(result.path) } catch { /* ignore */ }
         }
-        return { ok: true, path: result.path, cloudPath: remotePath }
+        return { ok: true, skipped: true, path: result.path, cloudPath: remotePath }
       }
       const msg = err instanceof Error ? err.message : String(err)
       // 上传失败：cloud-only 清理本地临时 PDF
@@ -904,7 +927,7 @@ export function registerCanvasHandlers(): void {
       const cPath = canvasCoursePath(opts.courseName, opts.term)
       const taskId = opts.taskId
       const total = opts.lectures.length
-      const results: Array<{ lectureName: string; ok: boolean; path?: string; cloudPath?: string; error?: string }> = []
+      const results: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> = []
 
       if (taskId) {
         emitToRenderer('canvas:ppt-progress', { taskId, ivsVideoId: 0, current: 0, total, phase: '开始下载PPT课件…' })
@@ -936,7 +959,7 @@ export function registerCanvasHandlers(): void {
         if (taskId) {
           emitToRenderer('canvas:ppt-progress', {
             taskId, ivsVideoId: lecture.ivsVideoId, current: i + 1, total,
-            phase: result.ok ? `${lecture.lectureName} 完成` : `${lecture.lectureName} 失败`,
+            phase: result.skipped ? `${lecture.lectureName} 跳过` : (result.ok ? `${lecture.lectureName} 完成` : `${lecture.lectureName} 失败`),
             lectureName: lecture.lectureName
           })
         }
