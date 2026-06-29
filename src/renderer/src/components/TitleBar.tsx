@@ -3,7 +3,7 @@ import { useAppStore, type Theme } from '../store/app'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { formatBytes } from './DownloadUI'
 import { handleWindowAction } from './WindowConfirmModal'
-import type { UpdateCheckResult } from '@shared/types'
+import type { UpdateCheckResult, UpdateProgress } from '@shared/types'
 
 /** 应用主题：直接设置 data-theme，瞬时切换（无过渡动画）。 */
 function applyTheme(theme: Theme): void {
@@ -352,17 +352,47 @@ function HelpButton() {
   )
 }
 
-/** 新版本提醒徽章：启动时检查 GitHub releases/latest，有新版显示在标题旁，点击弹 popover 跳转下载。
+/** 新版本提醒徽章：启动时检查 GitHub releases/latest，有新版显示在标题旁。
+ *  支持应用内自动更新：下载安装包 → 静默安装 → 退出当前进程释放文件锁 → 安装器启动新版本。
+ *  状态机：idle（有新版待下载）→ downloading → ready（可安装）→ installUpdate 后 app.quit；
+ *  任何阶段失败 → failed（重试 / 前往下载兜底）。
+ *  autoDownloadUpdate 开启时 mount 自动下载，下载完停在 ready 等用户确认（不自动重启打断使用）。
  *  网络失败/无新版时静默不显示；主进程 1h 缓存节流避免重复请求。 */
 function UpdateBadge() {
   const [info, setInfo] = useState<UpdateCheckResult | null>(null)
+  const [phase, setPhase] = useState<'idle' | 'downloading' | 'ready' | 'failed'>('idle')
+  const [progress, setProgress] = useState<UpdateProgress | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const autoDownloadUpdate = useAppStore(s => s.autoDownloadUpdate)
+  const setAutoDownloadUpdate = useAppStore(s => s.setAutoDownloadUpdate)
+
+  const startDownload = (): void => {
+    setProgress(null)
+    setError(null)
+    setPhase('downloading')
+    void window.api.downloadUpdate()
+  }
 
   useEffect(() => {
     let cancelled = false
-    void window.api.checkUpdate().then(r => { if (!cancelled) setInfo(r) }).catch(() => undefined)
+    void window.api.checkUpdate().then(r => {
+      if (cancelled) return
+      setInfo(r)
+      // 自动下载：开启且当前平台有匹配资产时，mount 即开始下载
+      if (r.hasUpdate && r.asset && autoDownloadUpdate) startDownload()
+    }).catch(() => undefined)
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 订阅主进程下载事件驱动状态机
+  useEffect(() => {
+    const offP = window.api.onUpdateProgress(p => { setProgress(p); setPhase('downloading') })
+    const offR = window.api.onUpdateReady(() => { setPhase('ready'); setProgress(null) })
+    const offF = window.api.onUpdateFailed(e => { setPhase('failed'); setError(e.error) })
+    return () => { offP(); offR(); offF() }
   }, [])
 
   useEffect(() => {
@@ -376,6 +406,14 @@ function UpdateBadge() {
 
   if (!info?.hasUpdate || !info.latestVersion) return null
 
+  const hasAsset = !!info.asset
+  const badgeText =
+    phase === 'downloading'
+      ? (progress?.percent ? `下载 ${Math.round(progress.percent)}%` : '下载中…')
+      : phase === 'ready' ? '已就绪'
+        : phase === 'failed' ? '更新失败'
+          : `新版 v${info.latestVersion}`
+
   return (
     <div className="relative no-drag" ref={ref}>
       <button
@@ -387,7 +425,7 @@ function UpdateBadge() {
         <span className="relative inline-block h-1.5 w-1.5 rounded-full bg-accent">
           <span className="absolute inset-0 animate-pulse rounded-full bg-accent opacity-60" />
         </span>
-        新版 v{info.latestVersion}
+        {badgeText}
       </button>
       {open && (
         <div className="animate-fadeIn absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-bd-strong bg-surface-1/95 p-4 text-xs leading-relaxed text-text-2 shadow-xl backdrop-blur-md">
@@ -395,21 +433,117 @@ function UpdateBadge() {
           <div className="mb-2 text-text-3">
             v{info.currentVersion} → <span className="font-medium text-accent-light">v{info.latestVersion}</span>
           </div>
-          {info.releaseNotes && (
+
+          {/* idle / failed：显示 release notes */}
+          {(phase === 'idle' || phase === 'failed') && info.releaseNotes && (
             <div className="mb-3 max-h-32 overflow-y-auto rounded-lg bg-surface-3 p-2 text-2xs text-text-3">
               <pre className="whitespace-pre-wrap font-sans">{info.releaseNotes}</pre>
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              if (info.releaseUrl) void window.api.openExternal(info.releaseUrl)
-            }}
-            className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98]"
-          >
-            前往下载
-          </button>
-          <p className="mt-2 text-center text-2xs text-text-4">浏览器打开 GitHub Releases 页</p>
+
+          {/* failed 错误文案 */}
+          {phase === 'failed' && error && (
+            <div className="mb-3 rounded-lg bg-surface-3 p-2 text-2xs text-text-3">{error}</div>
+          )}
+
+          {/* downloading 进度条 */}
+          {phase === 'downloading' && (
+            <div className="mb-3">
+              <div className="mb-1 flex items-center justify-between text-2xs text-text-3">
+                <span>正在下载更新…</span>
+                <span className="font-mono">
+                  {progress?.percent ? `${Math.round(progress.percent)}%` : ''}
+                  {progress?.total
+                    ? ` · ${formatBytes(progress.loaded)}/${formatBytes(progress.total)}`
+                    : progress?.loaded ? ` · ${formatBytes(progress.loaded)}` : ''}
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+                <div
+                  className="h-full rounded-full bg-accent transition-[width] duration-300"
+                  style={{ width: `${progress?.percent ?? 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* idle：立即安装 + 自动下载开关 + 前往下载兜底 */}
+          {phase === 'idle' && (
+            <>
+              <button
+                type="button"
+                onClick={startDownload}
+                disabled={!hasAsset}
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {hasAsset ? '立即安装' : '当前平台暂不支持自动更新'}
+              </button>
+              {hasAsset && (
+                <label className="mt-2 flex items-center gap-1.5 text-2xs text-text-3">
+                  <input
+                    type="checkbox"
+                    checked={autoDownloadUpdate}
+                    onChange={e => {
+                      setAutoDownloadUpdate(e.target.checked)
+                      if (e.target.checked) startDownload()
+                    }}
+                    className="accent-accent"
+                  />
+                  以后检测到新版自动下载
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={() => { if (info.releaseUrl) void window.api.openExternal(info.releaseUrl) }}
+                className="mt-2 inline-flex h-7 w-full items-center justify-center gap-1.5 text-2xs text-text-4 transition-colors hover:text-text-2"
+              >
+                浏览器打开 GitHub Releases
+              </button>
+            </>
+          )}
+
+          {/* downloading：取消 */}
+          {phase === 'downloading' && (
+            <button
+              type="button"
+              onClick={() => { void window.api.cancelUpdate(); setPhase('idle'); setProgress(null) }}
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-bd bg-surface-2 px-3 text-xs font-medium text-text-2 transition-all hover:bg-surface-3"
+            >
+              取消下载
+            </button>
+          )}
+
+          {/* ready：立即安装并重启（主进程 spawn 安装器后 app.quit） */}
+          {phase === 'ready' && (
+            <button
+              type="button"
+              onClick={() => { void window.api.installUpdate() }}
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98]"
+            >
+              立即安装并重启
+            </button>
+          )}
+
+          {/* failed：重试 + 前往下载兜底 */}
+          {phase === 'failed' && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={startDownload}
+                disabled={!hasAsset}
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                重试下载
+              </button>
+              <button
+                type="button"
+                onClick={() => { if (info.releaseUrl) void window.api.openExternal(info.releaseUrl) }}
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-bd bg-surface-2 px-3 text-xs font-medium text-text-2 transition-all hover:bg-surface-3"
+              >
+                前往下载
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

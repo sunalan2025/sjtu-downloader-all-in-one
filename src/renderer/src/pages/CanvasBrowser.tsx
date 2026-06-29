@@ -86,7 +86,7 @@ function moduleVideoBaseName(courseName: string, title: string): string {
 // 哨兵 folderId：大纲补漏文件的真实 folder 不在课程 folderMap 里（「文件」tab 也看不到），
 // 用 -3 占位，配合 folderMap 映射到 files/大纲/ 子目录，对应浏览器「大纲」tab。
 // 模块补漏文件已带真实 folderId（由 fetchFileMeta 返回），folderMap 自动映射到真实 Canvas 文件夹，
-// 真实 folderId 查不到时兜底落 files/ 根，不再用 _from_modules 自造目录。
+// 真实 folderId 查不到时兜底落 files/ 根。
 const SYLLABUS_FOLDER_ID = -3
 
 // 空数组常量：zustand selector 兜底用，返回稳定引用避免无限重渲染（?? [] 每次新建数组会触发白屏）。
@@ -96,8 +96,6 @@ const EMPTY_TASK_IDS: string[] = []
 function buildCourseData(r: {
   files?: CanvasFileItem[]
   folderMap?: Record<number, string>
-  moduleFileIds?: number[]
-  syllabusFileIds?: number[]
   moduleFiles?: CanvasFileItem[]
   syllabusFiles?: CanvasFileItem[]
 }): CourseData {
@@ -106,8 +104,6 @@ function buildCourseData(r: {
   return {
     files: r.files ?? [],
     folderMap,
-    moduleFileIds: r.moduleFileIds ?? [],
-    syllabusFileIds: r.syllabusFileIds ?? [],
     moduleFiles: r.moduleFiles ?? [],
     syllabusFiles: r.syllabusFiles ?? []
   }
@@ -586,7 +582,7 @@ export function CanvasBrowser() {
           const allFiles = [...cd.files, ...cd.moduleFiles, ...cd.syllabusFiles]
           const selFiles = catSel?.files ? allFiles : allFiles.filter(f => selected.has(fileTaskId(courseId, f.fileId)))
           if (selFiles.length > 0) {
-            const r = await window.api.canvas.buildDownloadSpecs(courseName, courseId, selFiles, cd.folderMap, [], [], needsLocal ? st.localDestRoot : '', c.term || '')
+            const r = await window.api.canvas.buildDownloadSpecs(courseName, courseId, selFiles, cd.folderMap, needsLocal ? st.localDestRoot : '', c.term || '')
             for (const spec of r.specs ?? []) {
               const origFile = selFiles.find(f => spec.taskId.includes(String(f.fileId)))
               if (origFile) spec.taskId = fileTaskId(courseId, origFile.fileId)
@@ -1148,8 +1144,6 @@ export function CanvasBrowser() {
 interface CourseData {
   files: CanvasFileItem[]
   folderMap: Record<number, string>
-  moduleFileIds: number[]
-  syllabusFileIds: number[]
   moduleFiles: CanvasFileItem[]
   syllabusFiles: CanvasFileItem[]
 }

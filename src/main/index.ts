@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Notification, session, shell, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, session, shell, Tray } from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
 import {
   createWriteStream,
@@ -53,10 +53,7 @@ import {
 import { killAllFfmpeg } from './canvas/hls-download'
 import { sanitizeForLog } from './canvas/safe-fetch'
 import { getVodChannelsCached, clearVodChannelsCache, clearExtToolTokenCache, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from './canvas/video-tokens'
-import {
-  fetchFileMeta,
-  sanitizeFsName
-} from './canvas/api'
+import { sanitizeFsName } from './canvas/api'
 import type { CanvasDownloadTaskSpec, UpdateCheckResult } from '../shared/types'
 import {
   registerCnmoocHandlers,
@@ -64,6 +61,7 @@ import {
   setCnmoocEmitter
 } from './cnmooc/orchestrator'
 import { fetchCnmoocResourceUrl, inferCnmoocExt } from './cnmooc/api'
+import { matchAsset, downloadUpdate, cancelUpdate, installUpdate, setUpdateEmitter } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -118,11 +116,16 @@ function pickAccountInfo(result: unknown): { name?: string; studentId?: string }
 
 /** 应用窗口图标路径。dev 下从项目 build/icons 解析；打包后从 extraResources(icons) 解析。
  *  PNG 跨平台可用；Windows 打包后任务栏图标取自 exe (win.icon)，此处主要用于
- *  开发期窗口图标与 Linux 窗口装饰。 */
+ *  开发期窗口图标与 Linux 窗口装饰。
+ *
+ *  跟随系统深浅主题: 深色主题 (shouldUseDarkColors) 任务栏为深底 → 用浅色 logo
+ *  (icons/light/); 浅色主题 → 用深色 logo (icons/)。两版均透明背景+圆角, 在对应底色上可见。
+ *  .exe / 安装包图标为编译时嵌入的深色 icon.ico, 运行时无法切换, 保持深色默认。 */
 function resolveAppIcon(): string {
+  const sub = nativeTheme.shouldUseDarkColors ? 'light' : ''
   return is.dev
-    ? join(app.getAppPath(), 'build', 'icons', '256.png')
-    : join(process.resourcesPath, 'icons', '256.png')
+    ? join(app.getAppPath(), 'build', 'icons', sub, '256.png')
+    : join(process.resourcesPath, 'icons', sub, '256.png')
 }
 
 function createMainWindow(): void {
@@ -202,11 +205,29 @@ function createMainWindow(): void {
 let tray: Tray | null = null
 
 /** 托盘图标路径：dev 下从项目 build/icons 取 32.png；打包后从 extraResources(icons) 取。
- *  Electron Tray 在 Windows 上接受 PNG；32px 兼顾 HiDPI 清晰度。 */
+ *  Electron Tray 在 Windows 上接受 PNG；32px 兼顾 HiDPI 清晰度。
+ *  跟随系统深浅主题 (同 resolveAppIcon): 深色主题用浅色 logo, 浅色主题用深色 logo。 */
 function resolveTrayIcon(): string {
+  const sub = nativeTheme.shouldUseDarkColors ? 'light' : ''
   return is.dev
-    ? join(app.getAppPath(), 'build', 'icons', '32.png')
-    : join(process.resourcesPath, 'icons', '32.png')
+    ? join(app.getAppPath(), 'build', 'icons', sub, '32.png')
+    : join(process.resourcesPath, 'icons', sub, '32.png')
+}
+
+/** 系统主题变化时刷新窗口/托盘图标到当前主题版本。
+ *  - 窗口图标 (任务栏): Win/Linux 切换; macOS dock 图标也切换 (深色模式 dock 深底需浅色 logo)。
+ *  - 托盘: Win/Linux 切换; macOS 菜单栏图标用 setTemplateImage(true) 自动跟随深浅反色, 不手动切。
+ *  图标文件缺失 (nativeImage.isEmpty) 时跳过, 保持当前图标不动。 */
+function applyThemeIcons(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.setIcon(resolveAppIcon()) } catch { /* 图标缺失等, 忽略 */ }
+  }
+  if (tray && process.platform !== 'darwin') {
+    const img = nativeImage.createFromPath(resolveTrayIcon())
+    if (!img.isEmpty()) {
+      try { tray.setImage(img) } catch { /* 忽略 */ }
+    }
+  }
 }
 
 function showMainWindow(): void {
@@ -1232,12 +1253,18 @@ function destroyCloudHandles(t: CloudTaskRuntime, reason: string): void {
   t.cancel = undefined
 }
 
-/** Canvas 任务 courseName 带 'Canvas课程/' 前缀，落盘/云端路径要剥掉避免重复 */
+/** 计算落盘/云盘的「课程相对路径」(root 之下、fileName 之上)。
+ *  Canvas courseName 形如 "Canvas课程/{term}/{course}/files/..." —— term 已由
+ *  canvasCoursePath 拼入 courseName, 这里只剥掉 "Canvas课程/" 前缀, 不可再用
+ *  spec.term 补层, 否则 term 重复两层 → 落盘成 .../Canvas课程/{term}/{term}/{course}/...
+ *  (本地与云盘同病)。iframe HLS / PPT 走 cPath 直接拼字符串, 本就不经此函数, 路径正确。
+ *  cnmooc / v.sjtu 的 courseName 不含 term, 若 spec.term 存在则在此补一层学期。 */
 function effectiveCourseName(spec: DownloadTaskSpec): string {
-  const raw = isCanvasSpec(spec) && spec.courseName.startsWith('Canvas课程/')
+  const isCanvas = isCanvasSpec(spec)
+  const raw = isCanvas && spec.courseName.startsWith('Canvas课程/')
     ? spec.courseName.slice('Canvas课程/'.length)
     : spec.courseName
-  return spec.term ? `${sanitizeFsName(spec.term)}/${raw}` : raw
+  return (!isCanvas && spec.term) ? `${sanitizeFsName(spec.term)}/${raw}` : raw
 }
 
 /** 按需解析直链（Canvas 签名 URL + vod-info），runTask 与 cloudRunTask 共用。
@@ -1249,36 +1276,6 @@ async function resolveDirectUrl(
 ): Promise<boolean> {
   const src = (t.spec as CanvasDownloadTaskSpec).source
 
-  // Canvas modules/syllabus 文件：先按 fileId 取文件元数据拿到 /files/{id}/download 链接
-  if (src === 'canvas-modules' || src === 'canvas-syllabus') {
-    const parts = t.spec.taskId.split('_')
-    const fileId = Number(parts[parts.length - 1])
-    if (fileId > 0) {
-      if (t.state !== 'cancelled') {
-        t.state = 'downloading'
-        emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: 0, total: 0, message: '获取文件链接…' })
-      }
-      try {
-        const meta = await fetchFileMeta(sjtuSession(), fileId)
-        if (meta?.url) {
-          t.spec.url = meta.url
-          if (!t.spec.fileName) t.spec.fileName = meta.displayName
-          if (meta.size > 0) t.total = meta.size
-        } else {
-          throw new Error('无法获取文件链接')
-        }
-      } catch (err) {
-        if (t.state === 'cancelled') return false
-        t.state = 'error'
-        noteTaskError()
-        const msg = err instanceof Error ? err.message : String(err)
-        emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-        scheduleCleanupTask(t.spec.taskId, isCloud)
-        return false
-      }
-    }
-  }
-
   // canvas-files：url 可能在 resume 时被清空（reEnqueueLocal/Cloud 强制重解析），
   // 按 fileId 重建 /files/{id}/download 端点。
   if (src === 'canvas-files' && !t.spec.url) {
@@ -1289,8 +1286,8 @@ async function resolveDirectUrl(
     }
   }
 
-  // Canvas 文件（files / modules / syllabus）：t.spec.url 现在是 /files/{id}/download
-  // 这个 HTML 端点。下载引擎用裸 node:https 不带 cookie，直接下载会被 302 到
+  // Canvas 文件（files）：t.spec.url 是 /files/{id}/download 这个 HTML 端点。
+  // 下载引擎用裸 node:https 不带 cookie，直接下载会被 302 到
   // /login/canvas（拿到 HTML 登录页存成课件 → 全部损坏）。
   // 这里把 Canvas 会话 cookie 取出来存进 canvasCookiesByTask，由 downloadStream /
   // cloudDownloadAndUpload 在发请求时注入 Cookie 头；node:https 的 fetchOnce 本就
@@ -1299,7 +1296,7 @@ async function resolveDirectUrl(
   // 又无法可靠中止 S3 流，并发时幽灵下载会把真正的 node:https 下载拖死）。
   // 附带好处：HTML 端点每次访问都签发新 URL，暂停数小时后 resume 也不会因签名过期失败。
   if (
-    (src === 'canvas-files' || src === 'canvas-modules' || src === 'canvas-syllabus') &&
+    src === 'canvas-files' &&
     /\/files\/\d+\/download/.test(t.spec.url)
   ) {
     try {
@@ -2358,7 +2355,29 @@ function cloudResumeAll(): void {
   cloudScheduleNext()
 }
 
+// ─── 单实例锁：已有实例运行则唤起其窗口并退出当前进程，禁止应用多开 ───
+const gotTheLock = app.requestSingleInstanceLock()
+if (gotTheLock) {
+  // 第二个实例尝试启动时，唤起并聚焦已运行实例的主窗口（可能在托盘隐藏中）。
+  // 不调 createMainWindow：第一实例可能仍在初始化，重复创建会出双窗口；
+  // 窗口未就绪时由第一实例自行 show，这里仅在已存在时聚焦。
+  app.on('second-instance', () => {
+    if (isQuitting) return
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+} else {
+  app.quit()
+}
+
 app.whenReady().then(async () => {
+  // 未获取单实例锁的进程不执行任何初始化（尤其避免 clearSjtuSession 清掉
+  // 已运行实例的凭证），等待上面的 app.quit() 完成退出。
+  if (!gotTheLock) return
+
   // ─── 全局兜底：防止未捕获的 promise rejection 导致任务卡在 downloading 永不结束 ───
   process.on('unhandledRejection', (reason) => {
     console.error('[unhandledRejection]', reason)
@@ -2371,7 +2390,7 @@ app.whenReady().then(async () => {
     app.quit()
   })
 
-  electronApp.setAppUserModelId('edu.sjtu.audited-downloader')
+  electronApp.setAppUserModelId('edu.sjtu.course-downloader')
 
   // 移除默认应用菜单（File/Edit/View/Window/Help，含开发者工具入口）。
   // autoHideMenuBar 仍可按 Alt 呼出，setApplicationMenu(null) 彻底移除，避免用户误触。
@@ -2498,9 +2517,19 @@ app.whenReady().then(async () => {
     }
   )
 
+  // ─── 自动更新事件推送：update:progress / update:ready / update:failed ───
+  // mainWindow 可能已销毁（退出期），内部判空 no-op。
+  function emitUpdate(channel: string, payload: unknown): void {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload)
+    }
+  }
+  setUpdateEmitter(emitUpdate)
+
   // ─── 新版本检查（主进程请求 GitHub，绕开渲染端 CSP 限制） ───
   // 渲染端 CSP connect-src 只允许 SJTU 域名，无法直连 api.github.com，
   // 故由主进程用 node:https 拉取 releases/latest，结果经 IPC 给渲染端 TitleBar 徽章。
+  // 同时从 assets[] 匹配当前平台安装器，写入 result.asset 供应用内自动下载安装。
   ipcMain.handle('app:check-update', async (): Promise<UpdateCheckResult> => {
     const current = app.getVersion()
     // 1h 节流：避免每次 TitleBar mount 都打 GitHub API（限流 60 次/h 未认证）
@@ -2508,7 +2537,7 @@ app.whenReady().then(async () => {
       return _updateCache.result
     }
     const fail = (error: string): UpdateCheckResult => ({
-      hasUpdate: false, currentVersion: current, latestVersion: null, releaseUrl: null, releaseNotes: null, error
+      hasUpdate: false, currentVersion: current, latestVersion: null, releaseUrl: null, releaseNotes: null, asset: null, error
     })
     try {
       const json = await new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -2553,7 +2582,8 @@ app.whenReady().then(async () => {
         currentVersion: current,
         latestVersion: tag,
         releaseUrl: typeof json.html_url === 'string' ? json.html_url : `https://github.com/${UPDATE_REPO}/releases/latest`,
-        releaseNotes: typeof json.body === 'string' ? json.body.slice(0, 500) : null
+        releaseNotes: typeof json.body === 'string' ? json.body.slice(0, 500) : null,
+        asset: matchAsset(json.assets)
       }
       _updateCache = { result, ts: Date.now() }
       return result
@@ -2573,6 +2603,16 @@ app.whenReady().then(async () => {
     void shell.openExternal(url)
     return { ok: true }
   })
+
+  // ─── 应用内自动更新：下载 / 安装 / 取消（asset 取 check-update 缓存） ───
+  // 下载安装包到 temp → 安装时 spawn 安装器并 app.quit 释放文件锁，详见 updater.ts
+  ipcMain.handle('app:download-update', (): { ok: boolean; error?: string } => {
+    const asset = _updateCache?.result.asset
+    if (!asset) return { ok: false, error: '当前平台无可用安装包，请前往 GitHub 手动下载' }
+    return downloadUpdate(asset)
+  })
+  ipcMain.handle('app:install-update', (): { ok: boolean; error?: string } => installUpdate())
+  ipcMain.handle('app:cancel-update', (): { ok: boolean } => { cancelUpdate(); return { ok: true } })
 
   ipcMain.handle('auth:set-jwt-token', (_e, token: string | null) => {
     jwtToken = token && token.length > 20 ? token : null
@@ -2681,7 +2721,7 @@ app.whenReady().then(async () => {
               '所有视频下载完成后，.part 文件会被自动删除。',
               '如果你想手动清理，可以安全删除任意 .part 文件，不会影响已下载完成的 .mp4 视频。',
               '',
-              '—— SJTU 旁听课程下载器',
+              '—— 上海交大课程下载器',
               ''
             ].join('\n'), { encoding: 'utf-8', flag: 'wx' })
           } catch (e) {
@@ -2875,6 +2915,9 @@ app.whenReady().then(async () => {
   createTray()
   startSpeedTicker()
 
+  // 系统深浅主题切换 → 同步窗口/托盘图标 (深色主题用浅色logo, 浅色主题用深色logo)
+  nativeTheme.on('updated', applyThemeIcons)
+
   app.on('activate', () => {
     // macOS dock 点击：有窗口则显示，无则重建
     showMainWindow()
@@ -2885,6 +2928,10 @@ app.whenReady().then(async () => {
  *  同时将任务状态置为 cancelled，确保重试定时器回调时能正确退出。 */
 function cleanupOnQuit(): void {
   isQuitting = true
+
+  // 中止自动更新下载并清理临时文件（installing=true 即安装已 spawn 时 no-op，
+  // 避免删掉 NSIS 安装器正在使用的临时 .exe）
+  cancelUpdate()
 
   // 杀死所有 ffmpeg 子进程，防止残留
   killAllFfmpeg()
