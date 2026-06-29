@@ -475,6 +475,16 @@ export interface CanvasLectureGroup {
   teacher?: CanvasVideoSession
 }
 
+/** 下载课堂视频时传入的单讲入参：按用户实际勾选的角色携带 session。
+ *  teacher 字段存在 = 要下教师路（streamIdx 0）；ppt 字段存在 = 要下 PPT 路（streamIdx 1）。
+ *  与扫描结果的 CanvasLectureGroup 不同：后者每讲只描述 videoId，下载意图由本类型用可选字段
+ *  表达「要哪几路」，避免下载时无脑产 2 路 spec 把未勾选的一路也下载。 */
+export interface CanvasLectureDownloadItem {
+  lectureNum: number
+  teacher?: CanvasVideoSession
+  ppt?: CanvasVideoSession
+}
+
 /** 渲染端顶部 tab */
 export type ActiveTab = 'audited' | 'canvas' | 'cnmooc'
 

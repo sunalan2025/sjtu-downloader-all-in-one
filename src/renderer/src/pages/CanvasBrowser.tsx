@@ -8,6 +8,7 @@ import type {
   CanvasCourse,
   CanvasDownloadTaskSpec,
   CanvasFileItem,
+  CanvasLectureDownloadItem,
   CanvasTeacherSelection,
   CanvasVideoSession,
   FileConflictStrategy
@@ -621,14 +622,22 @@ export function CanvasBrowser() {
 
         if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
         if (lectures?.length && lti) {
-          const selLectures = lectures.filter(l => {
-            if (!l.teacher) return false
+          // 按角色携带意图：只下用户实际勾选的一路（teacher 或 ppt），
+          // 避免每讲无脑产 2 路 spec 把未勾选的一路也下载（修复「选教师/PPT 任一会两个都下」）
+          const lectureItems: CanvasLectureDownloadItem[] = []
+          for (const l of lectures) {
+            if (!l.teacher) continue
             const teacherWanted = catSel?.teacher || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'teacher'))
             const pptWanted = catSel?.ppt || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'ppt'))
-            return teacherWanted || pptWanted
-          })
-          if (selLectures.length > 0) {
-            const r = await window.api.canvas.downloadLectures(courseName, courseId, selLectures, lti.token, needsLocal ? st.localDestRoot : '', st.fileConflictStrategy, c.term || '')
+            if (!teacherWanted && !pptWanted) continue
+            lectureItems.push({
+              lectureNum: l.lectureNum,
+              teacher: teacherWanted ? l.teacher : undefined,
+              ppt: pptWanted ? l.teacher : undefined
+            })
+          }
+          if (lectureItems.length > 0) {
+            const r = await window.api.canvas.downloadLectures(courseName, courseId, lectureItems, lti.token, needsLocal ? st.localDestRoot : '', st.fileConflictStrategy, c.term || '')
             if (r.ok && r.specs) courseSpecs.push(...r.specs)
           }
         }

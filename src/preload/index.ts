@@ -7,6 +7,7 @@ import type {
   CanvasCourse,
   CanvasDownloadTaskSpec,
   CanvasFileItem,
+  CanvasLectureDownloadItem,
   CanvasLectureGroup,
   CanvasTeacherSelection,
   CanvasVideoSession,
@@ -238,7 +239,7 @@ const api = {
     downloadLectures: (
       courseName: string,
       courseId: number,
-      lectureItems: CanvasLectureGroup[],
+      lectureItems: CanvasLectureDownloadItem[],
       token: string,
       destRoot: string,
       conflictStrategy?: FileConflictStrategy,

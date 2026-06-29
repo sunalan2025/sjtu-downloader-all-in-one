@@ -586,6 +586,17 @@ npm run build:unpack   # 仅构建不打包（输出目录）
 
 ## 更新日志
 
+### v2.3.1 — Canvas 课堂视频按角色下载修复
+
+#### 修复
+
+- **只选「视频-教师」或「视频-PPT」却两路都下载** — 此前在 Canvas 课程下载课堂视频时，无论勾选「视频-教师」还是「视频-PPT」，每一讲都会同时下载教师路和 PPT 路两路视频（即未选的一路也会被下载下来）。
+  - 根因：main 端 `canvas:download-lectures` handler 对每个讲次固定生成 teacher + ppt 两路下载 spec，未区分用户实际勾选的角色；前端 `processCourse` 也只按讲次粒度过滤，未把「要哪几路」的意图传给主进程。
+  - 修复：新增 `CanvasLectureDownloadItem` 类型用可选 `teacher?` / `ppt?` 字段表达角色意图，前端据此构造入参、main 端按实际角色生成 spec（0~2 路）。只勾教师 → 只下教师路；只勾 PPT → 只下 PPT 路；两路都勾 → 与旧行为一致下两路。同时也修正了完成统计（`both` 模式 `cloudLinkedIds` 镜像与进度统计此前会把未勾选的一路也计入）。
+  - 仅影响 Canvas 课堂视频（v.sjtu「课堂视频new」），课件文件 / 单元视频 / PPT 课件 PDF 等其他分类不受影响。
+
+---
+
 ### v2.3.0 — 应用内自动更新
 
 #### 新功能

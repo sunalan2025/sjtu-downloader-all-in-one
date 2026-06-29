@@ -15,6 +15,7 @@ import {
   CANVAS_BASE_URL,
   type CanvasDownloadTaskSpec,
   type CanvasFileItem,
+  type CanvasLectureDownloadItem,
   type CanvasTeacherSelection,
   type CanvasVideoSession
 } from '../../shared/types'
@@ -457,7 +458,7 @@ export function registerCanvasHandlers(): void {
       _e,
       courseName: string,
       courseId: number,
-      lectureItems: Array<{ lectureNum: number; teacher?: CanvasVideoSession; ppt?: CanvasVideoSession }>,
+      lectureItems: CanvasLectureDownloadItem[],
       token: string,
       destRoot: string,
       conflictStrategy?: 'skip' | 'overwrite',
@@ -471,11 +472,15 @@ export function registerCanvasHandlers(): void {
         const overwrite = conflictStrategy === 'overwrite'
         const specs: CanvasDownloadTaskSpec[] = []
         for (const item of lectureItems) {
-          // teacher/ppt 指向同一 videoId；每讲产 2 个占位 spec，下载时各自解析对应 streamIdx
+          // teacher/ppt 指向同一 videoId；按用户实际勾选的角色产 spec，
+          // 避免未勾选的一路被一并下载（修复「选教师/PPT 任一会两个都下」）
           const session = item.teacher ?? item.ppt
           if (!session) continue
-          for (let chIdx = 0; chIdx < 2; chIdx++) {
-            const chRole = chIdx === 0 ? 'teacher' : 'ppt'
+          // 角色意图由 item.teacher / item.ppt 是否存在决定：可只产一路或两路
+          const roles: Array<{ role: 'teacher' | 'ppt'; idx: number }> = []
+          if (item.teacher) roles.push({ role: 'teacher', idx: 0 })
+          if (item.ppt) roles.push({ role: 'ppt', idx: 1 })
+          for (const { role: chRole, idx: chIdx } of roles) {
             const taskId = `canvas_lecture_${courseId}_${item.lectureNum}_${chRole}`
             const fileName = buildClassVideoFileName(courseName, session, chIdx)
             const destPath = videosDir ? join(videosDir, fileName) : ''
