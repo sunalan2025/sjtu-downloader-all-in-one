@@ -87,6 +87,9 @@ interface AppState {
   /** HLS 模块视频重编码目标高度（720/1080）；不设置 = 不重编码（保留原始质量）。
    *  解决 tv.sjtu.edu.cn 超高分辨率 I-frame-only 源在系统播放器中花屏/卡死的问题。 */
   hlsTranscodeMaxHeight?: 720 | 1080
+  /** 检测到新版本时是否自动后台下载安装包（默认 false）。
+   *  下载完成停在 ready 等用户确认安装，不自动重启打断使用。 */
+  autoDownloadUpdate: boolean
   /** both 模式下 localTaskId → cloudTaskId 映射，用于进度聚合 */
   cloudLinkedIds: Record<string, string>
   // 下载状态
@@ -184,6 +187,8 @@ interface AppState {
   setFileConflictStrategy: (s: FileConflictStrategy) => void
   /** 设置 HLS 重编码目标高度 */
   setHlsTranscodeMaxHeight: (h?: 720 | 1080) => void
+  /** 设置「检测到新版自动下载」开关 */
+  setAutoDownloadUpdate: (on: boolean) => void
   /** 设置本地下载目录路径 */
   setLocalDestRoot: (p: string) => void
   /** 更新 both 模式下 localTaskId → cloudTaskId 的映射 */
@@ -344,6 +349,7 @@ export const useAppStore = create<AppState>()(
       cloudLinkedIds: {},
       concurrency: 3,
       autoConcurrency: false,
+      autoDownloadUpdate: false,
       setTheme: theme => set({ theme }),
       setStage: stage => set({ stage }),
       setActiveTab: activeTab => set({ activeTab }),
@@ -473,6 +479,7 @@ export const useAppStore = create<AppState>()(
       setDownloadMode: downloadMode => set({ downloadMode }),
       setFileConflictStrategy: fileConflictStrategy => set({ fileConflictStrategy }),
       setHlsTranscodeMaxHeight: hlsTranscodeMaxHeight => set({ hlsTranscodeMaxHeight }),
+      setAutoDownloadUpdate: autoDownloadUpdate => set({ autoDownloadUpdate }),
       setLocalDestRoot: localDestRoot => set({ localDestRoot }),
       setCloudLinkedIds: (m: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) =>
         set(state => ({ cloudLinkedIds: typeof m === 'function' ? m(state.cloudLinkedIds) : m })),
@@ -527,7 +534,8 @@ export const useAppStore = create<AppState>()(
         downloadMode: state.downloadMode,
         fileConflictStrategy: state.fileConflictStrategy,
         localDestRoot: state.localDestRoot,
-        cnmoocResourceFilter: state.cnmoocResourceFilter
+        cnmoocResourceFilter: state.cnmoocResourceFilter,
+        autoDownloadUpdate: state.autoDownloadUpdate
       })
     }
   )

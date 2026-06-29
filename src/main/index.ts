@@ -61,6 +61,7 @@ import {
   setCnmoocEmitter
 } from './cnmooc/orchestrator'
 import { fetchCnmoocResourceUrl, inferCnmoocExt } from './cnmooc/api'
+import { matchAsset, downloadUpdate, cancelUpdate, installUpdate, setUpdateEmitter } from './updater'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -2516,9 +2517,19 @@ app.whenReady().then(async () => {
     }
   )
 
+  // ─── 自动更新事件推送：update:progress / update:ready / update:failed ───
+  // mainWindow 可能已销毁（退出期），内部判空 no-op。
+  function emitUpdate(channel: string, payload: unknown): void {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload)
+    }
+  }
+  setUpdateEmitter(emitUpdate)
+
   // ─── 新版本检查（主进程请求 GitHub，绕开渲染端 CSP 限制） ───
   // 渲染端 CSP connect-src 只允许 SJTU 域名，无法直连 api.github.com，
   // 故由主进程用 node:https 拉取 releases/latest，结果经 IPC 给渲染端 TitleBar 徽章。
+  // 同时从 assets[] 匹配当前平台安装器，写入 result.asset 供应用内自动下载安装。
   ipcMain.handle('app:check-update', async (): Promise<UpdateCheckResult> => {
     const current = app.getVersion()
     // 1h 节流：避免每次 TitleBar mount 都打 GitHub API（限流 60 次/h 未认证）
@@ -2526,7 +2537,7 @@ app.whenReady().then(async () => {
       return _updateCache.result
     }
     const fail = (error: string): UpdateCheckResult => ({
-      hasUpdate: false, currentVersion: current, latestVersion: null, releaseUrl: null, releaseNotes: null, error
+      hasUpdate: false, currentVersion: current, latestVersion: null, releaseUrl: null, releaseNotes: null, asset: null, error
     })
     try {
       const json = await new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -2571,7 +2582,8 @@ app.whenReady().then(async () => {
         currentVersion: current,
         latestVersion: tag,
         releaseUrl: typeof json.html_url === 'string' ? json.html_url : `https://github.com/${UPDATE_REPO}/releases/latest`,
-        releaseNotes: typeof json.body === 'string' ? json.body.slice(0, 500) : null
+        releaseNotes: typeof json.body === 'string' ? json.body.slice(0, 500) : null,
+        asset: matchAsset(json.assets)
       }
       _updateCache = { result, ts: Date.now() }
       return result
@@ -2591,6 +2603,16 @@ app.whenReady().then(async () => {
     void shell.openExternal(url)
     return { ok: true }
   })
+
+  // ─── 应用内自动更新：下载 / 安装 / 取消（asset 取 check-update 缓存） ───
+  // 下载安装包到 temp → 安装时 spawn 安装器并 app.quit 释放文件锁，详见 updater.ts
+  ipcMain.handle('app:download-update', (): { ok: boolean; error?: string } => {
+    const asset = _updateCache?.result.asset
+    if (!asset) return { ok: false, error: '当前平台无可用安装包，请前往 GitHub 手动下载' }
+    return downloadUpdate(asset)
+  })
+  ipcMain.handle('app:install-update', (): { ok: boolean; error?: string } => installUpdate())
+  ipcMain.handle('app:cancel-update', (): { ok: boolean } => { cancelUpdate(); return { ok: true } })
 
   ipcMain.handle('auth:set-jwt-token', (_e, token: string | null) => {
     jwtToken = token && token.length > 20 ? token : null
@@ -2906,6 +2928,10 @@ app.whenReady().then(async () => {
  *  同时将任务状态置为 cancelled，确保重试定时器回调时能正确退出。 */
 function cleanupOnQuit(): void {
   isQuitting = true
+
+  // 中止自动更新下载并清理临时文件（installing=true 即安装已 spawn 时 no-op，
+  // 避免删掉 NSIS 安装器正在使用的临时 .exe）
+  cancelUpdate()
 
   // 杀死所有 ffmpeg 子进程，防止残留
   killAllFfmpeg()

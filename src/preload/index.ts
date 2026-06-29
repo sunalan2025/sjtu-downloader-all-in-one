@@ -21,7 +21,8 @@ import type {
   DownloadTaskSpec,
   PageResult,
   TransferSpeed,
-  UpdateCheckResult
+  UpdateCheckResult,
+  UpdateProgress
 } from '../shared/types'
 
 /** 通用订阅器：注册 ipcRenderer 监听并返回取消订阅函数 */
@@ -47,6 +48,19 @@ const api = {
   checkUpdate: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('app:check-update'),
   /** 在系统默认浏览器打开外部 URL（仅限 github.com，防任意 URL 打开） */
   openExternal: (url: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('app:open-external', url),
+  // ─── 应用内自动更新（asset 取 check-update 缓存；下载到 temp → spawn 安装器 → quit 释放文件锁） ───
+  /** 下载当前平台安装包到临时目录（进度经 onUpdateProgress 推送） */
+  downloadUpdate: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:download-update'),
+  /** 安装已下载的更新：spawn 安装器并退出当前进程，安装器静默覆盖并启动新版本 */
+  installUpdate: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:install-update'),
+  /** 取消下载并清理临时文件 */
+  cancelUpdate: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('app:cancel-update'),
+  /** 下载进度推送（loaded/total/percent） */
+  onUpdateProgress: (cb: (p: UpdateProgress) => void): (() => void) => subscribe('update:progress', cb),
+  /** 下载完成，可安装 */
+  onUpdateReady: (cb: () => void): (() => void) => subscribe('update:ready', () => cb()),
+  /** 下载失败 / 取消 */
+  onUpdateFailed: (cb: (e: { error: string }) => void): (() => void) => subscribe('update:failed', cb),
   // ─── 自定义标题栏窗口控制（Mac 交通灯按钮） ───
   window: {
     /** 隐藏到系统托盘（最小化按钮/确认窗"最小化"选项） */
