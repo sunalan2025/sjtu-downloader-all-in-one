@@ -2354,7 +2354,29 @@ function cloudResumeAll(): void {
   cloudScheduleNext()
 }
 
+// ─── 单实例锁：已有实例运行则唤起其窗口并退出当前进程，禁止应用多开 ───
+const gotTheLock = app.requestSingleInstanceLock()
+if (gotTheLock) {
+  // 第二个实例尝试启动时，唤起并聚焦已运行实例的主窗口（可能在托盘隐藏中）。
+  // 不调 createMainWindow：第一实例可能仍在初始化，重复创建会出双窗口；
+  // 窗口未就绪时由第一实例自行 show，这里仅在已存在时聚焦。
+  app.on('second-instance', () => {
+    if (isQuitting) return
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+} else {
+  app.quit()
+}
+
 app.whenReady().then(async () => {
+  // 未获取单实例锁的进程不执行任何初始化（尤其避免 clearSjtuSession 清掉
+  // 已运行实例的凭证），等待上面的 app.quit() 完成退出。
+  if (!gotTheLock) return
+
   // ─── 全局兜底：防止未捕获的 promise rejection 导致任务卡在 downloading 永不结束 ───
   process.on('unhandledRejection', (reason) => {
     console.error('[unhandledRejection]', reason)
