@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, memo } from 'react'
 import { useShallow } from 'zustand/shallow'
 import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/app'
 import {
-  useCachedCloudTokenValidation,
   useCloudConnection,
   useDownloadCompletion
 } from '../hooks/useSharedBrowserHooks'
+import { prefetchCnmoocCourses } from '../services/prefetch'
 import {
   Chevron,
   ConflictStrategySegmented,
@@ -38,8 +38,6 @@ const makeTid = (courseId: string, itemId: string): string => `cnmooc_${courseId
 const EMPTY_CHAPTERS: CnmoocChapter[] = []
 
 export function CnmoocBrowser() {
-  // 启动恢复：把持久化的云盘 token 同步给 main 缓存并校验
-  useCachedCloudTokenValidation()
   const { onConnectCloud, onDisconnectCloud } = useCloudConnection()
 
   const {
@@ -58,9 +56,6 @@ export function CnmoocBrowser() {
     localDestRoot,
     resourceFilter,
     downloading,
-    setCourses,
-    setScan,
-    setCourseData,
     toggleExpand,
     setSelected,
     toggleSelect,
@@ -89,9 +84,6 @@ export function CnmoocBrowser() {
       localDestRoot: s.localDestRoot,
       resourceFilter: s.cnmoocResourceFilter,
       downloading: s.downloading,
-      setCourses: s.setCnmoocCourses,
-      setScan: s.setCnmoocScanState,
-      setCourseData: s.setCnmoocCourseData,
       toggleExpand: s.toggleCnmoocExpand,
       setSelected: s.setSelected,
       toggleSelect: s.toggleSelect,
@@ -132,43 +124,13 @@ export function CnmoocBrowser() {
   const applyProgress = useAppStore(s => s.applyProgress)
 
   // ─── 扫描：课程列表 + 并行拉取每门课章节（仅 HTML，不预探直链） ───
+  // 逻辑提取到 services/prefetch.ts，登录后 App.tsx 也会调它预加载。
+  // 刷新时前置 resetProgress 清进度；登录预加载（无进度）由 prefetch 内部不调 resetProgress。
   const scanStartedRef = useRef(false)
   const runScan = useCallback(async (): Promise<void> => {
     resetProgress()
-    setScan('scanning', '正在连接好大学在线…')
-    try {
-      const r = await window.api.cnmooc.scan()
-      if (!r.ok) {
-        setScan('error', r.error || '扫描失败')
-        return
-      }
-      const list = r.courses ?? []
-      setCourses(list)
-      if (list.length === 0) {
-        setScan('done', '没有找到正在学习的好大学在线课程')
-        return
-      }
-      setScan('scanning', `正在解析章节…0 / ${list.length}`)
-      let done = 0
-      await Promise.all(
-        list.map(async c => {
-          try {
-            const cr = await window.api.cnmooc.scanCourse(c.courseId)
-            if (cr.ok && cr.chapters) setCourseData(c.courseId, { chapters: cr.chapters })
-            else setCourseData(c.courseId, { chapters: [] })
-          } catch {
-            setCourseData(c.courseId, { chapters: [] })
-          } finally {
-            done += 1
-            setScan('scanning', `正在解析章节…${done} / ${list.length}`)
-          }
-        })
-      )
-      setScan('done')
-    } catch (err) {
-      setScan('error', '扫描出错：' + String(err))
-    }
-  }, [resetProgress, setScan, setCourses, setCourseData])
+    await prefetchCnmoocCourses()
+  }, [resetProgress])
 
   useEffect(() => {
     if (scanStartedRef.current) return

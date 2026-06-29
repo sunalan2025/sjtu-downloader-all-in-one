@@ -567,6 +567,9 @@ export interface PptDownloadOpts {
   destRoot: string
   /** 学期名（上级文件夹） */
   term?: string
+  /** 同名冲突策略：skip（默认，本地已存在则跳过） / overwrite（覆盖）。
+   *  仅对 destRoot 非空（local/both）的本地 PDF 生效；云端冲突由 runPptLecture 提前检查。 */
+  conflictStrategy?: FileConflictStrategy
   /** 课堂视频会话信息（用于构建与视频一致的文件名） */
   videoSession?: {
     beginTime: string

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, memo, type MouseEvent } from '
 import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
-import { useCachedCloudTokenValidation, useCloudConnection, useDownloadCompletion } from '../hooks/useSharedBrowserHooks'
+import { useCloudConnection, useDownloadCompletion } from '../hooks/useSharedBrowserHooks'
 import type {
   AuditCourseDetail,
   AuditCourseItem,
@@ -72,7 +72,8 @@ export function Browser() {
   })))
 
   // ── 共享 hooks ──
-  useCachedCloudTokenValidation()
+  // useCachedCloudTokenValidation 已移除：云盘 token 不再持久化，登录后由
+  // App.tsx 的 prefetchCloudConnection 自动重新连接，无需启动恢复路径。
   // [2.15] useDownloadProgressSubscription moved to App level — removed here
   const { cloudConn, onConnectCloud, onDisconnectCloud } = useCloudConnection()
 

@@ -214,6 +214,14 @@ async function checkFileExists(cred: CloudPanSpaceCred, remotePath: string): Pro
   }
 }
 
+/** 检查云盘文件是否已存在（HEAD，不创建上传会话）。
+ *  供 PPT 课件等场景在上传前预判 skip，避免先生成文件再发现远端已存在。
+ *  与 startChunkedUpload 同样的宽松判定：HEAD 失败一律视为不存在，由后续上传兜底。 */
+export async function cloudFileExists(userToken: string, remotePath: string): Promise<boolean> {
+  const cred = await ensureCred(userToken)
+  return checkFileExists(cred, remotePath)
+}
+
 /** 删除云盘文件/文件夹（移入回收站）。供「替换」策略在上传前先清掉同名文件。
  *  接口：DELETE /api/v1/file/{libraryId}/{spaceId}/{path}?permanent=0&access_token=...
  *  路径按段 URL 编码（参考 JboxTransfer TboxService.DeleteFile）。

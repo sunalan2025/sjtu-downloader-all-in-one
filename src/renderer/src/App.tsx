@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useAppStore, type Stage } from './store/app'
 import { TitleBar, applyTheme } from './components/TitleBar'
 import { WindowConfirmModal } from './components/WindowConfirmModal'
@@ -9,6 +9,7 @@ import { Browser } from './pages/Browser'
 import { CanvasBrowser } from './pages/CanvasBrowser'
 import { CnmoocBrowser } from './pages/CnmoocBrowser'
 import { useDownloadProgressSubscription } from './hooks/useSharedBrowserHooks'
+import { prefetchCanvasCourses, prefetchCnmoocCourses, prefetchCloudConnection } from './services/prefetch'
 import type { ActiveTab } from '@shared/types'
 
 function StagePane({ stage, children }: { stage: Stage; children: React.ReactNode }) {
@@ -68,6 +69,26 @@ export default function App() {
     })()
     return () => { cancelled = true }
   }, [setAuth])
+
+  // [登录后自动预加载] jAccount 登录成功 → setStage('browser') 后，后台并行预加载
+  // Canvas 课程 / 好大学在线课程 / 云盘连接（隐式 SSO，复用 jAccount 会话，无需额外扫码）。
+  // 用户切到对应 tab 时数据已就绪，云盘已连上可立即用 cloud/both 模式。
+  // ref 守卫防 strict-mode 双触发；离开 browser（登出回 welcome）时重置 ref，
+  // 支持登出再登录重新预加载。三个任务独立（allSettled），失败置 error 态静默不打扰。
+  const prefetchedRef = useRef(false)
+  useEffect(() => {
+    if (stage !== 'browser') {
+      prefetchedRef.current = false
+      return
+    }
+    if (prefetchedRef.current) return
+    prefetchedRef.current = true
+    void Promise.allSettled([
+      prefetchCanvasCourses(),
+      prefetchCnmoocCourses(),
+      prefetchCloudConnection()
+    ])
+  }, [stage])
 
   return (
     <div className="flex h-full w-full flex-col">

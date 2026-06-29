@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useAppStore, useDownloadStats, useEffectiveProgress, type LectureGroup } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
-import { useCachedCloudTokenValidation, useCloudConnection } from '../hooks/useSharedBrowserHooks'
+import { useCloudConnection } from '../hooks/useSharedBrowserHooks'
+import { prefetchCanvasCourses } from '../services/prefetch'
 import { Chevron, TriCheckbox, ProgressBar, SmallCheck, GlobalCtrlButton, ModeSegmented, ConflictStrategySegmented, HlsTranscodeSegmented, TaskCtrlButtons, CourseProgressSummary, formatBytes, type TriState } from '../components/DownloadUI'
 import type {
   CanvasCourse,
@@ -174,15 +175,13 @@ export function CanvasBrowser() {
   const downloading = useAppStore(s => s.downloading)
   // Group 3: stable action references (setters are stable, but grouped for clarity)
   const {
-    setCanvasCourses, setCanvasScanState, setCanvasCourseData, setCanvasTeachers,
+    setCanvasCourseData, setCanvasTeachers,
     setCanvasSelectedTeachers, setCanvasLtiToken, setCanvasLectures, setCanvasModuleVideos,
     setCanvasCourseCategorySelection, setAllCanvasCourseCategorySelections,
     resetCanvasScanResults, toggleCanvasExpand,
     setLocalDestRoot, setDownloading, resetProgress, applyProgress,
     setDownloadMode, setFileConflictStrategy, setHlsTranscodeMaxHeight, setCloudLinkedIds
   } = useAppStore(useShallow(s => ({
-    setCanvasCourses: s.setCanvasCourses,
-    setCanvasScanState: s.setCanvasScanState,
     setCanvasCourseData: s.setCanvasCourseData,
     setCanvasTeachers: s.setCanvasTeachers,
     setCanvasSelectedTeachers: s.setCanvasSelectedTeachers,
@@ -228,15 +227,10 @@ export function CanvasBrowser() {
   }, [canvasCourses, selectedTerm])
 
   // ── 拉取课程列表（刷新时保留下载进度和已有扫描数据） ──
+  // 逻辑提取到 services/prefetch.ts，登录后 App.tsx 也会调它预加载。
   const loadCourses = useCallback(async (): Promise<void> => {
-    setCanvasScanState('scanning', '正在拉取 Canvas 课程列表…')
-    try {
-      const r = await window.api.canvas.listCourses()
-      if (!r.ok) { setCanvasScanState('error', r.error || '拉取失败'); return }
-      setCanvasCourses(r.courses ?? [])
-      setCanvasScanState('done')
-    } catch (err) { setCanvasScanState('error', String(err)) }
-  }, [setCanvasScanState, setCanvasCourses])
+    await prefetchCanvasCourses()
+  }, [])
 
   useEffect(() => {
     if (scanStartedRef.current) return
@@ -264,8 +258,9 @@ export function CanvasBrowser() {
   }, [resetProgress, setCloudLinkedIds, setDownloading, resetCanvasScanResults, loadCourses])
 
   // ── 共享 hooks ──
-  useCachedCloudTokenValidation()
   // [2.15] useDownloadProgressSubscription moved to App level — removed here
+  // useCachedCloudTokenValidation 已移除：云盘 token 不再持久化，登录后由
+  // App.tsx 的 prefetchCloudConnection 自动重新连接，无需启动恢复路径。
   const { cloudConn, onConnectCloud, onDisconnectCloud } = useCloudConnection()
 
   // ── HLS 模块视频进度订阅：把 canvas:hls-progress 落到 store.progress ──
@@ -703,13 +698,18 @@ export function CanvasBrowser() {
                 conflictStrategy: st.fileConflictStrategy,
                 term: c.term
               })
-              const successCount = r.results?.filter(x => x.ok).length ?? 0
-              const failCount = (r.results?.length ?? 0) - successCount
+              const successCount = r.results?.filter(x => x.ok && !x.skipped).length ?? 0
+              const skippedCount = r.results?.filter(x => x.skipped).length ?? 0
+              const failCount = (r.results?.length ?? 0) - successCount - skippedCount
+              const parts: string[] = []
+              if (successCount > 0) parts.push(`${successCount}成功`)
+              if (skippedCount > 0) parts.push(`${skippedCount}跳过`)
+              if (failCount > 0) parts.push(`${failCount}失败`)
               snap.applyProgress({
                 taskId: pptTaskId,
                 state: failCount > 0 ? 'error' : 'done',
                 received: successCount, total: validLectures.length,
-                message: failCount > 0 ? `PPT: ${successCount}成功 ${failCount}失败` : `PPT: 全部${successCount}项完成`
+                message: `PPT: ${parts.join('，') || '无操作'}`
               })
               pptAggregateTaskId = pptTaskId
             } catch {
