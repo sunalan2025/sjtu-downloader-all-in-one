@@ -499,25 +499,138 @@ async function getExtToolAccessToken(ses: Electron.Session, tokenId: string): Pr
 
 const VSHARE_BASE = 'https://vshare.sjtu.edu.cn'
 
-/** 拉取 vshare 视频 S3 直链：GET /api/video/play/{uuid}（带 vshare cookie）。
- *  vshare 通过 jAccount SSO 登录，ses 已有 cookie。 */
-export async function fetchVsharePlayUrl(
+// vshare 登录态（vshare 域 JSESSIONID cookie）是否已建立。
+// 与 Canvas/v.sjtu 不同：vshare 后端另发 JSESSIONID，必须访问 vshare 时经 jAccount SSO
+// 落盘——persist:sjtu 虽有 jAccount cookie，但从未访问过 vshare 时 vshare 域无 JSESSIONID，
+// /api/video/play/{uuid} 直接返回 USER_LOGIN_REQUIRED。首次调用前需 ensureVshareLogin。
+let _vshareLoginDone = false
+
+/** 标记 vshare 登录态失效（API 返回 USER_LOGIN_REQUIRED 时调用，强制下次重走 SSO） */
+export function invalidateVshareLogin(): void {
+  _vshareLoginDone = false
+}
+
+/** 探测 vshare 会话是否有效：调 /api/user/me/profile，errno:0 视为已登录。
+ *  vshare API 用 body.errno 表示成败（HTTP 永远 200）。 */
+async function isVshareSessionValid(ses: Electron.Session): Promise<boolean> {
+  try {
+    const resp = await safeFetch(ses, `${VSHARE_BASE}/api/user/me/profile`, {
+      headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    const data = await resp.json() as { errno?: number }
+    return data.errno === 0
+  } catch {
+    return false
+  }
+}
+
+/** 确保 vshare 已登录：先探现有会话，无效则隐藏窗口走 jAccount SSO，再失败弹可见窗口。
+ *  uuid 用于构造触发 SSO 的 play 页 URL（play 页 JS 检测登录态，未登录跳 jaccount SSO）。 */
+export async function ensureVshareLogin(
   ses: Electron.Session,
   uuid: string
-): Promise<{ url: string; fileName: string; fileSize: number }> {
+): Promise<boolean> {
+  if (_vshareLoginDone) return true
+  if (await isVshareSessionValid(ses)) {
+    _vshareLoginDone = true
+    return true
+  }
+  console.log('[vshare] 触发 jAccount SSO（隐藏窗口）…')
+  if (await completeVshareSso(ses, uuid, false)) {
+    _vshareLoginDone = true
+    return true
+  }
+  console.log('[vshare] 隐藏 SSO 失败，弹出可见窗口')
+  if (await completeVshareSso(ses, uuid, true)) {
+    _vshareLoginDone = true
+    return true
+  }
+  return false
+}
+
+/** 隐藏/可见 BrowserWindow 加载 vshare play 页触发 jAccount SSO，轮询会话生效。
+ *  vshare play 页 JS 调 /api/user/me/profile，未登录则跳 jaccount SSO，回跳后落 JSESSIONID。
+ *  关 backgroundThrottling：隐藏窗口默认被节流，SSO 重定向链路会被拖慢甚至卡住。
+ *  setAudioMuted：play 页含自动播放视频。show=true 弹可见窗口（jaccount cookie 失效需扫码）。 */
+async function completeVshareSso(
+  ses: Electron.Session,
+  uuid: string,
+  show: boolean
+): Promise<boolean> {
+  const win = new BrowserWindow({
+    show,
+    width: 1000,
+    height: 700,
+    title: '登录 vshare (Jaccount)',
+    autoHideMenuBar: true,
+    webPreferences: {
+      session: ses,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false
+    }
+  })
+  win.webContents.setAudioMuted(true)
+  try {
+    await win.loadURL(`${VSHARE_BASE}/play/${uuid}`).catch(() => { /* SSO 跳转会 reject，忽略 */ })
+    const timeoutMs = show ? 120_000 : 60_000
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      await sleep(1000)
+      if (await isVshareSessionValid(ses)) {
+        await sleep(500) // 等 cookie 完全落盘
+        console.log('[vshare] SSO 完成')
+        return true
+      }
+    }
+    const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
+    const jaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
+    console.log(`[vshare] SSO 超时（jaccount 会话${jaSession ? '存在' : '不存在，请先在应用内登录 v.sjtu'}）`)
+    return false
+  } catch (e) {
+    console.log('[vshare] SSO 异常:', e)
+    return false
+  } finally {
+    win.destroy()
+  }
+}
+
+/** 单次拉取 vshare 视频 S3 直链（不处理登录）。errno:0 返回直链，否则返回 error。 */
+async function fetchVsharePlayUrlOnce(
+  ses: Electron.Session,
+  uuid: string
+): Promise<{ ok: boolean; url: string; fileName: string; fileSize: number; error: string }> {
   const resp = await safeFetch(ses, `${VSHARE_BASE}/api/video/play/${uuid}?locale=zh`, {
     headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
   })
   const data = await resp.json() as { errno: number; error: string; entities?: Array<{ playUrl?: string; title?: string; fileSize?: number; type?: string }> }
   const e = data.entities?.[0]
   const playUrl = e?.playUrl
-  if (data.errno !== 0 || !playUrl) {
-    throw new Error(`vshare /play/${uuid} 失败: ${data.error || data.errno}`)
+  if (data.errno === 0 && playUrl) {
+    const ext = e?.type || 'mp4'
+    return { ok: true, url: playUrl, fileName: `${e?.title || uuid}.${ext}`, fileSize: Number(e?.fileSize || 0), error: '' }
   }
-  const ext = e?.type || 'mp4'
-  return {
-    url: playUrl,
-    fileName: `${e?.title || uuid}.${ext}`,
-    fileSize: Number(e?.fileSize || 0)
+  return { ok: false, url: '', fileName: '', fileSize: 0, error: data.error || String(data.errno) }
+}
+
+/** 拉取 vshare 视频 S3 直链：GET /api/video/play/{uuid}（带 vshare JSESSIONID cookie）。
+ *  首次 ensureVshareLogin 通过 jAccount SSO 建立 vshare 会话；API 返回 USER_LOGIN_REQUIRED
+ *  时 invalidate + 重走 SSO + 重试一次（防 cookie 边界过期自愈）。 */
+export async function fetchVsharePlayUrl(
+  ses: Electron.Session,
+  uuid: string
+): Promise<{ url: string; fileName: string; fileSize: number }> {
+  await ensureVshareLogin(ses, uuid)
+  let r = await fetchVsharePlayUrlOnce(ses, uuid)
+  if (r.ok) return { url: r.url, fileName: r.fileName, fileSize: r.fileSize }
+  // 登录态失效：清缓存重走 SSO 后重试一次
+  if (/USER_LOGIN_REQUIRED|login|未登录|登录/i.test(r.error)) {
+    console.log(`[vshare] /play/${uuid} 返回 ${r.error}，重走 SSO 重试`)
+    invalidateVshareLogin()
+    if (await ensureVshareLogin(ses, uuid)) {
+      r = await fetchVsharePlayUrlOnce(ses, uuid)
+      if (r.ok) return { url: r.url, fileName: r.fileName, fileSize: r.fileSize }
+    }
   }
+  throw new Error(`vshare /play/${uuid} 失败: ${r.error}`)
 }

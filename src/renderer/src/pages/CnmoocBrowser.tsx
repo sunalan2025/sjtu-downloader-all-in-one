@@ -197,6 +197,10 @@ export function CnmoocBrowser() {
 
     if (byCourse.size === 0) return
 
+    // 清空上一轮 batchTaskIds（不动 progress——progress 的 done 态用于跳过已完成），
+    // 防 OverallProgressBar total 跨批次累积。
+    useAppStore.getState().resetBatchTaskIds()
+
     const specs: DownloadTaskSpec[] = []
     for (const { course, items } of byCourse.values()) {
       const r = await window.api.cnmooc.buildSpecs(course.name, course.courseId, items, resourceFilter)
@@ -210,6 +214,8 @@ export function CnmoocBrowser() {
     if (specs.length === 0) return
 
     setDownloading(true)
+    // 记入本轮提交集，供 OverallProgressBar 精准统计 total/active
+    useAppStore.getState().addBatchTaskIds(specs.map(s => s.taskId))
     if (downloadMode === 'both') {
       const mapping: Record<string, string> = { ...curLinked }
       for (const spec of specs) mapping[spec.taskId] = spec.taskId + '_cloud'
@@ -243,7 +249,12 @@ export function CnmoocBrowser() {
   const onResumeTask = useCallback((id: string) => { window.api.download.resume(id).catch(() => undefined) }, [])
   const onPauseAll = useCallback(() => { window.api.download.pauseAll().catch(() => undefined) }, [])
   const onResumeAll = useCallback(() => { window.api.download.resumeAll().catch(() => undefined) }, [])
-  const onCancelAll = useCallback(() => { window.api.download.cancelAll().catch(() => undefined) }, [])
+  const onCancelAll = useCallback(() => {
+    window.api.download.cancelAll().catch(() => undefined)
+    // 幽灵兜底：cancelAll 后立即把本轮提交的非终态任务标 cancelled，兜底主进程漏发终态，
+    // 让 useDownloadCompletion 的 activeCount 归零、downloading 解除。
+    useAppStore.getState().markBatchPendingCancelled()
+  }, [])
 
   const onSelectLocalFolder = useCallback(async (): Promise<void> => {
     const p = await window.api.selectFolder()
