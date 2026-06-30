@@ -439,15 +439,16 @@ export async function downloadModuleVideo(
   baseName: string,
   onProgress?: (p: HlsProgress) => void,
   transcodeMaxHeight?: number
-): Promise<{ path: string; format: 'mp4' | 'ts' }> {
+): Promise<{ path: string; format: 'mp4' | 'ts'; skipped?: boolean }> {
   const mp4Path = join(destDir, `${baseName}.mp4`)
   const tsPath = join(destDir, `${baseName}.ts`)
 
-  // 已存在 → 跳过
+  // 已存在 → 跳过（复用本地已有 mp4，不重复下载）。skipped=true 让上层据此标记跳过
+  // （overwrite 模式由调用方在调用前删除旧文件，不会走到这里）。
   if (existsSync(mp4Path) && statSync(mp4Path).size > 0) {
-    return { path: mp4Path, format: 'mp4' }
+    return { path: mp4Path, format: 'mp4', skipped: true }
   }
-  // 历史 .ts → 尝试 remux
+  // 历史 .ts → 尝试 remux（产出新 mp4，不算 skipped）
   if (existsSync(tsPath) && statSync(tsPath).size > 0) {
     if (await remuxTsToMp4(tsPath, mp4Path)) {
       return { path: mp4Path, format: 'mp4' }

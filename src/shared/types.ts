@@ -274,8 +274,12 @@ export interface DownloadProgress {
   total: number
   /** 落盘文件最终绝对路径（done/skipped 时有；云盘模式下无此字段） */
   filePath?: string
-  /** 错误或附加说明（error/skipped 时有） */
+  /** 错误或附加说明（error/skipped 时有；downloading 时也可携带阶段文案，如 HLS 阶段、both 模式上传提示） */
   message?: string
+  /** received/total 的单位。默认 'bytes'（按字节格式化 + 计算速度）；
+   *  'count' 表示 received/total 是计数（如 HLS 切片数），显示为纯文案 + 百分比、不计算速度。
+   *  用于 HLS 模块视频进度（切片数而非字节数）。 */
+  unit?: 'bytes' | 'count'
 }
 
 /** 实时传输速度（字节/秒），由主进程 1s 推送一次，EMA 平滑后 */

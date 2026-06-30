@@ -664,6 +664,10 @@ export function registerCanvasHandlers(): void {
 
   // ─── 模块嵌入视频实时下载（HLS 流程，不走常规下载引擎） ───
   // [Bug 37 Fix] 等待全局并发槽位空闲，避免与主下载队列争抢带宽
+  // [Conflict] 与 PPT 课件 / 常规文件一致的三层冲突检查：
+  //   (1) cloud-only + skip：下载前先查云盘，已有则跳过整个下载（避免下完整视频再发现远端已存在）；
+  //   (2) 本地：downloadModuleVideo 内部 existsSync 跳过（skip 复用已有 mp4；overwrite 由这里预先删旧）；
+  //   (3) 上传：uploadLocalFileToCloud 内部 startChunkedUpload 的 HEAD 检查兜底，FileExistsError 视为跳过。
   ipcMain.handle(
     'canvas:download-module-video-now',
     async (
@@ -685,6 +689,28 @@ export function registerCanvasHandlers(): void {
         const cPath = canvasCoursePath(courseName, term)
         const videosDir = join(localDest, 'Canvas课程', ...cPath.split('/'), 'videos', '单元视频')
         mkdirSync(videosDir, { recursive: true })
+
+        const strategy = conflictStrategy ?? 'skip'
+        // 云盘远端路径用 sanitizeFsName（与原行为一致）；本地 mp4/ts 用原始 baseName（downloadModuleVideo 内部如此）
+        const remotePathBase = `SJTU Canvas课程/${cPath}/videos/单元视频/${sanitizeFsName(baseName)}`
+        const localMp4 = join(videosDir, `${baseName}.mp4`)
+        const localTs = join(videosDir, `${baseName}.ts`)
+
+        // (1) cloud-only + skip：下载图片/切片前先查云盘是否已有该 mp4，已有则跳过整个下载。
+        //     overwrite 不提前查（由 uploadLocalFileToCloud 内部 deleteCloudFile 处理）；
+        //     both 模式本地需要 mp4，不提前查（云端 skip 由 uploadLocalFileToCloud 兜底）。
+        if (cloudUserToken && !destRoot && strategy === 'skip') {
+          if (await cloudFileExists(cloudUserToken, `${remotePathBase}.mp4`)) {
+            console.log(`[hls] 云盘已存在，跳过: ${remotePathBase}.mp4`)
+            return { ok: true, skipped: true, cloudPath: `${remotePathBase}.mp4` }
+          }
+        }
+
+        // (2) overwrite：删本地旧 mp4/ts，强制重下（否则 downloadModuleVideo 的"已存在跳过"会跳过）
+        if (strategy === 'overwrite') {
+          try { if (existsSync(localMp4)) unlinkSync(localMp4) } catch { /* ignore */ }
+          try { if (existsSync(localTs)) unlinkSync(localTs) } catch { /* ignore */ }
+        }
 
         // 等待主下载队列有空闲并发槽位
         await waitForConcurrencySlot()
@@ -713,20 +739,24 @@ export function registerCanvasHandlers(): void {
           _hlsActiveReporter?.(-1)
         }
 
+        // local 模式（无云盘目标）：不上传，按本地是否复用已有 mp4 标记 skipped
+        if (!cloudUserToken) {
+          return { ok: true, skipped: result.skipped, path: result.path, format: result.format }
+        }
+
         // cloud/both 模式：下载完成后把 mp4 上传到云盘
-        let cloudPath: string | undefined
-        if (cloudUserToken) {
-          const remotePath = `SJTU Canvas课程/${cPath}/videos/单元视频/${sanitizeFsName(baseName)}.${result.format}`
-          emitToRenderer('canvas:hls-progress', {
-            taskId, baseName,
-            phase: 'uploading', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0,
-            message: '正在上传到云盘…'
-          })
+        const remotePath = `${remotePathBase}.${result.format}`
+        emitToRenderer('canvas:hls-progress', {
+          taskId, baseName,
+          phase: 'uploading', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0,
+          message: '正在上传到云盘…'
+        })
+        try {
           const r = await uploadLocalFileToCloud(
             cloudUserToken,
             result.path,
             remotePath,
-            conflictStrategy ?? 'skip',
+            strategy,
             (uploaded, total) => {
               emitToRenderer('canvas:hls-progress', {
                 taskId, baseName,
@@ -736,7 +766,7 @@ export function registerCanvasHandlers(): void {
               })
             }
           )
-          cloudPath = r.path?.[0] ?? remotePath
+          const cloudPath = r.path?.[0] ?? remotePath
 
           // cloud-only 模式（渲染端传空 destRoot → 走临时目录兜底）：
           // mp4 仅作上传中间产物，上传成功后清理避免长期累积。
@@ -746,9 +776,23 @@ export function registerCanvasHandlers(): void {
           if (!destRoot) {
             try { unlinkSync(result.path) } catch { /* ignore */ }
           }
+          // 上传成功 = 云端有新产出，算成功（不标 skipped，即便本地是复用的已有 mp4）
+          return { ok: true, path: result.path, format: result.format, cloudPath }
+        } catch (err) {
+          // skip 策略下远端已存在 → 跳过上传（云端无新产出，标 skipped，与 PPT 一致）
+          if (err instanceof Error && err.name === 'FileExistsError') {
+            if (!destRoot) {
+              try { unlinkSync(result.path) } catch { /* ignore */ }
+            }
+            return { ok: true, skipped: true, cloudPath: remotePath }
+          }
+          // 上传失败：cloud-only 清理本地临时 mp4
+          if (!destRoot) {
+            try { unlinkSync(result.path) } catch { /* ignore */ }
+          }
+          const msg = err instanceof Error ? err.message : String(err)
+          return { ok: false, path: result.path, error: `云盘上传失败: ${msg}` }
         }
-
-        return { ok: true, path: result.path, format: result.format, cloudPath }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }

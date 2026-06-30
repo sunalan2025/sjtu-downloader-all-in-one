@@ -222,7 +222,8 @@ const api = {
       ipcRenderer.invoke('canvas:module-video-download', courseName, courseId, extTools, extUrls, destRoot, conflictStrategy, term),
     /** 立即下载单个模块内嵌视频（不经 queue，同步返回落盘路径）。
      *  cloudUserToken 存在时，下载完 mp4 后上传到云盘。
-     *  transcodeMaxHeight: 720/1080 时，remux 后重编码（缩放+标准GOP），0 或不传 = 不重编码。 */
+     *  transcodeMaxHeight: 720/1080 时，remux 后重编码（缩放+标准GOP），0 或不传 = 不重编码。
+     *  skipped=true：本地已复用 / 云盘已存在，未产生新内容（与 PPT 课件一致）。 */
     downloadModuleVideoNow: (
       courseName: string,
       iframeUrl: string,
@@ -233,7 +234,7 @@ const api = {
       conflictStrategy?: FileConflictStrategy,
       transcodeMaxHeight?: number,
       term?: string
-    ): Promise<{ ok: boolean; path?: string; format?: string; cloudPath?: string; error?: string }> =>
+    ): Promise<{ ok: boolean; skipped?: boolean; path?: string; format?: string; cloudPath?: string; error?: string }> =>
       ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot, taskId, cloudUserToken, conflictStrategy, transcodeMaxHeight, term),
     /** 下载指定讲次列表（按 lectureItems 按需解析流直链） */
     downloadLectures: (
