@@ -3,13 +3,15 @@ import { electronApp, is } from '@electron-toolkit/utils'
 import {
   createWriteStream,
   mkdirSync,
+  readdirSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
   type WriteStream
 } from 'node:fs'
-import { freemem, totalmem } from 'node:os'
+import { freemem, tmpdir, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { request as httpsRequest } from 'node:https'
 import type { ClientRequest, IncomingMessage } from 'node:http'
@@ -283,6 +285,69 @@ async function clearSjtuSession(): Promise<void> {
   // vshare 域 cookie 已随 clearStorageData 清除，同步重置内存登录态标志，
   // 否则下次 ensureVshareLogin 会被 _vshareLoginDone 短路、不再探测会话有效性
   invalidateVshareLogin()
+}
+
+// ─── 启动清理：每次打开应用清掉上次残留的临时/半下载文件，释放本地空间 ───
+// 应用子目录名（Canvas / 好大学在线 / 旁听课程），下载根下统一。
+const APP_COURSE_DIRS = ['Canvas课程', '好大学在线', 'SJTU旁听课程']
+
+/** 递归遍历 dir，删除 *.part（下载到一半）+ 孤立 *.ts（HLS remux 失败遗留、无同名 .mp4）。
+ *  保留 *.mp4 等已完成文件——用户选定目录里的成品不删。
+ *  会话内 pause/resume 仍正常（内存态保留 .part）；此处仅清上次会话残留（跨重启续传不再支持，
+ *  因 CDN 预签名 URL 1h 过期且用户诉求是释放空间）。 */
+function cleanupHalfDownloaded(dir: string): void {
+  let entries: string[]
+  try { entries = readdirSync(dir) } catch { return }
+  for (const name of entries) {
+    const p = join(dir, name)
+    let st: ReturnType<typeof statSync>
+    try { st = statSync(p, { throwIfNoEntry: false }) } catch { continue }
+    if (!st) continue
+    if (st.isDirectory()) {
+      cleanupHalfDownloaded(p)
+    } else if (name.endsWith('.part')) {
+      try { unlinkSync(p) } catch { /* ignore */ }
+    } else if (name.endsWith('.ts')) {
+      // 孤立 .ts：无同名 .mp4（remux 成功会删 .ts；.ts 残留仅在 remux 失败且无成品 .mp4 时）
+      const mp4 = p.slice(0, -3) + '.mp4'
+      if (!statSync(mp4, { throwIfNoEntry: false })) {
+        try { unlinkSync(p) } catch { /* ignore */ }
+      }
+    }
+  }
+}
+
+/** 启动清理残留文件（由渲染端 onDownload 前调用一次，传 localDestRoot）。
+ *  - cloud-only 临时根（C:/tmp | /tmp）+ OS tmpdir 下的应用子目录：纯中间产物（cloud-only
+ *    iframe HLS / PPT PDF 中间件），整目录 rmSync。
+ *  - OS tmpdir/sjtu-ppt-*：PPT 图片临时目录，rmSync。
+ *  - localDestRoot（用户选定目录）应用子目录：删 *.part + 孤立 *.ts，保留 *.mp4 成品。
+ *  跳过 sjtu-update*（updater 自管）。任一步失败不抛、不阻塞启动。 */
+function cleanupStaleDownloads(localDestRoot?: string): void {
+  const tempRoot = process.platform === 'win32' ? 'C:/tmp' : '/tmp'
+  // 1) cloud-only 临时根 + OS tmpdir 下的应用子目录：整目录删（纯中间产物）。
+  //    若用户恰好把 localDestRoot 设成了 tempRoot/tmpdir，跳过整删——交由下方 localDestRoot
+  //    的 .part/.ts 逻辑处理，避免误删用户成品 .mp4。
+  for (const base of [tempRoot, tmpdir()]) {
+    if (localDestRoot && base === localDestRoot) continue
+    for (const d of APP_COURSE_DIRS) {
+      try { rmSync(join(base, d), { recursive: true, force: true }) } catch { /* ignore */ }
+    }
+  }
+  // 2) PPT 图片临时目录（tmpdir/sjtu-ppt-*）：整目录删。
+  let tmpEntries: string[] = []
+  try { tmpEntries = readdirSync(tmpdir()) } catch { /* ignore */ }
+  for (const name of tmpEntries) {
+    if (name.startsWith('sjtu-ppt-')) {
+      try { rmSync(join(tmpdir(), name), { recursive: true, force: true }) } catch { /* ignore */ }
+    }
+  }
+  // 3) localDestRoot 应用子目录：删半下载 .part + 孤立 .ts，保留 .mp4 成品。
+  if (localDestRoot) {
+    for (const d of APP_COURSE_DIRS) {
+      cleanupHalfDownloaded(join(localDestRoot, d))
+    }
+  }
 }
 
 /** 登录判定：先看 sjtu cookie，再用 jwt 敲 /authority/me 验真。
@@ -2502,6 +2567,18 @@ app.whenReady().then(async () => {
     return result.canceled ? null : result.filePaths[0] ?? null
   })
 
+  /** 启动清理残留文件：渲染端 App 启动时调一次，传持久化的 localDestRoot。
+   *  清 cloud-only 临时根 / tmpdir 应用子目录 / PPT 图片临时目录 / localDestRoot 半下载 .part+孤立.ts。
+   *  失败不阻塞（返回 ok，错误仅记日志）。 */
+  ipcMain.handle('app:cleanup-stale-downloads', (_e, localDestRoot?: string): { ok: boolean } => {
+    try {
+      cleanupStaleDownloads(localDestRoot || undefined)
+    } catch (e) {
+      console.error('[startup] 清理残留文件失败（不阻塞）:', e)
+    }
+    return { ok: true }
+  })
+
   /** 弹出系统通知（下载完成提醒）。
    *  Windows 下 Notification 自带应用名，icon 用应用图标增强辨识度。
    *  点击通知聚焦主窗口（最小化到托盘时尤其有用）。 */
@@ -2722,11 +2799,12 @@ app.whenReady().then(async () => {
               '下载说明',
               '========',
               '',
-              '本目录下的 .part 文件是下载过程中的临时文件，用于支持断点续传。',
-              '如果下载中断（网络断开、程序关闭等），下次重新下载同一视频时会自动从断点处继续，无需从头开始。',
+              '本目录下的 .part 文件是下载过程中的临时文件，支持会话内断点续传',
+              '（暂停→恢复不重下）。每次打开应用时会自动清理上次会话残留的 .part',
+              '和 remux 失败的孤立 .ts 文件，释放本地空间——因此跨重启不再续传，',
+              '如需重下直接发起即可。',
               '',
-              '所有视频下载完成后，.part 文件会被自动删除。',
-              '如果你想手动清理，可以安全删除任意 .part 文件，不会影响已下载完成的 .mp4 视频。',
+              '已下载完成的 .mp4 视频不会被清理，可放心保留。',
               '',
               '—— 上海交大课程下载器',
               ''

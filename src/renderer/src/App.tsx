@@ -70,6 +70,17 @@ export default function App() {
     return () => { cancelled = true }
   }, [setAuth])
 
+  // [启动清理残留文件] 每次打开应用清掉上次会话残留的临时/半下载文件，释放本地空间：
+  // cloud-only 临时根（C:/tmp | /tmp）应用子目录 + OS tmpdir/sjtu-ppt-* + localDestRoot 的 *.part
+  // / 孤立 *.ts。保留 localDestRoot 里的 *.mp4 成品。ref 守卫防 strict-mode 双触发。
+  const cleanedRef = useRef(false)
+  useEffect(() => {
+    if (cleanedRef.current) return
+    cleanedRef.current = true
+    const localDestRoot = useAppStore.getState().localDestRoot || ''
+    window.api.cleanupStaleDownloads(localDestRoot).catch(() => undefined)
+  }, [])
+
   // [登录后自动预加载] jAccount 登录成功 → setStage('browser') 后，后台并行预加载
   // Canvas 课程 / 好大学在线课程 / 云盘连接（隐式 SSO，复用 jAccount 会话，无需额外扫码）。
   // 用户切到对应 tab 时数据已就绪，云盘已连上可立即用 cloud/both 模式。

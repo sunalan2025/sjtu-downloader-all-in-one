@@ -42,6 +42,9 @@ const api = {
     ipcRenderer.invoke('app:set-theme', theme),
   /** 弹出系统目录选择对话框，返回选择的路径或 null */
   selectFolder: (): Promise<string | null> => ipcRenderer.invoke('app:select-folder'),
+  /** 启动清理：清掉上次会话残留的临时/半下载文件（cloud-only 临时根 + tmpdir + localDestRoot 的 .part/.ts） */
+  cleanupStaleDownloads: (localDestRoot: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('app:cleanup-stale-downloads', localDestRoot),
   /** 弹出系统通知（标题 + 正文）；点击通知聚焦主窗口 */
   notify: (title: string, body: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('app:notify', { title, body }),
