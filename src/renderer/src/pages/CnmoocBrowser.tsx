@@ -12,6 +12,7 @@ import {
   CourseProgressSummary,
   GlobalCtrlButton,
   ModeSegmented,
+  OverallProgressBar,
   ProgressBar,
   ResourceTypeSegmented,
   SmallCheck,
@@ -249,9 +250,6 @@ export function CnmoocBrowser() {
     if (p) setLocalDestRoot(p)
   }, [setLocalDestRoot])
 
-  const completed = stats.done
-  const failed = stats.failed
-
   return (
     <div className="flex h-full w-full flex-col">
       <CnmoocTopBar
@@ -275,8 +273,6 @@ export function CnmoocBrowser() {
           resourceFilter={resourceFilter}
           localDestRoot={localDestRoot}
           downloading={downloading}
-          completed={completed}
-          failed={failed}
           onToggleAll={onToggleAll}
           onConnectCloud={onConnectCloud}
           onDisconnectCloud={onDisconnectCloud}
@@ -383,8 +379,6 @@ function CnmoocActionBar({
   resourceFilter,
   localDestRoot,
   downloading,
-  completed,
-  failed,
   onToggleAll,
   onConnectCloud,
   onDisconnectCloud,
@@ -408,8 +402,6 @@ function CnmoocActionBar({
   resourceFilter: CnmoocResourceFilter
   localDestRoot: string
   downloading: boolean
-  completed: number
-  failed: number
   onToggleAll: () => void
   onConnectCloud: () => void
   onDisconnectCloud: () => void
@@ -509,14 +501,7 @@ function CnmoocActionBar({
             </button>
           )}
 
-          {downloading && (
-            <div className="flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-1.5 text-xs">
-              <span className="text-text-2">
-                完成 <span className="font-medium text-success">{completed}</span> / {selectedCount}
-              </span>
-              {failed > 0 && <span className="text-warning">失败 {failed}</span>}
-            </div>
-          )}
+          {downloading && <OverallProgressBar />}
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -584,25 +569,31 @@ const CnmoocCourseCard = memo(function CnmoocCourseCard({
   const selCount = ids.filter(id => selected.has(id)).length
   const triState = triStateFromCount(selCount, ids.length)
 
-  // 课程级聚合进度（编码为单 number，避免每条进度都重渲染卡片）
-  const courseStats = useAppStore(s => {
-    let done = 0, downloading = 0, errors = 0
-    for (const id of ids) {
-      const st = s.progress[id]?.state
-      // both 模式计云端镜像
-      const cloudId = s.cloudLinkedIds[id]
-      const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
-      if (st === 'error' || cloudSt === 'error') errors++
-      const localDone = st === 'done' || st === 'skipped'
-      const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped'
-      if (localDone && cloudDone) done++
-      else if (st === 'downloading' || st === 'pending' || cloudSt === 'downloading' || cloudSt === 'pending') downloading++
-    }
-    return done * 1_000_000 + downloading * 1000 + errors
-  })
-  const doneCount = Math.floor(courseStats / 1_000_000)
-  const downloadingCount = Math.floor(courseStats / 1000) % 1000
-  const errorCount = courseStats % 1000
+  // 课程级聚合进度（useShallow 返回对象，inactive 课程不重渲，仅活跃课程卡每 tick 重渲）
+  const courseStats = useAppStore(
+    useShallow(s => {
+      let done = 0, downloading = 0, errors = 0, inflight = 0
+      for (const id of ids) {
+        const prog = s.progress[id]
+        const st = prog?.state
+        // both 模式计云端镜像
+        const cloudId = s.cloudLinkedIds[id]
+        const cloudProg = cloudId ? s.progress[cloudId] : undefined
+        const cloudSt = cloudProg?.state
+        if (st === 'error' || cloudSt === 'error') errors++
+        const localDone = st === 'done' || st === 'skipped'
+        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+        if (localDone && cloudDone) done++
+        else if (st === 'downloading' || st === 'pending' || cloudSt === 'downloading' || cloudSt === 'pending') {
+          downloading++
+          if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+          else if (localDone) inflight += 1   // 本地完成·云端上传中
+        }
+      }
+      return { done, downloading, errors, inflight }
+    })
+  )
+  const { done: doneCount, downloading: downloadingCount, errors: errorCount, inflight: inflightCount } = courseStats
 
   return (
     <section className="overflow-hidden rounded-2xl border border-bd bg-surface-3 shadow-card transition-shadow duration-200 hover:shadow-card-hover">
@@ -639,7 +630,7 @@ const CnmoocCourseCard = memo(function CnmoocCourseCard({
         </div>
       </header>
 
-      <CourseProgressSummary done={doneCount} downloading={downloadingCount} errors={errorCount} total={ids.length} />
+      <CourseProgressSummary done={doneCount} downloading={downloadingCount} errors={errorCount} inflight={inflightCount} total={ids.length} />
 
       {expanded && (
         <div className="animate-fadeIn origin-top border-t border-bd">

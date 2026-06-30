@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
-import { useAppStore, useDownloadStats, useEffectiveProgress, type LectureGroup } from '../store/app'
+import { useAppStore, useEffectiveProgress, type LectureGroup } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
 import { useCloudConnection } from '../hooks/useSharedBrowserHooks'
 import { prefetchCanvasCourses } from '../services/prefetch'
-import { Chevron, TriCheckbox, ProgressBar, SmallCheck, GlobalCtrlButton, ModeSegmented, ConflictStrategySegmented, HlsTranscodeSegmented, TaskCtrlButtons, CourseProgressSummary, formatBytes, type TriState } from '../components/DownloadUI'
+import { Chevron, TriCheckbox, ProgressBar, SmallCheck, GlobalCtrlButton, ModeSegmented, ConflictStrategySegmented, HlsTranscodeSegmented, TaskCtrlButtons, CourseProgressSummary, OverallProgressBar, formatBytes, type TriState } from '../components/DownloadUI'
 import type {
   CanvasCourse,
   CanvasDownloadTaskSpec,
@@ -202,15 +202,8 @@ export function CanvasBrowser() {
     setCloudLinkedIds: s.setCloudLinkedIds
   })))
 
-  const isBothMode = downloadMode === 'both' && Object.keys(cloudLinkedIds).length > 0
-
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selectedTerm, setSelectedTerm] = useState<string>('all')
-
-  // 选中任务 id 列表 + 编码统计 —— 喂给 useDownloadStats，
-  // 避免顶层订阅整个 progress map 导致每 2s 进度回调都重渲染
-  const selectedArr = useMemo(() => [...selected], [selected])
-  const stats = useDownloadStats(selectedArr, isBothMode)
 
   const scanStartedRef = useRef(false)
 
@@ -278,11 +271,16 @@ export function CanvasBrowser() {
         : p.phase === 'transcoding' ? (p.message || '重编码中…')
         : p.phase === 'uploading' ? (p.message || '上传中…')
         : p.phase
+      // 后处理阶段（remux/transcode/upload）主进程把 segmentsTotal 清零，且 transcode 期间无进度回调；
+      // 此时切片下载实际已完成 → received/total 置 1/1 让 pct 保持 100%，message 承载阶段文案，
+      // 避免条从 100% 跌回 0% 误显"卡住"。
+      const postDownload = p.phase === 'remuxing' || p.phase === 'transcoding' || p.phase === 'uploading'
       applyProgressRef.current({
         taskId: p.taskId,
         state: 'downloading',
-        received: p.bytesWritten,
-        total: 0,
+        received: postDownload ? 1 : p.segmentsDone,
+        total: postDownload ? 1 : p.segmentsTotal,
+        unit: 'count',                 // 切片数非字节：不格式化为字节、不计算速度
         message: p.message || phaseLabel
       })
     })
@@ -833,7 +831,11 @@ export function CanvasBrowser() {
             c.term || ''
           )
           if (r.ok) {
-            useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'done', received: 0, total: 0, filePath: r.path })
+            if (r.skipped) {
+              useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'skipped', received: 0, total: 0, filePath: r.path, message: '已存在，跳过' })
+            } else {
+              useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'done', received: 0, total: 0, filePath: r.path })
+            }
           } else {
             useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'error', received: 0, total: 0, message: r.error || 'HLS 下载失败' })
           }
@@ -949,10 +951,6 @@ export function CanvasBrowser() {
   const needsCloud = downloadMode === 'cloud' || downloadMode === 'both'
   const needsLocal = downloadMode === 'local' || downloadMode === 'both'
 
-  // completed/failed 取自上方 useDownloadStats 的编码结果（selectedArr/stats 已提前声明）
-  const completed = stats.done
-  const failed = stats.failed
-
   // 任一分类选中或 selected 里有任务 → 该课程可下载
   const isCourseDownloadable = (id: number): boolean => courseStates(id).course !== 'none'
   const canStart = (filteredCourseIds.some(isCourseDownloadable) || selected.size > 0)
@@ -1045,12 +1043,7 @@ export function CanvasBrowser() {
                 <span className="truncate">{localDestRoot || '选择下载目录'}</span>
               </button>
             )}
-            {downloading && (
-              <div className="flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-1.5 text-xs">
-                <span className="text-text-2">完成 <span className="font-medium text-success">{completed}</span> / {selectedArr.length}</span>
-                {failed > 0 && <span className="text-warning">失败 {failed}</span>}
-              </div>
-            )}
+            {downloading && <OverallProgressBar />}
             <div className="flex-1" />
           </div>
           {/* 第二行：模式 + 冲突策略 + 视频质量（全部右对齐）。
@@ -1386,20 +1379,42 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
 
   // PERF: subscribe to progress stats from store with encoding trick,
   // avoiding the entire progress map as a prop (which defeats memo every 2s tick).
-  // Encodes done/dl/err counts into a single number for stable selector return.
-  const progressStats = useAppStore(s => {
-    let done = 0, dl = 0, err = 0
-    for (const id of progressIds) {
-      const st = s.progress[id]?.state
-      if (st === 'done' || st === 'skipped') done++
-      else if (st === 'downloading' || st === 'pending') dl++
-      else if (st === 'error') err++
-    }
-    return done * 1_000_000 + dl * 1000 + err
-  })
-  const doneCount = Math.floor(progressStats / 1_000_000)
-  const dlCount = Math.floor(progressStats / 1000) % 1000
-  const errCount = progressStats % 1000
+  // useShallow 返回对象，inactive 课程（inflight=0 不变）不触发重渲，仅活跃课程卡每 tick 重渲。
+  // both 模式按 local+cloud 合并态统计（与 useEffectiveProgress 一致），inflight 含本地完成·云端上传中。
+  const progressStats = useAppStore(
+    useShallow(s => {
+      const isBoth = s.downloadMode === 'both'
+      let done = 0, dl = 0, err = 0, inflight = 0
+      for (const id of progressIds) {
+        const prog = s.progress[id]
+        const st = prog?.state
+        if (isBoth) {
+          const cloudId = s.cloudLinkedIds[id]
+          const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
+          const localDone = st === 'done' || st === 'skipped'
+          const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+          const localFinal = localDone || st === 'error' || st === 'cancelled'
+          const cloudFinal = !cloudId || cloudDone || cloudSt === 'error'
+          if (st === 'error' || cloudSt === 'error') err++
+          else if (localDone && cloudDone) done++
+          else if (!(localFinal && cloudFinal)) {
+            dl++
+            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+            else if (localDone) inflight += 1   // 本地完成·云端上传中：本地部分满
+          }
+        } else {
+          if (st === 'done' || st === 'skipped') done++
+          else if (st === 'error') err++
+          else if (st === 'downloading' || st === 'pending') {
+            dl++
+            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+          }
+        }
+      }
+      return { done, dl, err, inflight }
+    })
+  )
+  const { done: doneCount, dl: dlCount, err: errCount, inflight: inflightCount } = progressStats
 
   const totalFiles = courseData ? courseData.files.length + courseData.moduleFiles.length + courseData.syllabusFiles.length : 0
 
@@ -1444,7 +1459,7 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
       </header>
 
       {/* 进度条 */}
-      <CourseProgressSummary done={doneCount} downloading={dlCount} errors={errCount} total={progressIds.length} />
+      <CourseProgressSummary done={doneCount} downloading={dlCount} errors={errCount} inflight={inflightCount} total={progressIds.length} />
 
       {expanded && (
         <div className="animate-fadeIn origin-top border-t border-bd">

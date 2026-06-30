@@ -2,6 +2,8 @@ import { useRef } from 'react'
 import type { DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, CnmoocResourceFilter } from '@shared/types'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { Spinner } from './Spinner'
+import { useAppStore } from '../store/app'
+import { useShallow } from 'zustand/shallow'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -183,7 +185,8 @@ export function CtrlIcon({ kind, size = 14 }: { kind: 'pause' | 'resume' | 'canc
 export function ProgressBar({ p }: { p: DownloadProgress }) {
   const prevRef = useRef<{ t: number; r: number; speed: number }>({ t: 0, r: 0, speed: 0 })
 
-  if (p.state === 'downloading') {
+  // 仅字节单位任务计算速度；count 单位（HLS 切片数）不算速度（切片/秒会被误格式化为字节/秒）
+  if (p.state === 'downloading' && p.unit !== 'count') {
     if (p.received > prevRef.current.r) {
       const now = Date.now()
       if (prevRef.current.t > 0) {
@@ -250,13 +253,20 @@ export function ProgressBar({ p }: { p: DownloadProgress }) {
         {isDl ? (
           <>
             <span className="text-text-2">
-              {formatBytes(p.received)}
-              {p.total > 0 && (
-                <span className="text-text-4"> / {formatBytes(p.total)}</span>
+              {p.message ? (
+                // HLS 阶段文案 / both 模式"本地完成 · 云端上传中"等提示优先于字节显示
+                <span className="truncate" title={p.message}>{p.message}</span>
+              ) : (
+                <>
+                  {formatBytes(p.received)}
+                  {p.total > 0 && (
+                    <span className="text-text-4"> / {formatBytes(p.total)}</span>
+                  )}
+                </>
               )}
               <span className="ml-2 font-medium text-text-1">{pct}%</span>
             </span>
-            {prevRef.current.speed > 0 && (
+            {p.unit !== 'count' && prevRef.current.speed > 0 && (
               <span className="text-text-3">{formatBytes(prevRef.current.speed)}/s</span>
             )}
           </>
@@ -451,32 +461,38 @@ export function ResourceTypeSegmented({
 
 // ─────────────────────────────────────────────────────────────
 // 课程级进度摘要条 — Browser CourseSection & CanvasBrowser CanvasCourseCard 共用
+// 堆叠段：绿(完成) + 蓝(进行中已下载部分) + 红(失败) + 灰(剩余)
+// inflight = Σ 进行中任务的已完成比例（0..total，含小数），让条平滑推进而非只在任务完成时跳
 // ─────────────────────────────────────────────────────────────
 
 export function CourseProgressSummary({
   done,
   downloading,
   errors,
+  inflight,
   total
 }: {
   done: number
   downloading: number
   errors: number
+  inflight?: number
   total: number
 }) {
   if (done === 0 && downloading === 0 && errors === 0) return null
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0
+  const w = (n: number): number => (total > 0 ? Math.min(100, (n / total) * 100) : 0)
+  const wDone = w(done)
+  const wInflight = w(inflight ?? 0)
+  const wErr = w(errors)
   return (
     <div className="border-t border-bd px-5 py-3">
       <div className="flex items-center gap-3">
-        {/* 进度条 */}
-        <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-surface-2">
-          <div
-            className={`h-full rounded-full transition-[width] duration-300 ${
-              errors > 0 && done === 0 ? 'bg-warning' : 'bg-success'
-            }`}
-            style={{ width: `${pct}%` }}
-          />
+        {/* 堆叠进度条 */}
+        <div className="relative flex h-2.5 flex-1 overflow-hidden rounded-full bg-surface-2">
+          <div className="h-full bg-success transition-[width] duration-300 ease-out" style={{ width: `${wDone}%` }} />
+          <div className="h-full bg-gradient-to-r from-accent to-accent-light transition-[width] duration-300 ease-out" style={{ width: `${wInflight}%` }} />
+          {wErr > 0 && (
+            <div className="h-full bg-warning transition-[width] duration-300 ease-out" style={{ width: `${wErr}%` }} />
+          )}
         </div>
         {/* 状态文字 */}
         <div className="flex shrink-0 items-center gap-2.5 text-xs tabular-nums">
@@ -489,6 +505,86 @@ export function CourseProgressSummary({
           {errors > 0 && <span className="text-warning">失败 {errors}</span>}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// 全局总进度条 — 三页 ActionBar 共用，跨所有课程/任务的整批进度
+// 订阅整个 progress map（下载为全局态、每批 resetProgress 清空 → 读全表即当前批次），
+// 算 done/failed/active/inflight/total，渲染堆叠条 + 完成数 + 失败数。
+// 仅在 downloading 时由各页挂载，单组件每 tick 重渲（廉价）。
+// ─────────────────────────────────────────────────────────────
+
+export function OverallProgressBar() {
+  const stats = useAppStore(
+    useShallow(s => {
+      let done = 0
+      let failed = 0
+      let active = 0
+      let inflight = 0
+      let total = 0
+      const isBoth = s.downloadMode === 'both'
+      for (const id in s.progress) {
+        // both 模式下 _cloud 镜像条目与本地条目合并统计，跳过避免重复计
+        if (id.endsWith('_cloud')) continue
+        // 跳过扫描占位任务（临时进度，不计入下载统计）：course/video/ppt/mvid 四类 scan
+        if (/^canvas_(?:course|video|ppt|mvid)_scan_/.test(id)) continue
+        const prog = s.progress[id]
+        if (!prog) continue
+        total++
+        const st = prog.state
+        if (isBoth) {
+          const cloudId = s.cloudLinkedIds[id]
+          const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
+          const localDone = st === 'done' || st === 'skipped'
+          const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+          const localFinal = localDone || st === 'error' || st === 'cancelled'
+          const cloudFinal = !cloudId || cloudDone || cloudSt === 'error'
+          if (st === 'error' || cloudSt === 'error') failed++
+          else if (localDone && cloudDone) done++
+          else if (!(localFinal && cloudFinal)) {
+            active++
+            // 本地下载中按本地比例；本地完成·云端上传中算本地满（1）
+            if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+            else if (localDone) inflight += 1
+          }
+        } else {
+          if (st === 'done' || st === 'skipped') done++
+          else if (st === 'error') failed++
+          else if (st !== 'cancelled') {
+            active++
+            if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+          }
+        }
+      }
+      return { done, failed, active, inflight, total }
+    })
+  )
+  const { done, failed, active, inflight, total } = stats
+  if (total === 0) return null
+  const w = (n: number): number => (total > 0 ? Math.min(100, (n / total) * 100) : 0)
+  const wDone = w(done)
+  const wInflight = w(inflight)
+  const wErr = w(failed)
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-1.5 text-xs tabular-nums">
+      <div className="relative flex h-2 flex-1 overflow-hidden rounded-full bg-surface-2 min-w-[120px]">
+        <div className="h-full bg-success transition-[width] duration-300 ease-out" style={{ width: `${wDone}%` }} />
+        <div className="h-full bg-gradient-to-r from-accent to-accent-light transition-[width] duration-300 ease-out" style={{ width: `${wInflight}%` }} />
+        {wErr > 0 && (
+          <div className="h-full bg-warning transition-[width] duration-300 ease-out" style={{ width: `${wErr}%` }} />
+        )}
+      </div>
+      <span className="shrink-0 text-text-2">
+        完成 <span className="font-medium text-success">{done}</span> / {total}
+      </span>
+      {active > 0 && (
+        <span className="inline-flex shrink-0 items-center gap-1 text-info">
+          <Spinner size={11} />{active}
+        </span>
+      )}
+      {failed > 0 && <span className="shrink-0 text-warning">失败 {failed}</span>}
     </div>
   )
 }

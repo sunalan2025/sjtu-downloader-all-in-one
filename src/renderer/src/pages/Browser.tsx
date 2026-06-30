@@ -19,6 +19,7 @@ import {
   CourseProgressSummary,
   GlobalCtrlButton,
   ModeSegmented,
+  OverallProgressBar,
   ProgressBar,
   SmallCheck,
   TaskCtrlButtons,
@@ -338,8 +339,7 @@ export function Browser() {
 
   // completed/failed 直接取自 useDownloadStats 的编码结果，
   // 不再订阅整个 progress map（避免每 2s 进度回调重算 + 重渲染 ActionBar）
-  const completed = stats.done
-  const failed = stats.failed
+  // 下载进度统计改由 OverallProgressBar（订阅全局 progress map）统一展示
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -363,8 +363,6 @@ export function Browser() {
           fileConflictStrategy={fileConflictStrategy}
           localDestRoot={localDestRoot}
           downloading={downloading}
-          completed={completed}
-          failed={failed}
           onToggleAll={onToggleAll}
           onConnectCloud={onConnectCloud}
           onDisconnectCloud={onDisconnectCloud}
@@ -475,8 +473,6 @@ function ActionBar({
   fileConflictStrategy,
   localDestRoot,
   downloading,
-  completed,
-  failed,
   onToggleAll,
   onConnectCloud,
   onDisconnectCloud,
@@ -498,8 +494,6 @@ function ActionBar({
   fileConflictStrategy: FileConflictStrategy
   localDestRoot: string
   downloading: boolean
-  completed: number
-  failed: number
   onToggleAll: () => void
   onConnectCloud: () => void
   onDisconnectCloud: () => void
@@ -604,16 +598,7 @@ function ActionBar({
             </button>
           )}
 
-          {downloading && (
-            <div className="flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-1.5 text-xs">
-              <span className="text-text-2">
-                完成 <span className="font-medium text-success">{completed}</span> / {selectedCount}
-              </span>
-              {failed > 0 && (
-                <span className="text-warning">失败 {failed}</span>
-              )}
-            </div>
-          )}
+          {downloading && <OverallProgressBar />}
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
@@ -709,37 +694,46 @@ const CourseSection = memo(function CourseSection({
   const triState = triStateFromCount(selCount, ids.length)
   const teacherTri = triStateFromCount(teacherSel, teacherIds.length)
   const pptTri = triStateFromCount(pptSel, pptIds.length)
-  // 单次遍历编码 done/dl/err 三个计数，避免两个 selector 各扫一遍 tasks
-  const courseStats = useAppStore(s => {
-    const isBoth = s.downloadMode === 'both'
-    let done = 0, downloading = 0, errors = 0
-    for (const t of tasks) {
-      const st = s.progress[t.taskId]?.state
-      const localDone = st === 'done' || st === 'skipped'
-      if (isBoth) {
-        const cloudId = s.cloudLinkedIds[t.taskId]
-        const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
-        const cloudDone = cloudSt === 'done' || cloudSt === 'skipped'
-        const isLocalFinal = localDone || st === 'cancelled'
-        const isCloudFinal = !cloudId || cloudDone || cloudSt === 'cancelled'
-        if (localDone && (cloudDone || !cloudId)) done++
-        else if (!isLocalFinal || !isCloudFinal) {
-          if (st === 'error' || cloudSt === 'error') errors++
-          else downloading++
-        }
-      } else {
-        if (localDone) done++
-        else if (st !== 'cancelled') {
-          if (st === 'error') errors++
-          else downloading++
+  // 单次遍历统计 done/downloading/errors/inflight，useShallow 返回对象；
+  // inactive 课程（inflight=0 不变）不触发重渲，仅活跃课程卡每 tick 重渲。
+  const courseStats = useAppStore(
+    useShallow(s => {
+      const isBoth = s.downloadMode === 'both'
+      let done = 0, downloading = 0, errors = 0, inflight = 0
+      for (const t of tasks) {
+        const prog = s.progress[t.taskId]
+        const st = prog?.state
+        const localDone = st === 'done' || st === 'skipped'
+        if (isBoth) {
+          const cloudId = s.cloudLinkedIds[t.taskId]
+          const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
+          const cloudDone = cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+          const isLocalFinal = localDone || st === 'error' || st === 'cancelled'
+          const isCloudFinal = !cloudId || cloudDone || cloudSt === 'error'
+          if (localDone && (cloudDone || !cloudId)) done++
+          else if (!isLocalFinal || !isCloudFinal) {
+            if (st === 'error' || cloudSt === 'error') errors++
+            else {
+              downloading++
+              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+              else if (localDone) inflight += 1   // 本地完成·云端上传中
+            }
+          }
+        } else {
+          if (localDone) done++
+          else if (st !== 'cancelled') {
+            if (st === 'error') errors++
+            else {
+              downloading++
+              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+            }
+          }
         }
       }
-    }
-    return done * 1_000_000 + downloading * 1000 + errors
-  })
-  const doneCount = Math.floor(courseStats / 1_000_000)
-  const downloadingCount = Math.floor(courseStats / 1000) % 1000
-  const errorCount = courseStats % 1000
+      return { done, downloading, errors, inflight }
+    })
+  )
+  const { done: doneCount, downloading: downloadingCount, errors: errorCount, inflight: inflightCount } = courseStats
   const lectures = useMemo(() => groupByLecture(tasks), [tasks])
 
   return (
@@ -817,7 +811,7 @@ const CourseSection = memo(function CourseSection({
         </div>
       </header>
 
-      <CourseProgressSummary done={doneCount} downloading={downloadingCount} errors={errorCount} total={ids.length} />
+      <CourseProgressSummary done={doneCount} downloading={downloadingCount} errors={errorCount} inflight={inflightCount} total={ids.length} />
 
       {expanded && (
         <div className="animate-fadeIn origin-top">

@@ -252,12 +252,20 @@ export function useEffectiveProgress(taskId: string): DownloadProgress | undefin
   } else if (localDone && cloudDone) {
     mergedState = 'done'
   } else if (localDone && !cloudDone) {
-    mergedState = 'downloading'
-    // 本地已完成，显示云端上传进度而非本地 100%
-    mergedReceived = cloud?.received ?? 0
-    mergedTotal = cloud?.total ?? 0
-    const cpct = cloud.total > 0 ? Math.round((cloud.received / cloud.total) * 100) : 0
-    mergedMsg = `本地完成 · 云端上传中 ${cpct}%`
+    // 本地已完成、云端未完成：按云端真实态细分，避免 cancelled/paused 也误显"上传中"
+    if (cloud?.state === 'cancelled') {
+      // 云端已取消（用户主动放弃云端副本）→ 本地已完成即视为该任务完成
+      mergedState = 'done'
+    } else if (cloud?.state === 'paused') {
+      mergedState = 'downloading'
+      mergedMsg = '本地完成 · 云端已暂停'
+    } else {
+      // 云端上传中（或排队中）→ 显示云端上传进度，pct 由 ProgressBar 单独展示
+      mergedState = 'downloading'
+      mergedReceived = cloud?.received ?? 0
+      mergedTotal = cloud?.total ?? 0
+      mergedMsg = '本地完成 · 云端上传中'
+    }
   }
   return { taskId, state: mergedState, received: mergedReceived, total: mergedTotal, message: mergedMsg }
 }
@@ -286,7 +294,7 @@ export function useDownloadStats(
         const cloudFinal = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'error' || cloudSt === 'cancelled'
         if (st === 'error' || cloudSt === 'error') failed++
         const localDone = st === 'done' || st === 'skipped'
-        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped'
+        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
         if (localDone && cloudDone) done++
         if (!(localFinal && cloudFinal)) active++
       } else {
