@@ -149,7 +149,7 @@ export function CanvasBrowser() {
   // Group 1: rarely-changing state (courses, scan results, config)
   const {
     localDestRoot, cloudUserToken, cloudSpaceInfo,
-    downloadMode, fileConflictStrategy, hlsTranscodeMaxHeight, cloudLinkedIds, canvasCourses, canvasScanState, canvasScanMessage,
+    downloadMode, fileConflictStrategy, hlsTranscodeMaxHeight, canvasCourses, canvasScanState, canvasScanMessage,
     canvasExpandedCourses, canvasCourseData, canvasTeachers, canvasSelectedTeachers,
     canvasLectures, canvasModuleVideos, canvasCourseCategorySelections
   } = useAppStore(useShallow(s => ({
@@ -159,7 +159,6 @@ export function CanvasBrowser() {
     downloadMode: s.downloadMode,
     fileConflictStrategy: s.fileConflictStrategy,
     hlsTranscodeMaxHeight: s.hlsTranscodeMaxHeight,
-    cloudLinkedIds: s.cloudLinkedIds,
     canvasCourses: s.canvasCourses,
     canvasScanState: s.canvasScanState,
     canvasScanMessage: s.canvasScanMessage,
