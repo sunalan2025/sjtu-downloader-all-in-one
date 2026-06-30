@@ -242,6 +242,10 @@ export function Browser() {
 
     const chosen = allTasks.filter(t => selected.has(t.taskId))
 
+    // 清空上一轮 batchTaskIds（不动 progress——progress 的 done 态用于下方跳过已完成），
+    // 防 OverallProgressBar total 跨批次累积。
+    useAppStore.getState().resetBatchTaskIds()
+
     // 按 lecture (videoId) 分组：一次 vod-info 同时解出教师 + PPT 两路
     const byLecture = new Map<number, VideoTask[]>()
     for (const t of chosen) {
@@ -281,6 +285,8 @@ export function Browser() {
 
     if (specs.length === 0) return
     setDownloading(true)
+    // 记入本轮提交集，供 OverallProgressBar 精准统计 total/active
+    useAppStore.getState().addBatchTaskIds(specs.map(s => s.taskId))
 
     if (downloadMode === 'both') {
       const mapping: Record<string, string> = { ...cloudLinkedIds }
@@ -332,6 +338,9 @@ export function Browser() {
   }, [])
   const onCancelAll = useCallback(() => {
     window.api.download.cancelAll().catch(() => undefined)
+    // 幽灵兜底：cancelAll 后立即把本轮提交的非终态任务标 cancelled，兜底主进程漏发终态，
+    // 让 useDownloadCompletion 的 activeCount 归零、downloading 解除。
+    useAppStore.getState().markBatchPendingCancelled()
   }, [])
   const onResumeAll = useCallback(() => {
     window.api.download.resumeAll().catch(() => undefined)

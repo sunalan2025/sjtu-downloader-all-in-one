@@ -52,7 +52,7 @@ import {
 } from './canvas/orchestrator'
 import { killAllFfmpeg } from './canvas/hls-download'
 import { sanitizeForLog } from './canvas/safe-fetch'
-import { getVodChannelsCached, clearVodChannelsCache, clearExtToolTokenCache, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from './canvas/video-tokens'
+import { getVodChannelsCached, clearVodChannelsCache, clearExtToolTokenCache, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl, invalidateVshareLogin } from './canvas/video-tokens'
 import { sanitizeFsName } from './canvas/api'
 import type { CanvasDownloadTaskSpec, UpdateCheckResult } from '../shared/types'
 import {
@@ -280,6 +280,9 @@ async function clearSjtuSession(): Promise<void> {
   await sjtuSession().clearStorageData({
     storages: ['cookies', 'localstorage', 'cachestorage', 'serviceworkers', 'indexdb']
   })
+  // vshare 域 cookie 已随 clearStorageData 清除，同步重置内存登录态标志，
+  // 否则下次 ensureVshareLogin 会被 _vshareLoginDone 短路、不再探测会话有效性
+  invalidateVshareLogin()
 }
 
 /** 登录判定：先看 sjtu cookie，再用 jwt 敲 /authority/me 验真。
@@ -2945,6 +2948,9 @@ function cleanupOnQuit(): void {
 
   // 清除 ExternalTool 模块视频的课程级 LTI token 缓存
   clearExtToolTokenCache()
+
+  // 重置 vshare 登录态标志（vshare 域 cookie 随会话清除）
+  invalidateVshareLogin()
 
   // 清除 cnmooc 会话 cookie 缓存（释放内存）
   cnmoocCookiesByTask.clear()

@@ -675,6 +675,9 @@ export function CanvasBrowser() {
             const pptDestRoot = needsLocal ? st.localDestRoot : ''
             const needsCloudPpt = st.downloadMode === 'cloud' || st.downloadMode === 'both'
             const cloudToken = needsCloudPpt ? useAppStore.getState().cloudUserToken ?? undefined : undefined
+            // PPT 聚合任务进 batchTaskIds：在写 pending 时即计入，让 OverallProgressBar
+            // 能实时反映 PPT 下载进度（processCourse 内同步 await，若返回后才 add 会错过整个下载过程）
+            useAppStore.getState().addBatchTaskIds([pptTaskId])
             snap.applyProgress({ taskId: pptTaskId, state: 'pending', received: 0, total: validLectures.length, message: `正在下载PPT课件 (${validLectures.length} 讲)…` })
             try {
               const r = await window.api.ppt.downloadBatch({
@@ -767,12 +770,16 @@ export function CanvasBrowser() {
       if (courseSpecs.length === 0 && iframeTasks.length === 0 && !pptAggregateTaskId) return { started: false, taskIds: [], localOnlyTaskIds: [] }
       // [Bug Fix] 取消后不再 download:start 入队，避免主进程清空队列后又重新入队
       if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
+      // 常规 specs 进 batchTaskIds：写 pending 时即计入（processCourse 返回后才 add 会
+      // 错过 download:start 后的解析/下载过程，OverallProgressBar 看不到这批在进行）
+      if (courseSpecs.length > 0) useAppStore.getState().addBatchTaskIds(courseSpecs.map(s => s.taskId))
       for (const spec of courseSpecs) {
         if (!useAppStore.getState().progress[spec.taskId]) {
           useAppStore.getState().applyProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
         }
       }
       // iframe HLS：进入 pending，随后在 download.start 之后串行跑
+      if (iframeTasks.length > 0) useAppStore.getState().addBatchTaskIds(iframeTasks.map(m => m.taskId))
       for (const mvt of iframeTasks) {
         if (!useAppStore.getState().progress[mvt.taskId]) {
           useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'pending', received: 0, total: 0, message: '排队中' })
@@ -868,6 +875,9 @@ export function CanvasBrowser() {
         if (cancelRequestedRef.current) break
         if (started && taskIds.length > 0) {
           allLocalTaskIds.push(...taskIds)
+          // batchTaskIds 已在 processCourse 内各 pending 写入点追加（常规/iframe/PPT），
+          // 此处不再重复 add（addBatchTaskIds 去重不会错，但入队点追加语义更准、且让 PPT/iframe
+          // 下载过程即被 OverallProgressBar 计入，而非仅完成态）。
           allLocalOnlyTaskIds.push(...localOnlyTaskIds)
           // 记录该课程已提交的 taskIds，供 CourseProgressSummary 在扫描数据
           // 被 deleteCanvasCourseData 清掉后仍能统计 done/total（下载完成后进度条不消失）。
@@ -912,6 +922,9 @@ export function CanvasBrowser() {
       // [Bug Fix] downloading 生命周期由循环统一收尾：只要循环还在跑（含解析下一门课
       // 的空档、或 both 模式云端上传尾巴），就保持 downloading=true，避免提前退回
       // "开始上传"。循环结束意味着所有提交的任务都已到达终态。
+      // 幽灵兜底：残留（主进程漏发终态 / cancel 边角）统一标 cancelled，确保
+      // OverallProgressBar active 归零，不再"每课剩一个在转"。
+      useAppStore.getState().markBatchPendingCancelled()
       useAppStore.getState().setDownloading(false)
       // [Bug Fix] 读最新的 downloadMode，而非循环开始时捕获的 st.downloadMode：
       // 用户可能在漫长的下载过程中通过 ModeSegmented 切换模式，用陈旧值会错误地

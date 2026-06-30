@@ -95,6 +95,10 @@ interface AppState {
   // 下载状态
   downloading: boolean
   progress: Record<string, DownloadProgress>
+  /** 本轮 onDownload 提交的 taskId 集合（含 PPT 聚合 + iframe HLS + 常规文件，不含 _cloud 镜像）。
+   *  OverallProgressBar 据此统计 done/active/total，而非遍历 progress 全表——
+   *  total 精准反映勾选并入队的任务数，扫描占位 / 未勾选残留不计入。resetProgress 同步清空。 */
+  batchTaskIds: string[]
   /** 并发下载数，2-16，会同步到主进程。0 = 自动 */
   concurrency: number
   /** 是否处于自动并发模式 */
@@ -197,6 +201,16 @@ interface AppState {
   setDownloading: (b: boolean) => void
   /** 清空所有下载进度记录 */
   resetProgress: () => void
+  /** 追加本轮提交的 taskId（去重）。入队时调用，供 OverallProgressBar 精准统计。 */
+  addBatchTaskIds: (ids: string[]) => void
+  /** 清空 batchTaskIds（不动 progress）。Browser/Cnmooc onDownload 入口调用——
+   *  这两页依赖 progress 跨批次残留的 done 态「跳过已完成任务」(不能 resetProgress)，
+   *  但 batchTaskIds 是追加集，跨批次会累积进 total，故每轮单独清空。Canvas 用 resetProgress 一并清。 */
+  resetBatchTaskIds: () => void
+  /** 幽灵兜底：把 batchTaskIds 里非终态任务标 cancelled。
+   *  cancelAll 后或下载循环收尾时调用，确保 OverallProgressBar active 归零、downloading 解除。
+   *  防主进程漏发终态导致 active 永不归零（真幽灵）。 */
+  markBatchPendingCancelled: () => void
   /** 合并单条下载进度到进度表 */
   applyProgress: (p: DownloadProgress) => void
   /** 设置下载并发数（0 = 自动） */
@@ -355,6 +369,7 @@ export const useAppStore = create<AppState>()(
       fileConflictStrategy: 'skip' as FileConflictStrategy,
       localDestRoot: '',
       cloudLinkedIds: {},
+      batchTaskIds: [],
       concurrency: 3,
       autoConcurrency: false,
       autoDownloadUpdate: false,
@@ -500,8 +515,39 @@ export const useAppStore = create<AppState>()(
         // 让随后的 flush 无条目可写。
         progressPending = null
         progressScheduled = false
-        set({ progress: {} })
+        // batchTaskIds 同步清空：新一轮下载从空集开始，total/active 不受上一轮残留影响
+        set({ progress: {}, batchTaskIds: [] })
       },
+      // 入队时追加 taskId（去重），供 OverallProgressBar 基于本轮提交集精准统计。
+      // 空数组 no-op（避免无谓 set 触发重渲染）；有新增才返回新数组。
+      addBatchTaskIds: (ids: string[]) =>
+        set(state => {
+          if (ids.length === 0) return {}
+          const acc = new Set(state.batchTaskIds)
+          let changed = false
+          for (const id of ids) if (!acc.has(id)) { acc.add(id); changed = true }
+          return changed ? { batchTaskIds: [...acc] } : {}
+        }),
+      // 仅清 batchTaskIds，保留 progress（跨批次 done 态用于「跳过已完成」判断）。
+      // Browser/Cnmooc onDownload 入口调用，防 batchTaskIds 跨批次累积进 total。
+      resetBatchTaskIds: () => set({ batchTaskIds: [] }),
+      // 幽灵兜底：遍历 batchTaskIds，把非终态任务标 cancelled。
+      // cancelAll 后 / 下载循环收尾时调用，防主进程漏发终态导致 active 永不归零。
+      // 保留已有 received/total（避免进度条回退）；无条目的补一条 cancelled 占位。
+      markBatchPendingCancelled: () =>
+        set(state => {
+          let changed = false
+          const next = { ...state.progress }
+          for (const tid of state.batchTaskIds) {
+            const cur = next[tid]
+            const st = cur?.state
+            if (st !== 'done' && st !== 'skipped' && st !== 'error' && st !== 'cancelled') {
+              next[tid] = { taskId: tid, state: 'cancelled', received: cur?.received ?? 0, total: cur?.total ?? 0, message: '已取消' }
+              changed = true
+            }
+          }
+          return changed ? { progress: next } : {}
+        }),
       // PERF: batch rapid progress updates into a single microtask.
       // Multiple applyProgress calls within the same event loop tick (e.g. 2+ tasks
       // completing simultaneously, or scan + download progress arriving together)

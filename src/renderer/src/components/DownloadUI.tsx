@@ -517,23 +517,23 @@ export function CourseProgressSummary({
 // ─────────────────────────────────────────────────────────────
 
 export function OverallProgressBar() {
+  // 基于「本轮显式提交的任务集」batchTaskIds 统计，而非遍历 progress 全表。
+  // 这样 total = 勾选并入队的任务数（扫描占位 / 未勾选残留 / 陈旧条目都不进集合），
+  // PPT 聚合 + iframe HLS + 常规文件统一计入；both 模式区分「下载中 / 上传中」，
+  // 让用户看懂本地已 done 但云端还在传时为什么进度条还在转。
   const stats = useAppStore(
     useShallow(s => {
       let done = 0
       let failed = 0
-      let active = 0
-      let inflight = 0
-      let total = 0
+      let downloading = 0 // both: 本地未终态；非 both: 全部 active
+      let uploading = 0   // both: 本地 done 但 cloud 未终态
+      let inflight = 0    // 下载中的进度比例和
+      let upInflight = 0  // 上传中的进度比例和（本地已满，按 1 计）
       const isBoth = s.downloadMode === 'both'
-      for (const id in s.progress) {
-        // both 模式下 _cloud 镜像条目与本地条目合并统计，跳过避免重复计
-        if (id.endsWith('_cloud')) continue
-        // 跳过扫描占位任务（临时进度，不计入下载统计）：course/video/ppt/mvid 四类 scan
-        if (/^canvas_(?:course|video|ppt|mvid)_scan_/.test(id)) continue
+      const ids = s.batchTaskIds
+      for (const id of ids) {
         const prog = s.progress[id]
-        if (!prog) continue
-        total++
-        const st = prog.state
+        const st = prog?.state
         if (isBoth) {
           const cloudId = s.cloudLinkedIds[id]
           const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
@@ -543,35 +543,44 @@ export function OverallProgressBar() {
           const cloudFinal = !cloudId || cloudDone || cloudSt === 'error'
           if (st === 'error' || cloudSt === 'error') failed++
           else if (localDone && cloudDone) done++
-          else if (!(localFinal && cloudFinal)) {
-            active++
-            // 本地下载中按本地比例；本地完成·云端上传中算本地满（1）
+          else if (!localFinal) {
+            // 本地还在下载 / 排队 → 下载中
+            downloading++
             if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-            else if (localDone) inflight += 1
+          } else if (localDone && !cloudFinal) {
+            // 本地已完成、云端还在上传 → 上传中
+            uploading++
+            upInflight += 1
           }
+          // 本地 cancelled（且 cloud 非 error）：已取消，静默不计 active/done/failed
+          // （本地 error 已在上方计 failed；本地 cancelled + cloud 仍跑的边角也归静默，避免幽灵）
         } else {
           if (st === 'done' || st === 'skipped') done++
           else if (st === 'error') failed++
           else if (st !== 'cancelled') {
-            active++
+            downloading++
             if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
           }
         }
       }
-      return { done, failed, active, inflight, total }
+      return { done, failed, downloading, uploading, inflight, upInflight, total: ids.length, isBoth }
     })
   )
-  const { done, failed, active, inflight, total } = stats
+  const { done, failed, downloading, uploading, inflight, upInflight, total, isBoth } = stats
   if (total === 0) return null
   const w = (n: number): number => (total > 0 ? Math.min(100, (n / total) * 100) : 0)
   const wDone = w(done)
-  const wInflight = w(inflight)
+  const wDown = w(inflight)
+  const wUp = w(upInflight)
   const wErr = w(failed)
   return (
     <div className="flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-1.5 text-xs tabular-nums">
       <div className="relative flex h-2 flex-1 overflow-hidden rounded-full bg-surface-2 min-w-[120px]">
         <div className="h-full bg-success transition-[width] duration-300 ease-out" style={{ width: `${wDone}%` }} />
-        <div className="h-full bg-gradient-to-r from-accent to-accent-light transition-[width] duration-300 ease-out" style={{ width: `${wInflight}%` }} />
+        <div className="h-full bg-gradient-to-r from-accent to-accent-light transition-[width] duration-300 ease-out" style={{ width: `${wDown}%` }} />
+        {isBoth && (
+          <div className="h-full bg-gradient-to-r from-violet-500 to-violet-400 transition-[width] duration-300 ease-out" style={{ width: `${wUp}%` }} />
+        )}
         {wErr > 0 && (
           <div className="h-full bg-warning transition-[width] duration-300 ease-out" style={{ width: `${wErr}%` }} />
         )}
@@ -579,9 +588,14 @@ export function OverallProgressBar() {
       <span className="shrink-0 text-text-2">
         完成 <span className="font-medium text-success">{done}</span> / {total}
       </span>
-      {active > 0 && (
+      {downloading > 0 && (
         <span className="inline-flex shrink-0 items-center gap-1 text-info">
-          <Spinner size={11} />{active}
+          <Spinner size={11} />{isBoth ? `下载${downloading}` : downloading}
+        </span>
+      )}
+      {isBoth && uploading > 0 && (
+        <span className="inline-flex shrink-0 items-center gap-1 text-violet-400">
+          <Spinner size={11} />上传{uploading}
         </span>
       )}
       {failed > 0 && <span className="shrink-0 text-warning">失败 {failed}</span>}
