@@ -505,9 +505,15 @@ const VSHARE_BASE = 'https://vshare.sjtu.edu.cn'
 // /api/video/play/{uuid} 直接返回 USER_LOGIN_REQUIRED。首次调用前需 ensureVshareLogin。
 let _vshareLoginDone = false
 
+// SSO in-flight Promise：并发下载多个 vshare 视频时，resolveDirectUrl 逐任务调
+// ensureVshareLogin，若无去重会同时开 N 个 BrowserWindow 走 SSO（隐藏失败再各弹可见窗
+// → 满屏白屏小窗口）。所有并发调用方共用同一次 SSO attempt，结果共享。
+let _vshareLoginPromise: Promise<boolean> | null = null
+
 /** 标记 vshare 登录态失效（API 返回 USER_LOGIN_REQUIRED 时调用，强制下次重走 SSO） */
 export function invalidateVshareLogin(): void {
   _vshareLoginDone = false
+  _vshareLoginPromise = null
 }
 
 /** 探测 vshare 会话是否有效：调 /api/user/me/profile，errno:0 视为已登录。
@@ -524,45 +530,53 @@ async function isVshareSessionValid(ses: Electron.Session): Promise<boolean> {
   }
 }
 
-/** 确保 vshare 已登录：先探现有会话，无效则隐藏窗口走 jAccount SSO，再失败弹可见窗口。
- *  uuid 用于构造触发 SSO 的 play 页 URL（play 页 JS 检测登录态，未登录跳 jaccount SSO）。 */
+/** 确保 vshare 已登录：先探现有会话，无效则隐藏窗口走 jAccount SSO。
+ *  uuid 用于构造触发 SSO 的 play 页 URL（play 页 JS 检测登录态，未登录跳 jaccount SSO）。
+ *  并发去重：所有并发调用方共用同一次 in-flight SSO Promise，避免同时开多个 BrowserWindow。
+ *  jAccount cookie 已在 persist:sjtu（用户登录 v.sjtu 时建立），SSO 必能自动完成，无需可见窗。 */
 export async function ensureVshareLogin(
   ses: Electron.Session,
   uuid: string
 ): Promise<boolean> {
   if (_vshareLoginDone) return true
-  if (await isVshareSessionValid(ses)) {
-    _vshareLoginDone = true
-    return true
+  if (_vshareLoginPromise) return _vshareLoginPromise
+  _vshareLoginPromise = (async () => {
+    if (_vshareLoginDone) return true
+    if (await isVshareSessionValid(ses)) {
+      _vshareLoginDone = true
+      return true
+    }
+    console.log('[vshare] 触发 jAccount SSO（隐藏窗口）…')
+    if (await completeVshareSso(ses, uuid)) {
+      _vshareLoginDone = true
+      return true
+    }
+    const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
+    const jaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
+    console.log(`[vshare] SSO 失败（jaccount 会话${jaSession ? '存在但未落 vshare cookie' : '不存在，请先在应用内登录 v.sjtu'}）`)
+    return false
+  })()
+  try {
+    return await _vshareLoginPromise
+  } finally {
+    // SSO 失败时清空 in-flight，允许下次重试；成功时 _vshareLoginDone 已置 true，
+    // 下次调用首行直接返回，不会再走到这里
+    if (!_vshareLoginDone) _vshareLoginPromise = null
   }
-  console.log('[vshare] 触发 jAccount SSO（隐藏窗口）…')
-  if (await completeVshareSso(ses, uuid, false)) {
-    _vshareLoginDone = true
-    return true
-  }
-  console.log('[vshare] 隐藏 SSO 失败，弹出可见窗口')
-  if (await completeVshareSso(ses, uuid, true)) {
-    _vshareLoginDone = true
-    return true
-  }
-  return false
 }
 
-/** 隐藏/可见 BrowserWindow 加载 vshare play 页触发 jAccount SSO，轮询会话生效。
+/** 隐藏 BrowserWindow 加载 vshare play 页触发 jAccount SSO，轮询会话生效。
  *  vshare play 页 JS 调 /api/user/me/profile，未登录则跳 jaccount SSO，回跳后落 JSESSIONID。
  *  关 backgroundThrottling：隐藏窗口默认被节流，SSO 重定向链路会被拖慢甚至卡住。
- *  setAudioMuted：play 页含自动播放视频。show=true 弹可见窗口（jaccount cookie 失效需扫码）。 */
+ *  setAudioMuted：play 页含自动播放视频。jAccount cookie 已在 persist:sjtu，SSO 自动完成无需用户交互。 */
 async function completeVshareSso(
   ses: Electron.Session,
-  uuid: string,
-  show: boolean
+  uuid: string
 ): Promise<boolean> {
   const win = new BrowserWindow({
-    show,
+    show: false,
     width: 1000,
     height: 700,
-    title: '登录 vshare (Jaccount)',
-    autoHideMenuBar: true,
     webPreferences: {
       session: ses,
       contextIsolation: true,
@@ -573,8 +587,7 @@ async function completeVshareSso(
   win.webContents.setAudioMuted(true)
   try {
     await win.loadURL(`${VSHARE_BASE}/play/${uuid}`).catch(() => { /* SSO 跳转会 reject，忽略 */ })
-    const timeoutMs = show ? 120_000 : 60_000
-    const deadline = Date.now() + timeoutMs
+    const deadline = Date.now() + 60_000
     while (Date.now() < deadline) {
       await sleep(1000)
       if (await isVshareSessionValid(ses)) {
@@ -583,9 +596,6 @@ async function completeVshareSso(
         return true
       }
     }
-    const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
-    const jaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
-    console.log(`[vshare] SSO 超时（jaccount 会话${jaSession ? '存在' : '不存在，请先在应用内登录 v.sjtu'}）`)
     return false
   } catch (e) {
     console.log('[vshare] SSO 异常:', e)
