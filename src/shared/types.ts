@@ -272,8 +272,10 @@ export interface DownloadProgress {
   state: DownloadState
   received: number
   total: number
-  /** 落盘文件最终绝对路径（done/skipped 时有；云盘模式下无此字段） */
+  /** 落盘文件最终绝对路径（done/skipped 时有；仅云端模式下无此字段） */
   filePath?: string
+  /** 云盘最终绝对路径（done/skipped 且涉及云盘/both 模式时有） */
+  cloudPath?: string
   /** 错误或附加说明（error/skipped 时有；downloading 时也可携带阶段文案，如 HLS 阶段、both 模式上传提示） */
   message?: string
   /** received/total 的单位。默认 'bytes'（按字节格式化 + 计算速度）；
@@ -490,7 +492,7 @@ export interface CanvasLectureDownloadItem {
 }
 
 /** 渲染端顶部 tab */
-export type ActiveTab = 'audited' | 'canvas' | 'cnmooc'
+export type ActiveTab = 'audited' | 'canvas' | 'cnmooc' | 'history'
 
 // ─────────────────────────────────────────────────────────────
 // 好大学在线 (cnmooc.sjtu.cn) 相关
@@ -580,4 +582,21 @@ export interface PptDownloadOpts {
     teacher: string
     classroom: string
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 下载历史与高级配置类型
+// ─────────────────────────────────────────────────────────────
+
+export type VideoQualityOption = 'origin' | '1080p' | '720p' | 'audio_only'
+
+export interface DownloadHistoryItem {
+  taskId: string
+  fileName: string
+  filePath?: string
+  cloudPath?: string
+  courseName?: string
+  fileSize?: number
+  completedAt: number
+  source?: string
 }

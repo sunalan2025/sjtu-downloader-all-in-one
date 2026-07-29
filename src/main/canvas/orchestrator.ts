@@ -149,21 +149,38 @@ function emitScanProgress(courseId: number, phase: string, message: string): voi
 /** SSO 是否已成功过（避免每次 API 调用都重新走 SSO） */
 let _canvasSsoDone = false
 
+// [B4 Fix] SSO in-flight Promise：并发扫描多课程 / 下载时各调用方共用同一次 SSO attempt，
+// 避免同时开 N 个隐藏 BrowserWindow 走 SSO（镜像 vshare 的 _vshareLoginPromise）。
+let _canvasLoginPromise: Promise<boolean> | null = null
+
+/** 标记 Canvas 登录态失效（clearSjtuSession / cleanupOnQuit 调用，强制下次重走 SSO）。
+ *  [B5 Fix] 原先无此函数，_canvasSsoDone 被清后无 in-flight 去重，session 失效后各 handler 静默失败。 */
+export function invalidateCanvasLogin(): void {
+  _canvasSsoDone = false
+  _canvasLoginPromise = null
+}
+
 async function ensureCanvasLogin(): Promise<boolean> {
   if (_canvasSsoDone) return true
-
-  const session = getSession()
-
-  // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成
-  console.log('[canvas] 触发 OIDC SSO（隐藏窗口）…')
-  const ok = await completeOidcSso(session, false)
-  if (ok) { _canvasSsoDone = true; return true }
-
-  // 隐藏窗口失败 → 弹出可见窗口（首次登录需用户扫码/授权）
-  console.log('[canvas] 隐藏 SSO 失败，弹出可见窗口')
-  const ok2 = await completeOidcSso(session, true)
-  if (ok2) _canvasSsoDone = true
-  return ok2
+  if (_canvasLoginPromise) return _canvasLoginPromise
+  _canvasLoginPromise = (async () => {
+    if (_canvasSsoDone) return true
+    const session = getSession()
+    // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成
+    console.log('[canvas] 触发 OIDC SSO（隐藏窗口）…')
+    const ok = await completeOidcSso(session, false)
+    if (ok) { _canvasSsoDone = true; return true }
+    // 隐藏窗口失败 → 弹出可见窗口（首次登录需用户扫码/授权）
+    console.log('[canvas] 隐藏 SSO 失败，弹出可见窗口')
+    const ok2 = await completeOidcSso(session, true)
+    if (ok2) _canvasSsoDone = true
+    return ok2
+  })()
+  try {
+    return await _canvasLoginPromise
+  } finally {
+    if (!_canvasSsoDone) _canvasLoginPromise = null
+  }
 }
 
 /** 通过 BrowserWindow 完成 Canvas OIDC SSO 流程。
@@ -679,7 +696,7 @@ export function registerCanvasHandlers(): void {
       taskId: string,
       cloudUserToken?: string,
       conflictStrategy?: 'skip' | 'overwrite',
-      transcodeMaxHeight?: number,
+      qualityOption?: number | string,
       term?: string
     ) => {
       try {
@@ -719,6 +736,9 @@ export function registerCanvasHandlers(): void {
         // 任务算进去，调度器才不会在 HLS 进行时继续拉本地/云任务到上限导致超发。
         // 必须在拿到槽位之后才 +1，否则等待期间会把自己也算进 active 反而更难拿到槽位。
         _hlsActiveReporter?.(1)
+        const isAudioOnly = qualityOption === 'audio_only'
+        const maxHeight = typeof qualityOption === 'number' ? qualityOption : (qualityOption === '720p' ? 720 : qualityOption === '1080p' ? 1080 : undefined)
+
         let result
         try {
           result = await downloadModuleVideo(
@@ -733,7 +753,8 @@ export function registerCanvasHandlers(): void {
                 ...p
               })
             },
-            transcodeMaxHeight
+            maxHeight,
+            isAudioOnly
           )
         } finally {
           _hlsActiveReporter?.(-1)

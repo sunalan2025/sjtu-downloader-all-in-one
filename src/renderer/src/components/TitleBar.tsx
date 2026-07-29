@@ -98,7 +98,7 @@ export function TitleBar({ onLogout }: { onLogout?: () => void }) {
       void window.api.download.setConcurrency(concurrency)
     }, 300)
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
-  }, [concurrency])
+  }, [concurrency, autoConcurrency])
 
   return (
     <div
@@ -137,6 +137,10 @@ export function TitleBar({ onLogout }: { onLogout?: () => void }) {
           )}
           {/* 实时传输速度 */}
           <TransferSpeedIndicator />
+          {/* 全局限速控制 */}
+          <SpeedLimitControl />
+          {/* 命名模板控制 */}
+          <NamingTemplateControl />
           {/* 并发控制 */}
           <ConcurrencyControl
             value={concurrency}
@@ -549,3 +553,120 @@ function UpdateBadge() {
     </div>
   )
 }
+
+// ─── 全局限速控制 ─────────────────────────────────────────────
+
+function SpeedLimitControl() {
+  const maxDownloadSpeedKBps = useAppStore(s => s.maxDownloadSpeedKBps)
+  const setMaxDownloadSpeedKBps = useAppStore(s => s.setMaxDownloadSpeedKBps)
+
+  const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const limit = Number(e.target.value) || 0
+    setMaxDownloadSpeedKBps(limit)
+    void window.api.download.setSpeedLimit(limit)
+  }
+
+  return (
+    <div
+      className="inline-flex select-none items-center gap-1.5 rounded-lg border border-bd bg-surface-3 px-2 py-1 text-xs text-text-2"
+      title="全局下载速度上限控制"
+    >
+      <span className="text-accent font-bold">⚡</span>
+      <select
+        value={maxDownloadSpeedKBps}
+        onChange={handleSelect}
+        className="bg-transparent text-text-2 focus:outline-none cursor-pointer text-xs font-medium"
+      >
+        <option value={0} className="bg-surface-2 text-text-1">⚡ 不限速</option>
+        <option value={1024} className="bg-surface-2 text-text-1">限速 1 MB/s</option>
+        <option value={2048} className="bg-surface-2 text-text-1">限速 2 MB/s</option>
+        <option value={5120} className="bg-surface-2 text-text-1">限速 5 MB/s</option>
+        <option value={10240} className="bg-surface-2 text-text-1">限速 10 MB/s</option>
+        <option value={20480} className="bg-surface-2 text-text-1">限速 20 MB/s</option>
+      </select>
+    </div>
+  )
+}
+
+// ─── 自定义命名规则 ───────────────────────────────────────────
+
+function NamingTemplateControl() {
+  const namingTemplate = useAppStore(s => s.namingTemplate)
+  const setNamingTemplate = useAppStore(s => s.setNamingTemplate)
+  const [open, setOpen] = useState(false)
+  const [tempVal, setTempVal] = useState(namingTemplate)
+
+  const handleSave = () => {
+    setNamingTemplate(tempVal)
+    setOpen(false)
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => { setTempVal(namingTemplate); setOpen(true) }}
+        className="inline-flex select-none items-center gap-1 rounded-lg border border-bd bg-surface-3 px-2 py-1 text-xs text-text-2 hover:bg-surface-2 transition-colors"
+        title="设置文件/目录自定义命名规则"
+      >
+        <span>🏷️</span>
+        <span className="truncate max-w-[80px]">命名规则</span>
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-surface-1 p-5 border border-border/40 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-text-1 text-base flex items-center gap-2">
+                <span>🏷️ 自定义文件命名模板</span>
+              </h3>
+              <button onClick={() => setOpen(false)} className="text-text-3 hover:text-text-1 text-sm">✕</button>
+            </div>
+
+            <p className="text-xs text-text-3">
+              支持在下载路径中自动替换变量：
+              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{term}"}</code>、
+              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{course}"}</code>、
+              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{category}"}</code>、
+              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{teacher}"}</code>、
+              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{fileName}"}</code>
+            </p>
+
+            <input
+              type="text"
+              value={tempVal}
+              onChange={e => setTempVal(e.target.value)}
+              placeholder="{term}/{course}/{category}/{fileName}"
+              className="w-full px-3 py-2 rounded-lg bg-surface-2 text-text-1 text-sm border border-border/40 focus:outline-none focus:border-accent font-mono"
+            />
+
+            <div className="p-3 rounded-lg bg-surface-2/60 text-xs space-y-1">
+              <span className="text-text-3 block font-medium">样例渲染路径效果：</span>
+              <div className="font-mono text-text-2 break-all">
+                2025-2026-1/高等数学/videos/lecture_01.mp4
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="px-3 py-1.5 rounded-lg bg-surface-2 text-text-2 text-xs hover:bg-surface-3 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                className="px-3 py-1.5 rounded-lg bg-accent text-white text-xs hover:bg-accent-light font-medium transition-colors"
+              >
+                保存模板
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+

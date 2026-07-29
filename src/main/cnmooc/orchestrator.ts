@@ -56,30 +56,45 @@ function emitScanProgress(courseId: string, phase: string, message: string): voi
 /** SSO 是否已成功过（避免每次 API 调用都重走 SSO） */
 let _cnmoocLoginDone = false
 
-/** 标记登录态失效（session 过期时由调用方清除，强制下次重走 SSO） */
+// [B4 Fix] SSO in-flight Promise：并发扫描多课程 / 下载时各调用方共用同一次 SSO attempt，
+// 避免同时开 N 个隐藏 BrowserWindow 走 SSO（镜像 vshare 的 _vshareLoginPromise）。
+let _cnmoocLoginPromise: Promise<boolean> | null = null
+
+/** 标记登录态失效（session 过期 / clearSjtuSession / cleanupOnQuit 时调用，强制下次重走 SSO）。
+ *  [B5 Fix] 同步清 in-flight Promise，否则下次 ensureCnmoocLogin 被旧 Promise 短路。 */
 export function invalidateCnmoocLogin(): void {
   _cnmoocLoginDone = false
+  _cnmoocLoginPromise = null
 }
 
 /** 确保 cnmooc 已登录：先探现有会话，无效则隐藏窗口走 jAccount SSO，再失败弹可见窗口。 */
 export async function ensureCnmoocLogin(): Promise<boolean> {
   if (_cnmoocLoginDone) return true
-  const session = getSession()
-  if (await isCnmoocSessionValid(session)) {
-    _cnmoocLoginDone = true
-    return true
+  if (_cnmoocLoginPromise) return _cnmoocLoginPromise
+  _cnmoocLoginPromise = (async () => {
+    if (_cnmoocLoginDone) return true
+    const session = getSession()
+    if (await isCnmoocSessionValid(session)) {
+      _cnmoocLoginDone = true
+      return true
+    }
+    console.log('[cnmooc] 触发 jAccount SSO（隐藏窗口）…')
+    if (await completeCnmoocSso(session, false)) {
+      _cnmoocLoginDone = true
+      return true
+    }
+    console.log('[cnmooc] 隐藏 SSO 失败，弹出可见窗口')
+    if (await completeCnmoocSso(session, true)) {
+      _cnmoocLoginDone = true
+      return true
+    }
+    return false
+  })()
+  try {
+    return await _cnmoocLoginPromise
+  } finally {
+    if (!_cnmoocLoginDone) _cnmoocLoginPromise = null
   }
-  console.log('[cnmooc] 触发 jAccount SSO（隐藏窗口）…')
-  if (await completeCnmoocSso(session, false)) {
-    _cnmoocLoginDone = true
-    return true
-  }
-  console.log('[cnmooc] 隐藏 SSO 失败，弹出可见窗口')
-  if (await completeCnmoocSso(session, true)) {
-    _cnmoocLoginDone = true
-    return true
-  }
-  return false
 }
 
 /** 通过 BrowserWindow 完成 cnmooc jAccount SSO。

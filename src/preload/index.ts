@@ -52,6 +52,10 @@ const api = {
   checkUpdate: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('app:check-update'),
   /** 在系统默认浏览器打开外部 URL（仅限 github.com，防任意 URL 打开） */
   openExternal: (url: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('app:open-external', url),
+  /** 在系统资源管理器中打开/高亮指定文件或文件夹 */
+  showInFolder: (fullPath: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('app:show-in-folder', fullPath),
+  /** 用系统默认关联应用打开指定文件或文件夹 */
+  openPath: (fullPath: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:open-path', fullPath),
   // ─── 应用内自动更新（asset 取 check-update 缓存；下载到 temp → spawn 安装器 → quit 释放文件锁） ───
   /** 下载当前平台安装包到临时目录（进度经 onUpdateProgress 推送） */
   downloadUpdate: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:download-update'),
@@ -108,7 +112,7 @@ const api = {
   },
   download: {
     /** 提交一批下载任务，支持 local/cloud/both 三种模式 */
-    start: (destRoot: string, tasks: DownloadTaskSpec[], options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy }): Promise<{ ok: boolean; error?: string }> =>
+    start: (destRoot: string, tasks: DownloadTaskSpec[], options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('download:start', destRoot, tasks, options),
     /** 暂停单个任务（本地+云端同时尝试） */
     pause: (taskId: string): Promise<{ ok: boolean }> =>
@@ -128,6 +132,9 @@ const api = {
     /** 设置并发数；传 0 启用自动并发模式（AIMD） */
     setConcurrency: (n: number): Promise<{ ok: boolean; concurrency: number; auto?: boolean }> =>
       ipcRenderer.invoke('download:set-concurrency', n),
+    /** 设置全局下载限速 (KB/s，0 = 不限速) */
+    setSpeedLimit: (limitKBps: number): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('download:set-speed-limit', limitKBps),
     /** 订阅下载进度变化事件，返回取消订阅函数 */
     onProgress: (cb: (p: DownloadProgress) => void) => subscribe<DownloadProgress>('download:progress', cb),
     /** 订阅并发数变化事件（自动模式下），返回取消订阅函数 */
@@ -235,10 +242,10 @@ const api = {
       taskId: string,
       cloudUserToken?: string,
       conflictStrategy?: FileConflictStrategy,
-      transcodeMaxHeight?: number,
+      qualityOption?: number | string,
       term?: string
     ): Promise<{ ok: boolean; skipped?: boolean; path?: string; format?: string; cloudPath?: string; error?: string }> =>
-      ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot, taskId, cloudUserToken, conflictStrategy, transcodeMaxHeight, term),
+      ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot, taskId, cloudUserToken, conflictStrategy, qualityOption, term),
     /** 下载指定讲次列表（按 lectureItems 按需解析流直链） */
     downloadLectures: (
       courseName: string,

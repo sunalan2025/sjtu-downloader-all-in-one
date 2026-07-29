@@ -1,9 +1,10 @@
 import { useRef } from 'react'
-import type { DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, CnmoocResourceFilter } from '@shared/types'
+import type { DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, CnmoocResourceFilter, VideoQualityOption } from '@shared/types'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { Spinner } from './Spinner'
 import { useAppStore } from '../store/app'
 import { useShallow } from 'zustand/shallow'
+import { formatBytes } from '../../../shared/utils'
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -40,13 +41,7 @@ const TEXT_BY_STATE: Record<DownloadState, string> = {
 // Format helpers
 // ─────────────────────────────────────────────────────────────
 
-export function formatBytes(b: number): string {
-  if (!b || b < 0) return '0 B'
-  if (b < 1024) return `${b} B`
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
-  if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`
-  return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`
-}
+export { formatBytes }
 
 export function stateLabel(s: DownloadState, pct: number, msg?: string): string {
   switch (s) {
@@ -408,25 +403,24 @@ export function ConflictStrategySegmented({
 // HLS 重编码分段选择器 — 解决超高分辨率 I-frame-only 源花屏问题
 // ─────────────────────────────────────────────────────────────
 
-const TRANSCODE_OPTIONS: SegmentedOption<string>[] = [
-  { key: '0', label: '原始', title: '保留原始分辨率和编码（不重编码）' },
-  { key: '720', label: '720P', title: '缩放到 720p + 标准 GOP（推荐，解决花屏）' },
-  { key: '1080', label: '1080P', title: '缩放到 1080p + 标准 GOP' }
+const QUALITY_OPTIONS: SegmentedOption<VideoQualityOption>[] = [
+  { key: 'origin', label: '原始画质', title: '保留原始分辨率和编码' },
+  { key: '1080p', label: '1080P', title: '缩放到 1080p 标准编码' },
+  { key: '720p', label: '720P', title: '缩放到 720p 标准编码' },
+  { key: 'audio_only', label: '🎵 仅音频', title: '提取纯音频 AAC (.m4a)，不保存视频' }
 ]
 
 export function HlsTranscodeSegmented({
-  value,
+  value = 'origin',
   onChange
 }: {
-  value?: 720 | 1080
-  onChange: (h?: 720 | 1080) => void
+  value?: VideoQualityOption
+  onChange: (q: VideoQualityOption) => void
 }) {
-  const key = value ? String(value) : '0'
-  const handleChange = (k: string) => onChange(k === '0' ? undefined : (k === '720' ? 720 : 1080) as 720 | 1080)
   return (
-    <div className="flex items-center gap-1.5" title="仅对「网页嵌入」类单元视频生效；其他视频类型（v.sjtu / vshare MP4）不经过重编码">
-      <span className="whitespace-nowrap text-xs text-text-3">视频质量</span>
-      <Segmented options={TRANSCODE_OPTIONS} value={key} onChange={handleChange} size="sm" />
+    <div className="flex items-center gap-1.5" title="设置视频输出质量或仅提取纯音频">
+      <span className="whitespace-nowrap text-xs text-text-3">画质/格式</span>
+      <Segmented options={QUALITY_OPTIONS} value={value} onChange={onChange} size="sm" />
     </div>
   )
 }
@@ -563,10 +557,10 @@ export function OverallProgressBar() {
           }
         }
       }
-      return { done, failed, downloading, uploading, inflight, upInflight, total: ids.length, isBoth }
+      return { done, failed, downloading, uploading, inflight, upInflight, total: ids.length, isBoth, localDestRoot: s.localDestRoot }
     })
   )
-  const { done, failed, downloading, uploading, inflight, upInflight, total, isBoth } = stats
+  const { done, failed, downloading, uploading, inflight, upInflight, total, isBoth, localDestRoot } = stats
   if (total === 0) return null
   const w = (n: number): number => (total > 0 ? Math.min(100, (n / total) * 100) : 0)
   const wDone = w(done)
@@ -599,6 +593,26 @@ export function OverallProgressBar() {
         </span>
       )}
       {failed > 0 && <span className="shrink-0 text-warning">失败 {failed}</span>}
+      {localDestRoot && (
+        <button
+          type="button"
+          onClick={() => void window.api.openPath(localDestRoot)}
+          className="shrink-0 rounded px-1.5 py-0.5 text-text-3 hover:bg-surface-2 hover:text-text-1 transition-colors"
+          title={`在资源管理器中打开目标目录:\n${localDestRoot}`}
+        >
+          📂 目录
+        </button>
+      )}
+      {(done > 0 || failed > 0) && (
+        <button
+          type="button"
+          onClick={() => useAppStore.getState().clearCompletedProgress()}
+          className="shrink-0 rounded px-1.5 py-0.5 text-text-3 hover:bg-surface-2 hover:text-text-1 transition-colors"
+          title="清空当前已完成与失败的任务记录"
+        >
+          🧹 清空
+        </button>
+      )}
     </div>
   )
 }

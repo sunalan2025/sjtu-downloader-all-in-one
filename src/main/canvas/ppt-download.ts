@@ -10,10 +10,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { PDFDocument, type PDFImage } from 'pdf-lib'
-import type { FileConflictStrategy, PptSlice, PptDownloadOpts } from '../../shared/types'
+import type { PptSlice, PptDownloadOpts } from '../../shared/types'
 import { VSJTU_CANVAS_BASE } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
-import { sanitizeFsName } from './api'
+import { sanitizeFsName } from '../../shared/utils'
 
 const VSJTU_REFERER = 'https://v.sjtu.edu.cn/'
 /** PPT 图片并发下载数（与 HLS segment 并发一致） */
@@ -172,25 +172,32 @@ export async function downloadPptAsPdf(
     // 3. 创建临时目录（mkdtempSync 原子创建 + 随机后缀，防符号链接预置攻击）
     tmpDir = mkdtempSync(join(tmpdir(), 'sjtu-ppt-'))
 
-    // 4. 并发下载图片（保留序号，合并时按序）
+    // 4. 并发下载图片（Worker Pool 队列模式，避免分批等待）
     const imagePaths: (string | null)[] = new Array(slices.length).fill(null)
     let downloaded = 0
-    for (let i = 0; i < slices.length; i += PPT_IMG_CONCURRENCY) {
-      const batch = slices.slice(i, i + PPT_IMG_CONCURRENCY)
-      await Promise.all(batch.map(async (s, j) => {
-        const idx = i + j
-        // 临时文件名扩展名无关紧要（嵌入时按字节判断类型），统一用 .jpg
-        const imgPath = join(tmpDir!, `${String(idx).padStart(4, '0')}.jpg`)
-        try {
-          await downloadPptImage(ses, s.pptImgUrl, imgPath)
-          imagePaths[idx] = imgPath
-        } catch (err) {
-          console.warn(`[ppt] 下载第 ${idx + 1} 张失败，跳过:`, err instanceof Error ? err.message : err)
+    let nextIdx = 0
+
+    const workers: Promise<void>[] = []
+    const workerCount = Math.min(PPT_IMG_CONCURRENCY, slices.length)
+
+    for (let w = 0; w < workerCount; w++) {
+      workers.push((async () => {
+        while (nextIdx < slices.length) {
+          const idx = nextIdx++
+          const s = slices[idx]
+          const imgPath = join(tmpDir!, `${String(idx).padStart(4, '0')}.jpg`)
+          try {
+            await downloadPptImage(ses, s.pptImgUrl, imgPath)
+            imagePaths[idx] = imgPath
+          } catch (err) {
+            console.warn(`[ppt] 下载第 ${idx + 1} 张失败，跳过:`, err instanceof Error ? err.message : err)
+          }
+          downloaded++
+          onProgress?.(downloaded, slices.length, `下载PPT图片 ${downloaded}/${slices.length}…`)
         }
-        downloaded++
-        onProgress?.(downloaded, slices.length, `下载PPT图片 ${downloaded}/${slices.length}…`)
-      }))
+      })())
     }
+    await Promise.all(workers)
     const validPaths = imagePaths.filter((p): p is string => !!p)
     if (validPaths.length === 0) {
       return { ok: false, error: '所有PPT图片下载失败' }

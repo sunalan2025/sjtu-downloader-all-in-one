@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasDownloadTaskSpec, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter } from '@shared/types'
+import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption } from '@shared/types'
+import { DEFAULT_NAMING_TEMPLATE } from '@shared/utils'
 
 /** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
 export type Stage = 'welcome' | 'login' | 'browser'
@@ -99,6 +100,14 @@ interface AppState {
    *  OverallProgressBar 据此统计 done/active/total，而非遍历 progress 全表——
    *  total 精准反映勾选并入队的任务数，扫描占位 / 未勾选残留不计入。resetProgress 同步清空。 */
   batchTaskIds: string[]
+  /** 全局下载限速（KB/s，0 = 不限速） */
+  maxDownloadSpeedKBps: number
+  /** 自定义文件/目录命名模板 */
+  namingTemplate: string
+  /** 视频下载画质/纯音频选项 */
+  videoQualityOption: VideoQualityOption
+  /** 已下载历史记录 */
+  downloadHistory: DownloadHistoryItem[]
   /** 并发下载数，2-16，会同步到主进程。0 = 自动 */
   concurrency: number
   /** 是否处于自动并发模式 */
@@ -201,6 +210,8 @@ interface AppState {
   setDownloading: (b: boolean) => void
   /** 清空所有下载进度记录 */
   resetProgress: () => void
+  /** 清空已完成/跳过/失败的终态任务进度记录 */
+  clearCompletedProgress: () => void
   /** 追加本轮提交的 taskId（去重）。入队时调用，供 OverallProgressBar 精准统计。 */
   addBatchTaskIds: (ids: string[]) => void
   /** 清空 batchTaskIds（不动 progress）。Browser/Cnmooc onDownload 入口调用——
@@ -213,6 +224,18 @@ interface AppState {
   markBatchPendingCancelled: () => void
   /** 合并单条下载进度到进度表 */
   applyProgress: (p: DownloadProgress) => void
+  /** 设置全局下载限速（KB/s） */
+  setMaxDownloadSpeedKBps: (n: number) => void
+  /** 设置自定义命名模板 */
+  setNamingTemplate: (t: string) => void
+  /** 设置视频下载画质/纯音频选项 */
+  setVideoQualityOption: (q: VideoQualityOption) => void
+  /** 新增已下载历史记录 */
+  addDownloadHistory: (item: DownloadHistoryItem) => void
+  /** 移除单条已下载历史记录 */
+  removeDownloadHistoryItem: (taskId: string) => void
+  /** 清空所有已下载历史记录 */
+  clearDownloadHistory: () => void
   /** 设置下载并发数（0 = 自动） */
   setConcurrency: (n: number) => void
   /** 切换自动并发模式开关 */
@@ -284,18 +307,21 @@ export function useEffectiveProgress(taskId: string): DownloadProgress | undefin
   return { taskId, state: mergedState, received: mergedReceived, total: mergedTotal, message: mergedMsg }
 }
 
-/** 顶层下载统计：对一组 taskIds 聚合 done/failed/active 计数，编码成单个数字返回。
+/** 顶层下载统计：对一组 taskIds 聚合 done/failed/active 计数返回。
  *  只有当 done/failed/active 任一计数真正变化时才触发重渲染 ——
  *  避免每条任务每 2s 的进度回调都让顶层 Browser/CanvasBrowser + ActionBar 重渲。
- *  沿用 CourseSection 里 dlAndErr 的编码思路，提到顶层并支持 both 模式。
  *
  *  返回 { done, failed, active }；active = 尚未到达终态（含 pending/downloading/paused）的任务数。
- *  allFinal ≡ active === 0（当 taskIds 非空时）。 */
+ *  allFinal ≡ active === 0（当 taskIds 非空时）。
+ *
+ *  [Bug Fix] 原实现用 done*1e8+failed*1e4+active 编码成单个 number 以走原始值比较，
+ *  但 failed≥10000 溢出到 done 位、active≥10000 溢出到 failed 位（Canvas 50 课×200 文件即触发）。
+ *  useShallow 已能正确浅比较对象，编码冗余且有溢出风险，改回对象返回。 */
 export function useDownloadStats(
   taskIds: string[],
   isBothMode: boolean
 ): { done: number; failed: number; active: number } {
-  const encoded = useAppStore(s => {
+  return useAppStore(useShallow(s => {
     let done = 0
     let failed = 0
     let active = 0
@@ -317,14 +343,8 @@ export function useDownloadStats(
         else if (st !== 'cancelled') active++
       }
     }
-    // [Bug Fix] 使用基数 10000 替代 1000，支持最多 9999 个任务不溢出
-    return done * 100_000_000 + failed * 10_000 + active
-  })
-  return {
-    done: Math.floor(encoded / 100_000_000),
-    failed: Math.floor(encoded / 10_000) % 10_000,
-    active: encoded % 10_000
-  }
+    return { done, failed, active }
+  }))
 }
 
 // applyProgress 的批处理缓冲（模块级，便于 resetProgress 同步清零，见下）。
@@ -381,7 +401,11 @@ export const useAppStore = create<AppState>()(
       setCourses: courses => set({ courses }),
       setTasksForCourse: (id, tasks) =>
         set(state => ({ tasksByCourse: { ...state.tasksByCourse, [id]: tasks } })),
-      resetScanResults: () => set(emptyScanResults),
+      resetScanResults: () => {
+        progressPending = null
+        progressScheduled = false
+        set(emptyScanResults)
+      },
       setSelected: selected => set({ selected }),
       toggleSelect: taskId =>
         set(state => {
@@ -443,21 +467,25 @@ export const useAppStore = create<AppState>()(
           for (const id of ids) next[id] = { ...next[id], ...sel }
           return { canvasCourseCategorySelections: next }
         }),
-      resetCanvasScanResults: () => set({
-        canvasCourses: [],
-        canvasScanState: 'idle',
-        canvasScanMessage: '',
-        canvasExpandedCourses: new Set(),
-        canvasCourseData: {},
-        canvasVideoSessions: {},
-        canvasTeachers: {},
-        canvasSelectedTeachers: {},
-        canvasLtiTokens: {},
-        canvasLectures: {},
-        canvasModuleVideos: {},
-        canvasCourseCategorySelections: {},
-        canvasCourseTaskIds: {},
-      }),
+      resetCanvasScanResults: () => {
+        progressPending = null
+        progressScheduled = false
+        set({
+          canvasCourses: [],
+          canvasScanState: 'idle',
+          canvasScanMessage: '',
+          canvasExpandedCourses: new Set(),
+          canvasCourseData: {},
+          canvasVideoSessions: {},
+          canvasTeachers: {},
+          canvasSelectedTeachers: {},
+          canvasLtiTokens: {},
+          canvasLectures: {},
+          canvasModuleVideos: {},
+          canvasCourseCategorySelections: {},
+          canvasCourseTaskIds: {},
+        })
+      },
       deleteCanvasCourseData: id =>
         set(state => {
           const { [id]: _1, ...restCourseData } = state.canvasCourseData
@@ -483,13 +511,17 @@ export const useAppStore = create<AppState>()(
       setCnmoocCourseData: (id, data) =>
         set(state => ({ cnmoocCourseData: { ...state.cnmoocCourseData, [id]: data } })),
       setCnmoocResourceFilter: cnmoocResourceFilter => set({ cnmoocResourceFilter }),
-      resetCnmoocScanResults: () => set({
-        cnmoocCourses: [],
-        cnmoocScanState: 'idle',
-        cnmoocScanMessage: '',
-        cnmoocExpandedCourses: new Set(),
-        cnmoocCourseData: {}
-      }),
+      resetCnmoocScanResults: () => {
+        progressPending = null
+        progressScheduled = false
+        set({
+          cnmoocCourses: [],
+          cnmoocScanState: 'idle',
+          cnmoocScanMessage: '',
+          cnmoocExpandedCourses: new Set(),
+          cnmoocCourseData: {}
+        })
+      },
       deleteCnmoocCourseData: id =>
         set(state => {
           const { [id]: _cn, ...rest } = state.cnmoocCourseData
@@ -517,6 +549,23 @@ export const useAppStore = create<AppState>()(
         progressScheduled = false
         // batchTaskIds 同步清空：新一轮下载从空集开始，total/active 不受上一轮残留影响
         set({ progress: {}, batchTaskIds: [] })
+      },
+      clearCompletedProgress: () => {
+        progressPending = null
+        progressScheduled = false
+        set(state => {
+          const nextProg: Record<string, DownloadProgress> = {}
+          for (const [id, p] of Object.entries(state.progress)) {
+            if (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') {
+              nextProg[id] = p
+            }
+          }
+          const nextBatchTaskIds = state.batchTaskIds.filter(id => {
+            const p = state.progress[id]
+            return p && (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused')
+          })
+          return { progress: nextProg, batchTaskIds: nextBatchTaskIds }
+        })
       },
       // 入队时追加 taskId（去重），供 OverallProgressBar 基于本轮提交集精准统计。
       // 空数组 no-op（避免无谓 set 触发重渲染）；有新增才返回新数组。
@@ -566,12 +615,61 @@ export const useAppStore = create<AppState>()(
             if (!batch || batch.size === 0) return
             set(state => {
               const next = { ...state.progress }
-              for (const [tid, prog] of batch) next[tid] = prog
-              return { progress: next }
+              let historyUpdated = false
+              let nextHistory = state.downloadHistory
+              for (const [tid, prog] of batch) {
+                next[tid] = prog
+                if (prog.state === 'done' && (prog.filePath || prog.cloudPath)) {
+                  const alreadyExists = nextHistory.some(h => {
+                    const localMatch = !!(prog.filePath && h.filePath === prog.filePath)
+                    const cloudMatch = !!(prog.cloudPath && h.cloudPath === prog.cloudPath)
+                    return localMatch || cloudMatch
+                  })
+                  if (!alreadyExists) {
+                    if (!historyUpdated) {
+                      nextHistory = [...nextHistory]
+                      historyUpdated = true
+                    }
+                    const displayPath = prog.filePath || prog.cloudPath || tid
+                    const fileSize = (prog.total && prog.total > 0)
+                      ? prog.total
+                      : (prog.received && prog.received > 0 ? prog.received : undefined)
+                    nextHistory.unshift({
+                      taskId: tid,
+                      fileName: displayPath.split(/[/\\]/).pop() || tid,
+                      filePath: prog.filePath,
+                      cloudPath: prog.cloudPath,
+                      fileSize,
+                      completedAt: Date.now()
+                    })
+                  }
+                }
+              }
+              return historyUpdated ? { progress: next, downloadHistory: nextHistory } : { progress: next }
             })
           })
         }
       },
+      maxDownloadSpeedKBps: 0,
+      namingTemplate: DEFAULT_NAMING_TEMPLATE,
+      videoQualityOption: 'origin',
+      downloadHistory: [],
+      setMaxDownloadSpeedKBps: n => set({ maxDownloadSpeedKBps: Math.max(0, n) }),
+      setNamingTemplate: t => set({ namingTemplate: t }),
+      setVideoQualityOption: q => set({ videoQualityOption: q }),
+      addDownloadHistory: item =>
+        set(state => {
+          const alreadyExists = state.downloadHistory.some(h => {
+            const localMatch = !!(item.filePath && h.filePath === item.filePath)
+            const cloudMatch = !!(item.cloudPath && h.cloudPath === item.cloudPath)
+            return localMatch || cloudMatch
+          })
+          if (alreadyExists) return {}
+          return { downloadHistory: [item, ...state.downloadHistory] }
+        }),
+      removeDownloadHistoryItem: taskId =>
+        set(state => ({ downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId) })),
+      clearDownloadHistory: () => set({ downloadHistory: [] }),
       setConcurrency: n => set({ concurrency: n === 0 ? 0 : clampConcurrency(n) }),
       setAutoConcurrency: on => set({ autoConcurrency: on })
     }),
@@ -591,7 +689,11 @@ export const useAppStore = create<AppState>()(
         fileConflictStrategy: state.fileConflictStrategy,
         localDestRoot: state.localDestRoot,
         cnmoocResourceFilter: state.cnmoocResourceFilter,
-        autoDownloadUpdate: state.autoDownloadUpdate
+        autoDownloadUpdate: state.autoDownloadUpdate,
+        maxDownloadSpeedKBps: state.maxDownloadSpeedKBps,
+        namingTemplate: state.namingTemplate,
+        videoQualityOption: state.videoQualityOption,
+        downloadHistory: state.downloadHistory
       })
     }
   )

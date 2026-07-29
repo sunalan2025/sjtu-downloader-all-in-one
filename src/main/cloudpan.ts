@@ -420,9 +420,13 @@ function buildUploader(
 
 // ─── 本地文件 → 云盘（HLS 模块视频下载后上传） ────────────────
 
-const LOCAL_UPLOAD_CHUNK = 4 * 1024 * 1024 // 4MB per COS part（与 CHUNK_SIZE 一致）
+export function getDynamicChunkSize(totalBytes: number): number {
+  if (totalBytes > 1024 * 1024 * 1024) return 16 * 1024 * 1024 // >1GB: 16MB
+  if (totalBytes > 200 * 1024 * 1024) return 8 * 1024 * 1024  // >200MB: 8MB
+  return 4 * 1024 * 1024                                       // <=200MB: 4MB
+}
 
-/** 把本地文件按 4MB 分片上传到云盘。
+/** 把本地文件按动态分片（4MB ~ 16MB）上传到云盘。
  *  - skip 策略：远端已存在 → 抛 FileExistsError（调用方据此标 skipped）
  *  - overwrite 策略：先 deleteCloudFile 再 startChunkedUpload
  *  - 自动 ensureFolderPath（逐级创建父目录）
@@ -453,15 +457,14 @@ export async function uploadLocalFileToCloud(
     try {
       // fd 持有期间文件不会被删/截断 → 用 fstatSync 拿 size，消除 stat→open 的 TOCTOU
       const total = fstatSync(fd).size
-      const buf = Buffer.allocUnsafe(LOCAL_UPLOAD_CHUNK)
+      const chunkSize = getDynamicChunkSize(total)
+      const buf = Buffer.allocUnsafe(chunkSize)
       let uploaded = 0
-      let partNum = 0
       while (uploaded < total) {
-        const n = readSync(fd, buf, 0, LOCAL_UPLOAD_CHUNK, uploaded)
+        const n = readSync(fd, buf, 0, chunkSize, uploaded)
         if (n <= 0) break
-        partNum++
-        // 最后一片不足 4MB：只传实际读到的字节
-        const chunk = n < LOCAL_UPLOAD_CHUNK ? buf.subarray(0, n) : buf
+        // 最后一片不足 chunkSize：只传实际读到的字节
+        const chunk = n < chunkSize ? buf.subarray(0, n) : buf
         await uploader.uploadChunk(chunk)
         uploaded += n
         onProgress?.(uploaded, total)
