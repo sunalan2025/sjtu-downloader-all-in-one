@@ -157,7 +157,7 @@ async function runTask(t: TaskRuntime): Promise<void> {
         break
       } catch (retryErr) {
         if (t.state !== 'downloading') throw retryErr // 被 pause/cancel，不重试
-        const msg = retryErr instanceof Error ? retryErr.message : ''
+        const msg = (retryErr instanceof Error ? retryErr.message : '').replace(/[\r\n]+/g, ' ')
         const isNetErr =
           /socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timeout|EPIPE/i.test(msg) ||
           isDnsError(retryErr)
