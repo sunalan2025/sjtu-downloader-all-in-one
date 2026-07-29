@@ -71,7 +71,7 @@ export function Welcome() {
           <Capability icon={<IconGauge />} title="自动并发 AIMD" desc="2–16 路按吞吐与错误率自适应，无需手调" />
           <Capability icon={<IconFilm />} title="内置 ffmpeg" desc="HLS→MP4 无损转封装，可选重编码修复花屏" />
           <Capability icon={<IconPdf />} title="PPT 课件 PDF" desc="课堂视频 PPT 切片合并为单个 PDF，与视频同目录" />
-          <Capability icon={<IconBell />} title="完成通知" desc="批次成功 / 失败数量汇总，点击聚焦主窗口" />
+          <Capability icon={<IconHistory />} title="下载历史与云端识别" desc="追踪并管理已下载的文件，支持本地与交大云盘历史一键管理" />
         </div>
 
         {/* ── 网络提示 ── */}
@@ -237,11 +237,11 @@ function IconPdf() {
     </svg>
   )
 }
-function IconBell() {
+function IconHistory() {
   return (
     <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.7 21a2 2 0 01-3.4 0" />
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 6v6l3 3" />
     </svg>
   )
 }

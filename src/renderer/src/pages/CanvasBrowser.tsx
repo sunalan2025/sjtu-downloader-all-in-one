@@ -11,9 +11,9 @@ import type {
   CanvasFileItem,
   CanvasLectureDownloadItem,
   CanvasTeacherSelection,
-  CanvasVideoSession,
-  FileConflictStrategy
+  CanvasVideoSession
 } from '@shared/types'
+import { sanitizeFsName } from '@shared/utils'
 
 // ─── 共享 canvas:scan-progress 监听器 ─────────────────────────
 
@@ -45,7 +45,7 @@ function useCanvasScanProgress(courseId: number, cb: ScanProgressCb): void {
   useEffect(() => {
     const wrapped: ScanProgressCb = (p) => cbRef.current(p)
     return subscribeCanvasScanProgress(wrapped)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 }
 
 // ─── Task ID 生成 ──────────────────────────────────────────────
@@ -61,13 +61,6 @@ function lectureStreamTaskId(courseId: number, lectureNum: number, role: 'teache
 // 模块视频 taskId / baseName。sanitize 保证 taskId 稳定、落盘文件名合法。
 // 三类来源的 taskId 前缀对齐 main 端 orchestrator 的产 spec 方案：
 //   iframe(HLS) → canvas_mvid_ / extTool(直接MP4) → canvas_exttool_ / extUrl → canvas_exturl_
-function sanitizeFsName(name: string): string {
-  const cleaned = name
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-    .replace(/[. ]+$/, '')
-    .trim()
-  return cleaned.slice(0, 180) || '未命名'
-}
 
 function iframeVideoTaskId(courseId: number, pageTitle: string): string {
   return `canvas_mvid_${courseId}_${sanitizeFsName(pageTitle)}`
@@ -149,7 +142,7 @@ export function CanvasBrowser() {
   // Group 1: rarely-changing state (courses, scan results, config)
   const {
     localDestRoot, cloudUserToken, cloudSpaceInfo,
-    downloadMode, fileConflictStrategy, hlsTranscodeMaxHeight, canvasCourses, canvasScanState, canvasScanMessage,
+    downloadMode, fileConflictStrategy, videoQualityOption, setVideoQualityOption, canvasCourses, canvasScanState, canvasScanMessage,
     canvasExpandedCourses, canvasCourseData, canvasTeachers, canvasSelectedTeachers,
     canvasLectures, canvasModuleVideos, canvasCourseCategorySelections
   } = useAppStore(useShallow(s => ({
@@ -158,7 +151,8 @@ export function CanvasBrowser() {
     cloudSpaceInfo: s.cloudSpaceInfo,
     downloadMode: s.downloadMode,
     fileConflictStrategy: s.fileConflictStrategy,
-    hlsTranscodeMaxHeight: s.hlsTranscodeMaxHeight,
+    videoQualityOption: s.videoQualityOption,
+    setVideoQualityOption: s.setVideoQualityOption,
     canvasCourses: s.canvasCourses,
     canvasScanState: s.canvasScanState,
     canvasScanMessage: s.canvasScanMessage,
@@ -179,7 +173,7 @@ export function CanvasBrowser() {
     setCanvasCourseCategorySelection, setAllCanvasCourseCategorySelections,
     resetCanvasScanResults, toggleCanvasExpand,
     setLocalDestRoot, setDownloading, resetProgress, applyProgress,
-    setDownloadMode, setFileConflictStrategy, setHlsTranscodeMaxHeight, setCloudLinkedIds
+    setDownloadMode, setFileConflictStrategy, setCloudLinkedIds
   } = useAppStore(useShallow(s => ({
     setCanvasCourseData: s.setCanvasCourseData,
     setCanvasTeachers: s.setCanvasTeachers,
@@ -833,14 +827,14 @@ export function CanvasBrowser() {
           const r = await window.api.canvas.downloadModuleVideoNow(
             courseName, mvt.iframeUrl, mvt.baseName, localDestForIframe, mvt.taskId,
             cloudToken, cloudToken ? st.fileConflictStrategy : undefined,
-            useAppStore.getState().hlsTranscodeMaxHeight,
+            useAppStore.getState().videoQualityOption,
             c.term || ''
           )
           if (r.ok) {
             if (r.skipped) {
-              useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'skipped', received: 0, total: 0, filePath: r.path, message: '已存在，跳过' })
+              useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'skipped', received: 0, total: 0, filePath: r.path, cloudPath: r.cloudPath, message: '已存在，跳过' })
             } else {
-              useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'done', received: 0, total: 0, filePath: r.path })
+              useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'done', received: 0, total: 0, filePath: r.path, cloudPath: r.cloudPath })
             }
           } else {
             useAppStore.getState().applyProgress({ taskId: mvt.taskId, state: 'error', received: 0, total: 0, message: r.error || 'HLS 下载失败' })
@@ -1065,7 +1059,7 @@ export function CanvasBrowser() {
             <ModeSegmented value={downloadMode} onChange={setDownloadMode} />
             <ConflictStrategySegmented value={fileConflictStrategy} onChange={setFileConflictStrategy} />
             {categoryTriState('moduleVideo') !== 'none' && (
-              <HlsTranscodeSegmented value={hlsTranscodeMaxHeight} onChange={setHlsTranscodeMaxHeight} />
+              <HlsTranscodeSegmented value={videoQualityOption} onChange={setVideoQualityOption} />
             )}
           </div>
           {/* 第三行：全局控制 + 开始下载（右对齐） */}
@@ -1163,7 +1157,7 @@ interface CourseData {
 }
 
 const CanvasCourseCard = memo(function CanvasCourseCard({
-  course, expanded, courseData, lectures, teachers, selectedTeachers,
+  course, expanded, courseData, lectures, teachers: _teachers, selectedTeachers: _selectedTeachers,
   moduleVideos, categorySelections, selected,
   onToggleExpand, onSetCourseData, onSetLectures, onSetTeachers, onSetSelectedTeachers, onSetLtiToken,
   onSetModuleVideos, onSetCategorySelection, toggleSelect, toggleSelectMany, onToggleCourseSelect

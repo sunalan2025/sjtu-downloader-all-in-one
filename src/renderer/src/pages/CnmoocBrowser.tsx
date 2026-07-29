@@ -67,7 +67,7 @@ export function CnmoocBrowser() {
     setLocalDestRoot,
     setDownloading,
     setCloudLinkedIds,
-    resetProgress
+    resetCnmoocScanResults
   } = useAppStore(
     useShallow(s => ({
       courses: s.cnmoocCourses,
@@ -95,7 +95,7 @@ export function CnmoocBrowser() {
       setLocalDestRoot: s.setLocalDestRoot,
       setDownloading: s.setDownloading,
       setCloudLinkedIds: s.setCloudLinkedIds,
-      resetProgress: s.resetProgress
+      resetCnmoocScanResults: s.resetCnmoocScanResults
     }))
   )
 
@@ -126,12 +126,13 @@ export function CnmoocBrowser() {
 
   // ─── 扫描：课程列表 + 并行拉取每门课章节（仅 HTML，不预探直链） ───
   // 逻辑提取到 services/prefetch.ts，登录后 App.tsx 也会调它预加载。
-  // 刷新时前置 resetProgress 清进度；登录预加载（无进度）由 prefetch 内部不调 resetProgress。
+  // [B8 Fix] 刷新只清 cnmooc 扫描数据，不动 progress（含其他 tab 正在跑的下载）。
+  // 对齐 Browser.tsx 的 resetScanResults 语义；prefetch 内部本就不调 resetProgress。
   const scanStartedRef = useRef(false)
   const runScan = useCallback(async (): Promise<void> => {
-    resetProgress()
+    resetCnmoocScanResults()
     await prefetchCnmoocCourses()
-  }, [resetProgress])
+  }, [resetCnmoocScanResults])
 
   useEffect(() => {
     if (scanStartedRef.current) return

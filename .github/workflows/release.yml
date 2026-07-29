@@ -37,8 +37,24 @@ jobs:
           GCM_INTERACTIVE: never
           GIT_TERMINAL_PROMPT: 0
 
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VER="v$(node -p "require('./package.json').version")"
+          TAG_VER="${GITHUB_REF#refs/tags/}"
+          if [ "$PKG_VER" != "$TAG_VER" ]; then
+            echo "Version mismatch: package.json=$PKG_VER, tag=$TAG_VER"
+            exit 1
+          fi
+          echo "Version OK: $PKG_VER"
+
+      - name: Lint
+        run: npm run lint
+
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Test
+        run: npm run test
 
       - name: Generate app icons
         run: npm run icons

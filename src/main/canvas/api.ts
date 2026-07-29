@@ -13,6 +13,9 @@ import {
   type CanvasModule
 } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
+import { sanitizeFsName } from '../../shared/utils'
+
+export { sanitizeFsName }
 
 // ─── Canvas API 请求封装 ──────────────────────────────────────
 
@@ -106,16 +109,6 @@ function getNextUrl(linkHeader: string | null): string | null {
   if (!linkHeader) return null
   const m = /<([^>]+)>;\s*rel="next"/.exec(linkHeader)
   return m?.[1] ?? null
-}
-
-// ─── 文件名清洗 ──────────────────────────────────────────────
-
-export function sanitizeFsName(name: string): string {
-  const cleaned = name
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-    .replace(/[. ]+$/, '')
-    .trim()
-  return cleaned.slice(0, 180) || '未命名'
 }
 
 // ─── 课程列表 ────────────────────────────────────────────────

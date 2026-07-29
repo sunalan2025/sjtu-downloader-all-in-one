@@ -8,6 +8,7 @@ import { Login } from './pages/Login'
 import { Browser } from './pages/Browser'
 import { CanvasBrowser } from './pages/CanvasBrowser'
 import { CnmoocBrowser } from './pages/CnmoocBrowser'
+import { DownloadHistoryView } from './pages/DownloadHistoryView'
 import { useDownloadProgressSubscription } from './hooks/useSharedBrowserHooks'
 import { prefetchCanvasCourses, prefetchCnmoocCourses, prefetchCloudConnection } from './services/prefetch'
 import type { ActiveTab } from '@shared/types'
@@ -50,17 +51,12 @@ export default function App() {
 
   useEffect(() => {
     // 启动时检查登录态：已登录直接进 browser，否则停留 welcome
-    // BUG FIX: add cancelled guard so state updates don't fire after unmount
-    // (e.g. during React strict-mode double-mount or fast navigation).
     let cancelled = false
     void (async () => {
       try {
         const a = await window.api.auth.status()
         if (cancelled) return
         setAuth(a)
-        // 主进程启动即清凭证 → 此处必返回未登录，强制重新扫码登录，
-        // 不会自动进入 browser 页（避免上次会话登录态残留）。
-        // 同时清掉持久化的云盘 token：云盘连接也必须在新登录后重新建立。
         useAppStore.getState().setCloudUserToken(null)
         useAppStore.getState().setCloudSpaceInfo(null)
       } catch {
@@ -70,9 +66,6 @@ export default function App() {
     return () => { cancelled = true }
   }, [setAuth])
 
-  // [启动清理残留文件] 每次打开应用清掉上次会话残留的临时/半下载文件，释放本地空间：
-  // cloud-only 临时根（C:/tmp | /tmp）应用子目录 + OS tmpdir/sjtu-ppt-* + localDestRoot 的 *.part
-  // / 孤立 *.ts。保留 localDestRoot 里的 *.mp4 成品。ref 守卫防 strict-mode 双触发。
   const cleanedRef = useRef(false)
   useEffect(() => {
     if (cleanedRef.current) return
@@ -81,11 +74,6 @@ export default function App() {
     window.api.cleanupStaleDownloads(localDestRoot).catch(() => undefined)
   }, [])
 
-  // [登录后自动预加载] jAccount 登录成功 → setStage('browser') 后，后台并行预加载
-  // Canvas 课程 / 好大学在线课程 / 云盘连接（隐式 SSO，复用 jAccount 会话，无需额外扫码）。
-  // 用户切到对应 tab 时数据已就绪，云盘已连上可立即用 cloud/both 模式。
-  // ref 守卫防 strict-mode 双触发；离开 browser（登出回 welcome）时重置 ref，
-  // 支持登出再登录重新预加载。三个任务独立（allSettled），失败置 error 态静默不打扰。
   const prefetchedRef = useRef(false)
   useEffect(() => {
     if (stage !== 'browser') {
@@ -122,11 +110,11 @@ export default function App() {
               {activeTab === 'audited' && <Browser />}
               {activeTab === 'canvas' && <CanvasBrowser />}
               {activeTab === 'cnmooc' && <CnmoocBrowser />}
+              {activeTab === 'history' && <DownloadHistoryView />}
             </div>
           </StagePane>
         )}
       </main>
-      {/* Mac 风格窗口关闭/最小化确认弹窗（单例，监听 Alt+F4 与交通灯按钮） */}
       <WindowConfirmModal />
     </div>
   )
@@ -173,6 +161,16 @@ function BrowserTabBar({
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
           <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+        </svg>
+      )
+    },
+    {
+      key: 'history',
+      label: '已下载历史',
+      title: '已下载的文件与历史记录管理',
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
         </svg>
       )
     }

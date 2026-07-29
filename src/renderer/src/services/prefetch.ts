@@ -45,20 +45,24 @@ export async function prefetchCnmoocCourses(): Promise<void> {
     }
     store.setCnmoocScanState('scanning', `正在解析章节…0 / ${list.length}`)
     let done = 0
-    await Promise.all(
-      list.map(async c => {
-        try {
-          const cr = await window.api.cnmooc.scanCourse(c.courseId)
-          if (cr.ok && cr.chapters) store.setCnmoocCourseData(c.courseId, { chapters: cr.chapters })
-          else store.setCnmoocCourseData(c.courseId, { chapters: [] })
-        } catch {
-          store.setCnmoocCourseData(c.courseId, { chapters: [] })
-        } finally {
-          done += 1
-          store.setCnmoocScanState('scanning', `正在解析章节…${done} / ${list.length}`)
-        }
-      })
-    )
+    const CONCURRENCY = 5
+    for (let i = 0; i < list.length; i += CONCURRENCY) {
+      const batch = list.slice(i, i + CONCURRENCY)
+      await Promise.all(
+        batch.map(async c => {
+          try {
+            const cr = await window.api.cnmooc.scanCourse(c.courseId)
+            if (cr.ok && cr.chapters) store.setCnmoocCourseData(c.courseId, { chapters: cr.chapters })
+            else store.setCnmoocCourseData(c.courseId, { chapters: [] })
+          } catch {
+            store.setCnmoocCourseData(c.courseId, { chapters: [] })
+          } finally {
+            done += 1
+            store.setCnmoocScanState('scanning', `正在解析章节…${done} / ${list.length}`)
+          }
+        })
+      )
+    }
     store.setCnmoocScanState('done')
   } catch (err) {
     store.setCnmoocScanState('error', '扫描出错：' + String(err))
