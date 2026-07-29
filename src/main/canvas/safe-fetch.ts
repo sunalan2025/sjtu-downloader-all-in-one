@@ -5,7 +5,10 @@ import type Electron from 'electron'
  *  必须先经此清洗，避免攻击者通过控制字符伪造日志行或注入终端转义序列。 */
 export function sanitizeForLog(value: unknown): string {
   if (value === null || value === undefined) return ''
-  return String(value).replace(/[\x00-\x1F\x7F]/g, '?').slice(0, 500)
+  return String(value)
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[\x00-\x1F\x7F]/g, '?')
+    .slice(0, 500)
 }
 
 /** 将 Chromium DNS/网络错误转为可读消息；非 DNS 错误返回 null（由调用方原样抛出）。 */
