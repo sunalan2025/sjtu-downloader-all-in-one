@@ -95,6 +95,8 @@ const api = {
     status: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:status'),
     /** 登出并清除 sjtu session 的 cookies/localStorage */
     logout: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:logout'),
+    /** 显式清理凭据与会话 */
+    clear: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:clear'),
     /** 将 v.sjtu SPA 写入 localStorage 的 jwt-token 传给 main 进程缓存 */
     setJwtToken: (token: string | null): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('auth:set-jwt-token', token)

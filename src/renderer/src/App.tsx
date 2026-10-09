@@ -50,21 +50,35 @@ export default function App() {
   }, [theme])
 
   useEffect(() => {
-    // 启动时检查登录态：已登录直接进 browser，否则停留 welcome
+    // 启动时检查登录态：已登录直接切入 browser，未登录停留 welcome，过期显示重新认证引导
     let cancelled = false
     void (async () => {
       try {
         const a = await window.api.auth.status()
         if (cancelled) return
         setAuth(a)
-        useAppStore.getState().setCloudUserToken(null)
-        useAppStore.getState().setCloudSpaceInfo(null)
+        if (a.loggedIn) {
+          setStage('browser')
+          // 恢复主进程缓存的云盘 token
+          const cloudToken = await window.api.cloudpan.getCachedToken()
+          if (cloudToken) {
+            useAppStore.getState().setCloudUserToken(cloudToken)
+          }
+        } else {
+          useAppStore.getState().setCloudUserToken(null)
+          useAppStore.getState().setCloudSpaceInfo(null)
+          if (a.expired) {
+            console.warn('[App] 会话凭据已过期，停在欢迎页并提示重新登录')
+          }
+        }
       } catch {
         /* ignore */
       }
     })()
-    return () => { cancelled = true }
-  }, [setAuth])
+    return () => {
+      cancelled = true
+    }
+  }, [setAuth, setStage])
 
   const cleanedRef = useRef(false)
   useEffect(() => {

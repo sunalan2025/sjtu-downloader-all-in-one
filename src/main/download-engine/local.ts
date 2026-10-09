@@ -9,6 +9,7 @@ import type { IncomingMessage } from 'node:http'
 import { createWriteStream, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState } from '../../shared/types'
+import { isAllowedSjtuUrl } from './domain-guard'
 import {
   type TaskRuntime,
   type PendingSpec,
@@ -319,10 +320,22 @@ function downloadStream(t: TaskRuntime): Promise<void> {
         (resp: IncomingMessage) => {
           t.resp = resp
           const status = resp.statusCode || 0
-          // 跟随重定向
+          // 跟随重定向：严格强制 SJTU 域名隔离，防止凭证/流量外泄
           if (status >= 300 && status < 400 && resp.headers.location) {
             resp.resume()
-            const next = new URL(resp.headers.location, url).toString()
+            let next: string
+            try {
+              next = new URL(resp.headers.location, url).toString()
+            } catch {
+              fail(new Error(`重定向 URL 解析失败：${resp.headers.location}`))
+              return
+            }
+
+            if (!isAllowedSjtuUrl(next)) {
+              fail(new Error(`安全拦截：重定向目标非 SJTU 官方域 (${sanitizeForLog(next)})`))
+              return
+            }
+
             fetchOnce(next, depth + 1)
             return
           }
@@ -340,15 +353,15 @@ function downloadStream(t: TaskRuntime): Promise<void> {
 
           if (status < 200 || status >= 300) {
             if (status === 429) noteRateLimited()  // 限流信号 → AIMD ×0.6
-            // Canvas 下载端点高并发下偶发 429/403 限流，指数退避重试（仅 oc.sjtu 这一跳；
-            // S3 的 403 是签名/权限永久错误，不重试）
-            const isCanvasRl = (status === 429 || status === 403) && u.hostname === CANVAS_HOST
+            // 对任何 SJTU 域名的 429 (Too Many Requests) 进行指数退避重试；
+            // 403 仅对 oc.sjtu 限流进行重试（S3 的 403 是签名/权限永久错误，不重试）
+            const isRateLimited = status === 429 || (status === 403 && u.hostname === CANVAS_HOST)
             let bodyHead = ''
             resp.on('data', (c: Buffer) => {
               if (bodyHead.length < 200) bodyHead += c.toString('utf8', 0, 200)
             })
             resp.on('end', () => {
-              if (isCanvasRl && rlRetries < CANVAS_RL_MAX_RETRIES && t.state === 'downloading') {
+              if (isRateLimited && rlRetries < CANVAS_RL_MAX_RETRIES && t.state === 'downloading') {
                 rlRetries++
                 const raHdr = resp.headers['retry-after']
                 const raStr = Array.isArray(raHdr) ? raHdr[0] : raHdr

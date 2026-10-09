@@ -143,6 +143,12 @@ export interface AuthStatus {
   studentId?: string
   /** 登录检测的最后一次时间，ISO 字符串 */
   checkedAt?: string
+  /** 凭据是否已失效/过期（用于 UI 重新认证引导） */
+  expired?: boolean
+  /** 凭据有效截止时间戳（毫秒） */
+  expiresAt?: number
+  /** 用户显示名及学号封装 */
+  user?: { name: string; account: string }
 }
 
 /** 当前平台可用的更新安装器资产（GitHub release asset），用于应用内自动下载安装。
