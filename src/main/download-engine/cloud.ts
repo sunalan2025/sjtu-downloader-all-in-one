@@ -7,6 +7,7 @@
 import { request as httpsRequest } from 'node:https'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState, type DownloadTaskSpec } from '../../shared/types'
+import { isAllowedSjtuUrl } from './domain-guard'
 import {
   type CloudTaskRuntime,
   cloudTasks,
@@ -403,18 +404,30 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
 
             if (status >= 300 && status < 400 && resp.headers.location) {
               resp.resume()
-              fetchOnce(new URL(resp.headers.location, url).toString(), depth + 1)
+              let next: string
+              try {
+                next = new URL(resp.headers.location, url).toString()
+              } catch {
+                fail(new Error(`重定向 URL 解析失败：${resp.headers.location}`))
+                return
+              }
+
+              if (!isAllowedSjtuUrl(next)) {
+                fail(new Error(`安全拦截：重定向目标非 SJTU 官方域 (${sanitizeForLog(next)})`))
+                return
+              }
+
+              fetchOnce(next, depth + 1)
               return
             }
 
             if (status < 200 || status >= 300) {
               if (status === 429) noteRateLimited()  // 限流信号 → AIMD ×0.6
-              // Canvas 下载端点高并发下偶发 429/403 限流，指数退避重试（仅 oc.sjtu 这一跳）
-              const isCanvasRl = (status === 429 || status === 403) && u.hostname === CANVAS_HOST
+              const isRateLimited = status === 429 || (status === 403 && u.hostname === CANVAS_HOST)
               let bodyHead = ''
               resp.on('data', (c: Buffer) => { if (bodyHead.length < 200) bodyHead += c.toString('utf8', 0, 200) })
               resp.on('end', () => {
-                if (isCanvasRl && rlRetries < CANVAS_RL_MAX_RETRIES && t.state === 'downloading') {
+                if (isRateLimited && rlRetries < CANVAS_RL_MAX_RETRIES && t.state === 'downloading') {
                   rlRetries++
                   const raHdr = resp.headers['retry-after']
                   const raStr = Array.isArray(raHdr) ? raHdr[0] : raHdr

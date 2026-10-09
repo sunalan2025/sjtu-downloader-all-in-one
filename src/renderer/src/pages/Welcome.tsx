@@ -4,7 +4,9 @@ export function Welcome() {
   const setStage = useAppStore(s => s.setStage)
   const auth = useAppStore(s => s.auth)
 
-  const cta = auth.loggedIn ? '进入主页' : '使用 jAccount 登录'
+  const cta = auth.expired
+    ? '重新登录 (jAccount)'
+    : (auth.loggedIn ? '进入主页' : '使用 jAccount 登录')
   const onStart = (): void => setStage(auth.loggedIn ? 'browser' : 'login')
 
   return (
@@ -81,6 +83,26 @@ export function Welcome() {
           </svg>
           <span>需要连接 <strong>SJTU 校园网</strong>或使用<strong>交大 VPN</strong> 才能正常使用</span>
         </div>
+
+        {/* ── 凭据失效提示 ── */}
+        {auth.expired && (
+          <div className="mt-4 flex items-center justify-center gap-2.5 rounded-xl border border-warning-ring bg-warning-bg px-5 py-3 text-sm text-warning backdrop-blur">
+            <svg
+              className="h-5 w-5 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span>登录已过期：您的 jAccount 访问凭证已失效，请重新扫码以恢复课程访问与下载。</span>
+          </div>
+        )}
 
         {/* ── CTA ── */}
         <div className="mt-6 flex flex-col items-center gap-4">

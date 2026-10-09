@@ -41,7 +41,9 @@ import {
   getAuthInfo,
   vsjtuFetch,
   setJwtToken,
-  clearAuthState
+  clearAuthState,
+  hydrateSjtuSession,
+  saveSessionStore
 } from './auth'
 import {
   getConcurrency,
@@ -226,27 +228,23 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ─── 启动即清登录凭证：无论如何，每次打开 APP 都强制重新扫码登录 ───
-  // 在预热 session 之前抹掉 persist:sjtu 的 cookies/localStorage 等持久化凭证，
-  // 并重置内存态 jwt token / auth 缓存。渲染端 auth:status 必返回未登录 → 停在 welcome，
-  // 用户必须重新扫码。避免上次会话的 jAccount / 云盘 token 残留带来过期态或串号风险。
-  // 清理失败也不阻塞启动（最多凭证残留，用户可手动登出）。
-  clearAuthState()
-  // 清云盘内存态凭证（cachedToken/cachedCred/credExpAt + createdFolderPaths 缓存）。
-  // 重启虽天然为空，但显式清与"销毁所有凭证"语义对齐，并清掉 createdFolderPaths
-  // 避免跨会话脏路径（上次会话缓存的已建目录路径在新会话已无意义）。
-  clearCachedCredentials()
-  try {
-    await clearSjtuSession()
-  } catch (e) {
-    console.error('[startup] 清理登录凭证失败（不阻塞启动）:', e)
-  }
-
   sjtuSession() // 预热持久化 session
   setSession(sjtuSession()) // 云盘 API 使用 Electron session（走系统代理）
+  setCanvasSession(sjtuSession()) // Canvas 使用同一个持久化 session（共享 jAccount 登录态）
 
-  // Canvas 使用同一个持久化 session（共享 jAccount 登录态）
-  setCanvasSession(sjtuSession())
+  // ─── 会话持久化与启动恢复（R1-F1, R1-F3） ───
+  // 移除启动清空凭证，从本地持久化存储 hydrateSjtuSession 恢复会话
+  try {
+    const hydAuth = await hydrateSjtuSession()
+    console.log(
+      '[startup] 会话恢复状态:',
+      hydAuth.loggedIn
+        ? `已登录 (${hydAuth.accountName || hydAuth.studentId})`
+        : '未登录/需重新认证'
+    )
+  } catch (e) {
+    console.error('[startup] 会话恢复失败（不阻塞启动）:', e)
+  }
   // [2.7] Simplified emitter callback — removed dead `scalar` parameter
   setCanvasEmitter((channel, data) => {
     const w = getMainWindow()
@@ -494,12 +492,30 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('auth:logout', async () => {
     clearAuthState()
+    clearCachedCredentials()
+    await clearSjtuSession()
+    return { loggedIn: false, checkedAt: new Date().toISOString() }
+  })
+  ipcMain.handle('auth:clear', async () => {
+    clearAuthState()
+    clearCachedCredentials()
     await clearSjtuSession()
     return { loggedIn: false, checkedAt: new Date().toISOString() }
   })
   ipcMain.handle('auth:status', async () => {
     const info = await getAuthInfo()
-    return { loggedIn: info.loggedIn, accountName: info.accountName, studentId: info.studentId, checkedAt: new Date().toISOString() }
+    return {
+      loggedIn: info.loggedIn,
+      accountName: info.accountName,
+      studentId: info.studentId,
+      user:
+        info.accountName || info.studentId
+          ? { name: info.accountName || '', account: info.studentId || '' }
+          : undefined,
+      expiresAt: info.expiresAt,
+      expired: info.expired,
+      checkedAt: new Date().toISOString()
+    }
   })
 
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
@@ -707,6 +723,7 @@ app.whenReady().then(async () => {
   // getCachedUserToken() 返回 null。与 auth:set-jwt-token 同模式，token 由 main 持有。
   ipcMain.handle('cloudpan:set-cached-token', (_e, token: string | null) => {
     setCachedUserToken(token)
+    saveSessionStore({ cloudUserToken: token ?? undefined })
     return { ok: true }
   })
 
@@ -731,6 +748,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('cloudpan:logout', () => {
     clearCachedCredentials()
+    saveSessionStore({ cloudUserToken: undefined })
     return { ok: true }
   })
 
@@ -774,6 +792,7 @@ app.whenReady().then(async () => {
             // [Bug Fix] SSO 拿到 token 后立即写入 main 缓存，否则后续 spaceInfo / download:start
             // 调 getCachedUserToken() 仍返回 null，导致"已连接却下不了"。
             setCachedUserToken(ut.value)
+            saveSessionStore({ cloudUserToken: ut.value })
             return { ok: true, userToken: ut.value }
           }
         }
