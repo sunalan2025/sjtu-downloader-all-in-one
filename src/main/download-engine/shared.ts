@@ -26,6 +26,7 @@ import type { ChunkedUploader, UploadSessionState } from '../cloudpan'
 import { getVodChannelsCached, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from '../canvas/video-tokens'
 import { sanitizeFsName } from '../../shared/utils'
 import { fetchCnmoocResourceUrl, inferCnmoocExt } from '../cnmooc/api'
+import { vsjtuVodResolver } from './vsjtu-resolver'
 
 // ─── 接口 ───
 
@@ -458,29 +459,15 @@ export async function resolveDirectUrl(
       emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: 0, total: 0, message: '解析直链…' })
     }
     try {
-      const env = await vsjtuFetch(`${V_SJTU_API.vodInfoByCourseId}?courseId=${encodeURIComponent(t.spec.refId)}`) as { success?: boolean; message?: string; data?: VodInfoData }
-      if (!env?.success) throw new Error(String(env?.message || '直链获取失败'))
-      const data = env.data
-      let found = false
-      for (const info of data?.videoInfos ?? []) {
-        if (info.angle === (t.spec.angle ?? 0)) {
-          const url = info.extendPlayUrls?.[0]
-          if (url) { t.spec.url = url; found = true }
-          break
-        }
+      const res = await vsjtuVodResolver.resolveVodStream(
+        t.spec.refId,
+        t.spec.angle ?? 0,
+        async (id) => vsjtuFetch(`${V_SJTU_API.vodInfoByCourseId}?courseId=${encodeURIComponent(id)}`)
+      )
+      if (!res.success || !res.streamUrl) {
+        throw new Error('该课次暂无可用视频流')
       }
-      if (!found) {
-        // [R3-F2] 单视角自适应容错：当指定视角缺失时，自动降级选择第一个有效视角的播放地址
-        for (const info of data?.videoInfos ?? []) {
-          const url = info.extendPlayUrls?.[0]
-          if (url) {
-            t.spec.url = url
-            found = true
-            break
-          }
-        }
-      }
-      if (!found) throw new Error(`该课次暂无可用视频流`)
+      t.spec.url = res.streamUrl
     } catch (err) {
       if (t.state === 'cancelled') return false
       t.state = 'error'

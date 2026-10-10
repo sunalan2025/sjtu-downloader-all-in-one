@@ -126,17 +126,19 @@ export function Browser() {
         }
         return
       }
-      const records: AuditCourseItem[] = env.data?.list ?? []
+      const rawList = (env.data as any)?.records ?? env.data?.list ?? []
+      const records: AuditCourseItem[] = Array.isArray(rawList) ? rawList : []
       const approved = records.filter(r => r.applyStatus === 1)
       // 同一门课多次申请按 resourceId 去重，保留最近一条
       const dedup = new Map<number, Course>()
       for (const r of approved) {
-        const rid = r.auditCourseResources?.[0]?.resourceId
+        const res = (r.auditCourseResources && r.auditCourseResources[0]) || {}
+        const rid = res.resourceId || r.id
         if (!rid) continue
         dedup.set(rid, {
           id: rid,
           applyId: r.id,
-          name: r.subjName || '未命名课程',
+          name: r.subjName || res.courseName || '未命名课程',
           courseCode: r.subjCode,
           teacher: r.teacName,
           term: r.acteTerm,
@@ -153,25 +155,29 @@ export function Browser() {
 
       setScan('scanning', `正在扫描视频…0 / ${list.length}`)
       let done = 0
-      // 课程详情可以并发拉，每完成一个就更新进度
-      await Promise.all(
-        list.map(async c => {
-          try {
-            const det = await window.api.vsjtu.auditCourseDetail(c.id)
-            if (det?.success && det.data) {
-              const tasks = buildTasksForCourse(c, det.data)
-              setTasksForCourse(c.id, tasks)
-            } else {
+      // [R5] 课程详情分批控制并发（每批 5 个），避免瞬时并发击穿或触发 429
+      const BATCH_SIZE = 5
+      for (let i = 0; i < list.length; i += BATCH_SIZE) {
+        const batch = list.slice(i, i + BATCH_SIZE)
+        await Promise.all(
+          batch.map(async c => {
+            try {
+              const det = await window.api.vsjtu.auditCourseDetail(c.id)
+              if (det?.success && det.data) {
+                const tasks = buildTasksForCourse(c, det.data)
+                setTasksForCourse(c.id, tasks)
+              } else {
+                setTasksForCourse(c.id, [])
+              }
+            } catch {
               setTasksForCourse(c.id, [])
+            } finally {
+              done += 1
+              setScan('scanning', `正在扫描视频…${done} / ${list.length}`)
             }
-          } catch {
-            setTasksForCourse(c.id, [])
-          } finally {
-            done += 1
-            setScan('scanning', `正在扫描视频…${done} / ${list.length}`)
-          }
-        })
-      )
+          })
+        )
+      }
       setScan('done')
     } catch (err) {
       setScan('error', '扫描出错：' + String(err))

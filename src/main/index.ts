@@ -43,7 +43,8 @@ import {
   setJwtToken,
   clearAuthState,
   hydrateSjtuSession,
-  saveSessionStore
+  saveSessionStore,
+  loadSessionStoreRaw
 } from './auth'
 import {
   getConcurrency,
@@ -522,29 +523,43 @@ app.whenReady().then(async () => {
     const first = (await vsjtuFetch(V_SJTU_API.auditCourseMy, {
       method: 'POST',
       body: { pageNo, pageSize }
-    })) as { success?: boolean; data?: { totalPage?: number; list?: unknown[] } }
+    })) as { success?: boolean; data?: any }
 
-    if (pageNo === 1 && first?.success && first.data && (first.data.totalPage ?? 1) > 1) {
-      const allList = [...(first.data.list ?? [])]
-      const totalPage = first.data.totalPage!
-      for (let p = 2; p <= totalPage; p++) {
-        try {
-          const next = (await vsjtuFetch(V_SJTU_API.auditCourseMy, {
-            method: 'POST',
-            body: { pageNo: p, pageSize }
-          })) as { success?: boolean; data?: { list?: unknown[] } }
-          if (next?.success && Array.isArray(next.data?.list)) {
-            allList.push(...next.data.list)
+    if (pageNo === 1 && first?.success && first.data) {
+      const getItems = (d: any): unknown[] => {
+        if (!d) return []
+        if (Array.isArray(d.records)) return d.records
+        if (Array.isArray(d.list)) return d.list
+        return []
+      }
+      const totalPage = Number(first.data.totalPage ?? first.data.pages ?? 1) || 1
+      const allRecords = [...getItems(first.data)]
+
+      if (totalPage > 1) {
+        for (let p = 2; p <= totalPage; p++) {
+          try {
+            const next = (await vsjtuFetch(V_SJTU_API.auditCourseMy, {
+              method: 'POST',
+              body: { pageNo: p, pageSize }
+            })) as { success?: boolean; data?: any }
+            if (next?.success && next.data) {
+              allRecords.push(...getItems(next.data))
+            }
+          } catch {
+            break
           }
-        } catch {
-          break
         }
       }
       return {
         ...first,
         data: {
           ...first.data,
-          list: allList
+          records: allRecords,
+          list: allRecords,
+          total: allRecords.length,
+          totalCount: allRecords.length,
+          currPage: 1,
+          totalPage: 1
         }
       }
     }
@@ -782,9 +797,20 @@ app.whenReady().then(async () => {
   ipcMain.handle('cloudpan:direct-login', async () => {
     const ses = sjtuSession()
     try {
-      // [R3-F3] 优先复用有效 USER_TOKEN，避免多余的 SSO 弹窗
-      const existingCookies = await ses.cookies.get({ domain: 'sjtu.edu.cn' })
-      const existingUt = existingCookies.find(c => c.name === 'USER_TOKEN' && c.value.length >= 64)
+      // [R3-F3] 优先复用已有有效 USER_TOKEN (内存缓存 -> 持久化缓存 -> Cookie 缓存)，避免多余的 SSO 弹窗
+      const cachedToken = getCachedUserToken() || loadSessionStoreRaw()?.cloudUserToken
+      if (cachedToken && cachedToken.length >= 32) {
+        const valid = await validateUserToken(cachedToken)
+        if (valid.ok) {
+          setCachedUserToken(cachedToken)
+          saveSessionStore({ cloudUserToken: cachedToken })
+          return { ok: true, userToken: cachedToken }
+        }
+      }
+
+      const existingCookies = await ses.cookies.get({ url: 'https://pan.sjtu.edu.cn' })
+      const existingUt = existingCookies.find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
+        || (await ses.cookies.get({ domain: 'sjtu.edu.cn' })).find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
       if (existingUt) {
         const valid = await validateUserToken(existingUt.value)
         if (valid.ok) {
@@ -813,10 +839,10 @@ app.whenReady().then(async () => {
         // [R3-F3] 点击 SSO 登录按钮：扩大选择器与关键词适配（支持 button、a 标签及包含统一身份认证的入口）
         await win.webContents.executeJavaScript(`
           (function() {
-            var elements = document.querySelectorAll('button, a, [role="button"], .login-btn, .sso-btn');
+            var elements = document.querySelectorAll('button, a, [role="button"], .login-btn, .sso-btn, div, span');
             for (var i = 0; i < elements.length; i++) {
               var text = (elements[i].textContent || '').trim();
-              if (/jaccount|统一身份认证|交大登录/i.test(text)) {
+              if (/jAccount|统一身份认证|统一认证|交大/i.test(text)) {
                 elements[i].click();
                 return;
               }
@@ -827,8 +853,9 @@ app.whenReady().then(async () => {
         // 轮询 USER_TOKEN cookie
         for (let i = 0; i < 40; i++) {
           await new Promise(r => setTimeout(r, 500))
-          const cookies = await ses.cookies.get({ domain: 'sjtu.edu.cn' })
-          const ut = cookies.find(c => c.name === 'USER_TOKEN' && c.value.length >= 64)
+          const cookies = await ses.cookies.get({ url: 'https://pan.sjtu.edu.cn' })
+          const ut = cookies.find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
+            || (await ses.cookies.get({ domain: 'sjtu.edu.cn' })).find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
           if (ut) {
             setCachedUserToken(ut.value)
             saveSessionStore({ cloudUserToken: ut.value })
@@ -838,7 +865,9 @@ app.whenReady().then(async () => {
 
         return { ok: false, error: 'SSO 超时' }
       } finally {
-        win.destroy()
+        if (!win.isDestroyed()) {
+          win.destroy()
+        }
       }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : '登录失败' }

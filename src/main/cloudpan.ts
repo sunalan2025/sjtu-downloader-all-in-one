@@ -86,14 +86,18 @@ async function ensureCred(userToken: string): Promise<CloudPanSpaceCred> {
 
 // ─── path encoding ─────────────────────────────────────────────
 
+export function strictEncodeURIComponent(str: string): string {
+  return encodeURIComponent(str).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
 function enc(segs: string[]): string {
-  return segs.map(s => encodeURIComponent(s)).join('/')
+  return segs.map(strictEncodeURIComponent).join('/')
 }
 
 // ─── public: validate / space info ──────────────────────────────
 
 export async function validateUserToken(userToken: string): Promise<{ ok: boolean; error?: string }> {
-  if (!userToken || userToken.length < 64) return { ok: false, error: 'UserToken 格式不正确' }
+  if (!userToken || userToken.length < 32) return { ok: false, error: 'UserToken 格式不正确' }
   try {
     const cred = await getSpaceCred(userToken)
     cachedToken = userToken; cachedCred = cred; credExpAt = Date.now() + cred.expiresIn * 1000
@@ -282,12 +286,27 @@ export async function startChunkedUpload(userToken: string, remotePath: string):
 
 /** 从保存的会话状态恢复 uploader，跳过已传分片 */
 export async function resumeChunkedUpload(userToken: string, state: UploadSessionState): Promise<ChunkedUploader> {
-  const cred = await ensureCred(userToken)
-  // renew 凭证以获取最新 parts
-  const r = await api<CloudPanStartUploadResult>(
-    `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${state.confirmKey}?renew&access_token=${cred.accessToken}`,
-    { method: 'POST', body: { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => state.nextPart + i) } }
-  )
+  let cred = await ensureCred(userToken)
+  const renewBody = { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => state.nextPart + i) }
+  let r: CloudPanStartUploadResult
+  try {
+    r = await api<CloudPanStartUploadResult>(
+      `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${state.confirmKey}?renew&access_token=${cred.accessToken}`,
+      { method: 'POST', body: renewBody }
+    )
+  } catch (err) {
+    if (err instanceof Error && (err.message.includes('HTTP 401') || err.message.includes('401'))) {
+      cred = await getSpaceCred(userToken)
+      cachedCred = cred
+      credExpAt = Date.now() + cred.expiresIn * 1000
+      r = await api<CloudPanStartUploadResult>(
+        `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${state.confirmKey}?renew&access_token=${cred.accessToken}`,
+        { method: 'POST', body: renewBody }
+      )
+    } else {
+      throw err
+    }
+  }
   return buildUploader(userToken, cred, {
     confirmKey: state.confirmKey,
     domain: state.domain,
@@ -412,15 +431,32 @@ function buildUploader(
     async confirm(): Promise<CloudPanConfirmResult> {
       // COS 在收到 confirm 请求后需要时间整合分片，偶尔会返回 MultipartUploadIncomplete；
       // 网络抖动也可能导致 400/5xx/超时。多次指数退避重试以提升末段鲁棒性。
-      const url = `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${confirmKey}?confirm&conflict_resolution_strategy=overwrite&access_token=${cred.accessToken}`
       const MAX_CONFIRM_RETRIES = 4
       let lastErr: unknown
       for (let attempt = 0; attempt < MAX_CONFIRM_RETRIES; attempt++) {
+        if (userToken) {
+          try {
+            activeCred = await ensureCred(userToken)
+          } catch {
+            // fallback to current activeCred
+          }
+        }
+        const url = `${PAN_BASE}/api/v1/file/${activeCred.libraryId}/${activeCred.spaceId}/${confirmKey}?confirm&conflict_resolution_strategy=overwrite&access_token=${activeCred.accessToken}`
         try {
           return await api<CloudPanConfirmResult>(url, { method: 'POST' })
         } catch (err) {
           lastErr = err
           const msg = err instanceof Error ? err.message : String(err)
+          if ((msg.includes('HTTP 401') || msg.includes('401')) && userToken) {
+            try {
+              activeCred = await getSpaceCred(userToken)
+              cachedCred = activeCred
+              credExpAt = Date.now() + activeCred.expiresIn * 1000
+              continue
+            } catch {
+              // retry with backoff
+            }
+          }
           const retryable = msg.includes('MultipartUploadIncomplete')
             || msg.includes('HTTP 400')
             || msg.includes('HTTP 5')
