@@ -196,6 +196,8 @@ if (gotTheLock) {
   app.quit()
 }
 
+let isAppReady = false
+
 app.whenReady().then(async () => {
   // 未获取单实例锁的进程不执行任何初始化（尤其避免 clearSjtuSession 清掉
   // 已运行实例的凭证），等待上面的 app.quit() 完成退出。
@@ -892,6 +894,9 @@ app.whenReady().then(async () => {
     // macOS dock 点击：有窗口则显示，无则重建
     showMainWindow()
   })
+
+  // 标记应用启动与主窗口就绪，解除启动期 window-all-closed 保护
+  isAppReady = true
 })
 
 /** 退出前清理：销毁所有活跃的 HTTP 请求、文件流、定时器。
@@ -977,6 +982,9 @@ function cleanupOnQuit(): void {
 }
 
 app.on('window-all-closed', () => {
+  // 必须确保初始化已完成且主窗口已建立，
+  // 避免启动期后台静默探测窗口（如 refreshJwtToken / SSO 检查）销毁时误判"全部窗口已关闭"
+  if (!isAppReady) return
   if (process.platform !== 'darwin') app.quit()
 })
 
