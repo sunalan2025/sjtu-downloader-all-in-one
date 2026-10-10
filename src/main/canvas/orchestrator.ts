@@ -170,6 +170,15 @@ async function ensureCanvasLogin(): Promise<boolean> {
   _canvasLoginPromise = (async () => {
     if (_canvasSsoDone) return true
     const session = getSession()
+
+    // 预检：若无有效 jAccount 会话，跳过静默 SSO，绝不弹出可见窗口打扰用户
+    const jaCookies = await session.cookies.get({ domain: 'jaccount.sjtu.edu.cn' }).catch(() => [])
+    const hasJaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
+    if (!hasJaSession) {
+      console.log('[canvas] 无有效 jAccount 会话，跳过静默 SSO')
+      return false
+    }
+
     // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成
     console.log('[canvas] 触发 OIDC SSO（隐藏窗口）…')
     const ok = await completeOidcSso(session, false)
@@ -221,10 +230,15 @@ async function completeOidcSso(session: Electron.Session, show: boolean): Promis
     console.log('[canvas] SSO 超时，最后 URL:', win.webContents.getURL().slice(0, 120))
     return false
   } catch (e) {
-    console.log('[canvas] SSO 异常:', e)
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!msg.includes('ERR_FAILED (-2)')) {
+      console.log('[canvas] SSO 异常:', e)
+    }
     return false
   } finally {
-    win.destroy()
+    if (!win.isDestroyed()) {
+      win.destroy()
+    }
   }
 }
 
