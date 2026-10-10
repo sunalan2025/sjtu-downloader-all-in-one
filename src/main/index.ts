@@ -837,17 +837,24 @@ app.whenReady().then(async () => {
       })
 
       try {
-        await win.loadURL('https://pan.sjtu.edu.cn')
+        await win.loadURL('https://pan.sjtu.edu.cn').catch(e => {
+          const msg = e instanceof Error ? e.message : String(e)
+          if (msg.includes('ERR_CONNECTION_TIMED_OUT') || msg.includes('ETIMEDOUT')) {
+            throw new Error('网络连接超时，请检查是否已连接校园网或交大 VPN')
+          }
+          throw e
+        })
         await new Promise(r => setTimeout(r, 2000))
 
-        // [R3-F3] 点击 SSO 登录按钮：扩大选择器与关键词适配（支持 button、a 标签及包含统一身份认证的入口）
+        // [R3-F3] 点击 SSO 登录按钮：精准定位交大云盘真实的登录按钮
         await win.webContents.executeJavaScript(`
           (function() {
-            var elements = document.querySelectorAll('button, a, [role="button"], .login-btn, .sso-btn, div, span');
-            for (var i = 0; i < elements.length; i++) {
-              var text = (elements[i].textContent || '').trim();
-              if (/jAccount|统一身份认证|统一认证|交大/i.test(text)) {
-                elements[i].click();
+            var btn = document.querySelector('.linear-gradient-btn');
+            if (btn) { btn.click(); return; }
+            var buttons = document.querySelectorAll('button');
+            for (var i = 0; i < buttons.length; i++) {
+              if (buttons[i].textContent.includes('jAccount登录')) {
+                buttons[i].click();
                 return;
               }
             }
