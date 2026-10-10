@@ -96,4 +96,40 @@ export function formatBytes(b: number): string {
   return `${(b / 1024 / 1024 / 1024 / 1024).toFixed(2)} TB`
 }
 
+/**
+ * 将课程按学期归类 (R2-F1)。
+ * 支持 raw API 对象 (term: { name: string }) 与已解析的 CanvasCourse (term: string)。
+ * term 缺失、空或 null 时归类到 '(无学期)'。
+ */
+export function groupCoursesByTerm<T extends { term?: string | { name?: string } | null }>(
+  courses: T[]
+): Record<string, T[]> {
+  const grouped: Record<string, T[]> = {}
+  for (const c of courses) {
+    let termName = ''
+    if (typeof c.term === 'string') {
+      termName = c.term.trim()
+    } else if (c.term && typeof c.term === 'object' && typeof c.term.name === 'string') {
+      termName = c.term.name.trim()
+    }
+    const key = termName || '(无学期)'
+    if (!grouped[key]) grouped[key] = []
+    grouped[key].push(c)
+  }
+  return grouped
+}
+
+/**
+ * 学期逆序排序 (R2-F1)。
+ * 按照时间倒序排列（最新学期排在最前，'(无学期)' 排在最后）。
+ */
+export function sortAcademicTerms(terms: string[]): string[] {
+  return [...terms].sort((a, b) => {
+    if (a === '(无学期)') return 1
+    if (b === '(无学期)') return -1
+    return b.localeCompare(a, 'zh-CN', { numeric: true })
+  })
+}
+
+
 

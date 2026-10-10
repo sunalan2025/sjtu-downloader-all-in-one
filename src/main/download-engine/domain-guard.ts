@@ -115,3 +115,59 @@ export function calculateBackoffMs(
 }
 
 export const calculateRateLimitBackoffMs = calculateBackoffMs
+
+// ─── 预签名直链与 302 重定向拦截 (R2-F3) ───────────────────────
+
+export interface RedirectInterceptResult {
+  action: 'follow' | 'abort'
+  reason?: string
+  nextUrl?: string
+}
+
+/**
+ * 拦截并校验下载 302 重定向目标 (R2-F3, R5-F1)。
+ * 1. 检测是否重定向到登录/认证页 (/login/canvas, /login, jaccount.sjtu.edu.cn) -> 会话失效拦截，避免下载 HTML 登录页。
+ * 2. 检测重定向目标是否为 SJTU 受信官方域 (isAllowedSjtuUrl) -> 安全域名白名单校验。
+ * 3. 校验通过则放行跟随 (follow)。
+ */
+export function interceptDownloadRedirect(
+  locationHeader: string,
+  requestUrl: string
+): RedirectInterceptResult {
+  let parsed: URL
+  try {
+    parsed = new URL(locationHeader, requestUrl)
+  } catch {
+    return {
+      action: 'abort',
+      reason: `重定向 URL 解析失败：${locationHeader}`
+    }
+  }
+
+  const host = parsed.hostname.toLowerCase()
+  const path = parsed.pathname.toLowerCase()
+
+  // 1. 检查会话失效导致的登录页重定向 (精确限定 Canvas 登录路径与 jAccount 域名)
+  if (
+    host === 'jaccount.sjtu.edu.cn' ||
+    host.endsWith('.jaccount.sjtu.edu.cn') ||
+    (host === 'oc.sjtu.edu.cn' && (path.startsWith('/login') || path === '/login'))
+  ) {
+    return {
+      action: 'abort',
+      reason: 'Canvas 会话失效，下载重定向至登录页'
+    }
+  }
+
+  const next = parsed.toString()
+
+  // 2. 检查 SJTU 官方安全域名白名单
+  if (!isAllowedSjtuUrl(next)) {
+    return {
+      action: 'abort',
+      reason: `禁止向非交大受信域重定向: ${next}`
+    }
+  }
+
+  return { action: 'follow', nextUrl: next }
+}

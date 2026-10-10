@@ -260,6 +260,8 @@ export interface DownloadTaskSpec {
   refId?: number
   /** 视角：0=教师, 3=PPT */
   angle?: number
+  /** 是否为 HLS 视频流（.m3u8） */
+  isHls?: boolean
 }
 
 /** 下载/上传任务状态机 */
@@ -405,6 +407,26 @@ export interface CanvasModuleItem {
   id: number | null
   /** ExternalTool/ExternalUrl 的 external_url（v.sjtu playerPage 或 vshare play 页） */
   externalUrl: string | null
+}
+
+/** Canvas 课程资源扫描结果汇总 (scanCourse) (R2-F2) */
+export interface CourseResourceSummary {
+  /** 扫描是否成功（403 容错降级成功亦为 true） */
+  ok: boolean
+  /** 文件 Tab 是否可直接访问（403 时为 false） */
+  filesTabAccessible: boolean
+  /** 常规文件列表（若 403 则为空数组） */
+  files: CanvasFileItem[]
+  /** 文件夹映射树（若 403 则为空对象） */
+  folderMap: Record<number, string>
+  /** 从单元/模块中提取恢复的课件文件 */
+  moduleFiles: CanvasFileItem[]
+  /** 从教学大纲正文中提取恢复的课件文件 */
+  syllabusFiles: CanvasFileItem[]
+  /** 友好告警提示（例如 403 降级说明） */
+  warning?: string
+  /** 错误信息（致命失败如未登录/网络中断时提供） */
+  error?: string
 }
 
 /** "课堂视频new" 一次录课会话 */
@@ -588,6 +610,8 @@ export interface PptDownloadOpts {
     teacher: string
     classroom: string
   }
+  /** 是否保留高清切片图片至同级切片文件夹（默认 false） */
+  saveImages?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────

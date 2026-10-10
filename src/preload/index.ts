@@ -7,6 +7,7 @@ import type {
   CanvasCourse,
   CanvasDownloadTaskSpec,
   CanvasFileItem,
+  CourseResourceSummary,
   CanvasLectureDownloadItem,
   CanvasLectureGroup,
   CanvasTeacherSelection,
@@ -168,15 +169,8 @@ const api = {
     /** 列出当前用户所有 Canvas 课程 */
     listCourses: (): Promise<{ ok: boolean; courses?: CanvasCourse[]; error?: string }> =>
       ipcRenderer.invoke('canvas:list-courses'),
-    /** 扫描一门 Canvas 课程的文件和模块结构 */
-    scanCourse: (courseId: number): Promise<{
-      ok: boolean
-      files?: CanvasFileItem[]
-      folderMap?: Record<number, string>
-      moduleFiles?: CanvasFileItem[]
-      syllabusFiles?: CanvasFileItem[]
-      error?: string
-    }> =>
+    /** 扫描一门 Canvas 课程的文件和模块结构 (R2-F2) */
+    scanCourse: (courseId: number): Promise<CourseResourceSummary> =>
       ipcRenderer.invoke('canvas:scan-course', courseId),
     /** 根据已扫描的文件列表构建 DownloadTaskSpec 数组 */
     buildDownloadSpecs: (
@@ -303,6 +297,7 @@ const api = {
       conflictStrategy?: FileConflictStrategy
       term?: string
       videoSession?: { beginTime: string; teacher: string; classroom: string }
+      saveImages?: boolean
     }): Promise<{ ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download', opts),
     /** 批量下载多讲 PPT 课件（可选云盘上传）。进度事件 canvas:ppt-progress 带 taskId，
@@ -315,6 +310,7 @@ const api = {
       cloudUserToken?: string
       conflictStrategy?: FileConflictStrategy
       term?: string
+      saveImages?: boolean
     }): Promise<{ ok: boolean; results?: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }>; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download-batch', opts),
     /** 订阅 PPT 下载进度事件（含 taskId，用于映射到 UI 进度条） */

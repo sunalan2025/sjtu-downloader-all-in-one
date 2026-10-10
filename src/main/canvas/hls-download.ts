@@ -9,12 +9,25 @@ import { request as httpsRequest, Agent as HttpsAgent } from 'node:https'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { IncomingMessage } from 'node:http'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, session } from 'electron'
 import type Electron from 'electron'
 import { sanitizeForLog } from './safe-fetch'
 
 /** 跟踪所有活跃的 ffmpeg 子进程，退出时 kill 防止残留 */
 const activeFfmpegProcesses = new Set<ChildProcess>()
+
+/** 解析打包或本地环境下的 FFmpeg 可执行路径（支持 asar.unpacked 修复） */
+export function resolveBundledFfmpeg(
+  bundledPath: string,
+  fileExists: (p: string) => boolean = existsSync
+): string {
+  if (!bundledPath) return 'ffmpeg'
+  // In packaged app, replace app.asar with app.asar.unpacked
+  const unpackedPath = bundledPath.replace('app.asar', 'app.asar.unpacked')
+  if (fileExists(unpackedPath)) return unpackedPath
+  if (fileExists(bundledPath)) return bundledPath
+  return 'ffmpeg'
+}
 
 /** ffmpeg 可执行路径。
  *  优先用 ffmpeg-static 内置二进制（npm install 时按宿主平台下载到
@@ -24,7 +37,7 @@ const activeFfmpegProcesses = new Set<ChildProcess>()
  *  缺失时（未安装/平台不支持/文件损坏）回退 'ffmpeg' 走系统 PATH，保留旧行为。 */
 let bundledFfmpegPath = ''
 try { bundledFfmpegPath = require('ffmpeg-static') as string } catch { /* 未安装，走系统 ffmpeg 兜底 */ }
-const FFMPEG_PATH = (bundledFfmpegPath && existsSync(bundledFfmpegPath)) ? bundledFfmpegPath : 'ffmpeg'
+export const FFMPEG_PATH = resolveBundledFfmpeg(bundledFfmpegPath)
 
 /** 退出时杀死所有 ffmpeg 子进程 */
 export function killAllFfmpeg(): void {
@@ -117,7 +130,8 @@ export async function resolveM3u8(
   for (let i = 0; i < maxDepth; i++) {
     for (let retry = 0; retry <= MAX_FETCH_RETRIES; retry++) {
       try {
-        const resp = await ses.fetch(url, {
+        const fetchFn = (ses && typeof ses.fetch === 'function') ? ses.fetch.bind(ses) : fetch
+        const resp = await fetchFn(url, {
           headers: { Referer: TV_REFERER, 'User-Agent': USER_AGENT }
         })
         const text = await resp.text()
@@ -535,6 +549,57 @@ export async function downloadModuleVideo(
     if (ok) return { path: m4aPath, format: 'm4a' }
   }
   return { path: tsPath, format: 'ts' }
+}
+
+// ─── 课堂视频 HLS 下载管道 ──────────────────────────────────
+
+export interface HlsOptions {
+  session?: Electron.Session
+  onProgress?: (p: HlsProgress) => void
+  maxWorkers?: number
+  transcodeMaxHeight?: number
+  isAudioOnly?: boolean
+}
+
+/** 完整 HLS 视频下载管道：下载 TS 切片并在本地通过 FFmpeg remux 为标准 MP4 文件 */
+export async function downloadHlsVideo(
+  m3u8Url: string,
+  destMp4Path: string,
+  options?: HlsOptions
+): Promise<{ path: string; format: 'mp4' | 'ts' }> {
+  const ses = options?.session ?? (session && session.defaultSession ? session.defaultSession : ({} as Electron.Session))
+  const tsPath = destMp4Path.endsWith('.mp4')
+    ? destMp4Path.slice(0, -4) + '.ts'
+    : destMp4Path + '.ts'
+
+  // 1. 下载 HLS 切片
+  await downloadHls(ses, m3u8Url, tsPath, options?.onProgress, options?.maxWorkers)
+
+  // 2. remux TS 到 MP4
+  options?.onProgress?.({
+    phase: 'remuxing',
+    segmentsDone: 0,
+    segmentsTotal: 0,
+    bytesWritten: 0,
+    message: '正在合并转码 MP4…'
+  })
+
+  const remuxOk = await remuxTsToMp4(tsPath, destMp4Path)
+  if (remuxOk) {
+    if (options?.transcodeMaxHeight) {
+      const tmpOut = destMp4Path + '.transcode.mp4'
+      await transcodeVideo(destMp4Path, tmpOut, options.transcodeMaxHeight, options.onProgress)
+    }
+    return { path: destMp4Path, format: 'mp4' }
+  }
+
+  // 若 FFmpeg remux 失败，退化为将 .ts 转为目标文件名，防止文件丢失
+  try {
+    if (existsSync(tsPath) && !existsSync(destMp4Path)) {
+      renameSync(tsPath, destMp4Path)
+    }
+  } catch { /* ignore */ }
+  return { path: destMp4Path, format: 'ts' }
 }
 
 function sleep(ms: number): Promise<void> {

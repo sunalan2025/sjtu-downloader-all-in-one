@@ -16,8 +16,10 @@ import {
   type CanvasDownloadTaskSpec,
   type CanvasFileItem,
   type CanvasLectureDownloadItem,
+  type CanvasModule,
   type CanvasTeacherSelection,
-  type CanvasVideoSession
+  type CanvasVideoSession,
+  type CourseResourceSummary
 } from '../../shared/types'
 import {
   listCourses,
@@ -31,14 +33,16 @@ import {
   extractVideoIframes,
   extractVshareLinks,
   fetchFileMeta,
-  sanitizeFsName
+  sanitizeFsName,
+  isForbiddenError
 } from './api'
 import {
   extractLtiToken,
   fetchVodVideoList,
   buildClassVideoFileName,
   extractLectureNum,
-  resolveIvsVideoId
+  resolveIvsVideoId,
+  isClassVideoTab
 } from './video-tokens'
 import { downloadModuleVideo } from './hls-download'
 import { cloudFileExists, uploadLocalFileToCloud } from '../cloudpan'
@@ -237,6 +241,116 @@ function isCanvasDashboardUrl(url: string): boolean {
   return true
 }
 
+/**
+ * 扫描单个 Canvas 课程资源（含 403 文件 Tab 容错与模块/大纲附件补漏） (R2-F2)
+ */
+export async function scanCourse(
+  session: Electron.Session,
+  courseId: number
+): Promise<CourseResourceSummary> {
+  try {
+    emitScanProgress(courseId, 'files', '正在扫描文件和模块…')
+
+    const [folderMapRes, filesRes, modulesRes, syllabusRes] = await Promise.allSettled([
+      fetchFolderMap(session, courseId),
+      fetchCourseFiles(session, courseId),
+      fetchCourseModules(session, courseId),
+      fetchSyllabusBody(session, courseId)
+    ])
+
+    let filesTabAccessible = true
+    let files: CanvasFileItem[] = []
+    let folderMap = new Map<number, string>()
+    let warning: string | undefined
+
+    // 1. 处理文件列表结果 (403 容错)
+    if (filesRes.status === 'fulfilled') {
+      files = filesRes.value
+    } else {
+      if (isForbiddenError(filesRes.reason)) {
+        filesTabAccessible = false
+        files = []
+        warning = '教师已禁用文件列表，已自动从单元和大纲提取可用课件'
+        console.warn(`[canvas] 课程 ${courseId} 文件 Tab 禁用 (403 Forbidden)，已降级至模块和大纲提取`)
+      } else {
+        throw filesRes.reason
+      }
+    }
+
+    // 2. 处理文件夹树映射 (403 容错)
+    if (folderMapRes.status === 'fulfilled') {
+      folderMap = folderMapRes.value
+    } else {
+      if (isForbiddenError(folderMapRes.reason) || !filesTabAccessible) {
+        folderMap = new Map<number, string>()
+      } else {
+        console.warn(`[canvas] 课程 ${courseId} fetchFolderMap 失败:`, folderMapRes.reason)
+        folderMap = new Map<number, string>()
+      }
+    }
+
+    // 3. 处理模块列表 (容错)
+    let modules: CanvasModule[] = []
+    if (modulesRes.status === 'fulfilled') {
+      modules = modulesRes.value
+    } else {
+      console.warn(`[canvas] 课程 ${courseId} fetchCourseModules 失败:`, modulesRes.reason)
+      modules = []
+    }
+
+    // 4. 处理教学大纲 (容错)
+    let syllabusHtml = ''
+    if (syllabusRes.status === 'fulfilled') {
+      syllabusHtml = syllabusRes.value
+    } else {
+      console.warn(`[canvas] 课程 ${courseId} fetchSyllabusBody 失败:`, syllabusRes.reason)
+      syllabusHtml = ''
+    }
+
+    // 5. 模块与大纲附件提取去重
+    const knownFileIds = new Set(files.filter(f => f.url).map(f => f.fileId))
+    const moduleFileIds: number[] = []
+    for (const m of modules) {
+      for (const item of m.items) {
+        if (item.type === 'File' && item.contentId && !knownFileIds.has(item.contentId)) {
+          moduleFileIds.push(item.contentId)
+          knownFileIds.add(item.contentId)
+        }
+      }
+    }
+
+    const syllabusFileIds = extractCanvasFileIds(syllabusHtml)
+      .filter(id => !knownFileIds.has(id))
+
+    // 补漏文件（模块/大纲里出现、但不在常规文件列表里的 File）取 meta，
+    // 当作普通 Canvas 文件合并进 UI 的 files 列表，统一走 canvas-files 下载路径。
+    const moduleFiles = await fetchFileMetaBatch(session, moduleFileIds)
+    const syllabusFiles = await fetchFileMetaBatch(session, syllabusFileIds, -3)
+
+    emitScanProgress(courseId, 'done', '扫描完成')
+
+    return {
+      ok: true,
+      filesTabAccessible,
+      files: files.filter(f => f.url && !f.locked),
+      folderMap: Object.fromEntries(folderMap),
+      moduleFiles,
+      syllabusFiles,
+      warning
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      filesTabAccessible: false,
+      files: [],
+      folderMap: {},
+      moduleFiles: [],
+      syllabusFiles: [],
+      error: err instanceof Error ? err.message : String(err)
+    }
+  }
+}
+
 // ─── 注册所有 Canvas IPC handler ──────────────────────────────
 
 export function registerCanvasHandlers(): void {
@@ -269,52 +383,9 @@ export function registerCanvasHandlers(): void {
 
   // ─── 扫描课程（文件 + modules + syllabus） ───
   ipcMain.handle('canvas:scan-course', async (_e, courseId: number) => {
-    try {
-      const session = getSession()
-      emitScanProgress(courseId, 'files', '正在扫描文件和模块…')
-
-      // PERF: 并行拉取四组独立 API（共享 courseId），扫描时间从 ~4s 降到 ~1s
-      const [folderMap, files, modules, syllabusHtml] = await Promise.all([
-        fetchFolderMap(session, courseId),
-        fetchCourseFiles(session, courseId),
-        fetchCourseModules(session, courseId),
-        fetchSyllabusBody(session, courseId)
-      ])
-
-      const knownFileIds = new Set(files.filter(f => f.url).map(f => f.fileId))
-      const moduleFileIds: number[] = []
-      for (const m of modules) {
-        for (const item of m.items) {
-          if (item.type === 'File' && item.contentId && !knownFileIds.has(item.contentId)) {
-            moduleFileIds.push(item.contentId)
-            knownFileIds.add(item.contentId)
-          }
-        }
-      }
-
-      const syllabusFileIds = extractCanvasFileIds(syllabusHtml)
-        .filter(id => !knownFileIds.has(id))
-
-      // 补漏文件（模块/大纲里出现、但不在常规文件列表里的 File）取 meta，
-      // 当作普通 Canvas 文件合并进 UI 的 files 列表，统一走 canvas-files 下载路径。
-      // 模块补漏用真实 folderId（落真实 Canvas 文件夹，查不到兜底 files/ 根）；
-      // 大纲补漏固定落 files/大纲/（对应浏览器「大纲」tab，其真实 folder 不在课程 folderMap 里）。
-      const moduleFiles = await fetchFileMetaBatch(session, moduleFileIds)
-      const syllabusFiles = await fetchFileMetaBatch(session, syllabusFileIds, -3)
-
-      emitScanProgress(courseId, 'done', '扫描完成')
-
-      return {
-        ok: true,
-        files: files.filter(f => f.url && !f.locked),
-        folderMap: Object.fromEntries(folderMap),
-        moduleFiles,
-        syllabusFiles
-      }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
+    return scanCourse(getSession(), courseId)
   })
+
 
   // ─── 构建下载任务 spec 列表 ───
   ipcMain.handle(
@@ -369,7 +440,7 @@ export function registerCanvasHandlers(): void {
       // 1. 找 tab
       emitScanProgress(courseId, 'class-video', '')
       const tabs = await fetchCourseTabs(session, courseId)
-      const tab = tabs.find(t => t.label.includes('课堂视频new'))
+      const tab = tabs.find(t => isClassVideoTab(t.label))
       if (!tab) return { ok: true, sessions: [], teachers: [] }
 
       // 2. LTI token 提取（最耗时的步骤）
@@ -453,7 +524,8 @@ export function registerCanvasHandlers(): void {
               canvasCourseId: courseId,
               canvasVideoId: s.videoId,
               canvasVideoToken: token,
-              canvasStreamIdx: chIdx
+              canvasStreamIdx: chIdx,
+              isHls: true
             })
           }
         }
@@ -517,7 +589,8 @@ export function registerCanvasHandlers(): void {
               canvasCourseId: courseId,
               canvasVideoId: session.videoId,
               canvasVideoToken: token,
-              canvasStreamIdx: chIdx
+              canvasStreamIdx: chIdx,
+              isHls: true
             })
           }
         }
@@ -843,7 +916,7 @@ export function registerCanvasHandlers(): void {
       lectureName: string
       videoSession?: { beginTime: string; teacher: string; classroom: string }
     },
-    baseOpts: { courseName: string; destRoot: string; term?: string },
+    baseOpts: { courseName: string; destRoot: string; term?: string; saveImages?: boolean },
     cloudOpts: { cloudUserToken?: string; conflictStrategy?: 'skip' | 'overwrite' },
     cPath: string,
     taskId: string | undefined,
@@ -880,7 +953,8 @@ export function registerCanvasHandlers(): void {
       destRoot: baseOpts.destRoot,
       term: baseOpts.term,
       videoSession: lecture.videoSession,
-      conflictStrategy: cloudOpts.conflictStrategy
+      conflictStrategy: cloudOpts.conflictStrategy,
+      saveImages: baseOpts.saveImages
     }, onLectureProgress)
 
     // 无 PPT 课件（skipped 且无 path）→ 跳过；本地已存在 PDF（skipped 但有 path）→ 继续走上传
@@ -944,6 +1018,7 @@ export function registerCanvasHandlers(): void {
     conflictStrategy?: 'skip' | 'overwrite'
     term?: string
     videoSession?: { beginTime: string; teacher: string; classroom: string }
+    saveImages?: boolean
   }) => {
     try {
       const session = getSession()
@@ -955,7 +1030,7 @@ export function registerCanvasHandlers(): void {
       const result = await runPptLecture(
         session, token,
         { ivsVideoId: opts.ivsVideoId, lectureName: opts.lectureName, videoSession: opts.videoSession },
-        { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term },
+        { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages },
         { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy },
         cPath, opts.taskId,
         (current, total, phase) => {
@@ -982,6 +1057,7 @@ export function registerCanvasHandlers(): void {
     cloudUserToken?: string
     conflictStrategy?: 'skip' | 'overwrite'
     term?: string
+    saveImages?: boolean
   }) => {
     try {
       const session = getSession()
@@ -1008,7 +1084,7 @@ export function registerCanvasHandlers(): void {
         }
         const result = await runPptLecture(
           session, token, lecture,
-          { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term },
+          { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages },
           { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy },
           cPath, taskId,
           (imgCurrent, imgTotal, phase) => {

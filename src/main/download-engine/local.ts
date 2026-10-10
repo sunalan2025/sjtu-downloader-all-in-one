@@ -9,7 +9,12 @@ import type { IncomingMessage } from 'node:http'
 import { createWriteStream, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState } from '../../shared/types'
-import { isAllowedSjtuUrl } from './domain-guard'
+import { isAllowedSjtuUrl, interceptDownloadRedirect } from './domain-guard'
+import {
+  assertDownloadIntegrity,
+  verifyDownloadIntegrity,
+  isHtmlExtension
+} from './integrity'
 import {
   type TaskRuntime,
   type PendingSpec,
@@ -31,8 +36,11 @@ import {
   destroyLocalHandles,
   removeFromSpecArray,
   extractErrorMessage,
-  sharedActiveCount
+  sharedActiveCount,
+  isHlsStreamTask
 } from './shared'
+import { downloadHlsVideo } from '../canvas/hls-download'
+import { sjtuSession } from '../session'
 import {
   noteTaskResult,
   noteNetworkRecovery,
@@ -114,19 +122,25 @@ async function runTask(t: TaskRuntime): Promise<void> {
     try { unlinkSync(t.filePath) } catch { /* 不存在则忽略 */ }
     try { unlinkSync(t.partPath) } catch { /* ignore */ }
   } else {
-    // skip 策略：statSync(throwIfNoEntry:false) 单次调用判存在，之后仅 return 无文件操作
-    if (statSync(t.filePath, { throwIfNoEntry: false })) {
-      t.state = 'skipped'
-      emitProgress({
-        taskId: t.spec.taskId,
-        state: 'skipped',
-        received: 0,
-        total: 0,
-        filePath: t.filePath,
-        message: '已存在，跳过'
-      })
-      scheduleCleanupTask(t.spec.taskId, false)
-      return
+    // skip 策略：检查已存在文件是否有效；若既有文件损坏（0 字节或非允许 HTML 错误页），则删除以自愈重新下载
+    const existing = statSync(t.filePath, { throwIfNoEntry: false })
+    if (existing) {
+      const integrity = verifyDownloadIntegrity(t.filePath, 1, isHtmlExtension(t.filePath))
+      if (integrity.valid) {
+        t.state = 'skipped'
+        emitProgress({
+          taskId: t.spec.taskId,
+          state: 'skipped',
+          received: 0,
+          total: 0,
+          filePath: t.filePath,
+          message: '已存在，跳过'
+        })
+        scheduleCleanupTask(t.spec.taskId, false)
+        return
+      }
+      // 既有文件损坏，清除以自愈
+      try { unlinkSync(t.filePath) } catch { /* ignore */ }
     }
   }
 
@@ -149,6 +163,36 @@ async function runTask(t: TaskRuntime): Promise<void> {
   })
 
   try {
+    if (isHlsStreamTask(t.spec)) {
+      await downloadHlsVideo(t.spec.url, t.filePath, {
+        session: sjtuSession(),
+        onProgress: (p) => {
+          if (t.state === 'cancelled' || t.state === 'paused') return
+          t.received = p.bytesWritten || p.segmentsDone
+          t.total = p.segmentsTotal || 0
+          emitProgress({
+            taskId: t.spec.taskId,
+            state: 'downloading',
+            received: t.received,
+            total: t.total,
+            unit: p.bytesWritten ? 'bytes' : 'count',
+            message: p.message || (p.phase === 'downloading' ? `下载切片 (${p.segmentsDone}/${p.segmentsTotal})` : p.phase === 'remuxing' ? '正在合并转码 MP4…' : '')
+          })
+        }
+      })
+      assertDownloadIntegrity(t.filePath, 1, false)
+      t.state = 'done'
+      emitProgress({
+        taskId: t.spec.taskId,
+        state: 'done',
+        received: t.received,
+        total: t.total || t.received,
+        filePath: t.filePath
+      })
+      scheduleCleanupTask(t.spec.taskId, false)
+      return
+    }
+
     // 本地下载自动重试：网络错误（socket hang up 等）时最多重试 3 次
     const MAX_DL_RETRIES = 3
     for (let attempt = 0; ; attempt++) {
@@ -174,6 +218,17 @@ async function runTask(t: TaskRuntime): Promise<void> {
         }
         throw retryErr
       }
+    }
+    // 校验完整性并转正落盘 (R2-F4)
+    try {
+      assertDownloadIntegrity(t.partPath, 1, isHtmlExtension(t.filePath))
+    } catch (integrityErr) {
+      try {
+        unlinkSync(t.partPath)
+      } catch {
+        /* ignore */
+      }
+      throw integrityErr
     }
     renameSync(t.partPath, t.filePath)
     t.state = 'done'
@@ -214,9 +269,14 @@ async function runTask(t: TaskRuntime): Promise<void> {
       // cancelTask 已 emit
       return
     }
-    // 真正的下载错误
+    // 真正的下载错误：释放句柄并清理损坏的 .part 文件
     try {
       t.ws?.destroy()
+    } catch {
+      /* ignore */
+    }
+    try {
+      unlinkSync(t.partPath)
     } catch {
       /* ignore */
     }
@@ -320,23 +380,16 @@ function downloadStream(t: TaskRuntime): Promise<void> {
         (resp: IncomingMessage) => {
           t.resp = resp
           const status = resp.statusCode || 0
-          // 跟随重定向：严格强制 SJTU 域名隔离，防止凭证/流量外泄
+          // 跟随重定向：严格强制 SJTU 域名隔离，防止凭证/流量外泄与会话过期下载 HTML (R2-F3)
           if (status >= 300 && status < 400 && resp.headers.location) {
             resp.resume()
-            let next: string
-            try {
-              next = new URL(resp.headers.location, url).toString()
-            } catch {
-              fail(new Error(`重定向 URL 解析失败：${resp.headers.location}`))
+            const intercept = interceptDownloadRedirect(resp.headers.location, url)
+            if (intercept.action === 'abort') {
+              fail(new Error(intercept.reason || '重定向被拦截'))
               return
             }
 
-            if (!isAllowedSjtuUrl(next)) {
-              fail(new Error(`安全拦截：重定向目标非 SJTU 官方域 (${sanitizeForLog(next)})`))
-              return
-            }
-
-            fetchOnce(next, depth + 1)
+            fetchOnce(intercept.nextUrl || resp.headers.location, depth + 1)
             return
           }
 
