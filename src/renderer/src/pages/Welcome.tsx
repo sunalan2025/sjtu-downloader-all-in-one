@@ -10,89 +10,157 @@ export function Welcome() {
 
   const onStart = (): void => setStage(auth.loggedIn ? 'browser' : 'login')
 
+  const serviceItems = [
+    {
+      id: 'canvas',
+      title: 'Canvas 教学平台',
+      desc: '课程课件资料、大纲附件、课堂视频与讲义 PDF',
+      icon: (
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
+          <path d="M6 6h10" />
+          <path d="M6 10h10" />
+        </svg>
+      )
+    },
+    {
+      id: 'lecture',
+      title: '交大课堂实录',
+      desc: '旁听课程回放、教师与 PPT 双视角高清视频流',
+      icon: (
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="4" width="20" height="16" rx="3" />
+          <path d="M10 9l5 3-5 3V9z" fill="currentColor" stroke="none" />
+        </svg>
+      )
+    },
+    {
+      id: 'cnmooc',
+      title: '好大学在线',
+      desc: '在线慕课课程、章节视频与配套课件文档一键同步',
+      icon: (
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M22 10L12 5 2 10l10 5 10-5z" />
+          <path d="M6 12v5c0 1 2.7 2.5 6 2.5s6-1.5 6-2.5v-5" />
+          <path d="M22 10v6" />
+        </svg>
+      )
+    },
+    {
+      id: 'cloudpan',
+      title: '交大云盘备份',
+      desc: '单点登录高速分片直传，一份带宽本地与云端双备份',
+      icon: (
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+        </svg>
+      )
+    }
+  ]
+
   return (
-    <div className="relative flex h-full w-full items-center justify-center p-6 select-none overflow-hidden">
-      {/* 柔和环境光晕背景 */}
-      <div className="pointer-events-none absolute inset-0 -z-10 bg-hero-radial opacity-70 blur-3xl" />
-
-      {/* 悬浮毛玻璃居中卡片 */}
-      <div className="animate-fadeIn relative w-full max-w-[480px] rounded-3xl border border-bd bg-surface-1/85 p-8 sm:p-10 shadow-card backdrop-blur-xl flex flex-col items-center text-center">
-        {/* 顶部精致应用 Logo */}
-        <div className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-accent-15 via-accent-10 to-cloud-10 text-accent ring-1 ring-accent-25 shadow-sm">
-          <span className="absolute -inset-1 rounded-2xl bg-accent opacity-20 blur-md" />
-          <svg className="relative h-8 w-8 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z" />
-            <path d="M6 6h10" />
-            <path d="M6 10h10" />
-            <path d="m9 16 3 3 3-3" />
-            <path d="M12 13v6" />
-          </svg>
-        </div>
-
-        {/* 标题与定位 */}
-        <h1 className="text-2xl font-bold tracking-tight text-text-1 sm:text-3xl">
-          SJTU 课程<span className="text-accent">下载</span>
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-text-3">
-          一站式转存与同步 · 本地与交大云盘双模式
-        </p>
-
-        {/* 三大来源轻量胶囊徽标 */}
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-3 py-1 text-xs font-medium text-text-2">
-            <svg className="h-3.5 w-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-            </svg>
-            Canvas 课程
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-3 py-1 text-xs font-medium text-text-2">
-            <svg className="h-3.5 w-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="2" y="4" width="20" height="16" rx="3" />
-              <path d="M10 9l5 3-5 3V9z" fill="currentColor" stroke="none" />
-            </svg>
-            课堂实录 (v.sjtu)
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-bd bg-surface-2 px-3 py-1 text-xs font-medium text-text-2">
-            <svg className="h-3.5 w-3.5 text-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 10L12 5 2 10l10 5 10-5z" />
-              <path d="M6 12v5c0 1 2.7 2.5 6 2.5s6-1.5 6-2.5v-5" />
-            </svg>
-            好大学在线
-          </span>
-        </div>
-
-        {/* 会话过期轻量提示（仅在已过期时显现） */}
-        {auth.expired && (
-          <div className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-warning-ring bg-warning-bg px-3.5 py-2.5 text-xs text-warning">
-            <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span>登录凭证已过期，请重新登录认证</span>
+    <div className="flex h-full w-full select-none overflow-hidden bg-surface-1">
+      {/* ── 左栏：品牌与登录行动区（40% ~ 42%） ── */}
+      <aside className="relative flex w-[380px] shrink-0 flex-col justify-between border-r border-bd bg-surface-2/60 p-8 sm:p-10 backdrop-blur-sm">
+        {/* 顶部：品牌 Logo 与定位 */}
+        <div>
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent text-white shadow-sm ring-1 ring-accent-light/30">
+              <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-bold tracking-tight text-text-1">SJTU 课程下载</h1>
+                <span className="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-2xs font-medium text-text-3">v2.3</span>
+              </div>
+              <p className="mt-0.5 text-xs text-text-3">交大课程一站式转存与同步工具</p>
+            </div>
           </div>
-        )}
 
-        {/* 主操作 CTA 按钮 */}
-        <button
-          type="button"
-          onClick={onStart}
-          className="no-drag mt-7 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent px-6 text-sm font-semibold text-white shadow-glow transition-all duration-200 hover:scale-[1.01] hover:bg-accent-light hover:shadow-[0_12px_40px_-10px,var(--accent-50)] active:scale-[0.99] cursor-pointer"
-        >
-          <span>{ctaText}</span>
-          <svg className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14" />
-            <path d="m12 5 7 7-7 7" />
-          </svg>
-        </button>
-
-        {/* 底部环境提示与声明 */}
-        <div className="mt-5 flex items-center justify-center gap-1.5 text-2xs text-text-3">
-          <svg className="h-3.5 w-3.5 text-warning shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span>需连接 <strong>SJTU 校园网</strong> 或使用 <strong>交大 VPN</strong></span>
+          <div className="mt-8 text-xs leading-relaxed text-text-3">
+            基于统一身份认证授权，支持批量拉取课程讲义、双视角课堂实录与慕课视频，提供本地下载与交大云盘双模式。
+          </div>
         </div>
-      </div>
+
+        {/* 中部：登录主操作 */}
+        <div className="my-6">
+          {auth.expired && (
+            <div className="mb-3.5 flex items-center gap-2 rounded-xl border border-warning-ring bg-warning-bg px-3.5 py-2 text-xs text-warning">
+              <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span>登录凭证已失效，请重新认证</span>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={onStart}
+            className="no-drag group flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-accent-light hover:shadow-md active:scale-[0.99] cursor-pointer"
+          >
+            <span>{ctaText}</span>
+            <svg className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12h14" />
+              <path d="m12 5 7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+
+        {/* 底部：环境与安全状态 */}
+        <div className="space-y-2 border-t border-bd pt-4 text-2xs text-text-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 shrink-0 rounded-full bg-success" />
+            <span>需连接 <strong>SJTU 校园网</strong> 或使用 <strong>交大 VPN</strong></span>
+          </div>
+          <div className="text-text-4">
+            仅供个人学习课程转存 · 严禁公开转售与商业传播
+          </div>
+        </div>
+      </aside>
+
+      {/* ── 右栏：原生服务列表与功能索引（58% ~ 60%） ── */}
+      <main className="flex flex-1 flex-col justify-center px-10 py-10 sm:px-14">
+        <div className="max-w-xl">
+          <div className="mb-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-text-3">支持的课程平台与服务</h2>
+          </div>
+
+          <div className="space-y-1.5">
+            {serviceItems.map(item => (
+              <div
+                key={item.id}
+                onClick={onStart}
+                className="group flex items-start gap-4 rounded-xl p-3.5 transition-all duration-150 hover:bg-surface-2 hover:shadow-sm cursor-pointer"
+              >
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-3 text-text-2 transition-colors duration-150 group-hover:bg-accent-10 group-hover:text-accent">
+                  {item.icon}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-text-1 transition-colors duration-150 group-hover:text-accent">
+                      {item.title}
+                    </span>
+                    <span className="text-text-4 opacity-0 transition-opacity duration-150 group-hover:opacity-100 text-xs">
+                      →
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-text-3 leading-relaxed">
+                    {item.desc}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-8 border-t border-bd pt-4 text-xs text-text-4">
+            登录后可在顶栏随时切换课程来源、查看传输中心或在「⚙️ 设置」中配置存储与并发。
+          </div>
+        </div>
+      </main>
     </div>
   )
 }
