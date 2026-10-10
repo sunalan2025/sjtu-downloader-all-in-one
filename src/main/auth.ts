@@ -91,19 +91,24 @@ export function clearSessionStore(): void {
   }
 }
 
-/** 从 JWT Token 中解析 exp 过期时间戳 (毫秒) */
-export function extractJwtExpiry(token: string): number | undefined {
+/** 从 JWT Token 中解析 Claims Payload */
+export function decodeJwtClaims(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split('.')
-    if (parts.length >= 2) {
-      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-      const payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf8'))
-      if (typeof payload.exp === 'number') {
-        return payload.exp * 1000
-      }
-    }
+    if (parts.length < 2) return null
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const payload = Buffer.from(base64, 'base64').toString('utf8')
+    return JSON.parse(payload) as Record<string, unknown>
   } catch {
-    /* ignore */
+    return null
+  }
+}
+
+/** 从 JWT Token 中解析 exp 过期时间戳 (毫秒) */
+export function extractJwtExpiry(token: string): number | undefined {
+  const claims = decodeJwtClaims(token)
+  if (claims && typeof claims.exp === 'number') {
+    return claims.exp * 1000
   }
   return undefined
 }
@@ -186,21 +191,30 @@ export async function refreshJwtToken(): Promise<boolean> {
   }
 }
 
-/** 从 /cloud-rbac/authority/me 的 result 中取用户显示名和学号。 */
+/** 从 /cloud-rbac/authority/me 的响应中取用户显示名和学号，兼容嵌套结构与多种命名。 */
 export function pickAccountInfo(result: unknown): { name?: string; studentId?: string } {
   if (result && typeof result === 'object') {
     const r = result as Record<string, unknown>
-    if (r.user && typeof r.user === 'object') {
-      const u = r.user as Record<string, unknown>
-      const name = typeof u.name === 'string' && u.name.trim() ? u.name.trim() : undefined
-      const studentId =
-        typeof u.username === 'string' && u.username.trim()
-          ? u.username.trim()
-          : typeof u.code === 'string' && u.code.trim()
-            ? u.code.trim()
-            : undefined
-      return { name, studentId }
-    }
+    const target =
+      r.result && typeof r.result === 'object'
+        ? (r.result as Record<string, unknown>)
+        : r.data && typeof r.data === 'object'
+          ? (r.data as Record<string, unknown>)
+          : r
+
+    const u =
+      target.user && typeof target.user === 'object'
+        ? (target.user as Record<string, unknown>)
+        : target
+
+    const name = typeof u.name === 'string' && u.name.trim() ? u.name.trim() : undefined
+    const studentId =
+      typeof u.username === 'string' && u.username.trim()
+        ? u.username.trim()
+        : typeof u.code === 'string' && u.code.trim()
+          ? u.code.trim()
+          : undefined
+    return { name, studentId }
   }
   return {}
 }
@@ -208,7 +222,7 @@ export function pickAccountInfo(result: unknown): { name?: string; studentId?: s
 const AUTH_429_MAX_RETRIES = 3
 
 /**
- * 登录判定：先看 sjtu cookie，再用 jwt 敲 /authority/me 验真。
+ * 登录判定：优先基于本地未过期 JWT Token 判定，并用 /authority/me 增量补全实名信息。
  * 具备本地过期提前感知、401 自动刷新以及 429 指数退避重试能力。
  */
 export async function getAuthInfo(force = false): Promise<AuthInfo> {
@@ -219,8 +233,18 @@ export async function getAuthInfo(force = false): Promise<AuthInfo> {
     }
   }
 
-  const cookies = await sjtuSession().cookies.get({ domain: 'sjtu.edu.cn' })
-  if (cookies.length === 0) {
+  // 1. 若内存中已有合法且未过期的 JWT Token，优先认定登录态
+  const exp = jwtToken ? extractJwtExpiry(jwtToken) : undefined
+  const isJwtFresh = !!jwtToken && (!exp || Date.now() < exp)
+
+  // 2. 检查会话 cookie
+  const cookies = await sjtuSession().cookies.get({}).catch(() => [])
+  const hasSjtuCookie = cookies.some(
+    c => Boolean(c.domain && (c.domain.includes('sjtu.edu.cn') || c.domain.includes('sjtu.cn')))
+  )
+
+  // 若既没有有效 JWT，也没有任何交大会话 Cookie，判定为未登录
+  if (!isJwtFresh && !hasSjtuCookie) {
     _authCache = { result: { loggedIn: false, expired: _isSessionExpired }, ts: Date.now() }
     return _authCache.result
   }
@@ -273,40 +297,60 @@ export async function getAuthInfo(force = false): Promise<AuthInfo> {
           await new Promise(r => setTimeout(r, delay))
           continue
         }
-        // 限流耗尽时不污染为未登录，保留现有有效缓存
+        // 限流耗尽时不污染为未登录，保留现有有效状态
         if (_authCache?.result.loggedIn) return _authCache.result
-        return { loggedIn: false, expired: _isSessionExpired }
+        return {
+          loggedIn: isJwtFresh,
+          accountName: accountName ?? undefined,
+          studentId: studentId ?? undefined,
+          expired: _isSessionExpired
+        }
       }
 
       if (!resp.ok) {
         _isSessionExpired = resp.status === 401
-        _authCache = { result: { loggedIn: false, expired: _isSessionExpired }, ts: Date.now() }
+        const loggedIn = resp.status === 401 ? false : isJwtFresh
+        _authCache = {
+          result: {
+            loggedIn,
+            accountName: accountName ?? undefined,
+            studentId: studentId ?? undefined,
+            expiresAt: exp,
+            expired: _isSessionExpired
+          },
+          ts: Date.now()
+        }
         return _authCache.result
       }
 
       const text = await resp.text()
-      const json = JSON.parse(text) as { code?: string; result?: unknown }
+      const json = JSON.parse(text) as {
+        code?: string
+        result?: unknown
+        data?: unknown
+        user?: unknown
+      }
       const ok = json?.code === '0'
-      const info = ok ? pickAccountInfo(json?.result) : {}
-      const exp = jwtToken ? extractJwtExpiry(jwtToken) : undefined
+      const info = ok ? pickAccountInfo(json?.result ?? json?.data ?? json) : {}
+      const freshExp = jwtToken ? extractJwtExpiry(jwtToken) : exp
 
       if (ok) {
-        accountName = info.name ?? null
-        studentId = info.studentId ?? null
+        if (info.name) accountName = info.name
+        if (info.studentId) studentId = info.studentId
         _isSessionExpired = false
         saveSessionStore({
           accountName: accountName ?? undefined,
           studentId: studentId ?? undefined,
-          expiresAt: exp
+          expiresAt: freshExp
         })
       }
 
       _authCache = {
         result: {
           loggedIn: ok,
-          accountName: info.name,
-          studentId: info.studentId,
-          expiresAt: exp,
+          accountName: accountName ?? info.name,
+          studentId: studentId ?? info.studentId,
+          expiresAt: freshExp,
           expired: !ok && _isSessionExpired
         },
         ts: Date.now()
@@ -317,12 +361,28 @@ export async function getAuthInfo(force = false): Promise<AuthInfo> {
         await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)))
         continue
       }
-      _authCache = { result: { loggedIn: false, expired: _isSessionExpired }, ts: Date.now() }
+      // 网络故障（如校园网 IPv6 / 路由中断）时，若持有有效 JWT 则不阻断用户使用
+      const loggedIn = isJwtFresh && !_isSessionExpired
+      _authCache = {
+        result: {
+          loggedIn,
+          accountName: accountName ?? undefined,
+          studentId: studentId ?? undefined,
+          expiresAt: exp,
+          expired: _isSessionExpired
+        },
+        ts: Date.now()
+      }
       return _authCache.result
     }
   }
 
-  return { loggedIn: false, expired: _isSessionExpired }
+  return {
+    loggedIn: isJwtFresh && !_isSessionExpired,
+    accountName: accountName ?? undefined,
+    studentId: studentId ?? undefined,
+    expired: _isSessionExpired
+  }
 }
 
 export function vsjtuHeaders(): Record<string, string> {
@@ -418,12 +478,72 @@ export async function vsjtuFetch(
 }
 
 /** 设置 JWT Token 并持久化保存 */
-export function setJwtToken(token: string | null): void {
+export function setJwtToken(
+  token: string | null,
+  userInfo?: { name?: string; studentId?: string }
+): void {
   jwtToken = token && token.length > 20 ? token : null
-  _authCache = null
   _isSessionExpired = false
-  const expiresAt = jwtToken ? extractJwtExpiry(jwtToken) : undefined
-  saveSessionStore({ jwtToken, expiresAt })
+
+  if (jwtToken) {
+    const expiresAt = extractJwtExpiry(jwtToken)
+    const claims = decodeJwtClaims(jwtToken)
+
+    let parsedUserCode: string | undefined
+    let parsedUserName: string | undefined
+    if (typeof claims?.authUserDetails === 'string') {
+      try {
+        const aud = JSON.parse(claims.authUserDetails)
+        parsedUserCode = aud?.user?.code
+        parsedUserName = aud?.user?.name
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const name =
+      userInfo?.name ||
+      (typeof claims?.name === 'string' ? claims.name : undefined) ||
+      parsedUserName ||
+      accountName ||
+      undefined
+
+    const studentIdVal =
+      userInfo?.studentId ||
+      (typeof claims?.username === 'string'
+        ? claims.username
+        : typeof claims?.sub === 'string'
+          ? claims.sub
+          : undefined) ||
+      parsedUserCode ||
+      studentId ||
+      undefined
+
+    if (name) accountName = name
+    if (studentIdVal) studentId = studentIdVal
+
+    // 关键优化：一旦成功获取到有效 JWT，立即设为已登录，避免前端轮询等待远程探测时阻塞卡死
+    _authCache = {
+      result: {
+        loggedIn: true,
+        accountName: accountName ?? undefined,
+        studentId: studentId ?? undefined,
+        expiresAt,
+        expired: false
+      },
+      ts: Date.now()
+    }
+
+    saveSessionStore({
+      jwtToken,
+      accountName: accountName ?? undefined,
+      studentId: studentId ?? undefined,
+      expiresAt
+    })
+  } else {
+    _authCache = null
+    saveSessionStore({ jwtToken: null })
+  }
 }
 
 export function getAccountName(): string | null {
@@ -468,6 +588,26 @@ export async function hydrateSjtuSession(): Promise<AuthInfo> {
   // 恢复主进程缓存的云盘 token
   if (saved.cloudUserToken) {
     setCachedUserToken(saved.cloudUserToken)
+  }
+
+  // 关键提速：若本地存储的 JWT Token 仍未过期，立刻认定为有效登录并极速放行首屏
+  // 后续在后台静默发起增量验真，绝不阻塞应用主窗口与图形界面首次渲染
+  const exp = extractJwtExpiry(jwtToken)
+  if (exp && Date.now() < exp) {
+    _authCache = {
+      result: {
+        loggedIn: true,
+        accountName: accountName ?? undefined,
+        studentId: studentId ?? undefined,
+        expiresAt: exp,
+        expired: false
+      },
+      ts: Date.now()
+    }
+    void getAuthInfo(true).catch(err => {
+      console.warn('[auth] 后台会话刷新校验异常（不影响已恢复状态）:', err)
+    })
+    return _authCache.result
   }
 
   // 启动时单次校验凭据

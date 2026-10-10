@@ -4,7 +4,13 @@ import {
   decodeJwtClaims,
   QR_SELECTOR_CANDIDATES
 } from '../helpers/contracts'
-import { pickAccountInfo } from '../../src/main/auth'
+import {
+  pickAccountInfo,
+  setJwtToken,
+  getAccountName,
+  getStudentId,
+  clearAuthState
+} from '../../src/main/auth'
 import {
   MOCK_USER,
   MOCK_JWT_TOKEN,
@@ -216,6 +222,44 @@ describe('Auth & Session Persistence E2E Suite (R1-F1, R1-F2, R1-F3)', () => {
       const info = pickAccountInfo(payload)
       expect(info.name).toBe('李同学')
       expect(info.studentId).toBe('121037910001')
+    })
+
+    it('extracts account info when authority envelope uses root user shape from production Kedacom backend', () => {
+      const prodPayload = {
+        code: '0',
+        user: {
+          name: '孙正直',
+          code: '525080910055'
+        }
+      }
+      const info = pickAccountInfo(prodPayload)
+      expect(info.name).toBe('孙正直')
+      expect(info.studentId).toBe('525080910055')
+    })
+
+    it('extracts account info when nested under data envelope', () => {
+      const dataPayload = {
+        code: '0',
+        data: {
+          user: {
+            name: '赵老师',
+            username: '99001122'
+          }
+        }
+      }
+      const info = pickAccountInfo(dataPayload)
+      expect(info.name).toBe('赵老师')
+      expect(info.studentId).toBe('99001122')
+    })
+
+    it('setJwtToken immediately establishes identity without blocking on network', () => {
+      try {
+        setJwtToken(MOCK_JWT_TOKEN, { name: '测试用户', studentId: '120037910000' })
+        expect(getAccountName()).toBe('测试用户')
+        expect(getStudentId()).toBe('120037910000')
+      } finally {
+        clearAuthState()
+      }
     })
 
     it('returns null when HTML contains no recognizable QR selectors', () => {
