@@ -60,6 +60,7 @@ export interface PageResult<T> {
   totalPage: number
   /** 当前页数据列表 */
   list: T[]
+  records?: T[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ export interface AuditCourseItem {
   auditCourseResources: Array<{
     resourceId: number
     teclCode?: string
+    courseName?: string
   }>
 }
 
@@ -539,10 +541,24 @@ export interface CnmoocItem {
   title: string
 }
 
+/** cnmooc 小节 (Section) */
+export interface CnmoocSection {
+  sectionTitle: string
+  items: CnmoocItem[]
+}
+
+/** cnmooc 两级章节树根节点 (Chapter) */
+export interface CnmoocChapterNode {
+  chapterTitle: string
+  sections: CnmoocSection[]
+}
+
 /** cnmooc 章节（含若干条目） */
 export interface CnmoocChapter {
   chapter: string
   items: CnmoocItem[]
+  chapterTitle?: string
+  sections?: CnmoocSection[]
 }
 
 /** cnmooc 已选中条目（带所属章节名，供 build-specs 拼落盘路径） */

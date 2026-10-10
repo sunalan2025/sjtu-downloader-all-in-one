@@ -330,3 +330,92 @@ export function isHlsStreamTask(spec: any): boolean {
   return false
 }
 
+/**
+ * Interface Contract 11: v.sjtu Audit Courses Parser & Pagination (R3-F1)
+ */
+export interface VsjtuAuditCourse {
+  id: number
+  applyStatus: number
+  resourceId: number
+  courseName: string
+}
+
+export function parseAuditCoursesPage(rawResp: any): { courses: VsjtuAuditCourse[]; totalPage: number; currPage: number } {
+  const data = rawResp?.data || {}
+  const records = data.records || data.list || []
+  const totalPage = Number(data.totalPage ?? data.pages ?? 1) || 1
+  const currPage = Number(data.currPage ?? data.current ?? 1) || 1
+
+  const courses: VsjtuAuditCourse[] = records
+    .filter((r: any) => r.applyStatus === 1)
+    .map((r: any) => {
+      const res = r.auditCourseResources?.[0] || {}
+      return {
+        id: r.id,
+        applyStatus: r.applyStatus,
+        resourceId: res.resourceId || r.id,
+        courseName: res.courseName || r.subjName || '未命名课程'
+      }
+    })
+
+  return { courses, totalPage, currPage }
+}
+
+/**
+ * Interface Contract 12: v.sjtu VOD Stream Resolver & Single-Angle Tolerance (R3-F2)
+ */
+export { VsjtuVodResolver, type VodStreamResult, vsjtuVodResolver } from '../../src/main/download-engine/vsjtu-resolver'
+
+/**
+ * Interface Contract 13: CloudPan Chunked Uploader & Path Encoding (R3-F3, R3-F4)
+ */
+export { strictEncodeURIComponent } from '../../src/main/cloudpan'
+
+export interface MockUploaderContext {
+  token: string
+  renewCount: number
+  uploadedParts: number[]
+}
+
+export class MockChunkedUploader {
+  private ctx: MockUploaderContext
+  private getFreshToken: () => Promise<string>
+
+  constructor(initialToken: string, getFreshToken: () => Promise<string>) {
+    this.ctx = { token: initialToken, renewCount: 0, uploadedParts: [] }
+    this.getFreshToken = getFreshToken
+  }
+
+  async uploadPart(partNumber: number, tokenExpired = false): Promise<void> {
+    if (tokenExpired || partNumber > 50) {
+      this.ctx.token = await this.getFreshToken()
+      this.ctx.renewCount++
+    }
+    this.ctx.uploadedParts.push(partNumber)
+  }
+
+  getContext(): MockUploaderContext {
+    return this.ctx
+  }
+}
+
+/**
+ * Interface Contract 14: CNMOOC Nested Chapter Tree & Course Parser (R3-F5)
+ */
+export { parseNestedChapterHtml, parseCourseHtml, parseChapterHtml } from '../../src/main/cnmooc/api'
+export type { CnmoocChapterNode, CnmoocSection } from '../../src/shared/types'
+
+/**
+ * Interface Contract 15: CNMOOC Lazy Direct URL Resolver & Interactive Login Probing (R3-F6, R4-F1)
+ */
+export { resolveCnmoocResourceUrl, extractCnmoocDirectUrl } from '../../src/main/cnmooc/api'
+export {
+  extractSessionCredentials,
+  probeSubsystemConnectivity,
+  parseCliArgs,
+  setupTrafficInterceptor,
+  saveSessionToFile,
+  type ProbeScorecard,
+  type CliOptions
+} from '../../scripts/interactive-login'
+
