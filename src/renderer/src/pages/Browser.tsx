@@ -1014,7 +1014,7 @@ const EmptyHero = memo(function EmptyHero() {
       </svg>
       <div className="mt-4 text-xl font-bold text-text-1">没有找到旁听课程</div>
       <div className="mt-3 max-w-xs text-sm leading-relaxed text-text-3">
-        请确认你在 v.sjtu.edu.cn 已成功旁听了至少一门课程，且申请已通过审核。
+        请确认你已成功旁听了至少一门课程，且申请已通过审核。
       </div>
     </div>
   )

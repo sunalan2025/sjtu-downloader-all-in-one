@@ -186,7 +186,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
             {activeNav === 'cloud' && (
               <section className="space-y-6">
                 <div>
-                  <h2 className="text-base font-bold text-text-1">交大云盘集成 (pan.sjtu.edu.cn)</h2>
+                  <h2 className="text-base font-bold text-text-1">交大云盘集成</h2>
                   <p className="mt-1 text-xs text-text-3">依托交大统一身份认证 jAccount 单点登录，支持无缝大文件分片直传与秒传</p>
                 </div>
                 
