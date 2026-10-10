@@ -22,6 +22,17 @@ if (process.platform === 'win32') {
   }
 }
 
+// 开发模式启动前：自动清理可能残留在后台的本项目旧 electron 进程，防止 Windows 独占锁 (Error 32)
+if (process.argv.includes('dev') && process.platform === 'win32') {
+  try {
+    const projectDir = path.resolve(__dirname, '..')
+    const psCmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' } | ForEach-Object { if ($_.CommandLine -and $_.CommandLine -like '*${projectDir.replace(/\\/g, '\\\\')}*') { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
+    execSync(psCmd, { stdio: 'ignore' })
+  } catch {
+    // 忽略异常
+  }
+}
+
 const electronViteJs = path.join(
   __dirname,
   '..',
