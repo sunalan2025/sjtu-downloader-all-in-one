@@ -5,7 +5,7 @@ export function Welcome() {
   const auth = useAppStore(s => s.auth)
 
   const ctaText = auth.expired
-    ? '重新登录 (jAccount)'
+    ? '重新登录'
     : (auth.loggedIn ? '进入主页' : '使用 jAccount 登录')
 
   const onStart = (): void => setStage(auth.loggedIn ? 'browser' : 'login')
@@ -25,7 +25,7 @@ export function Welcome() {
     },
     {
       id: 'lecture',
-      title: '交大课堂实录',
+      title: '旁听课程',
       desc: '旁听课程回放、教师与 PPT 双视角高清视频流',
       icon: (
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -82,7 +82,7 @@ export function Welcome() {
           </div>
 
           <div className="mt-6 md:mt-8 text-xs leading-relaxed text-text-3">
-            基于统一身份认证授权，支持批量拉取课程讲义、双视角课堂实录与慕课视频，提供本地下载与交大云盘双模式。
+            基于统一身份认证授权，支持批量拉取课程讲义、双视角旁听课程与慕课视频，提供本地下载与交大云盘双模式。
           </div>
         </div>
 

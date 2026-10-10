@@ -27,7 +27,7 @@ export function TitleBar({ onLogout, onOpenSettings }: { onLogout?: () => void, 
 
   const tabOptions: SegmentedOption<string>[] = [
     { key: 'canvas', label: 'Canvas 课程' },
-    { key: 'audited', label: '课堂实录 (v.sjtu)' },
+    { key: 'audited', label: '旁听课程' },
     { key: 'cnmooc', label: '好大学在线' },
     { key: 'transfer', label: '传输中心' }
   ]
