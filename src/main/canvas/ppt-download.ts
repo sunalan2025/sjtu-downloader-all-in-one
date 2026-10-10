@@ -6,7 +6,7 @@
  * 支持 cloud/both 模式：生成 PDF 后由 orchestrator 上传云盘（destRoot 空时 PDF 仅作中间产物）。
  */
 import type Electron from 'electron'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { PDFDocument, type PDFImage } from 'pdf-lib'
@@ -18,6 +18,58 @@ import { sanitizeFsName } from '../../shared/utils'
 const VSJTU_REFERER = 'https://v.sjtu.edu.cn/'
 /** PPT 图片并发下载数（与 HLS segment 并发一致） */
 const PPT_IMG_CONCURRENCY = 5
+
+// ─── 高清 PPT 切片处理与命名工具 ──────────────────────────────
+
+export interface PptSliceItem {
+  ivsVideoId: number
+  createSec: number
+  pptImgUrl: string
+}
+
+/** 处理并过滤 PPT 切片列表（过滤 hide === 1 / Number(s.hide) === 0，按 createSec 升序） */
+export function processPptSlices(
+  rawSlices: any[],
+  options: { saveImages?: boolean } = {}
+): { slices: PptSliceItem[]; willSaveImages: boolean; totalVisible: number } {
+  if (!rawSlices || !Array.isArray(rawSlices)) {
+    return { slices: [], willSaveImages: options.saveImages ?? false, totalVisible: 0 }
+  }
+  const visible = rawSlices
+    .filter(s => s && s.pptImgUrl && Number(s.hide) === 0)
+    .sort((a, b) => Number(a.createSec) - Number(b.createSec))
+    .map(s => ({
+      ivsVideoId: Number(s.ivsVideoId || 0),
+      createSec: Number(s.createSec || 0),
+      pptImgUrl: String(s.pptImgUrl)
+    }))
+
+  return {
+    slices: visible,
+    willSaveImages: options.saveImages ?? false,
+    totalVisible: visible.length
+  }
+}
+
+/** 格式化切片文件名，例如 '01_00m10s.jpg' */
+export function formatSliceFileName(index: number, createSec: number, ext = 'jpg'): string {
+  const idxStr = String(index).padStart(2, '0')
+  const sec = Math.max(0, Math.floor(createSec || 0))
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  const timeStr = h > 0
+    ? `${String(h).padStart(2, '0')}h${String(m).padStart(2, '0')}m${String(s).padStart(2, '0')}s`
+    : `${String(m).padStart(2, '0')}m${String(s).padStart(2, '0')}s`
+  const cleanExt = ext.replace(/^\./, '')
+  return `${idxStr}_${timeStr}.${cleanExt}`
+}
+
+/** 构建 PPT 切片目录名，例如 '高等数学(第1讲)-切片' */
+export function buildPptSliceDirName(lectureName: string): string {
+  const base = sanitizeFsName(lectureName)
+  return `${base}-切片`
+}
 
 /** 构建课堂视频同目录路径：{destRoot}/Canvas课程/{term}/{courseName}/videos/课堂视频/
  *  destRoot 为空（cloud-only）时落到系统临时目录，PDF 仅作上传中间产物。 */
@@ -72,10 +124,8 @@ export async function fetchPptSliceList(
   if (String(data.code) !== '0') {
     throw new Error(`query-ppt-slice-es code=${data.code}: ${data.message || ''}`)
   }
-  // 只保留未隐藏且有图片 URL 的切片，按视频秒数排序
-  return (data.data || [])
-    .filter(s => s && s.pptImgUrl && Number(s.hide) === 0)
-    .sort((a, b) => Number(a.createSec) - Number(b.createSec))
+  const { slices } = processPptSlices(data.data || [])
+  return slices as unknown as PptSlice[]
 }
 
 // ─── 下载单张图片 ─────────────────────────────────────────────
@@ -143,7 +193,7 @@ export async function downloadPptAsPdf(
   token: string,
   opts: PptDownloadOpts,
   onProgress?: PptProgressCallback
-): Promise<{ ok: boolean; skipped?: boolean; path?: string; fileName?: string; error?: string }> {
+): Promise<{ ok: boolean; skipped?: boolean; path?: string; fileName?: string; imageFolder?: string; error?: string }> {
   const { ivsVideoId, courseName, lectureName, destRoot, term, videoSession, conflictStrategy } = opts
   let tmpDir: string | null = null
 
@@ -208,7 +258,24 @@ export async function downloadPptAsPdf(
     await mergeImagesToPdf(validPaths, outputPath)
     console.log(`[ppt] PDF 已保存: ${outputPath}`)
 
-    return { ok: true, path: outputPath, fileName }
+    // 6. 保存高清切片图片到切片目录（saveImages: true 且存在 destRoot）
+    let imageFolder: string | undefined
+    if (opts.saveImages && destRoot) {
+      const sliceDirName = buildPptSliceDirName(lectureName)
+      const sliceDir = join(outDir, sliceDirName)
+      mkdirSync(sliceDir, { recursive: true })
+      for (let i = 0; i < slices.length; i++) {
+        const srcPath = imagePaths[i]
+        if (srcPath && existsSync(srcPath)) {
+          const destImgName = formatSliceFileName(i + 1, Number(slices[i].createSec || 0))
+          copyFileSync(srcPath, join(sliceDir, destImgName))
+        }
+      }
+      imageFolder = sliceDir
+      console.log(`[ppt] 高清切片图片已保存至: ${sliceDir}`)
+    }
+
+    return { ok: true, path: outputPath, fileName, imageFolder }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[ppt] 下载失败:', msg)
@@ -219,4 +286,41 @@ export async function downloadPptAsPdf(
       try { rmSync(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
     }
   }
+}
+
+/** 批量独立下载 PPT 切片图片到指定目录 */
+export async function downloadPptSlices(
+  ses: Electron.Session,
+  slices: Array<{ pptImgUrl: string; createSec?: number }>,
+  outputDir: string,
+  onProgress?: (done: number, total: number) => void
+): Promise<string[]> {
+  mkdirSync(outputDir, { recursive: true })
+  const resultPaths: (string | null)[] = new Array(slices.length).fill(null)
+  let downloaded = 0
+  let nextIdx = 0
+
+  const workers: Promise<void>[] = []
+  const workerCount = Math.min(PPT_IMG_CONCURRENCY, slices.length)
+
+  for (let w = 0; w < workerCount; w++) {
+    workers.push((async () => {
+      while (nextIdx < slices.length) {
+        const idx = nextIdx++
+        const s = slices[idx]
+        const fileName = formatSliceFileName(idx + 1, Number(s.createSec || 0))
+        const destPath = join(outputDir, fileName)
+        try {
+          await downloadPptImage(ses, s.pptImgUrl, destPath)
+          resultPaths[idx] = destPath
+        } catch (err) {
+          console.warn(`[ppt] 下载切片图片 ${fileName} 失败:`, err)
+        }
+        downloaded++
+        onProgress?.(downloaded, slices.length)
+      }
+    })())
+  }
+  await Promise.all(workers)
+  return resultPaths.filter((p): p is string => !!p)
 }

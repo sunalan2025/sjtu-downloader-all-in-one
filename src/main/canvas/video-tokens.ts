@@ -17,6 +17,17 @@ import { sanitizeFsName } from './api'
 
 const VSJTU_REFERER = 'https://v.sjtu.edu.cn/'
 
+// ─── LTI Tab 匹配器 ──────────────────────────────────────────
+
+const LTI_TAB_KEYWORDS = ['课堂视频', '课堂录像', '在线课堂', 'class video']
+
+/** 判断 Canvas tab 标签是否为课堂视频工具 tab（大小写不敏感） */
+export function isClassVideoTab(label: string): boolean {
+  if (!label) return false
+  const lower = label.toLowerCase()
+  return LTI_TAB_KEYWORDS.some(kw => lower.includes(kw))
+}
+
 // ─── LTI Token 提取 ──────────────────────────────────────────
 
 /** 从 Canvas 课程的 "课堂视频new" tab 中提取 LTI token + canvasCourseId。
@@ -154,28 +165,47 @@ export async function fetchVodVideoList(
 ): Promise<CanvasVideoSession[]> {
   // SPA 对 courId 做 encodeURIComponent，服务端要求编码
   const enc = encodeURIComponent(canvasCourseId)
-  const resp = await safeFetch(ses,
-    `${VSJTU_CANVAS_BASE}/directOnDemandPlay/findVodVideoList`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        token,
-        Referer: VSJTU_REFERER
-      },
-      body: JSON.stringify({ canvasCourseId: enc })
+  let current = 1
+  const size = 500
+  const allRecords: Array<Record<string, unknown>> = []
+
+  while (true) {
+    const resp = await safeFetch(ses,
+      `${VSJTU_CANVAS_BASE}/directOnDemandPlay/findVodVideoList`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          token,
+          Referer: VSJTU_REFERER
+        },
+        body: JSON.stringify({
+          canvasCourseId: enc,
+          current,
+          size,
+          pageSize: size
+        })
+      }
+    )
+    const data = await resp.json() as Record<string, unknown>
+    if (data.code !== '0') {
+      throw new Error(`findVodVideoList code=${data.code}: ${data.message}`)
     }
-  )
-  const data = await resp.json() as Record<string, unknown>
-  if (data.code !== '0') {
-    throw new Error(`findVodVideoList code=${data.code}: ${data.message}`)
+    const rootData = (data.data || {}) as Record<string, unknown>
+    const records = (rootData.records as Array<Record<string, unknown>>) || []
+    allRecords.push(...records)
+
+    const total = Number(rootData.total ?? allRecords.length)
+    if (records.length === 0 || allRecords.length >= total || records.length < size) {
+      break
+    }
+    current++
   }
-  const rootData = (data.data || {}) as Record<string, unknown>
-  const records = (rootData.records as Array<Record<string, unknown>>) || []
+
   // 按 videoName 中的讲次编号排序，每条记录 = 1 讲（内含教师+PPT 两路流）
   // 例："课程名(第1讲)" "课程名(第2讲)" 各自独立，getVodVideoInfos 可取两路
-  const sorted = records
-    .filter(r => r.videoId)
+  const sorted = allRecords
+    .filter(r => r && r.videoId)
     .sort((a, b) => {
       const na = extractLectureNum(String(a.videoName || ''))
       const nb = extractLectureNum(String(b.videoName || ''))
@@ -194,10 +224,57 @@ export async function fetchVodVideoList(
     }))
 }
 
+// ─── 多路视频流识别 ──────────────────────────────────────────
+
+export interface VideoStream {
+  channelNum: number
+  channelName: string
+  url: string
+  label: '教师' | 'PPT' | '全景'
+}
+
+/** 识别并分类多路视频流（教师 / PPT / 全景），并提供单路流保护逻辑 */
+export function identifyVideoStreams(rawStreams: any[]): VideoStream[] {
+  if (!rawStreams || !Array.isArray(rawStreams)) return []
+  const valid = rawStreams.filter(s => s && (s.rtmpUrlHdv || s.url))
+  if (valid.length === 0) return []
+
+  const result: VideoStream[] = []
+
+  for (const s of valid) {
+    const channelNum = Number(s.cdviChannelNum ?? s.channelNum ?? 0)
+    const name = String(s.channelName || '')
+    const url = String(s.rtmpUrlHdv || s.url || '')
+
+    let label: '教师' | 'PPT' | '全景' = '教师'
+    if (name.includes('PPT') || name.includes('电脑') || channelNum === 1) {
+      label = 'PPT'
+    } else if (name.includes('全景') || channelNum === 2) {
+      label = '全景'
+    } else {
+      label = '教师'
+    }
+
+    result.push({
+      channelNum,
+      channelName: name,
+      url,
+      label
+    })
+  }
+
+  // If only 1 stream exists, do not arbitrarily label as PPT unless explicitly named PPT
+  if (result.length === 1 && !result[0].channelName.includes('PPT')) {
+    result[0].label = '教师'
+  }
+
+  return result
+}
+
 /** 获取单个视频的多路流信息（教师 + PPT）。
- *  统一规则：每个 videoId 一定有 2 路流（教师 + PPT）。
- *  区分方式：channelNum 不同 → 按 channelNum 去重；channelNum 相同 → 按 URL 设备 ID 去重。 */
-async function fetchVodVideoInfos(
+ *  统一规则：每个 videoId 通常有教师 + PPT 等多路流。
+ *  区分方式：identifyVideoStreams 自动识别 教师 / PPT / 全景，并保证教师流在前。 */
+export async function getVodVideoInfos(
   ses: Electron.Session,
   token: string,
   videoId: string
@@ -238,34 +315,26 @@ async function fetchVodVideoInfos(
     }
   }
 
-  const valid = streams.filter(v => v.rtmpUrlHdv)
-  if (valid.length === 0) return []
+  const identified = identifyVideoStreams(streams)
+  if (identified.length === 0) return []
 
-  // 提取 URL 路径中的设备 ID（第 6 段），用于 channelNum 相同时区分
-  const getDeviceId = (url: string): string => {
-    try { return url.split('/')[5] || '' } catch { return '' }
-  }
+  // 保证排序稳定：教师排第0位，PPT排第1位
+  const sorted = [...identified].sort((a, b) => {
+    if (a.label === '教师' && b.label !== '教师') return -1
+    if (b.label === '教师' && a.label !== '教师') return 1
+    if (a.label === 'PPT' && b.label !== 'PPT') return -1
+    if (b.label === 'PPT' && a.label !== 'PPT') return 1
+    return 0
+  })
 
-  // 按 channelNum 是否有差异选择去重键
-  const channelNums = new Set(valid.map(v => Number(v.cdviChannelNum)))
-  const useChannelNum = channelNums.size > 1
-
-  const seen = new Set<string>()
-  const result: CanvasClassVideoInfo[] = []
-  for (const v of valid) {
-    const key = useChannelNum
-      ? String(v.cdviChannelNum)
-      : getDeviceId(String(v.rtmpUrlHdv))
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    result.push({
-      channelNum: Number(v.cdviChannelNum),
-      url: String(v.rtmpUrlHdv),
-      label: '' // 由调用方根据返回顺序标注：第0=教师，第1=PPT
-    })
-  }
-  return result
+  return sorted.map(s => ({
+    channelNum: s.channelNum,
+    url: s.url,
+    label: s.label
+  }))
 }
+
+export const fetchVodVideoInfos = getVodVideoInfos
 
 // ─── 进程级 videoId→channels 缓存（懒解析去重） ───────────────
 //
@@ -361,10 +430,37 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
 }
 
-/** 从 videoName 中提取讲次编号，例如 "课程名(第1讲)" → 1 */
+const CHINESE_NUM_MAP: Record<string, number> = {
+  '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+  '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+  '十一': 11, '十二': 12
+}
+
+/** 从 videoName 中提取讲次编号，支持多种命名规范：
+ *  1. 标准：第X讲 / 第X次课
+ *  2. 中文数字：第一讲 ~ 第十二讲
+ *  3. 英文：Lecture X / Lec X / Class X
+ *  4. 独立首尾数字：01_导论 / 导论_01
+ */
 export function extractLectureNum(name: string): number {
-  const m = name.match(/第(\d+)讲/)
-  return m ? Number(m[1]) : 0
+  if (!name) return 0
+  // 1. Standard: 第X讲 / 第X次课
+  const m1 = name.match(/第\s*(\d+)\s*[讲次课]/i)
+  if (m1) return Number.parseInt(m1[1], 10)
+
+  // 2. Chinese numbers: 第一讲 ~ 第十二讲
+  const m2 = name.match(/第\s*([一二三四五六七八九十]+)\s*[讲次课]/)
+  if (m2 && CHINESE_NUM_MAP[m2[1]]) return CHINESE_NUM_MAP[m2[1]]
+
+  // 3. English: Lecture X / Lec X / Class X
+  const m3 = name.match(/(?:lecture|lec|class)\s*(\d+)/i)
+  if (m3) return Number.parseInt(m3[1], 10)
+
+  // 4. Standalone leading or trailing digits: 01_导论 or 导论_01
+  const m4 = name.match(/(?:^|[^\d])(\d{1,3})(?:[^\d]|$)/)
+  if (m4) return Number.parseInt(m4[1], 10)
+
+  return 0
 }
 
 // ─── ExternalTool 模块视频：LTI 跳转 + /file/{id} → S3 直链 MP4 ─────

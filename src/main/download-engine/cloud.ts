@@ -7,7 +7,7 @@
 import { request as httpsRequest } from 'node:https'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState, type DownloadTaskSpec } from '../../shared/types'
-import { isAllowedSjtuUrl } from './domain-guard'
+import { isAllowedSjtuUrl, interceptDownloadRedirect } from './domain-guard'
 import {
   type CloudTaskRuntime,
   cloudTasks,
@@ -404,20 +404,13 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
 
             if (status >= 300 && status < 400 && resp.headers.location) {
               resp.resume()
-              let next: string
-              try {
-                next = new URL(resp.headers.location, url).toString()
-              } catch {
-                fail(new Error(`重定向 URL 解析失败：${resp.headers.location}`))
+              const intercept = interceptDownloadRedirect(resp.headers.location, url)
+              if (intercept.action === 'abort') {
+                fail(new Error(intercept.reason || '重定向被拦截'))
                 return
               }
 
-              if (!isAllowedSjtuUrl(next)) {
-                fail(new Error(`安全拦截：重定向目标非 SJTU 官方域 (${sanitizeForLog(next)})`))
-                return
-              }
-
-              fetchOnce(next, depth + 1)
+              fetchOnce(intercept.nextUrl || resp.headers.location, depth + 1)
               return
             }
 

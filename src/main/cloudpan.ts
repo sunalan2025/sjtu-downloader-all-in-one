@@ -272,12 +272,12 @@ export async function startChunkedUpload(userToken: string, remotePath: string):
         method: 'POST',
         body: { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => i + 1) }
       })
-      return buildUploader(cred, initResult)
+      return buildUploader(userToken, cred, initResult)
     }
     throw err
   }
 
-  return buildUploader(cred, initResult)
+  return buildUploader(userToken, cred, initResult)
 }
 
 /** 从保存的会话状态恢复 uploader，跳过已传分片 */
@@ -288,7 +288,7 @@ export async function resumeChunkedUpload(userToken: string, state: UploadSessio
     `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${state.confirmKey}?renew&access_token=${cred.accessToken}`,
     { method: 'POST', body: { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => state.nextPart + i) } }
   )
-  return buildUploader(cred, {
+  return buildUploader(userToken, cred, {
     confirmKey: state.confirmKey,
     domain: state.domain,
     uploadId: state.uploadId,
@@ -300,6 +300,7 @@ export async function resumeChunkedUpload(userToken: string, state: UploadSessio
 }
 
 function buildUploader(
+  userToken: string,
   cred: CloudPanSpaceCred,
   init: CloudPanStartUploadResult,
   alreadyUploaded?: Set<number>,
@@ -312,20 +313,37 @@ function buildUploader(
   let nextPart = startPart ?? 1
   let bytesReceived = startBytes ?? 0
   const trackedParts = alreadyUploaded ?? new Set<number>()
+  let activeCred = cred
 
-  const renewUrl = `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${confirmKey}?renew&access_token=${cred.accessToken}`
-
-  /** renew 上传会话凭证，400 时等待后重试（网络抖动导致会话暂时不可用）；
+  /** renew 上传会话凭证，[R3-F4] 支持动态刷新 accessToken 避免长时间大文件上传中会话凭证过期；
+   *  400 时等待后重试（网络抖动导致会话暂时不可用）；
    *  [Bug 31 Fix] 若两次 400，则上传会话可能已过期（COS 服务端清理），抛出明确错误。 */
   async function renewWithRetry(pn: number): Promise<CloudPanStartUploadResult> {
     const body = { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => pn + i) }
+    if (userToken) {
+      try {
+        activeCred = await ensureCred(userToken)
+      } catch {
+        // fallback to current activeCred
+      }
+    }
+    const currentRenewUrl = `${PAN_BASE}/api/v1/file/${activeCred.libraryId}/${activeCred.spaceId}/${confirmKey}?renew&access_token=${activeCred.accessToken}`
     try {
-      return await api<CloudPanStartUploadResult>(renewUrl, { method: 'POST', body })
+      return await api<CloudPanStartUploadResult>(currentRenewUrl, { method: 'POST', body })
     } catch (err) {
+      if (err instanceof Error && (err.message.includes('HTTP 401') || err.message.includes('401'))) {
+        if (userToken) {
+          activeCred = await getSpaceCred(userToken)
+          cachedCred = activeCred
+          credExpAt = Date.now() + activeCred.expiresIn * 1000
+          const retryRenewUrl = `${PAN_BASE}/api/v1/file/${activeCred.libraryId}/${activeCred.spaceId}/${confirmKey}?renew&access_token=${activeCred.accessToken}`
+          return await api<CloudPanStartUploadResult>(retryRenewUrl, { method: 'POST', body })
+        }
+      }
       if (err instanceof Error && err.message.includes('HTTP 400')) {
         await new Promise(r => setTimeout(r, 3000))
         try {
-          return await api<CloudPanStartUploadResult>(renewUrl, { method: 'POST', body })
+          return await api<CloudPanStartUploadResult>(currentRenewUrl, { method: 'POST', body })
         } catch {
           throw new Error('上传会话已过期（服务端返回 400），请取消后重新上传')
         }

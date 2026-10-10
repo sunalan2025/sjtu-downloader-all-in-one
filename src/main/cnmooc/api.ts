@@ -191,6 +191,7 @@ function parseChapterHtml(html: string): CnmoocChapter[] {
       $el.hasClass('chapter-title') ||
       $el.hasClass('section-title') ||
       $el.attr('data-type') === 'chapter' ||
+      $el.attr('data-type') === 'section' ||
       tag === 'h2' || tag === 'h3' || tag === 'h4'
 
     if (isChapterHeading) {
@@ -202,11 +203,11 @@ function parseChapterHtml(html: string): CnmoocChapter[] {
       return
     }
 
-    const itemId = $el.attr('itemid') || $el.attr('data-itemid')
+    const itemId = $el.attr('itemid') || $el.attr('data-itemid') || $el.attr('id')?.match(/item[_-]?(\d+)/i)?.[1]
     if (!itemId) return
-    if (tag !== 'a' && !$el.hasClass('lecture-action')) return
+    if (tag !== 'a' && !$el.hasClass('lecture-action') && !$el.hasClass('item-title')) return
 
-    const itemType = $el.attr('itemtype') || '10'
+    const itemType = $el.attr('itemtype') || $el.attr('data-itemtype') || '10'
     if (QUIZ_TYPES.has(itemType)) return
 
     if (!current) {
@@ -214,7 +215,7 @@ function parseChapterHtml(html: string): CnmoocChapter[] {
       chapters.push(current)
     }
     if (!current.items.find(i => i.itemId === itemId)) {
-      const rawTitle = $el.attr('title') || $el.text().trim()
+      const rawTitle = $el.attr('title') || $el.attr('data-title') || $el.text().trim()
       const title = rawTitle ? sanitizeFsName(rawTitle) : `item_${itemId}`
       current.items.push({ itemId, itemType, title })
     }
@@ -275,16 +276,27 @@ export async function fetchCnmoocResourceUrl(
     )
     if (!detailResp.ok) throw new Error(`detail.mooc HTTP ${detailResp.status}`)
     const detail = await detailResp.json() as {
-      node?: { flvUrl?: string; rsUrl?: string }
+      node?: {
+        flvUrl?: string
+        rsUrl?: string
+        mp4Url?: string
+        playUrl?: string
+        videoUrl?: string
+        hlsUrl?: string
+        highUrl?: string
+        hdUrl?: string
+      }
       path?: string
     }
     const node = detail.node || {}
     const staticBase = detail.path || CNMOOC_STATIC_BASE
 
+    // [R3-F6] 多码率与备用视频直链解析（适配好大学在线从 FLV 升级到 MP4/HLS 的多形态端点）
+    const candidateVideoUrl = node.mp4Url || node.playUrl || node.videoUrl || node.hlsUrl || node.hdUrl || node.highUrl || node.flvUrl
     let url = ''
-    if (node.flvUrl && /^https?:\/\//i.test(node.flvUrl)) url = node.flvUrl
+    if (candidateVideoUrl && /^https?:\/\//i.test(candidateVideoUrl)) url = candidateVideoUrl
     else if (node.rsUrl) url = staticBase + node.rsUrl
-    else if (node.flvUrl) url = resolveRelative(node.flvUrl)
+    else if (candidateVideoUrl) url = resolveRelative(candidateVideoUrl)
     else throw new Error('detail 响应无可下载 URL')
 
     return { url, type: classifyCnmoocResource(url) }

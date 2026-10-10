@@ -366,9 +366,13 @@ export async function resolveDirectUrl(
       }
       try {
         const channels = await getVodChannelsCached(sjtuSession(), cs.canvasVideoToken, cs.canvasVideoId)
-        const ch = channels[cs.canvasStreamIdx ?? 0]
+        let ch = channels[cs.canvasStreamIdx ?? 0]
+        if (!ch && channels.length > 0) {
+          ch = channels[0]
+        }
         if (!ch?.url) throw new Error(`未找到该路视频流（streamIdx=${cs.canvasStreamIdx ?? 0}）`)
         t.spec.url = ch.url
+        t.spec.isHls = true
       } catch (err) {
         if (t.state === 'cancelled') return false
         t.state = 'error'
@@ -465,7 +469,18 @@ export async function resolveDirectUrl(
           break
         }
       }
-      if (!found) throw new Error(`该课次没有视角 ${t.spec.angle} 视频`)
+      if (!found) {
+        // [R3-F2] 单视角自适应容错：当指定视角缺失时，自动降级选择第一个有效视角的播放地址
+        for (const info of data?.videoInfos ?? []) {
+          const url = info.extendPlayUrls?.[0]
+          if (url) {
+            t.spec.url = url
+            found = true
+            break
+          }
+        }
+      }
+      if (!found) throw new Error(`该课次暂无可用视频流`)
     } catch (err) {
       if (t.state === 'cancelled') return false
       t.state = 'error'
@@ -500,6 +515,16 @@ export function isCnmoocSpec(spec: DownloadTaskSpec): boolean {
   return (spec as CanvasDownloadTaskSpec).source === 'cnmooc'
 }
 
+/** 判断任务是否为 HLS 视频流任务（需要通过 HLS 管道下载 TS 切片并 remux 转码） */
+export function isHlsStreamTask(spec: any): boolean {
+  if (!spec) return false
+  if (spec.source === 'canvas-class-video') return true
+  if (spec.isHls === true) return true
+  const url = String(spec.url || '').toLowerCase()
+  if (url.endsWith('.m3u8') || url.includes('.m3u8?') || url.includes('.m3u8#')) return true
+  return false
+}
+
 /** 提取错误消息字符串，统一处理 unknown 类型的 error 入参 */
 export function extractErrorMessage(err: unknown, fallback = '未知错误'): string {
   return err instanceof Error ? err.message : String(err || fallback)
@@ -516,3 +541,13 @@ export function isTransientCloudError(err: unknown): boolean {
   if (/上传会话已过期/i.test(msg)) return true  // [B7 Fix]
   return false
 }
+
+// ─── 文件完整性守卫 (R2-F4) ───
+export {
+  FileIntegrityError,
+  type FileIntegrityResult,
+  isHtmlExtension,
+  verifyDownloadIntegrity,
+  assertDownloadIntegrity
+} from './integrity'
+

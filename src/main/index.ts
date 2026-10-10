@@ -519,11 +519,36 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
-    const r = await vsjtuFetch(V_SJTU_API.auditCourseMy, {
+    const first = (await vsjtuFetch(V_SJTU_API.auditCourseMy, {
       method: 'POST',
       body: { pageNo, pageSize }
-    })
-    return r
+    })) as { success?: boolean; data?: { totalPage?: number; list?: unknown[] } }
+
+    if (pageNo === 1 && first?.success && first.data && (first.data.totalPage ?? 1) > 1) {
+      const allList = [...(first.data.list ?? [])]
+      const totalPage = first.data.totalPage!
+      for (let p = 2; p <= totalPage; p++) {
+        try {
+          const next = (await vsjtuFetch(V_SJTU_API.auditCourseMy, {
+            method: 'POST',
+            body: { pageNo: p, pageSize }
+          })) as { success?: boolean; data?: { list?: unknown[] } }
+          if (next?.success && Array.isArray(next.data?.list)) {
+            allList.push(...next.data.list)
+          }
+        } catch {
+          break
+        }
+      }
+      return {
+        ...first,
+        data: {
+          ...first.data,
+          list: allList
+        }
+      }
+    }
+    return first
   })
 
   ipcMain.handle('vsjtu:audit-course-detail', async (_e, resourceId: number) => {
@@ -757,6 +782,18 @@ app.whenReady().then(async () => {
   ipcMain.handle('cloudpan:direct-login', async () => {
     const ses = sjtuSession()
     try {
+      // [R3-F3] 优先复用有效 USER_TOKEN，避免多余的 SSO 弹窗
+      const existingCookies = await ses.cookies.get({ domain: 'sjtu.edu.cn' })
+      const existingUt = existingCookies.find(c => c.name === 'USER_TOKEN' && c.value.length >= 64)
+      if (existingUt) {
+        const valid = await validateUserToken(existingUt.value)
+        if (valid.ok) {
+          setCachedUserToken(existingUt.value)
+          saveSessionStore({ cloudUserToken: existingUt.value })
+          return { ok: true, userToken: existingUt.value }
+        }
+      }
+
       const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
       if (jaCookies.length === 0) {
         return { ok: false, error: 'jAccount 未登录，请先登录 v.sjtu' }
@@ -773,12 +810,16 @@ app.whenReady().then(async () => {
         await win.loadURL('https://pan.sjtu.edu.cn')
         await new Promise(r => setTimeout(r, 2000))
 
-        // 点击"jAccount登录"按钮触发 SSO
+        // [R3-F3] 点击 SSO 登录按钮：扩大选择器与关键词适配（支持 button、a 标签及包含统一身份认证的入口）
         await win.webContents.executeJavaScript(`
           (function() {
-            var btns = document.querySelectorAll('button');
-            for (var i = 0; i < btns.length; i++) {
-              if (btns[i].textContent.includes('jAccount')) { btns[i].click(); return; }
+            var elements = document.querySelectorAll('button, a, [role="button"], .login-btn, .sso-btn');
+            for (var i = 0; i < elements.length; i++) {
+              var text = (elements[i].textContent || '').trim();
+              if (/jaccount|统一身份认证|交大登录/i.test(text)) {
+                elements[i].click();
+                return;
+              }
             }
           })()
         `)
@@ -789,8 +830,6 @@ app.whenReady().then(async () => {
           const cookies = await ses.cookies.get({ domain: 'sjtu.edu.cn' })
           const ut = cookies.find(c => c.name === 'USER_TOKEN' && c.value.length >= 64)
           if (ut) {
-            // [Bug Fix] SSO 拿到 token 后立即写入 main 缓存，否则后续 spaceInfo / download:start
-            // 调 getCachedUserToken() 仍返回 null，导致"已连接却下不了"。
             setCachedUserToken(ut.value)
             saveSessionStore({ cloudUserToken: ut.value })
             return { ok: true, userToken: ut.value }
