@@ -685,14 +685,23 @@ export function Login() {
       }
     }
 
+    const onFail = (e: any): void => {
+      if (e?.errorCode === -3) return
+      setError(`认证页面加载失败 (${e?.errorDescription || '网络异常'})，请检查是否已连接交大校园网或 VPN`)
+      setStatusMsg('认证页面加载失败')
+      setReady(false)
+    }
+
     wv.addEventListener('dom-ready', onDomReady)
     wv.addEventListener('did-navigate', onNav)
     wv.addEventListener('did-navigate-in-page', onNav)
+    wv.addEventListener('did-fail-load', onFail)
 
     return () => {
       wv.removeEventListener('dom-ready', onDomReady)
       wv.removeEventListener('did-navigate', onNav)
       wv.removeEventListener('did-navigate-in-page', onNav)
+      wv.removeEventListener('did-fail-load', onFail)
     }
   }, [handleLoginCompletion])
 

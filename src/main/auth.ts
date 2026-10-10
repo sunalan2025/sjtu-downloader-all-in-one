@@ -587,12 +587,30 @@ export async function hydrateSjtuSession(): Promise<AuthInfo> {
   accountName = saved.accountName ?? null
   studentId = saved.studentId ?? null
 
+  // 严苛会话守卫：作为 All-in-One 下载器，除本地 JWT 外，Canvas、CNMOOC、交大云盘及 JWT 静默续期
+  // 均强依赖 persist:sjtu 中的 jAccount 统一身份认证会话 Cookie（JAUSER / JASESSIONID 等）。
+  // 若应用重启后 Chromium 丢弃了会话 Cookie（只剩 JATrustCookie 或为空），说明会话已断开，
+  // 必须判定为未登录并清除孤立凭据，直接引导用户进入登录界面。
+  let hasJaSession = false
+  try {
+    const jaCookies = await sjtuSession().cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
+    hasJaSession = jaCookies.some(c => c.name !== 'JATrustCookie' && c.name.length > 0)
+  } catch {
+    hasJaSession = false
+  }
+
+  if (!hasJaSession) {
+    console.log('[auth] 缺少有效 jAccount 会话 Cookie，已恢复的会话视为过期，需重新登录')
+    clearAuthState()
+    return { loggedIn: false, expired: true }
+  }
+
   // 恢复主进程缓存的云盘 token
   if (saved.cloudUserToken) {
     setCachedUserToken(saved.cloudUserToken)
   }
 
-  // 关键提速：若本地存储的 JWT Token 仍未过期，立刻认定为有效登录并极速放行首屏
+  // 关键提速：本地存储的 JWT Token 仍未过期且 jAccount 会话凭据有效，立刻认定为有效登录并放行首屏
   // 后续在后台静默发起增量验真，绝不阻塞应用主窗口与图形界面首次渲染
   if (exp && Date.now() < exp) {
     _authCache = {
