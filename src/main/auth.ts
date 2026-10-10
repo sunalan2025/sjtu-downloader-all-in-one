@@ -233,17 +233,12 @@ export async function getAuthInfo(force = false): Promise<AuthInfo> {
     }
   }
 
-  // 1. 检查是否存在真正的 jAccount 会话 Cookie（排除仅存的 JATrustCookie 信任标记）
-  const jaCookies = await sjtuSession().cookies.get({ domain: 'jaccount.sjtu.edu.cn' }).catch(() => [])
-  const hasJaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
-
-  // 2. 检查 JWT Token 是否合法且未过期
+  // 1. 检查 JWT Token 是否合法且未过期
   const exp = jwtToken ? extractJwtExpiry(jwtToken) : undefined
   const isJwtFresh = !!jwtToken && (!exp || Date.now() < exp)
 
-  // 判定登录态必须满足：持有合法且未过期的 JWT Token，同时具备有效 jAccount 会话 Cookie
-  // 若无 jAccount 会话，说明主会话不存在，判定为未登录
-  if (!hasJaSession || !isJwtFresh) {
+  // 若无有效 JWT，直接判定为未登录
+  if (!isJwtFresh) {
     _authCache = { result: { loggedIn: false, expired: _isSessionExpired }, ts: Date.now() }
     return _authCache.result
   }
@@ -580,15 +575,10 @@ export async function hydrateSjtuSession(): Promise<AuthInfo> {
     return { loggedIn: false }
   }
 
-  // 核心安全校验：检查 persist:sjtu session 中是否存在真正的 jAccount 会话 Cookie
-  // （排除纯设备信任标记 JATrustCookie）
-  // 全平台（Canvas / CNMOOC / CloudPan / v.sjtu）均依赖 jAccount 会话进行 SSO。
-  // 若 jAccount 会话已失效/不存在，绝不能误判为已登录跳过登录页，否则后台 SSO 失败会引发弹窗冲突
-  const jaCookies = await sjtuSession().cookies.get({ domain: 'jaccount.sjtu.edu.cn' }).catch(() => [])
-  const hasJaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
-
-  if (!hasJaSession) {
-    console.log('[auth] jAccount 会话已失效或未初始化，需交互式重新登录')
+  // 检查持久化 JWT 是否已在本地明确过期
+  const exp = extractJwtExpiry(saved.jwtToken)
+  if (exp && Date.now() > exp) {
+    console.log('[auth] 持久化 JWT 已过期，需重新登录')
     clearAuthState()
     return { loggedIn: false, expired: true }
   }
@@ -604,7 +594,6 @@ export async function hydrateSjtuSession(): Promise<AuthInfo> {
 
   // 关键提速：若本地存储的 JWT Token 仍未过期，立刻认定为有效登录并极速放行首屏
   // 后续在后台静默发起增量验真，绝不阻塞应用主窗口与图形界面首次渲染
-  const exp = extractJwtExpiry(jwtToken)
   if (exp && Date.now() < exp) {
     _authCache = {
       result: {
