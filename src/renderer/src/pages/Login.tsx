@@ -20,11 +20,21 @@ const READ_JWT_JS = `
 `
 
 /**
- * 动态作用域隔离样式：仅在 html[data-sjtu-mode="isolated"] 激活时生效。
- * 完全摆脱对 body>#page>#content 等固定层级的脆弱依赖；一旦超时降级或还原，
- * 移除该属性即可瞬间恢复完整登录页。
+ * 动态作用域隔离样式：
+ * 1. 无条件覆盖 jAccount 在小屏 (@media max-width: 768px) 下对 .login-qr 的隐藏，打破鸡生蛋死锁；
+ * 2. 在 html[data-sjtu-mode="isolated"] 下仅展示居中二维码并隐藏冗余表单；
+ * 3. 在 html[data-sjtu-mode="unmasked"] 下支持完整表单展示。
  */
 const QR_ISOLATION_CSS = `
+  /* 基础覆盖：破除移动端响应式隐藏，确保二维码始终可以被渲染与测量 */
+  .login-qr,
+  #qr-mask,
+  #qr-img {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
   html[data-sjtu-mode="isolated"],
   html[data-sjtu-mode="isolated"] body {
     background: transparent !important;
@@ -41,7 +51,7 @@ const QR_ISOLATION_CSS = `
     font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif !important;
   }
 
-  /* 隐藏非关键页面修饰元素（头部、尾部、导航、背景、悬浮提示） */
+  /* 隐藏非关键页面修饰元素（头部、尾部、导航、背景、悬浮提示及账号密码表单） */
   html[data-sjtu-mode="isolated"] header,
   html[data-sjtu-mode="isolated"] footer,
   html[data-sjtu-mode="isolated"] nav,
@@ -53,7 +63,11 @@ const QR_ISOLATION_CSS = `
   html[data-sjtu-mode="isolated"] .login-bg,
   html[data-sjtu-mode="isolated"] .bg-img,
   html[data-sjtu-mode="isolated"] .toast,
-  html[data-sjtu-mode="isolated"] .tooltip {
+  html[data-sjtu-mode="isolated"] .tooltip,
+  html[data-sjtu-mode="isolated"] .form-login,
+  html[data-sjtu-mode="isolated"] #passwordForm,
+  html[data-sjtu-mode="isolated"] #smsForm,
+  html[data-sjtu-mode="isolated"] #login-app-wait {
     display: none !important;
   }
 
@@ -75,6 +89,7 @@ const QR_ISOLATION_CSS = `
   }
 
   /* 隔离目标二维码容器 */
+  html[data-sjtu-mode="isolated"] .login-qr,
   html[data-sjtu-mode="isolated"] [data-sjtu-qr-container="true"] {
     display: flex !important;
     flex-direction: column !important;
@@ -85,6 +100,7 @@ const QR_ISOLATION_CSS = `
     border: none !important;
     margin: 0 auto !important;
     padding: 4px !important;
+    visibility: visible !important;
   }
 
   /* 非通路兄弟节点隐藏 */
@@ -98,29 +114,67 @@ const QR_ISOLATION_CSS = `
   html[data-sjtu-mode="isolated"] .qrcode img,
   html[data-sjtu-mode="isolated"] canvas,
   html[data-sjtu-mode="isolated"] svg {
+    display: block !important;
+    visibility: visible !important;
     background: white !important;
     padding: 8px !important;
     border-radius: 12px !important;
     box-shadow: 0 4px 20px rgba(0,0,0,0.12) !important;
-    max-width: 200px !important;
-    max-height: 200px !important;
+    width: 185px !important;
+    height: 185px !important;
+    max-width: 185px !important;
+    max-height: 185px !important;
   }
 
   html[data-sjtu-mode="isolated"] .qr-title,
   html[data-sjtu-mode="isolated"] #qr-title {
     font-size: 14px !important;
     font-weight: 500 !important;
-    margin-top: 8px !important;
+    margin-bottom: 8px !important;
   }
 
   html[data-sjtu-mode="isolated"] .qr-tips,
   html[data-sjtu-mode="isolated"] #qr-msg {
     font-size: 13px !important;
-    margin-top: 4px !important;
+    margin-top: 8px !important;
   }
 
   html[data-sjtu-mode="isolated"] ::-webkit-scrollbar {
     display: none !important;
+  }
+
+  /* 完整手动模式（unmasked）样式加固 */
+  html[data-sjtu-mode="unmasked"],
+  html[data-sjtu-mode="unmasked"] body {
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+  html[data-sjtu-mode="unmasked"] .login-card {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 auto !important;
+    width: 100% !important;
+    max-width: 440px !important;
+  }
+  html[data-sjtu-mode="unmasked"] .login-qr {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    margin: 0 auto 12px auto !important;
+    visibility: visible !important;
+  }
+  html[data-sjtu-mode="unmasked"] #qr-img {
+    display: block !important;
+    visibility: visible !important;
+    width: 160px !important;
+    height: 160px !important;
+  }
+  html[data-sjtu-mode="unmasked"] .form-login {
+    display: block !important;
   }
 `
 
@@ -152,32 +206,44 @@ const DETECT_AND_ISOLATE_QR_JS = `
 
     const isValidQr = (el) => {
       if (!el) return false;
-      const rect = el.getBoundingClientRect();
-      if (rect.width < 40 || rect.height < 40) return false;
-
+      const id = el.id || '';
       const tag = el.tagName.toLowerCase();
-      if (tag === 'img') {
-        if (!el.complete || el.naturalWidth < 40) return false;
-        const src = el.src || '';
-        if (!src || src.endsWith('#') || src === window.location.href) return false;
+      const src = el.src || '';
+
+      // 精确识别交大官方二维码：只要 id 为 qr-img 或 src 包含 qrcode，立即判定有效
+      if (id === 'qr-img' || (tag === 'img' && src.includes('qrcode'))) {
         return true;
       }
-      if (tag === 'canvas') {
-        return el.width >= 40 && el.height >= 40;
+
+      const rect = el.getBoundingClientRect();
+      if (rect.width >= 40 && rect.height >= 40) {
+        if (tag === 'img') {
+          if (!src || src.endsWith('#') || src === window.location.href) return false;
+          return true;
+        }
+        if (tag === 'canvas') {
+          return el.width >= 40 && el.height >= 40;
+        }
+        if (tag === 'svg') {
+          return el.querySelectorAll('rect, path').length > 0;
+        }
+        const child = el.querySelector('img, canvas, svg');
+        if (child) return isValidQr(child);
+        const bg = window.getComputedStyle(el).backgroundImage;
+        if (bg && (bg.includes('data:image') || bg.includes('qrcode'))) return true;
       }
-      if (tag === 'svg') {
-        return el.querySelectorAll('rect, path').length > 0;
-      }
-      const child = el.querySelector('img, canvas, svg');
-      if (child) return isValidQr(child);
-      const bg = window.getComputedStyle(el).backgroundImage;
-      if (bg && (bg.includes('data:image') || bg.includes('qrcode'))) return true;
       return false;
     };
 
     const findQrElement = () => {
+      // 优先精准检索官方二维码元素
+      const direct = document.getElementById('qr-img');
+      if (direct && isValidQr(direct)) return direct;
+
       const selectors = [
         '#qr-img',
+        '.login-qr img',
+        '#qr-mask img',
         'img[src*="qrcode"]',
         'img[src*="QRCode"]',
         'img[src*="qrCode"]',
@@ -192,9 +258,7 @@ const DETECT_AND_ISOLATE_QR_JS = `
         '.qrcode svg',
         '.qr-code svg',
         '[class*="qrcode"] svg',
-        'svg',
-        '[class*="qrcode"]',
-        '[class*="qr-code"]'
+        'svg'
       ];
       for (const sel of selectors) {
         try {
@@ -226,11 +290,11 @@ const DETECT_AND_ISOLATE_QR_JS = `
           return;
         }
       }
-      const candidates = document.querySelectorAll('a, button, [role="tab"], .tab, .tab-item, .nav-item, .el-tabs__item, .ant-tabs-tab, span, div');
+      const candidates = document.querySelectorAll('a, button, [role="tab"], .tab, .tab-item');
       for (const el of Array.from(candidates)) {
-        if (el.children.length > 2) continue;
+        if (el.children.length > 1) continue;
         const text = (el.textContent || '').trim();
-        if ((text === '扫码登录' || text === '二维码登录' || text.includes('交我办') || text.includes('微信扫码')) && el.offsetParent !== null) {
+        if ((text === '扫码登录' || text === '二维码登录' || text === '扫码') && el.offsetParent !== null) {
           tabSwitched = true;
           el.click();
           el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -240,7 +304,7 @@ const DETECT_AND_ISOLATE_QR_JS = `
     };
 
     const findQrContainer = (target) => {
-      const known = target.closest('.login-qr, .login-card, .login-box, .qrcode-box, .qrcode-container, [class*="qr-box"], [class*="qrcode"]');
+      const known = target.closest('.login-qr, .login-box, .qrcode-box, .qrcode-container, [class*="qr-box"], [class*="qrcode"]');
       if (known && known !== document.body && known !== document.documentElement) {
         return known;
       }
@@ -466,13 +530,43 @@ export function Login() {
     }
   }, [checkAuth, pullJwt, setStage, theme])
 
-  const onReload = (): void => {
+  const onReload = useCallback((): void => {
     setReady(false)
     setUnmasked(false)
     setError(null)
     setStatusMsg('正在刷新…')
     webviewRef.current?.loadURL(LOGIN_URL).catch(() => undefined)
-  }
+  }, [])
+
+  const switchToPassword = useCallback(async (): Promise<void> => {
+    const wv = webviewRef.current
+    if (wv) {
+      try {
+        await wv.executeJavaScript(UNMASK_PAGE_JS)
+      } catch {
+        /* ignore */
+      }
+    }
+    setUnmasked(true)
+    setStatusMsg('您可使用账号密码或短信验证码登录')
+  }, [])
+
+  const switchToQr = useCallback(async (): Promise<void> => {
+    const wv = webviewRef.current
+    if (wv) {
+      try {
+        const state = await wv.executeJavaScript(DETECT_AND_ISOLATE_QR_JS)
+        if (state === 'ok') {
+          setUnmasked(false)
+          setStatusMsg('请用「交我办」或微信扫码登录')
+          return
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    onReload()
+  }, [onReload])
 
   return (
     <div className="relative flex h-full w-full items-center justify-center px-6 py-8">
@@ -493,7 +587,7 @@ export function Login() {
         <div className="relative rounded-2xl border border-bd bg-surface-1 p-6 shadow-card backdrop-blur">
           <div
             className={`relative w-full rounded-xl bg-base transition-all duration-300 ${
-              unmasked ? 'h-[460px] overflow-auto' : 'h-[320px] overflow-hidden'
+              unmasked ? 'h-[500px] overflow-auto' : 'h-[320px] overflow-hidden'
             }`}
           >
             {!ready && !unmasked && !error && (
@@ -521,13 +615,19 @@ export function Login() {
             />
           </div>
           <div className="mt-4 flex items-center justify-between text-xs text-text-3">
-            <span>{unmasked ? '已启用完整页面手动模式' : ready ? '二维码 60 秒后自动刷新' : ' '}</span>
+            <button
+              type="button"
+              onClick={unmasked ? switchToQr : switchToPassword}
+              className="inline-flex items-center gap-1 font-medium text-accent hover:underline"
+            >
+              {unmasked ? '← 返回扫码登录' : '使用账号密码登录 →'}
+            </button>
             <button
               type="button"
               onClick={onReload}
               className="inline-flex items-center gap-1 text-text-3 transition-colors duration-150 hover:text-accent-light"
             >
-              手动刷新 ↻
+              刷新 ↻
             </button>
           </div>
         </div>
@@ -536,7 +636,7 @@ export function Login() {
           <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-accent/20 bg-accent/5 px-4 py-3">
             <span className="mt-0.5 text-sm">ℹ️</span>
             <p className="text-xs leading-relaxed text-text-2">
-              二维码自动提取超时，已为您切换为完整登录页面。您可以在上方直接切换扫码、使用账号密码登录，或点击“手动刷新”重试。
+              当前为完整登录模式。您可在上方表单中输入账号密码，或随时点击“返回扫码登录”。
             </p>
           </div>
         )}
