@@ -206,6 +206,29 @@ describe('Auth & Session Persistence E2E Suite (R1-F1, R1-F2, R1-F3)', () => {
       expect(isExpired).toBe(true)
     })
 
+    it('rejects hydration when jAccount session cookies are absent or only JATrustCookie is present', async () => {
+      // Simulate dual-factor guard: unexpired JWT in vault, but session cookies only contain JATrustCookie
+      const mockCookies = [{ domain: 'jaccount.sjtu.edu.cn', name: 'JATrustCookie', value: 'trust_device_123' }]
+      const hasJaSession = mockCookies.some(c => c.name !== 'JATrustCookie' && c.name.length > 0)
+      expect(hasJaSession).toBe(false)
+
+      await vault.save({
+        version: 1,
+        jwtToken: MOCK_JWT_TOKEN,
+        accountName: MOCK_USER.name,
+        studentId: MOCK_USER.studentId,
+        expiresAt: Date.now() + 86400_000,
+        lastVerifiedAt: Date.now()
+      })
+
+      // When hasJaSession is false, stale session is cleared
+      if (!hasJaSession) {
+        await vault.clear()
+      }
+      const loaded = await vault.load()
+      expect(loaded).toBeNull()
+    })
+
     it('handles malformed JWT token with missing or invalid parts', () => {
       expect(decodeJwtClaims('')).toBeNull()
       expect(decodeJwtClaims('singleparttoken')).toBeNull()

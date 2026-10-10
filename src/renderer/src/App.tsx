@@ -49,7 +49,7 @@ export default function App() {
       await window.api.auth.logout()
       setAuth({ loggedIn: false })
       resetScanResults()
-      setStage('welcome')
+      setStage('login')
     } catch { /* ignore */ }
   }, [setAuth, setStage, resetScanResults])
 
@@ -78,8 +78,10 @@ export default function App() {
         } else {
           useAppStore.getState().setCloudUserToken(null)
           useAppStore.getState().setCloudSpaceInfo(null)
+          setStage('login')
         }
       } catch {
+        if (!cancelled) setStage('login')
       }
     })()
     return () => {
