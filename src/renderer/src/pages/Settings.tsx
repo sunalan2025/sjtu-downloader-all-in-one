@@ -343,11 +343,12 @@ export function Settings({ onBack }: { onBack: () => void }) {
                     value={theme}
                     onChange={(v) => onSelectTheme(v as Theme)}
                     options={[
+                      { key: 'system', label: '💻 跟随系统 (默认)' },
                       { key: 'light', label: '☀️ 浅色明亮' },
-                      { key: 'dark', label: '🌙 深色暗黑' },
-                      { key: 'system', label: '💻 跟随系统' }
+                      { key: 'dark', label: '🌙 深色暗黑' }
                     ]}
                   />
+                  <p className="mt-2.5 text-xs text-text-3">默认跟随操作系统色彩偏好自动匹配，亦可手动锁定深色或浅色外观</p>
                 </div>
 
                 <div className="rounded-2xl border border-bd bg-surface-2 p-6 shadow-card">

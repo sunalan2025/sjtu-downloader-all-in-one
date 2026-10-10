@@ -354,7 +354,7 @@ let progressScheduled = false
 export const useAppStore = create<AppState>()(
   persist(
     set => ({
-      theme: 'light',
+      theme: 'system',
       stage: 'welcome',
       activeTab: 'audited' as ActiveTab,
       auth: { loggedIn: false },
@@ -675,11 +675,11 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'sjtu-course-downloader',
-      version: 2,
+      version: 3,
       migrate: (persistedState: unknown, version: number) => {
         const state = (persistedState ?? {}) as Record<string, unknown>
-        if (version < 2 && state) {
-          state.theme = 'light'
+        if (version < 3 && state) {
+          state.theme = 'system'
         }
         return state
       },
