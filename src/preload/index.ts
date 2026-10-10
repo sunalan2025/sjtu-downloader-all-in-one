@@ -93,7 +93,7 @@ const api = {
   },
   auth: {
     /** 检查当前 v.sjtu 登录状态 */
-    status: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:status'),
+    status: (force?: boolean): Promise<AuthStatus> => ipcRenderer.invoke('auth:status', force),
     /** 登出并清除 sjtu session 的 cookies/localStorage */
     logout: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:logout'),
     /** 显式清理凭据与会话 */
