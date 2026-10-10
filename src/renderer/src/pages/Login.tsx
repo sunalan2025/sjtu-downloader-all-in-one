@@ -113,7 +113,7 @@ function getJAccountEmbedCss(isDark: boolean): string {
       overflow: hidden !important;
     }
 
-    /* 核心卡片容器：水平 Flex 布局，左扫码右账密，永久两栏并列且无边框阴影 */
+    /* 核心卡片容器：水平 Flex 布局，左扫码右账密，若触发交我办推送确认或二次验证则自适应切为单栏居中 */
     #login-form.login-card,
     .login-card,
     .login-box {
@@ -130,6 +130,13 @@ function getJAccountEmbedCss(isDark: boolean): string {
       width: auto !important;
       max-width: 560px !important;
       box-sizing: border-box !important;
+    }
+
+    #login-form:has(.confirm-title),
+    #login-form:has(.confirm-msg),
+    #login-form:has(table),
+    #login-form:has(#second-auth-form) {
+      flex-direction: column !important;
     }
 
     /* 左侧二维码扫码专区 */
@@ -234,7 +241,12 @@ function getJAccountEmbedCss(isDark: boolean): string {
       opacity: ${isDark ? '0.7' : '0.85'} !important;
     }
 
-    .form-input {
+    .form-input,
+    #input-login-user,
+    #input-login-pass,
+    #input-login-captcha,
+    #input-login-mobile,
+    #input-login-sms {
       width: 100% !important;
       height: 38px !important;
       line-height: 38px !important;
@@ -249,12 +261,22 @@ function getJAccountEmbedCss(isDark: boolean): string {
       transition: border-color 0.15s, box-shadow 0.15s !important;
     }
 
-    .form-input:focus {
+    .form-input:focus,
+    #input-login-user:focus,
+    #input-login-pass:focus,
+    #input-login-captcha:focus,
+    #input-login-mobile:focus,
+    #input-login-sms:focus {
       border-color: var(--theme-accent) !important;
       box-shadow: 0 0 0 2px var(--theme-accent-ring) !important;
     }
 
-    .form-input::placeholder {
+    .form-input::placeholder,
+    #input-login-user::placeholder,
+    #input-login-pass::placeholder,
+    #input-login-captcha::placeholder,
+    #input-login-mobile::placeholder,
+    #input-login-sms::placeholder {
       color: var(--theme-placeholder) !important;
     }
 
@@ -352,15 +374,49 @@ function getJAccountEmbedCss(isDark: boolean): string {
     }
 
     /* 短信验证码发送按钮 */
-    .captcha-input #sms-btn {
+    .captcha-input #sms-btn,
+    #sms-btn {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
       background: var(--theme-accent) !important;
       border-radius: 0 8px 8px 0 !important;
-      color: #fff !important;
+      color: #ffffff !important;
       height: 38px !important;
       line-height: 38px !important;
+      padding: 0 12px !important;
+      font-size: 12px !important;
+      cursor: pointer !important;
+      white-space: nowrap !important;
+      user-select: none !important;
+      box-sizing: border-box !important;
     }
 
-    /* 二次验证 (2FA) */
+    /* 交我办移动端推送确认 / 提示 */
+    .confirm-title {
+      font-size: 15px !important;
+      font-weight: 600 !important;
+      color: var(--theme-text) !important;
+      margin: 12px 0 6px 0 !important;
+      text-align: center !important;
+    }
+
+    .confirm-msg {
+      font-size: 13px !important;
+      color: var(--theme-text-sub) !important;
+      margin-bottom: 12px !important;
+      text-align: center !important;
+    }
+
+    .confirm-cancel {
+      color: var(--theme-text-muted) !important;
+      text-decoration: underline !important;
+      font-size: 12px !important;
+      cursor: pointer !important;
+      text-align: center !important;
+    }
+
+    /* 二次验证 (2FA) 容器兼容 */
     #second-auth-form {
       display: flex !important;
       flex-direction: column !important;
