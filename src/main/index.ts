@@ -505,8 +505,8 @@ app.whenReady().then(async () => {
     await clearSjtuSession()
     return { loggedIn: false, checkedAt: new Date().toISOString() }
   })
-  ipcMain.handle('auth:status', async () => {
-    const info = await getAuthInfo()
+  ipcMain.handle('auth:status', async (_e, force?: boolean) => {
+    const info = await getAuthInfo(force)
     return {
       loggedIn: info.loggedIn,
       accountName: info.accountName,

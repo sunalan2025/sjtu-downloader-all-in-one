@@ -390,7 +390,7 @@ type WebviewElement = HTMLElement & {
   removeEventListener(type: string, listener: (e: Event) => void): void
 }
 
-const ALLOWED_NAV_DOMAINS = ['sjtu.edu.cn', 'jaccount.sjtu.edu.cn', 'oc.sjtu.edu.cn']
+const ALLOWED_NAV_DOMAINS = ['sjtu.edu.cn', 'sjtu.cn']
 
 function isAllowedNavDomain(url: string): boolean {
   try {
@@ -403,6 +403,8 @@ function isAllowedNavDomain(url: string): boolean {
 
 export function Login() {
   const webviewRef = useRef<WebviewElement | null>(null)
+  const hasVisitedJaccountRef = useRef(false)
+  const isFinishingRef = useRef(false)
   const setStage = useAppStore(s => s.setStage)
   const setAuth = useAppStore(s => s.setAuth)
   const theme = useAppStore(s => s.theme)
@@ -411,9 +413,9 @@ export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [statusMsg, setStatusMsg] = useState('正在加载登录页…')
 
-  const checkAuth = useCallback(async (): Promise<boolean> => {
+  const checkAuth = useCallback(async (force = false): Promise<boolean> => {
     try {
-      const a = await window.api.auth.status()
+      const a = await window.api.auth.status(force)
       setAuth(a)
       return a.loggedIn
     } catch {
@@ -425,7 +427,9 @@ export function Login() {
     const wv = webviewRef.current
     if (!wv) return null
     try {
-      const t = (await wv.executeJavaScript(READ_JWT_JS)) as string | null
+      const t = (await wv.executeJavaScript(
+        `localStorage.getItem(${JSON.stringify(VSJTU_JWT_LS_KEY)})`
+      )) as string | null
       if (t && t.length > 20) {
         await window.api.auth.setJwtToken(t)
         return t
@@ -436,6 +440,43 @@ export function Login() {
     return null
   }, [])
 
+  const handleLoginCompletion = useCallback(async (): Promise<void> => {
+    let attempts = 0
+    const maxAttempts = 60 // 60 * 300ms = 18s
+    while (attempts++ < maxAttempts) {
+      // 1. 尝试从 webview 抽取 JWT
+      await pullJwt()
+
+      // 2. 强制校验主进程认证状态
+      try {
+        const a = await window.api.auth.status(true)
+        if (a.loggedIn) {
+          setAuth(a)
+          try {
+            const cloudToken = await window.api.cloudpan.getCachedToken()
+            if (cloudToken) {
+              useAppStore.getState().setCloudUserToken(cloudToken)
+            }
+          } catch {
+            /* ignore */
+          }
+          setStage('browser')
+          return
+        }
+      } catch {
+        /* ignore */
+      }
+
+      await new Promise(r => setTimeout(r, 300))
+    }
+
+    // 超时兜底：给用户明确提示与手动刷新入口
+    isFinishingRef.current = false
+    setReady(true)
+    setError('会话同步耗时较长，请点击下方「刷新」重新同步')
+    setStatusMsg('登录同步超时')
+  }, [pullJwt, setAuth, setStage])
+
   useEffect(() => {
     void (async () => {
       if (await checkAuth()) setStage('browser')
@@ -445,12 +486,13 @@ export function Login() {
   useEffect(() => {
     const id = setInterval(() => {
       void (async () => {
+        if (isFinishingRef.current) return
+        await pullJwt()
         if (await checkAuth()) {
-          await pullJwt()
           setStage('browser')
         }
       })()
-    }, 2500)
+    }, 2000)
     return () => clearInterval(id)
   }, [checkAuth, pullJwt, setStage])
 
@@ -460,24 +502,40 @@ export function Login() {
 
     const onDomReady = (): void => {
       const url = wv.getURL()
-      if (!url.includes('jaccount.sjtu.edu.cn')) return
-      const resolved =
-        theme === 'system'
-          ? window.matchMedia('(prefers-color-scheme: dark)').matches
-            ? 'dark'
-            : 'light'
-          : theme
-      void wv.insertCSS(QR_ISOLATION_CSS + qrThemeCss(resolved)).catch(() => undefined)
-      void wv
-        .executeJavaScript(DETECT_AND_ISOLATE_QR_JS)
-        .then(async state => {
-          if (state === 'ok') {
-            setReady(true)
-            setUnmasked(false)
-            setError(null)
-            setStatusMsg('请用「交我办」或微信扫码登录')
-          } else {
-            // 超时（5.4s）：执行解除遮罩脚本，展示完整页面供用户手动交互
+      if (url.includes('jaccount.sjtu.edu.cn')) {
+        hasVisitedJaccountRef.current = true
+        if (isFinishingRef.current) return
+        const resolved =
+          theme === 'system'
+            ? window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light'
+            : theme
+        void wv.insertCSS(QR_ISOLATION_CSS + qrThemeCss(resolved)).catch(() => undefined)
+        void wv
+          .executeJavaScript(DETECT_AND_ISOLATE_QR_JS)
+          .then(async state => {
+            if (isFinishingRef.current) return
+            if (state === 'ok') {
+              setReady(true)
+              setUnmasked(false)
+              setError(null)
+              setStatusMsg('请用「交我办」或微信扫码登录')
+            } else {
+              // 超时（5.4s）：执行解除遮罩脚本，展示完整页面供用户手动交互
+              try {
+                await wv.executeJavaScript(UNMASK_PAGE_JS)
+              } catch {
+                /* ignore */
+              }
+              setUnmasked(true)
+              setReady(true)
+              setError(null)
+              setStatusMsg('已切换至完整登录页，您可手动扫码或账号密码登录')
+            }
+          })
+          .catch(async () => {
+            if (isFinishingRef.current) return
             try {
               await wv.executeJavaScript(UNMASK_PAGE_JS)
             } catch {
@@ -486,20 +544,14 @@ export function Login() {
             setUnmasked(true)
             setReady(true)
             setError(null)
-            setStatusMsg('已切换至完整登录页，您可手动扫码或账号密码登录')
-          }
-        })
-        .catch(async () => {
-          try {
-            await wv.executeJavaScript(UNMASK_PAGE_JS)
-          } catch {
-            /* ignore */
-          }
-          setUnmasked(true)
-          setReady(true)
-          setError(null)
-          setStatusMsg('已切换至完整登录页，您可手动登录')
-        })
+            setStatusMsg('已切换至完整登录页，您可手动登录')
+          })
+      } else if (hasVisitedJaccountRef.current && !isFinishingRef.current) {
+        isFinishingRef.current = true
+        setReady(false)
+        setStatusMsg('登录成功，正在进入…')
+        void handleLoginCompletion()
+      }
     }
 
     const onNav = (): void => {
@@ -509,13 +561,18 @@ export function Login() {
         void wv.loadURL(LOGIN_URL)
         return
       }
-      if (!url.includes('jaccount.sjtu.edu.cn')) {
+
+      if (url.includes('jaccount.sjtu.edu.cn')) {
+        hasVisitedJaccountRef.current = true
+        return
+      }
+
+      // 只有在曾经进入过 jAccount 域，跳出到业务页面时才判定为登录回调
+      if (hasVisitedJaccountRef.current && !isFinishingRef.current) {
+        isFinishingRef.current = true
         setReady(false)
         setStatusMsg('登录成功，正在进入…')
-        void (async () => {
-          await pullJwt()
-          if (await checkAuth()) setStage('browser')
-        })()
+        void handleLoginCompletion()
       }
     }
 
@@ -528,13 +585,15 @@ export function Login() {
       wv.removeEventListener('did-navigate', onNav)
       wv.removeEventListener('did-navigate-in-page', onNav)
     }
-  }, [checkAuth, pullJwt, setStage, theme])
+  }, [checkAuth, handleLoginCompletion, pullJwt, setStage, theme])
 
   const onReload = useCallback((): void => {
+    hasVisitedJaccountRef.current = false
+    isFinishingRef.current = false
     setReady(false)
     setUnmasked(false)
     setError(null)
-    setStatusMsg('正在刷新…')
+    setStatusMsg('正在加载登录页…')
     webviewRef.current?.loadURL(LOGIN_URL).catch(() => undefined)
   }, [])
 
@@ -593,7 +652,11 @@ export function Login() {
             {!ready && !unmasked && !error && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface-1 backdrop-blur-sm">
                 <Spinner size={28} />
-                <div className="text-sm text-text-3">正在加载二维码…</div>
+                <div className="text-sm text-text-3">
+                  {isFinishingRef.current || hasVisitedJaccountRef.current
+                    ? '登录成功，正在进入…'
+                    : '正在加载二维码…'}
+                </div>
               </div>
             )}
             {error && !unmasked && (

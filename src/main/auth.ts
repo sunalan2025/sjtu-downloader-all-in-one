@@ -211,8 +211,13 @@ const AUTH_429_MAX_RETRIES = 3
  * 登录判定：先看 sjtu cookie，再用 jwt 敲 /authority/me 验真。
  * 具备本地过期提前感知、401 自动刷新以及 429 指数退避重试能力。
  */
-export async function getAuthInfo(): Promise<AuthInfo> {
-  if (_authCache && Date.now() - _authCache.ts < 300_000) return _authCache.result
+export async function getAuthInfo(force = false): Promise<AuthInfo> {
+  if (!force && _authCache) {
+    const ttl = _authCache.result.loggedIn ? 60_000 : 1_500
+    if (Date.now() - _authCache.ts < ttl) {
+      return _authCache.result
+    }
+  }
 
   const cookies = await sjtuSession().cookies.get({ domain: 'sjtu.edu.cn' })
   if (cookies.length === 0) {
