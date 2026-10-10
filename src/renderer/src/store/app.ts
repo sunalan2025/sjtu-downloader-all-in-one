@@ -354,7 +354,7 @@ let progressScheduled = false
 export const useAppStore = create<AppState>()(
   persist(
     set => ({
-      theme: 'dark',
+      theme: 'light',
       stage: 'welcome',
       activeTab: 'audited' as ActiveTab,
       auth: { loggedIn: false },
@@ -675,6 +675,14 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'sjtu-course-downloader',
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        const state = (persistedState ?? {}) as Record<string, unknown>
+        if (version < 2 && state) {
+          state.theme = 'light'
+        }
+        return state
+      },
       storage: createJSONStorage(() => localStorage),
       // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据。
       // cloudUserToken 不持久化：每次启动必须重新扫码登录 + 重新连接云盘，
