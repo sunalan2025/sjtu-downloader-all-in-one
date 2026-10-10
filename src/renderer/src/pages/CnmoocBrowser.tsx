@@ -443,90 +443,31 @@ function CnmoocActionBar({
         : `开始下载+上传 ${selectedCount} 项`
 
   return (
-    <div className="no-drag border-b border-bd bg-surface-3 px-6 py-3">
-      {/* 第一行：全选 + 云盘/目录 + 进度 */}
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="sticky top-0 z-10 no-drag flex items-center justify-between border-b border-bd bg-surface-1/95 backdrop-blur px-6 py-3 shadow-sm">
+      <div className="flex items-center gap-4">
         <button
           type="button"
           onClick={onToggleAll}
-          className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-text-1 transition-colors duration-150 hover:bg-surface-2 hover:text-text-1"
+          className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-text-1 transition-colors duration-150 hover:bg-surface-2"
         >
           <TriCheckbox state={triState} size="lg" />
-          <span>全选 <span className="text-text-3">({selectedCount} / {total})</span></span>
+          <span>全选</span>
         </button>
 
-        <div className="h-4 w-px bg-bd-strong" />
-
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          {needsCloud && cloudUserToken ? (
-            <button
-              type="button"
-              onClick={onDisconnectCloud}
-              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-info-ring bg-info-bg px-3 py-1.5 text-xs font-medium text-info transition-all duration-150 hover:border-cloud-40 hover:text-cloud"
-              title="点击断开云盘连接"
-            >
-              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-                <path d="M12 13v5m-3-3l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span className="truncate">
-                交大云盘已连接
-                {cloudSpaceInfo && (
-                  <span className="ml-1.5 text-text-muted">
-                    {(Number(cloudSpaceInfo.size) / (1024 ** 3)).toFixed(1)}GB / {(Number(cloudSpaceInfo.capacity) / (1024 ** 3)).toFixed(0)}GB
-                  </span>
-                )}
-              </span>
-            </button>
-          ) : needsCloud && cloudConnecting ? (
-            <span className="inline-flex items-center gap-2 text-xs text-info">
-              <Spinner size={14} /> 正在连接交大云盘…
-            </span>
-          ) : needsCloud ? (
-            <button
-              type="button"
-              onClick={onConnectCloud}
-              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-bd-strong bg-surface-3 px-3 py-1.5 text-xs text-text-2 transition-all duration-150 hover:border-info-ring hover:text-info"
-              title="通过 jAccount 单点登录连接交大云盘，用于上传文件"
-            >
-              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-              </svg>
-              <span>连接交大云盘</span>
-            </button>
-          ) : null}
-          {cloudError && !cloudConnecting && !cloudUserToken && needsCloud && (
-            <span className="text-xs text-warning">{cloudError}</span>
-          )}
-
-          {needsLocal && (
-            <button
-              type="button"
-              onClick={onSelectLocalFolder}
-              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-bd-strong bg-surface-3 px-3 py-1.5 text-xs text-text-2 transition-all duration-150 hover:border-success-ring hover:text-success"
-              title="选择文件保存的本地文件夹"
-            >
-              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-              <span className="truncate max-w-[180px]">{localDestRoot || '选择下载目录'}</span>
-            </button>
-          )}
-
-          {downloading && <OverallProgressBar />}
+        <div className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+          已选 {selectedCount} / {total} 项
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="h-4 w-px bg-bd-strong mx-2" />
+
+        <div className="flex items-center gap-2">
           <ResourceTypeSegmented value={resourceFilter} onChange={onResourceFilterChange} />
-          <ModeSegmented value={downloadMode} onChange={onModeChange} />
-          <ConflictStrategySegmented value={fileConflictStrategy} onChange={onConflictStrategyChange} />
         </div>
       </div>
 
-      {/* 第二行：全局控制 + 开始按钮 */}
-      <div className="mt-2.5 flex flex-wrap items-center justify-end gap-3">
+      <div className="flex items-center gap-3">
         {downloading && (
-          <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
+          <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1 mr-2">
             <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
             <GlobalCtrlButton kind="resume" onClick={onResumeAll} title="继续全部下载任务" />
             <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
@@ -536,9 +477,9 @@ function CnmoocActionBar({
           type="button"
           onClick={onDownload}
           disabled={!canStart}
-          className="inline-flex h-9 items-center gap-2 rounded-xl bg-accent px-5 text-sm font-semibold text-white shadow-glow-sm transition-all duration-200 hover:scale-[1.02] hover:bg-accent-light hover:shadow-glow active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60"
+          className="inline-flex h-9 items-center gap-2 rounded-xl bg-accent px-6 text-sm font-semibold text-white shadow-glow-sm transition-all duration-200 hover:scale-[1.02] hover:bg-accent-light hover:shadow-glow active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60"
         >
-          {btnLabel}
+          {downloading ? '进行中…' : `立即下载 (${selectedCount})`}
         </button>
       </div>
     </div>

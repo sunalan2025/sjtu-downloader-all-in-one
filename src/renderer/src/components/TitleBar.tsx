@@ -56,107 +56,94 @@ const THEME_OPTIONS: SegmentedOption<Theme>[] = [
   }
 ]
 
-export function TitleBar({ onLogout }: { onLogout?: () => void }) {
+export function TitleBar({ onLogout, onOpenSettings }: { onLogout?: () => void, onOpenSettings?: () => void }) {
   const theme = useAppStore(s => s.theme)
   const setTheme = useAppStore(s => s.setTheme)
   const stage = useAppStore(s => s.stage)
   const auth = useAppStore(s => s.auth)
-  const concurrency = useAppStore(s => s.concurrency)
-  const autoConcurrency = useAppStore(s => s.autoConcurrency)
-  const setConcurrency = useAppStore(s => s.setConcurrency)
-  const setAutoConcurrency = useAppStore(s => s.setAutoConcurrency)
+  const activeTab = useAppStore(s => s.activeTab)
+  const setActiveTab = useAppStore(s => s.setActiveTab)
+  const cloudConnStatus = useAppStore(s => s.cloudConnStatus)
 
-  // macOS 用原生交通灯（titleBarStyle: hiddenInset），不渲染自绘按钮；
-  // 左侧留出 ~80px 给原生交通灯。Win/Linux 渲染自绘 Mac 风格交通灯。
   const isMac = window.api.platform === 'darwin'
 
-  // 自动并发模式下，监听主进程的并发数变化
-  useEffect(() => {
-    if (!autoConcurrency) return
-    return window.api.download.onConcurrencyChanged((n: number) => {
-      setConcurrency(n)
-    })
-  }, [autoConcurrency, setConcurrency])
-
-  const onSelect = (key: Theme): void => {
+  const onSelectTheme = (key: Theme): void => {
     setTheme(key)
     applyTheme(key)
   }
 
-  // PERF [debounce]: debounce IPC call to ~300ms to avoid rapid-fire during slider drag
-  const isFirstMount = useRef(true)
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => {
-    if (isFirstMount.current) {
-      isFirstMount.current = false
-      // Sync persisted concurrency/auto mode to main on mount (main defaults to concurrency=3, auto=false otherwise).
-      void window.api.download.setConcurrency(autoConcurrency ? 0 : concurrency)
-      return
-    }
-    if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => {
-      void window.api.download.setConcurrency(concurrency)
-    }, 300)
-    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
-  }, [concurrency, autoConcurrency])
+  const tabOptions: SegmentedOption<string>[] = [
+    { key: 'canvas', label: 'Canvas 课程' },
+    { key: 'audited', label: '课堂实录 (v.sjtu)' },
+    { key: 'cnmooc', label: '好大学在线' },
+    { key: 'transfer', label: '传输中心' }
+  ]
 
   return (
     <div
-      className={`drag-region flex h-10 select-none items-center gap-3 pr-4 text-sm text-text-2 ${
+      className={`drag-region flex h-14 select-none items-center gap-3 border-b border-bd bg-surface-3 pr-4 text-sm text-text-2 ${
         isMac ? 'pl-[80px]' : 'pl-3'
       }`}
     >
-      {/* Mac 交通灯窗口按钮（左侧）— macOS 用原生，Win/Linux 自绘 */}
       {!isMac && <CaptionButtons />}
-      <div className="flex shrink-0 items-center gap-2.5">
-        <span className="font-semibold tracking-wide text-text-1">SJTU 课程下载器</span>
-        <UpdateBadge />
-      </div>
-      <div className="flex-1" />
+      
       {stage === 'browser' && (
-        <div className="no-drag flex items-center gap-2.5">
-          {/* 已登录 + 账号名 */}
-          {onLogout && (
-            <>
-              <span
-                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-xs font-medium text-success ring-1 ring-success-ring"
-                title={auth.accountName ? `账号：${auth.accountName}${auth.studentId ? ` (${auth.studentId})` : ''}` : '已登录'}
-              >
-                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success shadow-[0_0_8px_var(--success-ring)]" />
-                <span className="truncate">{auth.accountName ? `${auth.accountName}${auth.studentId ? ` (${auth.studentId})` : ''}` : '已登录'}</span>
-              </span>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="rounded-lg px-2.5 py-1 text-xs text-text-3 transition-all hover:bg-surface-2 hover:text-text-1"
-                title="清除本机登录会话，返回首页"
-              >
-                退出登录
-              </button>
-            </>
-          )}
-          {/* 实时传输速度 */}
-          <TransferSpeedIndicator />
-          {/* 全局限速控制 */}
-          <SpeedLimitControl />
-          {/* 命名模板控制 */}
-          <NamingTemplateControl />
-          {/* 并发控制 */}
-          <ConcurrencyControl
-            value={concurrency}
-            auto={autoConcurrency}
-            onChange={(n) => { setConcurrency(n); setAutoConcurrency(n === 0) }}
+        <div className="no-drag flex h-full items-end ml-4">
+          <Segmented 
+            options={tabOptions} 
+            value={activeTab === 'settings' ? '' : activeTab} 
+            onChange={(v) => setActiveTab(v as any)} 
+            size="lg" 
+            className="mb-2"
           />
-          <HelpButton />
         </div>
       )}
-      {/* 主题切换 */}
+
+      <div className="flex-1" />
+      
+      {stage === 'browser' && (
+        <div className="no-drag flex items-center gap-3">
+          {cloudConnStatus === 'connecting' && <span className="text-xs text-info">云盘连接中...</span>}
+          {cloudConnStatus === 'idle' && <span className="text-xs text-success">☁️ 云盘已连接</span>}
+
+          {onLogout && (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-xs font-medium text-success ring-1 ring-success-ring"
+              title={auth.accountName ? `账号：${auth.accountName}${auth.studentId ? ` (${auth.studentId})` : ''}` : '已登录'}
+            >
+              <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success shadow-[0_0_8px_var(--success-ring)]" />
+              <span className="truncate">{auth.accountName ? `${auth.accountName}` : '已登录'}</span>
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="rounded-lg p-1.5 text-text-3 transition-all hover:bg-surface-2 hover:text-text-1"
+            title="全局设置与偏好"
+          >
+            ⚙️ 设置
+          </button>
+
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="rounded-lg px-2.5 py-1.5 text-xs text-text-3 transition-all hover:bg-surface-2 hover:text-text-1"
+              title="退出登录"
+            >
+              退出
+            </button>
+          )}
+        </div>
+      )}
+      
       <Segmented
         options={THEME_OPTIONS}
         value={theme}
-        onChange={onSelect}
+        onChange={onSelectTheme}
         size="sm"
-        className="no-drag"
+        className="no-drag ml-2"
       />
     </div>
   )
