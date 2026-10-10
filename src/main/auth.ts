@@ -147,7 +147,7 @@ export async function refreshJwtToken(): Promise<boolean> {
 
       try {
         await win.loadURL(`${V_SJTU_ORIGIN}/jy-application-resmgr-ui/#/login`)
-        const deadline = Date.now() + 15_000
+        const deadline = Date.now() + 4_000
         while (Date.now() < deadline) {
           await new Promise(r => setTimeout(r, 500))
           if (win.isDestroyed()) return false
@@ -470,16 +470,8 @@ export async function hydrateSjtuSession(): Promise<AuthInfo> {
     setCachedUserToken(saved.cloudUserToken)
   }
 
-  // 启动时强制重新验证
+  // 启动时单次校验凭据
   _authCache = null
   const auth = await getAuthInfo()
-  if (!auth.loggedIn && !auth.expired) {
-    const refreshed = await refreshJwtToken()
-    if (refreshed) {
-      _authCache = null
-      return await getAuthInfo()
-    }
-  }
-
   return auth
 }
