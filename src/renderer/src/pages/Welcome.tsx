@@ -59,35 +59,35 @@ export function Welcome() {
   ]
 
   return (
-    <div className="flex h-full w-full select-none overflow-hidden bg-surface-1">
-      {/* ── 左栏：品牌与登录行动区（40% ~ 42%） ── */}
-      <aside className="relative flex w-[380px] shrink-0 flex-col justify-between border-r border-bd bg-surface-2/60 p-8 sm:p-10 backdrop-blur-sm">
+    <div className="flex h-full w-full select-none overflow-hidden bg-surface-1 flex-col md:flex-row">
+      {/* ── 左栏：品牌与登录行动区（自适应黄金分割） ── */}
+      <aside className="relative flex w-full md:w-[350px] lg:w-[380px] xl:w-[410px] shrink-0 flex-col justify-between border-b md:border-b-0 md:border-r border-bd bg-surface-2/60 p-6 sm:p-8 lg:p-10 backdrop-blur-sm overflow-y-auto min-h-0">
         {/* 顶部：品牌 Logo 与定位 */}
         <div>
           <div className="flex items-center gap-3.5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent text-white shadow-sm ring-1 ring-accent-light/30">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent text-white shadow-sm ring-1 ring-accent-light/30">
               <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-bold tracking-tight text-text-1">SJTU 课程下载</h1>
-                <span className="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-2xs font-medium text-text-3">v2.3</span>
+                <h1 className="truncate text-lg font-bold tracking-tight text-text-1">SJTU 课程下载</h1>
+                <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-2xs font-medium text-text-3">v2.3</span>
               </div>
-              <p className="mt-0.5 text-xs text-text-3">交大课程一站式转存与同步工具</p>
+              <p className="truncate text-xs text-text-3">交大课程一站式转存与同步工具</p>
             </div>
           </div>
 
-          <div className="mt-8 text-xs leading-relaxed text-text-3">
+          <div className="mt-6 md:mt-8 text-xs leading-relaxed text-text-3">
             基于统一身份认证授权，支持批量拉取课程讲义、双视角课堂实录与慕课视频，提供本地下载与交大云盘双模式。
           </div>
         </div>
 
         {/* 中部：登录主操作 */}
-        <div className="my-6">
+        <div className="my-5 md:my-6">
           {auth.expired && (
             <div className="mb-3.5 flex items-center gap-2 rounded-xl border border-warning-ring bg-warning-bg px-3.5 py-2 text-xs text-warning">
               <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -111,7 +111,7 @@ export function Welcome() {
         </div>
 
         {/* 底部：环境与安全状态 */}
-        <div className="space-y-2 border-t border-bd pt-4 text-2xs text-text-3">
+        <div className="space-y-1.5 md:space-y-2 border-t border-bd pt-4 text-2xs text-text-3">
           <div className="flex items-center gap-2">
             <span className="flex h-2 w-2 shrink-0 rounded-full bg-success" />
             <span>需连接 <strong>SJTU 校园网</strong> 或使用 <strong>交大 VPN</strong></span>
@@ -122,9 +122,13 @@ export function Welcome() {
         </div>
       </aside>
 
-      {/* ── 右栏：原生服务列表与功能索引（58% ~ 60%） ── */}
-      <main className="flex flex-1 flex-col justify-center px-10 py-10 sm:px-14">
-        <div className="max-w-xl">
+      {/* ── 右栏：原生服务列表与功能索引（严格水平与垂直居中，自适应光影） ── */}
+      <main className="relative flex flex-1 flex-col items-center justify-center p-6 sm:p-10 lg:p-12 xl:p-16 overflow-y-auto min-h-0">
+        {/* 随视口动态延展的深层环境光影，消除大屏空旷感 */}
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-hero-radial opacity-60 blur-3xl transition-opacity duration-300" />
+
+        {/* 居中内容容器：最大宽度 500px，在任何窗口尺寸下绝对水平居中 */}
+        <div className="w-full max-w-[500px] my-auto">
           <div className="mb-4">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-text-3">支持的课程平台与服务</h2>
           </div>
@@ -156,7 +160,7 @@ export function Welcome() {
             ))}
           </div>
 
-          <div className="mt-8 border-t border-bd pt-4 text-xs text-text-4">
+          <div className="mt-7 md:mt-8 border-t border-bd pt-4 text-xs text-text-4">
             登录后可在顶栏随时切换课程来源、查看传输中心或在「⚙️ 设置」中配置存储与并发。
           </div>
         </div>
