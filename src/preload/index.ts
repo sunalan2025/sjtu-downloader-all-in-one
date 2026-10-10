@@ -98,9 +98,12 @@ const api = {
     logout: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:logout'),
     /** 显式清理凭据与会话 */
     clear: (): Promise<AuthStatus> => ipcRenderer.invoke('auth:clear'),
-    /** 将 v.sjtu SPA 写入 localStorage 的 jwt-token 传给 main 进程缓存 */
-    setJwtToken: (token: string | null): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('auth:set-jwt-token', token)
+    /** 将 v.sjtu SPA 写入 localStorage 的 jwt-token 与用户信息传给 main 进程缓存 */
+    setJwtToken: (
+      token: string | null,
+      userInfo?: { name?: string; studentId?: string }
+    ): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('auth:set-jwt-token', token, userInfo)
   },
   vsjtu: {
     /** 分页扫描旁听课程申请列表 */

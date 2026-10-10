@@ -491,8 +491,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('app:install-update', (): { ok: boolean; error?: string } => installUpdate())
   ipcMain.handle('app:cancel-update', (): { ok: boolean } => { cancelUpdate(); return { ok: true } })
 
-  ipcMain.handle('auth:set-jwt-token', (_e, token: string | null) => {
-    setJwtToken(token)
+  ipcMain.handle('auth:set-jwt-token', (_e, token: string | null, userInfo?: { name?: string; studentId?: string }) => {
+    setJwtToken(token, userInfo)
     return { ok: true }
   })
   ipcMain.handle('auth:logout', async () => {

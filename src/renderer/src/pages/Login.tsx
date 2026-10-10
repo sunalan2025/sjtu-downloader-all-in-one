@@ -436,11 +436,31 @@ export function Login() {
     const wv = webviewRef.current
     if (!wv) return null
     try {
-      const t = (await wv.executeJavaScript(
-        `localStorage.getItem(${JSON.stringify(VSJTU_JWT_LS_KEY)})`
-      )) as string | null
+      const data = (await wv.executeJavaScript(`
+        (() => {
+          try {
+            const token = localStorage.getItem(${JSON.stringify(VSJTU_JWT_LS_KEY)}) || localStorage.getItem('jwt-token') || localStorage.getItem('token');
+            const userRaw = localStorage.getItem('_jy-application-resmgr-ui_SESSION_USER_INFO') || localStorage.getItem('user_info') || localStorage.getItem('userInfo');
+            let userInfo = null;
+            if (userRaw) {
+              try {
+                const u = JSON.parse(userRaw);
+                userInfo = {
+                  name: u.name || u.userName || u.realName,
+                  studentId: u.code || u.username || u.userCode || u.studentId
+                };
+              } catch {}
+            }
+            return { token, userInfo };
+          } catch {
+            return null;
+          }
+        })()
+      `)) as { token?: string | null; userInfo?: { name?: string; studentId?: string } | null } | null
+
+      const t = data?.token
       if (t && t.length > 20) {
-        await window.api.auth.setJwtToken(t)
+        await window.api.auth.setJwtToken(t, data?.userInfo || undefined)
         return t
       }
     } catch {
@@ -451,16 +471,31 @@ export function Login() {
 
   const handleLoginCompletion = useCallback(async (): Promise<void> => {
     let attempts = 0
-    const maxAttempts = 30 // 30 * 400ms = 12s
+    const maxAttempts = 40 // 40 * 250ms = 10s
     while (attempts++ < maxAttempts) {
       // 1. 尝试从 webview 抽取 JWT
-      await pullJwt()
+      const token = await pullJwt()
+      if (token) {
+        // 成功提取 JWT，由于主进程已将其置为已登录，立即获取状态并秒进主页！
+        const a = await window.api.auth.status(false)
+        setAuth(a)
+        try {
+          const cloudToken = await window.api.cloudpan.getCachedToken()
+          if (cloudToken) {
+            useAppStore.getState().setCloudUserToken(cloudToken)
+          }
+        } catch {
+          /* ignore */
+        }
+        setStage('browser')
+        return
+      }
 
-      // 2. 强制校验主进程认证状态
+      // 2. 检查主进程缓存状态（若已由后台恢复或单点登录就绪）
       try {
-        const a = await window.api.auth.status(true)
-        if (a.loggedIn) {
-          setAuth(a)
+        const cached = await window.api.auth.status(false)
+        if (cached.loggedIn) {
+          setAuth(cached)
           try {
             const cloudToken = await window.api.cloudpan.getCachedToken()
             if (cloudToken) {
@@ -476,11 +511,11 @@ export function Login() {
         /* ignore */
       }
 
-      await new Promise(r => setTimeout(r, 400))
+      await new Promise(r => setTimeout(r, 250))
     }
 
     // 兜底进入（部分业务页面 cookie 已就绪但 JWT 写入慢）
-    const a = await checkAuth()
+    const a = await checkAuth(false)
     if (a) {
       setStage('browser')
       return
@@ -536,7 +571,7 @@ export function Login() {
 
         const token = await pullJwt()
         if (token) {
-          const a = await checkAuth(true)
+          const a = await checkAuth(false)
           if (a) {
             setStage('browser')
             return
