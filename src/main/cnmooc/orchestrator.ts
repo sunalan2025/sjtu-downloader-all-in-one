@@ -78,6 +78,15 @@ export async function ensureCnmoocLogin(): Promise<boolean> {
       _cnmoocLoginDone = true
       return true
     }
+
+    // 预检：若无有效 jAccount 会话，跳过静默 SSO，绝不弹出可见窗口打扰用户
+    const jaCookies = await session.cookies.get({ domain: 'jaccount.sjtu.edu.cn' }).catch(() => [])
+    const hasJaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
+    if (!hasJaSession) {
+      console.log('[cnmooc] 无有效 jAccount 会话，跳过静默 SSO')
+      return false
+    }
+
     console.log('[cnmooc] 触发 jAccount SSO（隐藏窗口）…')
     if (await completeCnmoocSso(session, false)) {
       _cnmoocLoginDone = true
@@ -152,10 +161,15 @@ async function completeCnmoocSso(session: Electron.Session, show: boolean): Prom
     console.log(`[cnmooc] SSO 超时（jaccount 会话${jaSession ? '存在' : '不存在，请先在应用内登录 v.sjtu'}）`)
     return false
   } catch (e) {
-    console.log('[cnmooc] SSO 异常:', e)
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!msg.includes('ERR_FAILED (-2)')) {
+      console.log('[cnmooc] SSO 异常:', e)
+    }
     return false
   } finally {
-    win.destroy()
+    if (!win.isDestroyed()) {
+      win.destroy()
+    }
   }
 }
 
