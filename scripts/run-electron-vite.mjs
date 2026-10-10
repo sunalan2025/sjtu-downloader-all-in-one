@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const env = { ...process.env }
 delete env.ELECTRON_RUN_AS_NODE
+env.ELECTRON_MIRROR = env.ELECTRON_MIRROR || 'https://npmmirror.com/mirrors/electron/'
+env.ELECTRON_BUILDER_BINARIES_MIRROR = env.ELECTRON_BUILDER_BINARIES_MIRROR || 'https://npmmirror.com/mirrors/electron-builder-binaries/'
 
 // Windows 中文系统控制台默认代码页是 GBK(936)，而 electron 主进程 console.log
 // 写出的是 UTF-8 字节，936 按 GBK 解码 → 中文乱码（如「触发」显示成「瑙﹀彂」）。

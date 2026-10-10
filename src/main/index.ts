@@ -236,18 +236,20 @@ app.whenReady().then(async () => {
   setCanvasSession(sjtuSession()) // Canvas 使用同一个持久化 session（共享 jAccount 登录态）
 
   // ─── 会话持久化与启动恢复（R1-F1, R1-F3） ───
-  // 移除启动清空凭证，从本地持久化存储 hydrateSjtuSession 恢复会话
-  try {
-    const hydAuth = await hydrateSjtuSession()
-    console.log(
-      '[startup] 会话恢复状态:',
-      hydAuth.loggedIn
-        ? `已登录 (${hydAuth.accountName || hydAuth.studentId})`
-        : '未登录/需重新认证'
-    )
-  } catch (e) {
-    console.error('[startup] 会话恢复失败（不阻塞启动）:', e)
-  }
+  // 异步恢复会话，绝不阻塞应用主窗口与图形界面首次渲染
+  void (async () => {
+    try {
+      const hydAuth = await hydrateSjtuSession()
+      console.log(
+        '[startup] 会话恢复状态:',
+        hydAuth.loggedIn
+          ? `已登录 (${hydAuth.accountName || hydAuth.studentId})`
+          : '未登录/需重新认证'
+      )
+    } catch (e) {
+      console.error('[startup] 会话恢复失败（不阻塞启动）:', e)
+    }
+  })()
   // [2.7] Simplified emitter callback — removed dead `scalar` parameter
   setCanvasEmitter((channel, data) => {
     const w = getMainWindow()
