@@ -1,87 +1,531 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../store/app'
-import { SJTU_PARTITION, V_SJTU_ORIGIN, VSJTU_JWT_LS_KEY } from '@shared/types'
+import { SJTU_PARTITION, VSJTU_JWT_LS_KEY } from '@shared/types'
 import { Spinner } from '../components/Spinner'
 
-const LOGIN_URL = `${V_SJTU_ORIGIN}/jy-application-resmgr-ui/#/login`
+/**
+ * 直接加载上海交通大学统一身份认证 OAuth2 授权入口
+ * 避免经由 v.sjtu 中转单页应用导致的超时与路由事件误触发
+ */
+const JACCOUNT_AUTH_URL =
+  'https://jaccount.sjtu.edu.cn/oauth2/authorize?response_type=code&scope=openid&client_id=pmZTZ9QZEAwXGLGheU99&redirect_uri=https%3A%2F%2Fv.sjtu.edu.cn%2F%23%2Flogin'
 
-// 在 webview 内反复 poll localStorage 直到 SPA 把 jwt 写进去
-const READ_JWT_JS = `
-  new Promise(resolve => {
-    let tries = 0;
-    const tick = () => {
-      const t = localStorage.getItem(${JSON.stringify(VSJTU_JWT_LS_KEY)});
-      if (t && t.length > 20) return resolve(t);
-      if (++tries > 30) return resolve(null);
-      setTimeout(tick, 100);
-    };
-    tick();
-  })
-`
-
-// 沿 body→#page→#content→.container→.login-layout→#login-form→.login-qr 这条路径，
-// 把每一层非通路兄弟全部隐藏；通路本身改成 flex 居中。这样 jaccount 页里任何 logo/footer 都不会漏出来。
-const QR_LAYOUT_CSS = `
-  html, body { background: transparent !important; margin: 0 !important; padding: 0 !important; height: 100% !important; overflow: hidden !important; }
-  body { font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif !important; }
-
-  html, body, #page, #content, .container, .login-layout, #login-form, .login-card {
-    background: transparent !important;
-    box-shadow: none !important; border: none !important;
-    padding: 0 !important; margin: 0 !important;
-    width: 100% !important; min-width: 0 !important; max-width: none !important;
-    min-height: 100% !important;
-    display: flex !important;
-    align-items: center !important; justify-content: center !important;
-  }
-
-  body > *:not(#page),
-  #page > *:not(#content),
-  #content > *:not(.container),
-  .container > *:not(.login-layout),
-  .login-layout > *:not(#login-form):not(.login-card),
-  #login-form > *:not(.login-qr),
-  .login-card > *:not(.login-qr) { display: none !important; }
-
-  .login-qr { display: block !important; background: transparent !important; margin: 0 !important; padding: 0 !important; }
-  .qr-title, #qr-title { font-size: 14px !important; font-weight: 500 !important; }
-  .qr-tips, #qr-msg { font-size: 13px !important; }
-
-  ::-webkit-scrollbar { display: none !important; }
-  .toast, .tooltip { display: none !important; }
-`
-
-function qrThemeCss(theme: 'dark' | 'light'): string {
-  if (theme === 'light') {
-    return `
-      body { color: #4E5969 !important; }
-      .qr-title, #qr-title { color: #4E5969 !important; }
-      .qr-tips, #qr-msg { color: #86909C !important; }
-      #qr-img { background: white !important; padding: 10px !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.1) !important; }
+/**
+ * 统一样式与主题注入：
+ * 1. 强制采用 Flexbox 双栏横向排布：左侧扫码登录 + 纵向分割线 + 右侧账密/短信登录；
+ * 2. 破除 jAccount 响应式媒体查询中的折行与隐藏，保证二维码和表单始终水平并列；
+ * 3. 彻底清除外层多余背景（如灰底 #dce3e6）、页眉、页脚及浮动条，实现与客户端窗口主题完美无缝融合；
+ * 4. 深度契合客户端深浅色主题，动态注入色彩变量与精致圆角微阴影；
+ * 5. 锁定 overflow: hidden，杜绝页面滚动条与局部溢出。
+ */
+function getJAccountEmbedCss(isDark: boolean): string {
+  const vars = isDark
+    ? `
+      --theme-bg: #1E1E1E;
+      --theme-text: #F5F5F5;
+      --theme-text-sub: #A0A0A0;
+      --theme-text-muted: #737373;
+      --theme-border: #333333;
+      --theme-qr-bg: #FFFFFF;
+      --theme-qr-border: #444444;
+      --theme-input-bg: #272727;
+      --theme-input-border: #383838;
+      --theme-input-text: #F5F5F5;
+      --theme-placeholder: #666666;
+      --theme-accent: #4080FF;
+      --theme-accent-hover: #69B1FF;
+      --theme-accent-ring: rgba(64, 128, 255, 0.25);
+      --theme-accent-shadow: rgba(64, 128, 255, 0.2);
+      --theme-warn-bg: #2E2316;
+      --theme-warn-text: #FB923C;
     `
-  }
+    : `
+      --theme-bg: #FFFFFF;
+      --theme-text: #1D2129;
+      --theme-text-sub: #4E5969;
+      --theme-text-muted: #86909C;
+      --theme-border: #E5E6EB;
+      --theme-qr-bg: #FFFFFF;
+      --theme-qr-border: #E5E6EB;
+      --theme-input-bg: #F7F8FA;
+      --theme-input-border: #E5E6EB;
+      --theme-input-text: #1D2129;
+      --theme-placeholder: #A8ABB2;
+      --theme-accent: #165DFF;
+      --theme-accent-hover: #0E42D2;
+      --theme-accent-ring: rgba(22, 93, 255, 0.20);
+      --theme-accent-shadow: rgba(22, 93, 255, 0.15);
+      --theme-warn-bg: #FFF7E6;
+      --theme-warn-text: #D46B08;
+    `
+
   return `
-    body { color: #A0A0A0 !important; }
-    .qr-title, #qr-title { color: #A0A0A0 !important; }
-    .qr-tips, #qr-msg { color: #737373 !important; }
-    #qr-img { background: white !important; padding: 10px !important; border-radius: 12px !important; box-shadow: 0 4px 24px rgba(0,0,0,0.2) !important; }
+    :root {
+      ${vars}
+    }
+
+    /* 隐藏所有多余的页眉、页脚、背景图、APP快速登录浮窗 */
+    header,
+    footer,
+    #header,
+    #footer,
+    .header,
+    .footer,
+    .copyright,
+    .login-bg,
+    .bg-img,
+    #login-app,
+    .app-link {
+      display: none !important;
+    }
+
+    html, body {
+      background: var(--theme-bg) !important;
+      background-color: var(--theme-bg) !important;
+      color: var(--theme-text) !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
+      scrollbar-width: none !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif !important;
+      -webkit-font-smoothing: antialiased !important;
+    }
+
+    ::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+
+    #page,
+    #content,
+    .container,
+    .login-layout {
+      background: transparent !important;
+      background-color: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      min-height: 100% !important;
+      height: auto !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      overflow: visible !important;
+    }
+
+    /* 核心卡片容器：支持 flex-wrap，自适应顶部提示与下层双栏（扫码 + 账密/二次验证） */
+    #login-form.login-card,
+    .login-card,
+    .login-box {
+      display: flex !important;
+      flex-flow: row wrap !important;
+      align-items: center !important;
+      justify-content: center !important;
+      box-shadow: none !important;
+      border: none !important;
+      margin: 0 auto !important;
+      padding: 0 !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      width: 100% !important;
+      max-width: 540px !important;
+      box-sizing: border-box !important;
+    }
+
+    /* 顶部提示栏（如二次验证说明、推送确认等非扫码和非表单的直接子元素）：独占第一行全宽并居中 */
+    #login-form > :not(.login-qr):not(.form-login):not(script):not(style),
+    .confirm-title,
+    .confirm-msg,
+    .confirm-msg-left {
+      width: 100% !important;
+      flex: 0 0 100% !important;
+      text-align: center !important;
+      margin: 0 0 16px 0 !important;
+      padding: 0 12px !important;
+      order: 1 !important;
+      box-sizing: border-box !important;
+      color: var(--theme-text) !important;
+    }
+
+    #login-form > :not(.login-qr):not(.form-login) h1,
+    #login-form > :not(.login-qr):not(.form-login) h2,
+    #login-form > :not(.login-qr):not(.form-login) h3,
+    #login-form > :not(.login-qr):not(.form-login) strong {
+      font-size: 16px !important;
+      font-weight: 600 !important;
+      color: var(--theme-text) !important;
+      margin-bottom: 4px !important;
+      line-height: 1.4 !important;
+    }
+
+    #login-form > :not(.login-qr):not(.form-login) p,
+    #login-form > :not(.login-qr):not(.form-login) span {
+      font-size: 13px !important;
+      color: var(--theme-text-sub) !important;
+      line-height: 1.5 !important;
+    }
+
+    /* 左侧二维码扫码专区：第二行左侧 */
+    .login-qr {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      order: 2 !important;
+      float: none !important;
+      flex: 0 0 210px !important;
+      width: 210px !important;
+      min-width: 210px !important;
+      margin: 0 !important;
+      padding: 4px 20px 4px 0 !important;
+      border-right: 1px solid var(--theme-border) !important;
+      box-sizing: border-box !important;
+    }
+
+    .login-qr .qr-title {
+      font-size: 14px !important;
+      font-weight: 600 !important;
+      margin-bottom: 10px !important;
+      color: var(--theme-text) !important;
+      text-align: center !important;
+    }
+
+    .login-qr .bolder-blue {
+      color: var(--theme-accent) !important;
+      font-weight: 600 !important;
+    }
+
+    #qr-mask {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      width: 170px !important;
+      height: 170px !important;
+      padding: 5px !important;
+      background: var(--theme-qr-bg) !important;
+      border-radius: 12px !important;
+      border: 1px solid var(--theme-qr-border) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+      box-sizing: border-box !important;
+    }
+
+    #qr-img {
+      display: block !important;
+      width: 156px !important;
+      height: 156px !important;
+      border-radius: 6px !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+
+    .qr-tips {
+      font-size: 12px !important;
+      color: var(--theme-text-muted) !important;
+      margin-top: 10px !important;
+      text-align: center !important;
+    }
+
+    .qr-tips .bolder-blue {
+      color: var(--theme-accent) !important;
+    }
+
+    /* 右侧表单专区（账号密码 / 短信 / 二次验证）：第二行右侧 */
+    .form-login {
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      order: 3 !important;
+      float: none !important;
+      flex: 0 0 260px !important;
+      width: 260px !important;
+      min-width: 260px !important;
+      margin: 0 !important;
+      padding: 4px 0 4px 20px !important;
+      box-sizing: border-box !important;
+    }
+
+    .form-login .login-header {
+      margin-bottom: 14px !important;
+    }
+
+    .form-login .login-title {
+      font-size: 16px !important;
+      font-weight: 600 !important;
+      color: var(--theme-text) !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      line-height: 1.4 !important;
+    }
+
+    .input-control {
+      position: relative !important;
+      margin-bottom: 10px !important;
+    }
+
+    .input-control .icon {
+      position: absolute !important;
+      left: 10px !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+      z-index: 2 !important;
+      opacity: ${isDark ? '0.7' : '0.85'} !important;
+    }
+
+    .form-input,
+    #input-login-user,
+    #input-login-pass,
+    #input-login-captcha,
+    #input-login-mobile,
+    #input-login-sms {
+      width: 100% !important;
+      height: 38px !important;
+      line-height: 38px !important;
+      padding: 0 10px 0 34px !important;
+      border-radius: 8px !important;
+      border: 1px solid var(--theme-input-border) !important;
+      background-color: var(--theme-input-bg) !important;
+      color: var(--theme-input-text) !important;
+      font-size: 13px !important;
+      outline: none !important;
+      box-sizing: border-box !important;
+      transition: border-color 0.15s, box-shadow 0.15s !important;
+    }
+
+    .form-input:focus,
+    #input-login-user:focus,
+    #input-login-pass:focus,
+    #input-login-captcha:focus,
+    #input-login-mobile:focus,
+    #input-login-sms:focus {
+      border-color: var(--theme-accent) !important;
+      box-shadow: 0 0 0 2px var(--theme-accent-ring) !important;
+    }
+
+    .form-input::placeholder,
+    #input-login-user::placeholder,
+    #input-login-pass::placeholder,
+    #input-login-captcha::placeholder,
+    #input-login-mobile::placeholder,
+    #input-login-sms::placeholder {
+      color: var(--theme-placeholder) !important;
+    }
+
+    /* 验证码输入框及图片 */
+    .captcha-input {
+      position: relative !important;
+      display: flex !important;
+      align-items: center !important;
+    }
+
+    #captcha-img {
+      height: 34px !important;
+      cursor: pointer !important;
+      border-radius: 6px !important;
+      margin-left: 6px !important;
+      border: 1px solid var(--theme-input-border) !important;
+    }
+
+    /* 登录/提交按钮 */
+    .form-submit,
+    .btn-primary,
+    input[type="submit"],
+    button[type="submit"],
+    input[value="提交"],
+    #submit-password-button,
+    #submit-sms-button {
+      width: 100% !important;
+      height: 38px !important;
+      line-height: 38px !important;
+      padding: 0 !important;
+      background: var(--theme-accent) !important;
+      color: #ffffff !important;
+      border: none !important;
+      border-radius: 8px !important;
+      font-size: 14px !important;
+      font-weight: 500 !important;
+      letter-spacing: 2px !important;
+      cursor: pointer !important;
+      box-shadow: 0 2px 6px var(--theme-accent-shadow) !important;
+      transition: opacity 0.15s, transform 0.05s !important;
+      margin-top: 8px !important;
+    }
+
+    .form-submit:hover,
+    .btn-primary:hover,
+    input[type="submit"]:hover,
+    button[type="submit"]:hover,
+    #submit-password-button:hover,
+    #submit-sms-button:hover {
+      opacity: 0.9 !important;
+    }
+
+    .form-submit:active,
+    .btn-primary:active,
+    input[type="submit"]:active,
+    button[type="submit"]:active,
+    #submit-password-button:active,
+    #submit-sms-button:active {
+      transform: scale(0.99) !important;
+    }
+
+    /* 辅助链接（忘记密码、注册等） */
+    .action-control,
+    #login-action {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      margin-top: 10px !important;
+      font-size: 12px !important;
+    }
+
+    .action-control a,
+    #login-action a,
+    .form-login a {
+      color: var(--theme-text-sub) !important;
+      text-decoration: none !important;
+      font-size: 12px !important;
+      transition: color 0.15s !important;
+    }
+
+    .action-control a:hover,
+    #login-action a:hover,
+    .form-login a:hover {
+      color: var(--theme-accent) !important;
+      text-decoration: underline !important;
+    }
+
+    .form-login div[style*="margin-top: 30px"],
+    .form-login div[style*="margin-top:30px"] {
+      margin-top: 10px !important;
+      text-align: center !important;
+    }
+
+    /* 提示信息 */
+    .warn-info,
+    #div_warn {
+      padding: 6px 10px !important;
+      border-radius: 6px !important;
+      background-color: var(--theme-warn-bg) !important;
+      color: var(--theme-warn-text) !important;
+      font-size: 12px !important;
+      margin-bottom: 8px !important;
+    }
+
+    /* 短信验证码发送按钮 */
+    .captcha-input #sms-btn,
+    #sms-btn {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      background: var(--theme-accent) !important;
+      border-radius: 0 8px 8px 0 !important;
+      color: #ffffff !important;
+      height: 38px !important;
+      line-height: 38px !important;
+      padding: 0 12px !important;
+      font-size: 12px !important;
+      cursor: pointer !important;
+      white-space: nowrap !important;
+      user-select: none !important;
+      box-sizing: border-box !important;
+    }
+
+    /* 交我办移动端推送确认 / 提示 */
+    .confirm-title {
+      font-size: 15px !important;
+      font-weight: 600 !important;
+      color: var(--theme-text) !important;
+      margin: 12px 0 6px 0 !important;
+      text-align: center !important;
+    }
+
+    .confirm-msg {
+      font-size: 13px !important;
+      color: var(--theme-text-sub) !important;
+      margin-bottom: 12px !important;
+      text-align: center !important;
+    }
+
+    .confirm-cancel {
+      color: var(--theme-text-muted) !important;
+      text-decoration: underline !important;
+      font-size: 12px !important;
+      cursor: pointer !important;
+      text-align: center !important;
+    }
+
+    /* 二次验证 (2FA) 细部交互适配 */
+    .form-login input[type="radio"] {
+      accent-color: var(--theme-accent) !important;
+      margin-right: 8px !important;
+      cursor: pointer !important;
+      vertical-align: middle !important;
+    }
+
+    .form-login input[type="checkbox"] {
+      accent-color: var(--theme-accent) !important;
+      margin-right: 8px !important;
+      cursor: pointer !important;
+      vertical-align: middle !important;
+    }
+
+    .form-select,
+    .form-login .radio-group,
+    .form-login .form-group,
+    .form-login label:has(input[type="radio"]),
+    .form-login div:has(input[type="radio"]) {
+      font-size: 13px !important;
+      color: var(--theme-text) !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      margin-bottom: 24px !important;
+    }
+
+    .form-login label:has(input[type="checkbox"]),
+    .form-login div:has(input[type="checkbox"]) {
+      font-size: 12px !important;
+      color: var(--theme-text-sub) !important;
+      margin: 12px 0 10px 0 !important;
+      display: flex !important;
+      align-items: center !important;
+      cursor: pointer !important;
+    }
+
+    /* 气泡提示自适应，避免与上方单选框遮挡 */
+    .tooltip-wrapper {
+      z-index: 100 !important;
+      margin-bottom: 2px !important;
+    }
+
+    .tooltip {
+      border-radius: 6px !important;
+      font-size: 12px !important;
+      line-height: 1.4 !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+      background-color: ${isDark ? 'rgba(34, 197, 94, 0.15)' : '#f0f9eb'} !important;
+      border-color: ${isDark ? 'rgba(34, 197, 94, 0.5)' : '#67c23a'} !important;
+    }
+
+    .tooltip-message {
+      color: ${isDark ? '#4ade80' : '#67c23a'} !important;
+      font-size: 12px !important;
+    }
+
+    .tooltip-arrow:after {
+      border-top-color: ${isDark ? 'rgba(34, 197, 94, 0.5)' : '#67c23a'} !important;
+    }
   `
 }
-
-// 在 webview 内 poll：等 #qr-img 真的换成 /qrcode?uuid=... 的 URL 且图加载完
-const WAIT_FOR_QR_JS = `
-  new Promise(resolve => {
-    let tries = 0;
-    const tick = () => {
-      const img = document.getElementById('qr-img');
-      const isReal = img && img.complete && img.naturalWidth > 30 && /\\/qrcode\\?/.test(img.src);
-      if (isReal) return resolve('ok');
-      if (++tries > 40) return resolve('timeout');
-      setTimeout(tick, 150);
-    };
-    tick();
-  })
-`
 
 type WebviewElement = HTMLElement & {
   src: string
@@ -95,8 +539,7 @@ type WebviewElement = HTMLElement & {
   removeEventListener(type: string, listener: (e: Event) => void): void
 }
 
-// [2.4] Allowed domains for the login webview — prevents navigation to attacker-controlled domains
-const ALLOWED_NAV_DOMAINS = ['sjtu.edu.cn', 'jaccount.sjtu.edu.cn', 'oc.sjtu.edu.cn']
+const ALLOWED_NAV_DOMAINS = ['sjtu.edu.cn', 'sjtu.cn']
 
 function isAllowedNavDomain(url: string): boolean {
   try {
@@ -107,18 +550,50 @@ function isAllowedNavDomain(url: string): boolean {
   }
 }
 
+/** 准确判定是否属于已成功通过 jAccount 认证的回调或进入主页 */
+function isLoginSuccessUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    if (u.searchParams.has('code') || u.hash.includes('code=')) return true
+    if (u.hash.includes('/home') || u.hash.includes('/index') || u.hash.includes('/dashboard')) return true
+    if (u.pathname.includes('/home') || u.pathname.includes('/index') || u.pathname.includes('/dashboard')) return true
+    return false
+  } catch {
+    return url.includes('code=') || url.includes('/home')
+  }
+}
+
 export function Login() {
   const webviewRef = useRef<WebviewElement | null>(null)
+  const isFinishingRef = useRef(false)
   const setStage = useAppStore(s => s.setStage)
   const setAuth = useAppStore(s => s.setAuth)
   const theme = useAppStore(s => s.theme)
+  const isDark =
+    theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const isDarkRef = useRef(isDark)
+  isDarkRef.current = isDark
+
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [statusMsg, setStatusMsg] = useState('正在加载登录页…')
+  const [statusMsg, setStatusMsg] = useState('正在加载交大统一身份认证…')
 
-  const checkAuth = useCallback(async (): Promise<boolean> => {
+  const navigateToBrowser = useCallback(() => {
+    const hasCompleted = useAppStore.getState().hasCompletedInitialSetup
+    if (!hasCompleted) {
+      useAppStore.getState().setActiveTab('settings')
+    } else {
+      const currentTab = useAppStore.getState().activeTab
+      if (currentTab === 'settings' || currentTab === 'transfer') {
+        useAppStore.getState().setActiveTab(useAppStore.getState().lastCourseTab || 'canvas')
+      }
+    }
+    setStage('browser')
+  }, [setStage])
+
+  const checkAuth = useCallback(async (force = false): Promise<boolean> => {
     try {
-      const a = await window.api.auth.status()
+      const a = await window.api.auth.status(force)
       setAuth(a)
       return a.loggedIn
     } catch {
@@ -126,15 +601,35 @@ export function Login() {
     }
   }, [setAuth])
 
-  /** 从当前 webview 的 localStorage 抽 jwt，推给 main。
-   *  登录回跳后 SPA 自己写 LS，所以这一步必须等到 v.sjtu 域 dom-ready 之后才有意义。 */
   const pullJwt = useCallback(async (): Promise<string | null> => {
     const wv = webviewRef.current
     if (!wv) return null
     try {
-      const t = (await wv.executeJavaScript(READ_JWT_JS)) as string | null
+      const data = (await wv.executeJavaScript(`
+        (() => {
+          try {
+            const token = localStorage.getItem(${JSON.stringify(VSJTU_JWT_LS_KEY)}) || localStorage.getItem('jwt-token') || localStorage.getItem('token');
+            const userRaw = localStorage.getItem('_jy-application-resmgr-ui_SESSION_USER_INFO') || localStorage.getItem('user_info') || localStorage.getItem('userInfo');
+            let userInfo = null;
+            if (userRaw) {
+              try {
+                const u = JSON.parse(userRaw);
+                userInfo = {
+                  name: u.name || u.userName || u.realName,
+                  studentId: u.code || u.username || u.userCode || u.studentId
+                };
+              } catch {}
+            }
+            return { token, userInfo };
+          } catch {
+            return null;
+          }
+        })()
+      `)) as { token?: string | null; userInfo?: { name?: string; studentId?: string } | null } | null
+
+      const t = data?.token
       if (t && t.length > 20) {
-        await window.api.auth.setJwtToken(t)
+        await window.api.auth.setJwtToken(t, data?.userInfo || undefined)
         return t
       }
     } catch {
@@ -143,90 +638,269 @@ export function Login() {
     return null
   }, [])
 
-  // 一进 Login 就先 check 一遍。已登录直接跳，不让 webview 跑出 v.sjtu 首页
+  const handleLoginCompletion = useCallback(async (): Promise<void> => {
+    // 0. 优先从 webview 当前 URL 拦截 OAuth2 Code，直接调 SSO 接口换取 JWT（耗时 <100ms）
+    const initialUrl = webviewRef.current?.getURL() || ''
+    const initialCode = initialUrl.match(/[?&#]code=([a-zA-Z0-9_-]+)/)?.[1]
+    if (initialCode) {
+      try {
+        const res = await window.api.auth.exchangeCode(initialCode)
+        if (res.success) {
+          const a = await window.api.auth.status(false)
+          setAuth(a)
+          try {
+            const cloudToken = await window.api.cloudpan.getCachedToken()
+            if (cloudToken) useAppStore.getState().setCloudUserToken(cloudToken)
+          } catch {}
+          navigateToBrowser()
+          return
+        }
+      } catch {}
+    }
+
+    let attempts = 0
+    const maxAttempts = 40 // 40 * 250ms = 10s
+    while (attempts++ < maxAttempts) {
+      // 1. 若 URL 随后才变化出 code，也第一时间直换
+      const currentUrl = webviewRef.current?.getURL() || ''
+      const code = currentUrl.match(/[?&#]code=([a-zA-Z0-9_-]+)/)?.[1]
+      if (code) {
+        try {
+          const res = await window.api.auth.exchangeCode(code)
+          if (res.success) {
+            const a = await window.api.auth.status(false)
+            setAuth(a)
+            navigateToBrowser()
+            return
+          }
+        } catch {}
+      }
+
+      // 2. 尝试从 webview 抽取 JWT（本地存储兜底）
+      const token = await pullJwt()
+      if (token) {
+        // 成功提取 JWT，由于主进程已将其置为已登录，立即获取状态并秒进主页！
+        const a = await window.api.auth.status(false)
+        setAuth(a)
+        try {
+          const cloudToken = await window.api.cloudpan.getCachedToken()
+          if (cloudToken) {
+            useAppStore.getState().setCloudUserToken(cloudToken)
+          }
+        } catch {
+          /* ignore */
+        }
+        navigateToBrowser()
+        return
+      }
+
+      // 2. 检查主进程缓存状态（若已由后台恢复或单点登录就绪）
+      try {
+        const cached = await window.api.auth.status(false)
+        if (cached.loggedIn) {
+          setAuth(cached)
+          try {
+            const cloudToken = await window.api.cloudpan.getCachedToken()
+            if (cloudToken) {
+              useAppStore.getState().setCloudUserToken(cloudToken)
+            }
+          } catch {
+            /* ignore */
+          }
+          navigateToBrowser()
+          return
+        }
+      } catch {
+        /* ignore */
+      }
+
+      await new Promise(r => setTimeout(r, 250))
+    }
+
+    // 兜底进入（部分业务页面 cookie 已就绪但 JWT 写入慢）
+    const a = await checkAuth(false)
+    if (a) {
+      navigateToBrowser()
+      return
+    }
+
+    isFinishingRef.current = false
+    setReady(true)
+    setError('会话同步耗时较长，请点击下方「刷新」重试')
+    setStatusMsg('登录同步超时')
+  }, [checkAuth, navigateToBrowser, pullJwt, setAuth])
+
+  // 初始挂载时预检：若已有登录态直接切入主界面
   useEffect(() => {
     void (async () => {
-      if (await checkAuth()) setStage('browser')
+      if (await checkAuth()) navigateToBrowser()
     })()
-  }, [checkAuth, setStage])
+  }, [checkAuth, navigateToBrowser])
 
-  // 兜底轮询：jaccount 回跳的中间域名/重定向链路较杂，nav 事件不一定都能捕到。
-  // 只要 cookie 在 v.sjtu 已生效，2.5s 内就能跳出 Login（跳之前先把 jwt 抽出来）。
+  // 主题动态响应：在深浅主题切换时实时更新 webview 样式变量
+  useEffect(() => {
+    const wv = webviewRef.current
+    if (!wv || !ready) return
+    try {
+      const url = wv.getURL?.() ?? ''
+      if (url.includes('jaccount.sjtu.edu.cn')) {
+        void wv.insertCSS(getJAccountEmbedCss(isDark)).catch(() => undefined)
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [isDark, ready])
+
+  // 定时后台守卫：监听登录回调或 JWT 写入
   useEffect(() => {
     const id = setInterval(() => {
       void (async () => {
-        if (await checkAuth()) {
-          await pullJwt()
-          setStage('browser')
+        if (isFinishingRef.current) return
+        const wv = webviewRef.current
+        if (wv) {
+          try {
+            const url = wv.getURL()
+            if (isLoginSuccessUrl(url)) {
+              isFinishingRef.current = true
+              setReady(false)
+              setStatusMsg('登录成功，正在进入主页…')
+              void handleLoginCompletion()
+              return
+            }
+
+            if (url.includes('jaccount.sjtu.edu.cn')) {
+              const is2FA = await wv
+                .executeJavaScript(`
+                (() => {
+                  try {
+                    const text = document.body ? document.body.innerText : '';
+                    return text.includes('二次验证') || text.includes('安全验证') || !!document.querySelector('.confirm-title, input[value="提交"]');
+                  } catch {
+                    return false;
+                  }
+                })()
+              `)
+                .catch(() => false)
+              if (is2FA) {
+                setStatusMsg('请完成二次验证（支持交我办扫码、动态码或短信）')
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+
+        const token = await pullJwt()
+        if (token) {
+          const a = await checkAuth(false)
+          if (a) {
+            navigateToBrowser()
+            return
+          }
         }
       })()
-    }, 2500)
+    }, 1500)
     return () => clearInterval(id)
-  }, [checkAuth, pullJwt, setStage])
+  }, [checkAuth, handleLoginCompletion, navigateToBrowser, pullJwt])
 
   useEffect(() => {
     const wv = webviewRef.current
     if (!wv) return
 
+    const updateAuthStatus = async (): Promise<void> => {
+      try {
+        const is2FA = await wv
+          .executeJavaScript(`
+          (() => {
+            try {
+              const text = document.body ? document.body.innerText : '';
+              return text.includes('二次验证') || text.includes('安全验证') || !!document.querySelector('.confirm-title, input[value="提交"]');
+            } catch {
+              return false;
+            }
+          })()
+        `)
+          .catch(() => false)
+        if (is2FA) {
+          setStatusMsg('请完成二次验证（支持交我办扫码、动态码或短信）')
+        } else {
+          setStatusMsg('请扫码、账号密码或短信验证登录')
+        }
+      } catch {
+        setStatusMsg('请扫码、账号密码或短信验证登录')
+      }
+    }
+
     const onDomReady = (): void => {
       const url = wv.getURL()
-      if (!url.includes('jaccount.sjtu.edu.cn')) return
-      const resolved = theme === 'system'
-        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-        : theme
-      void wv.insertCSS(QR_LAYOUT_CSS + qrThemeCss(resolved)).catch(() => undefined)
-      void wv
-        .executeJavaScript(WAIT_FOR_QR_JS)
-        .then(state => {
-          if (state === 'ok') {
-            setReady(true)
-            setError(null)
-            setStatusMsg('请用「交我办」或微信扫码登录')
-          } else {
-            setError('二维码加载超时，请点击下方刷新重试')
-            setStatusMsg('二维码加载失败')
-          }
-        })
-        .catch(() => undefined)
+      if (isLoginSuccessUrl(url)) {
+        if (!isFinishingRef.current) {
+          isFinishingRef.current = true
+          setReady(false)
+          setStatusMsg('登录成功，正在进入主页…')
+          void handleLoginCompletion()
+        }
+        return
+      }
+
+      if (url.includes('jaccount.sjtu.edu.cn')) {
+        void wv.insertCSS(getJAccountEmbedCss(isDarkRef.current)).catch(() => undefined)
+        setReady(true)
+        setError(null)
+        void updateAuthStatus()
+      }
     }
 
     const onNav = (): void => {
       const url = wv.getURL()
-      // [2.4] Block navigation to domains outside the allowed SJTU list
       if (!isAllowedNavDomain(url)) {
         console.warn('[Login] blocked navigation to unexpected domain:', url)
-        void wv.loadURL(LOGIN_URL)
+        void wv.loadURL(JACCOUNT_AUTH_URL)
         return
       }
-      // 一旦离开 jaccount 域立刻藏 webview，避免 v.sjtu 首页/中转页内容闪现。
-      // 在跳到 Browser 之前，先把 SPA 写入 localStorage 的 jwt 抽出来推给 main。
-      if (!url.includes('jaccount.sjtu.edu.cn')) {
-        setReady(false)
-        setStatusMsg('登录成功，正在进入…')
-        void (async () => {
-          await pullJwt()
-          if (await checkAuth()) setStage('browser')
-        })()
+
+      if (url.includes('jaccount.sjtu.edu.cn')) {
+        setError(null)
+        void updateAuthStatus()
+        return
       }
+
+      // 真正登录成功的判定：URL 携带 OAuth code，或到达 home 首页
+      if (isLoginSuccessUrl(url) && !isFinishingRef.current) {
+        isFinishingRef.current = true
+        setReady(false)
+        setStatusMsg('登录成功，正在进入主页…')
+        void handleLoginCompletion()
+      }
+    }
+
+    const onFail = (e: any): void => {
+      if (e?.errorCode === -3) return
+      setError(`认证页面加载失败 (${e?.errorDescription || '网络异常'})，请检查是否已连接交大校园网或 VPN`)
+      setStatusMsg('认证页面加载失败')
+      setReady(false)
     }
 
     wv.addEventListener('dom-ready', onDomReady)
     wv.addEventListener('did-navigate', onNav)
     wv.addEventListener('did-navigate-in-page', onNav)
+    wv.addEventListener('did-fail-load', onFail)
 
     return () => {
       wv.removeEventListener('dom-ready', onDomReady)
       wv.removeEventListener('did-navigate', onNav)
       wv.removeEventListener('did-navigate-in-page', onNav)
+      wv.removeEventListener('did-fail-load', onFail)
     }
-  }, [checkAuth, pullJwt, setStage, theme])
+  }, [handleLoginCompletion])
 
-  const onReload = (): void => {
+  const onReload = useCallback((): void => {
+    isFinishingRef.current = false
     setReady(false)
     setError(null)
-    setStatusMsg('正在刷新…')
-    webviewRef.current?.loadURL(LOGIN_URL).catch(() => undefined)
-  }
+    setStatusMsg('正在加载登录界面…')
+    webviewRef.current?.loadURL(JACCOUNT_AUTH_URL).catch(() => undefined)
+  }, [])
 
   return (
     <div className="relative flex h-full w-full items-center justify-center px-6 py-8">
@@ -238,69 +912,85 @@ export function Login() {
         ← 返回
       </button>
 
-      <div className="w-full max-w-sm">
-        <header className="mb-8 text-center">
-          <h1 className="text-xl font-bold text-text-1">jAccount 登录</h1>
+      <div className="w-full max-w-2xl transition-all duration-300">
+        <header className="mb-6 text-center">
+          <h1 className="text-xl font-bold text-text-1">jAccount 统一身份认证</h1>
           <p className="mt-2 text-sm text-text-3">{statusMsg}</p>
         </header>
 
         <div className="relative rounded-2xl border border-bd bg-surface-1 p-6 shadow-card backdrop-blur">
-          <div className="relative h-[320px] w-full overflow-hidden rounded-xl bg-base">
+          <div className="relative h-[415px] min-h-[380px] w-full overflow-hidden rounded-xl bg-surface-1">
             {!ready && !error && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface-1 backdrop-blur-sm">
                 <Spinner size={28} />
-                <div className="text-sm text-text-3">正在加载二维码…</div>
+                <div className="text-sm text-text-3">
+                  {isFinishingRef.current ? '登录成功，正在进入主页…' : '正在加载认证界面…'}
+                </div>
               </div>
             )}
             {error && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface-1 px-6 text-center backdrop-blur-sm">
                 <div className="text-sm font-medium text-amber">{error}</div>
+                <button
+                  type="button"
+                  onClick={onReload}
+                  className="mt-2 rounded-lg bg-accent px-4 py-1.5 text-xs font-medium text-white transition hover:bg-accent/90"
+                >
+                  刷新页面
+                </button>
               </div>
             )}
             <webview
-              ref={webviewRef as React.RefObject<HTMLElement>}
-              src={LOGIN_URL}
+              ref={webviewRef as unknown as React.RefObject<HTMLElement>}
+              src={JACCOUNT_AUTH_URL}
               partition={SJTU_PARTITION}
               style={{
                 width: '100%',
                 height: '100%',
-                background: 'transparent',
+                background: isDark ? '#1E1E1E' : '#FFFFFF',
                 opacity: ready ? 1 : 0,
                 transition: 'opacity 0.2s'
               }}
             />
           </div>
+
           <div className="mt-4 flex items-center justify-between text-xs text-text-3">
-            <span>{ready ? '二维码 60 秒后自动刷新' : ' '}</span>
+            <span>支持「交我办」/微信扫码、账号密码、短信验证及二次验证</span>
             <button
               type="button"
               onClick={onReload}
               className="inline-flex items-center gap-1 text-text-3 transition-colors duration-150 hover:text-accent-light"
             >
-              手动刷新 ↻
+              刷新 ↻
             </button>
           </div>
         </div>
 
-        <div className="mt-8 space-y-2">
+        <div className="mt-6 space-y-2">
           <div className="flex items-start gap-2.5 rounded-xl bg-surface-3 px-4 py-3">
             <span className="mt-0.5 text-sm">💡</span>
             <p className="text-xs leading-relaxed text-text-3">
-              打开「<strong className="text-text-2">交我办</strong>」App 或微信，
-              扫描上方二维码即可完成登录。
+              打开「<strong className="text-text-2">交我办</strong>」App 或微信，扫描左侧二维码即可完成扫码登录与二次验证；亦可在右侧直接使用账号密码登录。
             </p>
           </div>
           <div className="flex items-start gap-2.5 rounded-xl border border-amber/20 bg-amber/5 px-4 py-3">
-            <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" strokeLinecap="round" strokeLinejoin="round" />
+            <svg
+              className="mt-0.5 h-4 w-4 shrink-0 text-amber"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
             <p className="text-xs leading-relaxed text-amber">
-              请确保已连接 <strong>SJTU 校园网</strong>或<strong>交大 VPN</strong>，否则无法正常登录和下载。
+              请确保已连接 <strong>SJTU 校园网</strong>或<strong>交大 VPN</strong>，否则后续旁听课和内网资源将无法下载。
             </p>
           </div>
-          <p className="text-center text-xs text-text-4">
-            登录信息仅保存在本机，应用不会上传任何账号或密码。
-          </p>
         </div>
       </div>
     </div>

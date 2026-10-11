@@ -69,85 +69,6 @@
 
 /* ─── Theme Variables ─── */
 :root,
-[data-theme='dark'] {
-  /* Surface */
-  --bg-base: #121212;
-  --bg-surface-1: #1E1E1E;
-  --bg-surface-2: #272727;
-  --bg-surface-3: rgba(255,255,255,0.03);
-  --bg-body: #121212;
-  --bg-body-accent-1: rgba(64, 128, 255, 0.04);
-  --bg-body-accent-2: rgba(64, 128, 255, 0.02);
-
-  /* Text */
-  --text-primary: #F5F5F5;
-  --text-secondary: #A0A0A0;
-  --text-tertiary: #737373;
-  --text-muted: #525252;
-
-  /* Border */
-  --border-default: #333333;
-  --border-strong: #333333;
-
-  /* Accent (tech blue) */
-  --accent: #4080FF;
-  --accent-light: #69B1FF;
-  --accent-dark: #2563EB;
-  --accent-5: rgba(64,128,255,0.05);
-  --accent-10: rgba(64,128,255,0.10);
-  --accent-15: rgba(64,128,255,0.15);
-  --accent-20: rgba(64,128,255,0.20);
-  --accent-25: rgba(64,128,255,0.25);
-  --accent-30: rgba(64,128,255,0.30);
-  --accent-40: rgba(64,128,255,0.40);
-  --accent-50: rgba(64,128,255,0.50);
-  --accent-60: rgba(64,128,255,0.60);
-  --accent-80: rgba(64,128,255,0.80);
-  --accent-85: rgba(64,128,255,0.85);
-
-  /* Cloud (secondary blue) */
-  --cloud: #69B1FF;
-  --cloud-light: #93C5FD;
-  --cloud-dim: rgba(105,177,255,0.10);
-  --cloud-25: rgba(105,177,255,0.25);
-  --cloud-40: rgba(105,177,255,0.40);
-
-  /* Status colors */
-  --emerald: #36D399;
-  --amber: #FB923C;
-  --rose: #F87171;
-  --sky: #69B1FF;
-
-  --success: #36D399;
-  --success-bg: rgba(54,211,153,0.10);
-  --success-ring: rgba(54,211,153,0.20);
-  --warning: #FB923C;
-  --warning-bg: rgba(251,146,60,0.10);
-  --warning-ring: rgba(251,146,60,0.20);
-  --info: #4080FF;
-  --info-bg: rgba(64,128,255,0.08);
-  --info-ring: rgba(64,128,255,0.18);
-  --danger: #F87171;
-  --danger-bg: rgba(248,113,113,0.10);
-  --danger-ring: rgba(248,113,113,0.20);
-
-  /* Task status background (for highlighted rows) */
-  --task-done-bg: #1A2E28;
-  --task-downloading-bg: #1F2937;
-  --task-paused-bg: #2E2316;
-  --task-error-bg: #2E1F1F;
-  --queue: #737373;
-
-  --progress-track: #1F2937;
-  --selection-bg: rgba(64, 128, 255, 0.3);
-
-  --scrollbar-thumb: rgba(160, 160, 160, 0.2);
-  --scrollbar-thumb-hover: rgba(160, 160, 160, 0.35);
-
-  color-scheme: dark;
-}
-
-/* 浅色模式 — 科技蓝方案 */
 [data-theme='light'] {
   /* Surface */
   --bg-base: #F5F7FA;
@@ -224,6 +145,85 @@
   --scrollbar-thumb-hover: rgba(100, 100, 100, 0.35);
 
   color-scheme: light;
+}
+
+/* 深色模式 */
+[data-theme='dark'] {
+  /* Surface */
+  --bg-base: #121212;
+  --bg-surface-1: #1E1E1E;
+  --bg-surface-2: #272727;
+  --bg-surface-3: rgba(255,255,255,0.03);
+  --bg-body: #121212;
+  --bg-body-accent-1: rgba(64, 128, 255, 0.04);
+  --bg-body-accent-2: rgba(64, 128, 255, 0.02);
+
+  /* Text */
+  --text-primary: #F5F5F5;
+  --text-secondary: #A0A0A0;
+  --text-tertiary: #737373;
+  --text-muted: #525252;
+
+  /* Border */
+  --border-default: #333333;
+  --border-strong: #333333;
+
+  /* Accent (tech blue) */
+  --accent: #4080FF;
+  --accent-light: #69B1FF;
+  --accent-dark: #2563EB;
+  --accent-5: rgba(64,128,255,0.05);
+  --accent-10: rgba(64,128,255,0.10);
+  --accent-15: rgba(64,128,255,0.15);
+  --accent-20: rgba(64,128,255,0.20);
+  --accent-25: rgba(64,128,255,0.25);
+  --accent-30: rgba(64,128,255,0.30);
+  --accent-40: rgba(64,128,255,0.40);
+  --accent-50: rgba(64,128,255,0.50);
+  --accent-60: rgba(64,128,255,0.60);
+  --accent-80: rgba(64,128,255,0.80);
+  --accent-85: rgba(64,128,255,0.85);
+
+  /* Cloud (secondary blue) */
+  --cloud: #69B1FF;
+  --cloud-light: #93C5FD;
+  --cloud-dim: rgba(105,177,255,0.10);
+  --cloud-25: rgba(105,177,255,0.25);
+  --cloud-40: rgba(105,177,255,0.40);
+
+  /* Status colors */
+  --emerald: #36D399;
+  --amber: #FB923C;
+  --rose: #F87171;
+  --sky: #69B1FF;
+
+  --success: #36D399;
+  --success-bg: rgba(54,211,153,0.10);
+  --success-ring: rgba(54,211,153,0.20);
+  --warning: #FB923C;
+  --warning-bg: rgba(251,146,60,0.10);
+  --warning-ring: rgba(251,146,60,0.20);
+  --info: #4080FF;
+  --info-bg: rgba(64,128,255,0.08);
+  --info-ring: rgba(64,128,255,0.18);
+  --danger: #F87171;
+  --danger-bg: rgba(248,113,113,0.10);
+  --danger-ring: rgba(248,113,113,0.20);
+
+  /* Task status background (for highlighted rows) */
+  --task-done-bg: #1A2E28;
+  --task-downloading-bg: #1F2937;
+  --task-paused-bg: #2E2316;
+  --task-error-bg: #2E1F1F;
+  --queue: #737373;
+
+  --progress-track: #1F2937;
+  --selection-bg: rgba(64, 128, 255, 0.3);
+
+  --scrollbar-thumb: rgba(160, 160, 160, 0.2);
+  --scrollbar-thumb-hover: rgba(160, 160, 160, 0.35);
+
+  color-scheme: dark;
 }
 
 @layer base {

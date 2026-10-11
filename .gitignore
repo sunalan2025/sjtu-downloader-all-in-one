@@ -1,20 +1,43 @@
-node_modules
-out
-dist
-release
-.vite
-*.log
+# 依赖与编译产物
+node_modules/
+out/
+dist/
+release/
+.vite/
 *.tsbuildinfo
+*.log
+
+# 操作系统与通用配置
 .DS_Store
-.idea
-.claude/
-CLAUDE.md
+Thumbs.db
+.idea/
+.fleet/
+*.swp
+*.swo
+
+# 编辑器配置
 .vscode/*
 !.vscode/settings.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# 本地与 AI 助手调试工件
+.agents/
+.claude/
+CLAUDE.md
 .playwright-mcp/
+.uploads/
 *.network-response
+
+# 抓包导出与调试凭据（防止开发者本地 session 凭证泄露）
+test_session_*.json
+test_auth_*.json
+*session*.json
+*.tmp
+
+# 测试与覆盖率产物
+coverage/
+.nyc_output/
 
 # 图标产物（由 scripts/generate-icons.mjs 从 build/icon.png 生成，CI/本地 build 前自动跑 npm run icons）
 build/icons/

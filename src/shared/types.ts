@@ -60,6 +60,7 @@ export interface PageResult<T> {
   totalPage: number
   /** 当前页数据列表 */
   list: T[]
+  records?: T[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ export interface AuditCourseItem {
   auditCourseResources: Array<{
     resourceId: number
     teclCode?: string
+    courseName?: string
   }>
 }
 
@@ -143,6 +145,12 @@ export interface AuthStatus {
   studentId?: string
   /** 登录检测的最后一次时间，ISO 字符串 */
   checkedAt?: string
+  /** 凭据是否已失效/过期（用于 UI 重新认证引导） */
+  expired?: boolean
+  /** 凭据有效截止时间戳（毫秒） */
+  expiresAt?: number
+  /** 用户显示名及学号封装 */
+  user?: { name: string; account: string }
 }
 
 /** 当前平台可用的更新安装器资产（GitHub release asset），用于应用内自动下载安装。
@@ -254,6 +262,10 @@ export interface DownloadTaskSpec {
   refId?: number
   /** 视角：0=教师, 3=PPT */
   angle?: number
+  /** 是否为 HLS 视频流（.m3u8） */
+  isHls?: boolean
+  /** 是否需要抽取为纯音频 (.m4a) */
+  extractAudio?: boolean
 }
 
 /** 下载/上传任务状态机 */
@@ -272,10 +284,16 @@ export interface DownloadProgress {
   state: DownloadState
   received: number
   total: number
-  /** 落盘文件最终绝对路径（done/skipped 时有；云盘模式下无此字段） */
+  /** 落盘文件最终绝对路径（done/skipped 时有；仅云端模式下无此字段） */
   filePath?: string
-  /** 错误或附加说明（error/skipped 时有） */
+  /** 云盘最终绝对路径（done/skipped 且涉及云盘/both 模式时有） */
+  cloudPath?: string
+  /** 错误或附加说明（error/skipped 时有；downloading 时也可携带阶段文案，如 HLS 阶段、both 模式上传提示） */
   message?: string
+  /** received/total 的单位。默认 'bytes'（按字节格式化 + 计算速度）；
+   *  'count' 表示 received/total 是计数（如 HLS 切片数），显示为纯文案 + 百分比、不计算速度。
+   *  用于 HLS 模块视频进度（切片数而非字节数）。 */
+  unit?: 'bytes' | 'count'
 }
 
 /** 实时传输速度（字节/秒），由主进程 1s 推送一次，EMA 平滑后 */
@@ -395,6 +413,26 @@ export interface CanvasModuleItem {
   externalUrl: string | null
 }
 
+/** Canvas 课程资源扫描结果汇总 (scanCourse) (R2-F2) */
+export interface CourseResourceSummary {
+  /** 扫描是否成功（403 容错降级成功亦为 true） */
+  ok: boolean
+  /** 文件 Tab 是否可直接访问（403 时为 false） */
+  filesTabAccessible: boolean
+  /** 常规文件列表（若 403 则为空数组） */
+  files: CanvasFileItem[]
+  /** 文件夹映射树（若 403 则为空对象） */
+  folderMap: Record<number, string>
+  /** 从单元/模块中提取恢复的课件文件 */
+  moduleFiles: CanvasFileItem[]
+  /** 从教学大纲正文中提取恢复的课件文件 */
+  syllabusFiles: CanvasFileItem[]
+  /** 友好告警提示（例如 403 降级说明） */
+  warning?: string
+  /** 错误信息（致命失败如未登录/网络中断时提供） */
+  error?: string
+}
+
 /** "课堂视频new" 一次录课会话 */
 export interface CanvasVideoSession {
   videoId: string
@@ -475,8 +513,18 @@ export interface CanvasLectureGroup {
   teacher?: CanvasVideoSession
 }
 
+/** 下载课堂视频时传入的单讲入参：按用户实际勾选的角色携带 session。
+ *  teacher 字段存在 = 要下教师路（streamIdx 0）；ppt 字段存在 = 要下 PPT 路（streamIdx 1）。
+ *  与扫描结果的 CanvasLectureGroup 不同：后者每讲只描述 videoId，下载意图由本类型用可选字段
+ *  表达「要哪几路」，避免下载时无脑产 2 路 spec 把未勾选的一路也下载。 */
+export interface CanvasLectureDownloadItem {
+  lectureNum: number
+  teacher?: CanvasVideoSession
+  ppt?: CanvasVideoSession
+}
+
 /** 渲染端顶部 tab */
-export type ActiveTab = 'audited' | 'canvas' | 'cnmooc'
+export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'transfer' | 'settings'
 
 // ─────────────────────────────────────────────────────────────
 // 好大学在线 (cnmooc.sjtu.cn) 相关
@@ -495,10 +543,24 @@ export interface CnmoocItem {
   title: string
 }
 
+/** cnmooc 小节 (Section) */
+export interface CnmoocSection {
+  sectionTitle: string
+  items: CnmoocItem[]
+}
+
+/** cnmooc 两级章节树根节点 (Chapter) */
+export interface CnmoocChapterNode {
+  chapterTitle: string
+  sections: CnmoocSection[]
+}
+
 /** cnmooc 章节（含若干条目） */
 export interface CnmoocChapter {
   chapter: string
   items: CnmoocItem[]
+  chapterTitle?: string
+  sections?: CnmoocSection[]
 }
 
 /** cnmooc 已选中条目（带所属章节名，供 build-specs 拼落盘路径） */
@@ -557,10 +619,32 @@ export interface PptDownloadOpts {
   destRoot: string
   /** 学期名（上级文件夹） */
   term?: string
+  /** 同名冲突策略：skip（默认，本地已存在则跳过） / overwrite（覆盖）。
+   *  仅对 destRoot 非空（local/both）的本地 PDF 生效；云端冲突由 runPptLecture 提前检查。 */
+  conflictStrategy?: FileConflictStrategy
   /** 课堂视频会话信息（用于构建与视频一致的文件名） */
   videoSession?: {
     beginTime: string
     teacher: string
     classroom: string
   }
+  /** 是否保留高清切片图片至同级切片文件夹（默认 false） */
+  saveImages?: boolean
+}
+
+// ─────────────────────────────────────────────────────────────
+// 下载历史与高级配置类型
+// ─────────────────────────────────────────────────────────────
+
+export type VideoQualityOption = 'origin' | '1080p' | '720p' | 'audio_only'
+
+export interface DownloadHistoryItem {
+  taskId: string
+  fileName: string
+  filePath?: string
+  cloudPath?: string
+  courseName?: string
+  fileSize?: number
+  completedAt: number
+  source?: string
 }

@@ -13,24 +13,34 @@
 │  渲染进程 (Chromium)                                                │
 │  src/renderer/src/                                                  │
 │    App.tsx → pages/ → components/ → store/app.ts                    │
+│    (CanvasBrowser / AuditedCourses / CnmoocBrowser /                │
+│     TransferCenter / Settings / Welcome / Login)                    │
 │    hooks/useSharedBrowserHooks.ts                                   │
 │  技术栈: React 19 + Zustand + Tailwind CSS                          │
 ├─────────────────────────── contextBridge ────────────────────────────┤
 │  预加载脚本                                                          │
 │  src/preload/index.ts                                               │
-│    window.api = { auth, vsjtu, download, cloudpan, canvas, ppt }    │
+│    window.api = { auth, vsjtu, download, cloudpan, canvas,          │
+│                   cnmooc, ppt, updater }                            │
 │    contextIsolation: true, nodeIntegration: false                    │
 ├─────────────────────────── IPC invoke/on ────────────────────────────┤
 │  主进程 (Node.js)                                                   │
-│  src/main/index.ts          ← 下载引擎 + 云盘上传 + 窗口管理 + IPC   │
-│  src/main/cloudpan.ts       ← 交大云盘 API                          │
+│  src/main/index.ts          ← 窗口管理 + IPC 通道路由 + 生命周期     │
+│  src/main/download-engine/  ← 本地/云盘流式下载与并发调度引擎        │
+│  src/main/concurrency.ts    ← AIMD 自适应并发控制与平滑流速监控      │
+│  src/main/cloudpan.ts       ← 交大云盘 REST / COS API               │
 │  src/main/canvas/api.ts     ← Canvas REST API                       │
 │  src/main/canvas/orchestrator.ts ← Canvas IPC handler + 编排        │
-│  src/main/canvas/video-tokens.ts ← LTI token + vod API + 缓存      │
-│  src/main/canvas/hls-download.ts ← HLS 下载 + ffmpeg remux（内置 ffmpeg-static 二进制）│
+│  src/main/canvas/video-tokens.ts ← LTI token + vod API + 缓存       │
+│  src/main/canvas/hls-download.ts ← HLS 下载 + ffmpeg remux          │
 │  src/main/canvas/ppt-download.ts ← PPT 课件图片下载 + PDF 合并      │
-├─────────────────────────── 共享类型 ─────────────────────────────────┤
-│  src/shared/types.ts                                                │
+│  src/main/cnmooc/api.ts     ← 好大学在线 REST API + cheerio 解析     │
+│  src/main/cnmooc/orchestrator.ts ← 好大学在线 IPC + SSO 编排        │
+│  src/main/updater.ts        ← 应用内静默更新引擎                    │
+│  src/main/auth.ts           ← 会话恢复与 jAccount 认证状态校验       │
+├─────────────────────────── 共享模块与类型 ──────────────────────────┤
+│  src/shared/types.ts        ← 核心数据结构与 IPC 消息定义           │
+│  src/shared/utils.ts        ← 统一路径清洗、格式化与安全过滤工具     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -47,20 +57,21 @@
 
 ## 2. 模块详解
 
-### 2.1 主进程 — `src/main/index.ts`
+### 2.1 主进程架构与下载引擎解耦
 
-约 2540 行，是项目的核心模块，承担以下职责：
+主进程采用模块化架构，将应用路由、窗口生命周期与核心下载调度清晰解耦：
 
-| 区域 | 行范围（约） | 职责 |
-|------|-------------|------|
-| 窗口管理 | 62-103 | BrowserWindow 创建、CSP、webviewTag 配置 |
-| 认证 | 113-175 | `isLoggedIn()`（含 5 分钟缓存）、`vsjtuFetch()`、JWT token 管理 |
-| 下载引擎 | 177-700 | 任务注册表、惰性任务物化、并发调度器、HTTP 流式下载（cookie 注入 + 限流重试）、断点续传 |
-| 云盘上传引擎 | 700-1640 | CDN→COS 边下载边分片上传（`settled` 守卫）、凭证 renew、断点续传会话、overwrite 删远端 |
-| AIMD 并发控制 | 263-420 | 加性增乘性减、吞吐增益反馈、瓶颈冷却、自适应评估周期 |
-| Canvas 直链解析 | 1070-1230 | `resolveDirectUrl()`、Canvas cookie 注入、429/403 限流重试 |
-| IPC 注册 | 2140-2540 | `download:*`、`auth:*`、`vsjtu:*`、`cloudpan:*`、`app:*` handler（含 `app:notify`） |
-| 安全退出 | 2090-2110 | `cleanupOnQuit()`、`uncaughtException` handler |
+| 模块文件 | 核心职责 |
+|---------|---------|
+| `src/main/index.ts` | 应用程序生命周期、单实例锁控制、主窗口与托盘协调、全模块 IPC 通道汇总挂载 |
+| `src/main/download-engine/local.ts` | 本地 HTTP 流式下载：Range 断点续传、分块 backpressure、Canvas Cookie 注入、429/403 退避重试、哈希/非空校验 |
+| `src/main/download-engine/cloud.ts` | 交大云盘直传：CDN→COS 边下载边分片上传、凭证自动 renew、断点续传会话、overwrite 远端清理、abort 熔断 |
+| `src/main/download-engine/shared.ts` | 任务队列管理（pending/paused/active）、O(1) 去重索引、惰性任务物化、直链懒解析路由 |
+| `src/main/download-engine/progress.ts`| IPC 进度批处理与防抖合并（`setImmediate` 轮次合并），保障渲染端流畅度 |
+| `src/main/concurrency.ts` | AIMD 双模式自适应并发控制（加性增乘性减）、实时吞吐增益反馈与平滑下行/上行流速监控（EMA） |
+| `src/main/window.ts` | 主窗口创建、CSP 安全策略注入、自定义标题栏拖拽适配、系统托盘常驻管理 |
+| `src/main/auth.ts` | jAccount 会话持久化与恢复、登录态缓存校验、v.sjtu 请求代理 |
+| `src/main/updater.ts` | 轻量化应用内静默更新机制：版本比对、断点续传下载安装包、三平台自适应安装与锁释放 |
 
 **关键设计模式：**
 
@@ -161,7 +172,7 @@ Browser 与 CanvasBrowser 共享的 hooks：
 
 | Hook | 职责 |
 |------|------|
-| `useCachedCloudTokenValidation` | 启动时验证 localStorage 持久化的云盘 token 是否有效 |
+| `prefetchCloudConnection`（services/prefetch.ts） | 登录后自动隐式 SSO 连云盘（复用 jAccount 会话）；`useCloudConnection.onConnectCloud` 与 App.tsx 预加载共用 |
 | `useCloudConnection` | 云盘连接/断开操作，状态从 zustand store 读取（跨 tab 共享） |
 | `useDownloadProgressSubscription` | 订阅主进程进度事件，写入 store（App 级单次订阅） |
 | `useDownloadCompletion` | 选中任务全部到达终态时自动将 `downloading` 置为 false；弹出系统通知汇报成功/失败数量（`notifiedRef` 保证每批次只通知一次） |
@@ -170,17 +181,20 @@ Browser 与 CanvasBrowser 共享的 hooks：
 
 | 组件 | 职责 |
 |------|------|
-| `App.tsx` | 根组件：按 `stage` 切换页面（welcome → login → browser），顶部 Tab 导航（audited / canvas），App 级进度订阅 |
-| `Welcome.tsx` | 欢迎页：功能介绍 + 登录入口 |
+| `App.tsx` | 根组件：按 `stage` 切换页面（welcome → login → browser），顶栏解耦导航（三大课程源），支持从传输中心与设置页记录 `previousCourseTab` 上下文无缝回跳 |
+| `Welcome.tsx` | 欢迎页：原生自适应双栏面板，左侧版本信息与特性，右侧流体居中认证操作区 |
 | `Login.tsx` | 登录页：内嵌 jAccount 扫码 webview，域名白名单导航限制，JWT token 轮询提取 |
-| `Browser.tsx` | v.sjtu 旁听课程页：自动扫描、双视角卡片、全选/单选、下载控制、实时进度。使用 `memo` + `useShallow` + `tasksKey` 稳定化优化 |
-| `CanvasBrowser.tsx` | Canvas 课程页：学期筛选、分类选择（课件/视频-教师/视频-PPT/单元视频）、串行课程处理（扫描→下载→等待→清理→下一门）。课堂视频每讲含「📄PPT」下载按钮 + 「下载全部PPT」批量按钮，PPT PDF 与视频同目录 |
+| `AuditedCourses.tsx` | 旁听课程页（原 Browser.tsx）：v.sjtu 旁听课程列表与双视角卡片、全选/单选、批量下载控制、实时进度与重载 |
+| `CanvasBrowser.tsx` | Canvas 课程页：学期筛选、分类选择（课件/教师/PPT/单元视频/PPT课件）、串行课程处理（扫描→下载→等待→清理→下一门）、PPT 导出 PDF |
+| `CnmoocBrowser.tsx` | 好大学在线页：章节折叠卡片、资源类型分段（全部/仅视频/仅课件）、懒解析下载、自动 SSO 会话保持与刷新重载 |
+| `TransferCenter.tsx` | 独立传输中心：跨业务全局任务看板、实时下行/上行速率监控、活跃下载/上传队列管理、历史完成记录、一键返回前序课程上下文 |
+| `Settings.tsx` | 全局设置页：专业双栏卡片布局，存储目标模式、保存目录、并发档位、视频视角偏好、PPT 导出、深浅外观等全选项化配置（零手动繁琐输入） |
 
 #### 共享组件
 
 | 组件 | 职责 |
 |------|------|
-| `TitleBar.tsx` | 自定义标题栏：并发滑块、自动并发 AIMD 按钮、主题切换、登出、帮助弹窗 |
+| `TitleBar.tsx` | 自定义标题栏：业务课程源解耦切换（Canvas 课程、旁听课程、好大学在线）、右侧工具区常驻传输中心动态流速胶囊看板、云盘连接状态、全局设置入口、登出与自动更新提醒 |
 | `DownloadUI.tsx` | 下载 UI 原子组件：进度条（EMA 速度）、三态复选框、全局/单任务控制按钮、下载模式选择器、同名文件冲突策略选择器（跳过/替换） |
 | `Segmented.tsx` | 统一的「玻璃滑动指示器」分段选择器 |
 | `Spinner.tsx` | 加载动画组件 |
@@ -194,7 +208,7 @@ Browser 与 CanvasBrowser 共享的 hooks：
 ```
 用户选择任务 + 点击下载
     ↓
-Browser.tsx / CanvasBrowser.tsx 构建 DownloadTaskSpec[]
+AuditedCourses.tsx / CanvasBrowser.tsx / CnmoocBrowser.tsx 构建 DownloadTaskSpec[]
     ↓
 window.api.download.start(destRoot, specs, { mode, conflictStrategy, localDestRoot })
     ↓
@@ -333,12 +347,14 @@ CanvasBrowser: 用户选择课程 + 点击下载
 
 ---
 
-## 7. 已知技术债务
+## 7. 技术债务与重构审计
 
-| 项目 | 严重度 | 说明 |
-|------|--------|------|
-| `sanitizeFsName` 三处重复 | LOW | `index.ts:173`, `canvas/api.ts:105`, `canvas/video-tokens.ts:316`，建议提取到共享模块 |
-| `extractLectureNum` 两处重复 | LOW | `canvas/orchestrator.ts:579`, `canvas/video-tokens.ts:329` |
-| `safeFetch` 两处重复 | LOW | `canvas/api.ts:21`, `canvas/video-tokens.ts:19` |
-| `main/index.ts` 体量 | LOW | ~2540 行，可考虑拆分下载引擎为独立模块 |
-| `mainWindowRef` 已废弃 | LOW | `orchestrator.ts:62` 标记 `@deprecated`，`emitToRenderer` 回退路径为死代码 |
+经过 2.4.0 版本的深度重构与代码清理，前期记录的关键架构债务已全部清零：
+
+| 项目 | 状态 | 重构成果与说明 |
+|------|------|----------------|
+| `sanitizeFsName` 重复 | **已解决** | 已统一提取至 `src/shared/utils.ts` 并覆盖全套严苛测试（含特殊符号、控制字符与边界用例） |
+| `safeFetch` 封装 | **已解决** | 已统一在 `src/main/canvas/safe-fetch.ts` 集中封装，提供 429 退避重试与网络错误韧性机制 |
+| `main/index.ts` 庞大体量 | **已解决** | 下载与并发调度引擎已完全解耦至 `src/main/download-engine/` 及 `concurrency.ts`，主文件缩减至 1000 行纯粹的生命周期与 IPC 路由 |
+| 传输中心与导航层级混乱 | **已解决** | 顶栏完成信息架构（IA）层级解耦：业务源（Canvas/旁听/好大学）与系统设施（传输中心看板/设置）彻底分离 |
+| 临时测试与过程工件残留 | **已解决** | 清理所有临时测试脚本及协作工件，`.gitignore` 强化防护，维持 17 套（422 项）自动化测试全绿 |

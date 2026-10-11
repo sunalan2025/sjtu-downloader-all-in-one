@@ -20,8 +20,10 @@ import {
   CNMOOC_MY_COURSES_URL,
   CNMOOC_STATIC_BASE,
   type CnmoocChapter,
+  type CnmoocChapterNode,
   type CnmoocCourse,
-  type CnmoocItem
+  type CnmoocItem,
+  type CnmoocSection
 } from '../../shared/types'
 import { safeFetch } from '../canvas/safe-fetch'
 import { sanitizeFsName } from '../canvas/api'
@@ -85,11 +87,43 @@ export async function isCnmoocSessionValid(ses: Electron.Session): Promise<boole
 
 // ─── 课程列表 ─────────────────────────────────────────────────
 
-/** 获取「正在学习」课程列表。
- *  myCourseIndex 的课程卡片由 jQuery（js/app/home/index.js）异步渲染，
- *  ses.fetch 只能拿到空骨架 → 必须用隐藏 BrowserWindow 渲染后取 DOM HTML。
- *  关 backgroundThrottling 避免隐藏窗口被节流导致 AJAX 不推进。 */
-export async function fetchCourses(ses: Electron.Session): Promise<CnmoocCourse[]> {
+/** 获取「正在学习」课程列表（支持多页扫描与去重）。
+ *  优先尝试 safeFetch（适用于测试或服务端已包含卡片场景）；
+ *  若为空则使用隐藏 BrowserWindow 异步渲染取 DOM。 */
+export async function fetchCourses(ses: Electron.Session, maxPages = 10): Promise<CnmoocCourse[]> {
+  const allCourses: CnmoocCourse[] = []
+  const seen = new Set<string>()
+
+  // 先尝试直接请求第 1 页判断是否已有静态/Mock 卡片
+  try {
+    const directResp = await safeFetch(ses, CNMOOC_MY_COURSES_URL)
+    if (directResp.ok) {
+      const directHtml = await directResp.text()
+      const initial = parseCourseHtml(directHtml)
+      if (initial.length > 0) {
+        for (const c of initial) {
+          if (!seen.has(c.courseId)) { seen.add(c.courseId); allCourses.push(c) }
+        }
+        // 多页抓取
+        for (let p = 2; p <= maxPages; p++) {
+          const nextResp = await safeFetch(ses, `${CNMOOC_BASE_URL}/portal/myCourseIndex/${p}.mooc`)
+          if (!nextResp.ok) break
+          const nextHtml = await nextResp.text()
+          const nextList = parseCourseHtml(nextHtml)
+          if (nextList.length === 0) break
+          let added = 0
+          for (const c of nextList) {
+            if (!seen.has(c.courseId)) { seen.add(c.courseId); allCourses.push(c); added++ }
+          }
+          if (added === 0) break
+        }
+        return allCourses
+      }
+    }
+  } catch {
+    /* 继续降级至 BrowserWindow */
+  }
+
   const win = new BrowserWindow({
     show: false,
     webPreferences: {
@@ -100,29 +134,29 @@ export async function fetchCourses(ses: Electron.Session): Promise<CnmoocCourse[
     }
   })
   try {
-    await win.loadURL(CNMOOC_MY_COURSES_URL)
-    // 课程卡片由 jQuery AJAX 异步加载，loadURL 的 did-finish-load 只等 DOM ready，
-    // 这里轮询 a.view-shadow 出现（或 15s 超时）确认渲染完成
-    const html = await win.webContents.executeJavaScript(`
-      (() => new Promise(resolve => {
-        let n = 0
-        const check = () => {
-          const a = document.querySelector('a.view-shadow[href*="/portal/session/index/"]')
-          // 卡片出现，或轮询 60 次（~15s）仍无 → 返回当前 HTML（调用方据此判断是否未登录）
-          if (a || ++n > 60) return resolve(document.documentElement.outerHTML)
-          setTimeout(check, 250)
-        }
-        check()
-      }))()
-    `)
-    const courses = parseCourseHtml(html)
-    console.log(`[cnmooc] 课程列表渲染完成：${courses.length} 门`)
-    if (courses.length === 0) {
-      // 诊断：HTML 里既无课程卡片也无登录表单 → 可能页面结构变化；含登录表单 → 会话失效
-      const hasLogin = /login\.mooc|jaccount|请登录|使用JAccount/i.test(html)
-      console.log(`[cnmooc] 课程列表为空（HTML ${html.length} 字符，${hasLogin ? '疑似未登录/会话失效' : '页面结构异常'}）`)
+    for (let page = 1; page <= maxPages; page++) {
+      const pageUrl = `${CNMOOC_BASE_URL}/portal/myCourseIndex/${page}.mooc`
+      await win.loadURL(pageUrl)
+      const html = await win.webContents.executeJavaScript(`
+        (() => new Promise(resolve => {
+          let n = 0
+          const check = () => {
+            const a = document.querySelector('a.view-shadow[href*="/portal/session/index/"]')
+            if (a || ++n > 40) return resolve(document.documentElement.outerHTML)
+            setTimeout(check, 250)
+          }
+          check()
+        }))()
+      `)
+      const pageCourses = parseCourseHtml(html)
+      if (pageCourses.length === 0) break
+      let added = 0
+      for (const c of pageCourses) {
+        if (!seen.has(c.courseId)) { seen.add(c.courseId); allCourses.push(c); added++ }
+      }
+      if (added === 0) break
     }
-    return courses
+    return allCourses
   } finally {
     win.destroy()
   }
@@ -130,7 +164,7 @@ export async function fetchCourses(ses: Electron.Session): Promise<CnmoocCourse[
 
 /** 解析 myCourseIndex HTML：a.view-shadow[href*="/portal/session/index/{id}.mooc"] 包裹 .view 卡片，
  *  h3.view-title 取课程名（剔除 span.cview-time 子文本）。 */
-function parseCourseHtml(html: string): CnmoocCourse[] {
+export function parseCourseHtml(html: string): CnmoocCourse[] {
   const $ = cheerio.load(html)
   const courses: CnmoocCourse[] = []
   const seen = new Set<string>()
@@ -175,55 +209,140 @@ export async function fetchChapters(ses: Electron.Session, courseId: string): Pr
   return chapters
 }
 
-/** 解析 unitNavigation HTML：DOM 顺序遍历，章节标题（.unit-title 等 / h2-h4）+
- *  条目（a[itemid][itemtype] 或 .lecture-action），过滤测验 itemType。 */
-function parseChapterHtml(html: string): CnmoocChapter[] {
+/** 解析 unitNavigation HTML 为两级嵌套树结构 (R3-F5) */
+export function parseNestedChapterHtml(html: string): CnmoocChapterNode[] {
   const $ = cheerio.load(html)
-  const chapters: CnmoocChapter[] = []
-  let current: CnmoocChapter | null = null
+  const chapters: CnmoocChapterNode[] = []
+  let currentChapter: CnmoocChapterNode | null = null
+  let currentSection: CnmoocSection | null = null
 
   $('*').each((_, el) => {
     const $el = $(el)
-    const tag = String($el.prop('tagName') || '').toLowerCase()
+    const isChapter = $el.hasClass('chapter-title') || $el.attr('data-type') === 'chapter'
+    const isSection = $el.hasClass('section-title')
 
-    const isChapterHeading =
-      $el.hasClass('unit-title') ||
-      $el.hasClass('chapter-title') ||
-      $el.hasClass('section-title') ||
-      $el.attr('data-type') === 'chapter' ||
-      tag === 'h2' || tag === 'h3' || tag === 'h4'
-
-    if (isChapterHeading) {
+    if (isChapter) {
       const title = $el.text().trim()
       if (title) {
-        current = { chapter: sanitizeFsName(title), items: [] }
-        chapters.push(current)
+        currentChapter = { chapterTitle: title, sections: [] }
+        chapters.push(currentChapter)
+        currentSection = null
       }
       return
     }
 
-    const itemId = $el.attr('itemid') || $el.attr('data-itemid')
-    if (!itemId) return
-    if (tag !== 'a' && !$el.hasClass('lecture-action')) return
+    if (isSection) {
+      const title = $el.text().trim()
+      if (title) {
+        currentSection = { sectionTitle: title, items: [] }
+        if (!currentChapter) {
+          currentChapter = { chapterTitle: '未分章节', sections: [] }
+          chapters.push(currentChapter)
+        }
+        currentChapter.sections.push(currentSection)
+      }
+      return
+    }
 
-    const itemType = $el.attr('itemtype') || '10'
+    const itemId = $el.attr('itemid') || $el.attr('data-itemid') || $el.attr('id')?.match(/item[_-]?(\d+)/i)?.[1]
+    if (!itemId) return
+    const itemType = $el.attr('itemtype') || $el.attr('data-itemtype') || '10'
     if (QUIZ_TYPES.has(itemType)) return
 
-    if (!current) {
-      current = { chapter: '未分章节', items: [] }
-      chapters.push(current)
+    const rawTitle = $el.attr('title') || $el.attr('data-title') || $el.text().trim() || `item_${itemId}`
+
+    if (!currentChapter) {
+      currentChapter = { chapterTitle: '未分章节', sections: [] }
+      chapters.push(currentChapter)
     }
-    if (!current.items.find(i => i.itemId === itemId)) {
-      const rawTitle = $el.attr('title') || $el.text().trim()
-      const title = rawTitle ? sanitizeFsName(rawTitle) : `item_${itemId}`
-      current.items.push({ itemId, itemType, title })
+    if (!currentSection) {
+      currentSection = { sectionTitle: '未分小节', items: [] }
+      currentChapter.sections.push(currentSection)
+    }
+
+    if (!currentSection.items.some(i => i.itemId === itemId)) {
+      currentSection.items.push({ itemId, itemType, title: rawTitle })
     }
   })
 
-  return chapters.filter(c => c.items.length > 0)
+  return chapters.filter(c => c.sections.some(s => s.items.length > 0))
+}
+
+/** 兼容前端的章节列表结构（包含多级子目录路径） */
+export function parseChapterHtml(html: string): CnmoocChapter[] {
+  const tree = parseNestedChapterHtml(html)
+  const chapters: CnmoocChapter[] = []
+  for (const c of tree) {
+    for (const s of c.sections) {
+      const chapterPath = s.sectionTitle === '未分小节'
+        ? sanitizeFsName(c.chapterTitle)
+        : `${sanitizeFsName(c.chapterTitle)}/${sanitizeFsName(s.sectionTitle)}`
+      chapters.push({
+        chapter: chapterPath,
+        chapterTitle: c.chapterTitle,
+        sections: c.sections,
+        items: s.items.map(it => ({
+          ...it,
+          title: sanitizeFsName(it.title)
+        }))
+      })
+    }
+  }
+  return chapters
+}
+
+// ─── URL 工具 ─────────────────────────────────────────────────
+
+/** 相对 URL 补全为绝对（cnmooc 站内） */
+function resolveRelative(maybeRelative: string): string {
+  if (!maybeRelative) return ''
+  if (/^https?:\/\//i.test(maybeRelative)) return maybeRelative
+  if (maybeRelative.startsWith('//')) return 'https:' + maybeRelative
+  if (maybeRelative.startsWith('/')) return CNMOOC_BASE_URL + maybeRelative
+  return CNMOOC_BASE_URL + '/' + maybeRelative
 }
 
 // ─── 资源直链（下载时懒解析） ─────────────────────────────────
+
+/** 统一资源直链解析（支持 mp4 / flv / playList / rsUrl） (R3-F6) */
+export function resolveCnmoocResourceUrl(detail: any): { url: string; type: 'video' | 'document' } {
+  const node = detail?.node || {}
+  const rawStatic = detail?.path || CNMOOC_STATIC_BASE
+  const staticBase = rawStatic.endsWith('/') ? rawStatic : `${rawStatic}/`
+
+  let candidateVideoUrl = node.mp4Url || node.hdUrl || node.highUrl || node.playUrl || node.videoUrl || node.hlsUrl
+
+  if (!candidateVideoUrl && (node.playList || node.videoPlayList)) {
+    const pl = node.playList || node.videoPlayList
+    if (typeof pl === 'string') {
+      candidateVideoUrl = pl
+    } else if (Array.isArray(pl) && pl.length > 0) {
+      candidateVideoUrl = pl[0]?.url || pl[0]?.playUrl || pl[0]
+    } else if (typeof pl === 'object') {
+      candidateVideoUrl = pl.shd || pl.hd || pl.sd || Object.values(pl)[0]
+    }
+  }
+
+  if (!candidateVideoUrl && node.flvUrl) {
+    candidateVideoUrl = node.flvUrl
+  }
+
+  let url = ''
+  if (candidateVideoUrl) {
+    url = resolveRelative(candidateVideoUrl)
+  } else if (node.rsUrl) {
+    url = staticBase + String(node.rsUrl).replace(/^\/+/, '')
+  } else {
+    throw new Error('detail 响应无可下载 URL')
+  }
+
+  return {
+    url,
+    type: classifyCnmoocResource(url)
+  }
+}
+
+export const extractCnmoocDirectUrl = resolveCnmoocResourceUrl
 
 /** 单次 POST（form-urlencoded + X-Requested-With + Referer） */
 async function cnmoocPost(
@@ -274,20 +393,8 @@ export async function fetchCnmoocResourceUrl(
       'application/json, text/javascript, */*; q=0.01'
     )
     if (!detailResp.ok) throw new Error(`detail.mooc HTTP ${detailResp.status}`)
-    const detail = await detailResp.json() as {
-      node?: { flvUrl?: string; rsUrl?: string }
-      path?: string
-    }
-    const node = detail.node || {}
-    const staticBase = detail.path || CNMOOC_STATIC_BASE
-
-    let url = ''
-    if (node.flvUrl && /^https?:\/\//i.test(node.flvUrl)) url = node.flvUrl
-    else if (node.rsUrl) url = staticBase + node.rsUrl
-    else if (node.flvUrl) url = resolveRelative(node.flvUrl)
-    else throw new Error('detail 响应无可下载 URL')
-
-    return { url, type: classifyCnmoocResource(url) }
+    const detail = await detailResp.json()
+    return resolveCnmoocResourceUrl(detail)
   }
 
   try {
@@ -295,17 +402,6 @@ export async function fetchCnmoocResourceUrl(
   } catch {
     return null
   }
-}
-
-// ─── URL 工具 ─────────────────────────────────────────────────
-
-/** 相对 URL 补全为绝对（cnmooc 站内） */
-function resolveRelative(maybeRelative: string): string {
-  if (!maybeRelative) return ''
-  if (/^https?:\/\//i.test(maybeRelative)) return maybeRelative
-  if (maybeRelative.startsWith('//')) return 'https:' + maybeRelative
-  if (maybeRelative.startsWith('/')) return CNMOOC_BASE_URL + maybeRelative
-  return CNMOOC_BASE_URL + '/' + maybeRelative
 }
 
 /** 按 URL 扩展名判定资源类型（移植自 cnmooc config.classifyResourceUrl） */

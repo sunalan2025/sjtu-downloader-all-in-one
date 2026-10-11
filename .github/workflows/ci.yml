@@ -1,0 +1,62 @@
+# CI — PR / push 到 master 时跑 lint + typecheck + test + 构建验证（不打包）。
+# 早发现打包错误与类型回归，不阻塞 release（release 由 release.yml 在 tag 触发）。
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+      - '.github/workflows/ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          GCM_INTERACTIVE: never
+          GIT_TERMINAL_PROMPT: 0
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build (renderer + main, no packaging)
+        run: node scripts/run-electron-vite.mjs build

@@ -13,8 +13,29 @@ import {
   type CanvasModule
 } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
+import { sanitizeFsName } from '../../shared/utils'
+
+export { sanitizeFsName }
 
 // ─── Canvas API 请求封装 ──────────────────────────────────────
+
+export class CanvasApiError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'CanvasApiError'
+    this.status = status
+  }
+}
+
+export function isForbiddenError(err: unknown): boolean {
+  if (err instanceof CanvasApiError) return err.status === 403
+  if (err && typeof err === 'object' && 'status' in err) {
+    return (err as { status: unknown }).status === 403
+  }
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes('403') || msg.toLowerCase().includes('forbidden')
+}
 
 const CANVAS_ACCEPT = 'application/json+canvas-string-ids, application/json'
 
@@ -30,7 +51,7 @@ export async function canvasFetchAll<T>(
     const resp = await canvasFetchWithRetry(ses, url, { method: 'GET', headers: { Accept: CANVAS_ACCEPT } })
     if (!resp.ok) {
       const text = await resp.text()
-      throw new Error(`Canvas API ${resp.status}: ${text.slice(0, 200)}`)
+      throw new CanvasApiError(resp.status, `Canvas API ${resp.status}: ${text.slice(0, 200)}`)
     }
     const data: T[] | T = await resp.json() as T[] | T
     if (Array.isArray(data)) {
@@ -59,7 +80,7 @@ export async function canvasFetch<T>(
   }
   const resp = await canvasFetchWithRetry(ses, url, { method: opts?.method || 'GET', headers, body })
   const text = await resp.text()
-  if (!resp.ok) throw new Error(`Canvas API ${resp.status}: ${text.slice(0, 200)}`)
+  if (!resp.ok) throw new CanvasApiError(resp.status, `Canvas API ${resp.status}: ${text.slice(0, 200)}`)
   return JSON.parse(text) as T
 }
 
@@ -108,16 +129,6 @@ function getNextUrl(linkHeader: string | null): string | null {
   return m?.[1] ?? null
 }
 
-// ─── 文件名清洗 ──────────────────────────────────────────────
-
-export function sanitizeFsName(name: string): string {
-  const cleaned = name
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-    .replace(/[. ]+$/, '')
-    .trim()
-  return cleaned.slice(0, 180) || '未命名'
-}
-
 // ─── 课程列表 ────────────────────────────────────────────────
 
 export async function listCourses(
@@ -125,7 +136,7 @@ export async function listCourses(
   includeCompleted = true
 ): Promise<CanvasCourse[]> {
   const stateParams = includeCompleted
-    ? '&enrollment_state[]=active&enrollment_state[]=completed&enrollment_state[]=invited_or_pending'
+    ? '&enrollment_state[]=active&enrollment_state[]=completed&enrollment_state[]=invited_or_pending&enrollment_state[]=concluded'
     : '&enrollment_state[]=active'
   const items = await canvasFetchAll<Record<string, unknown>>(
     ses,
@@ -145,6 +156,8 @@ function parseCourse(item: Record<string, unknown>): CanvasCourse | null {
   const states = new Set(enrollments.map(e => e.enrollment_state as string))
   let enrollmentState = 'unknown'
   if (states.has('active')) enrollmentState = 'active'
+  else if (states.has('concluded')) enrollmentState = 'concluded'
+  else if (states.has('completed')) enrollmentState = 'completed'
   else if (states.size > 0) enrollmentState = [...states].filter(Boolean).join(',')
   const teachersRaw = (item.teachers as Array<Record<string, unknown>>) ?? []
   const teachers = teachersRaw

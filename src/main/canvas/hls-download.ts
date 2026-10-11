@@ -9,12 +9,25 @@ import { request as httpsRequest, Agent as HttpsAgent } from 'node:https'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { IncomingMessage } from 'node:http'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, session } from 'electron'
 import type Electron from 'electron'
 import { sanitizeForLog } from './safe-fetch'
 
 /** 跟踪所有活跃的 ffmpeg 子进程，退出时 kill 防止残留 */
 const activeFfmpegProcesses = new Set<ChildProcess>()
+
+/** 解析打包或本地环境下的 FFmpeg 可执行路径（支持 asar.unpacked 修复） */
+export function resolveBundledFfmpeg(
+  bundledPath: string,
+  fileExists: (p: string) => boolean = existsSync
+): string {
+  if (!bundledPath) return 'ffmpeg'
+  // In packaged app, replace app.asar with app.asar.unpacked
+  const unpackedPath = bundledPath.replace('app.asar', 'app.asar.unpacked')
+  if (fileExists(unpackedPath)) return unpackedPath
+  if (fileExists(bundledPath)) return bundledPath
+  return 'ffmpeg'
+}
 
 /** ffmpeg 可执行路径。
  *  优先用 ffmpeg-static 内置二进制（npm install 时按宿主平台下载到
@@ -24,7 +37,7 @@ const activeFfmpegProcesses = new Set<ChildProcess>()
  *  缺失时（未安装/平台不支持/文件损坏）回退 'ffmpeg' 走系统 PATH，保留旧行为。 */
 let bundledFfmpegPath = ''
 try { bundledFfmpegPath = require('ffmpeg-static') as string } catch { /* 未安装，走系统 ffmpeg 兜底 */ }
-const FFMPEG_PATH = (bundledFfmpegPath && existsSync(bundledFfmpegPath)) ? bundledFfmpegPath : 'ffmpeg'
+export const FFMPEG_PATH = resolveBundledFfmpeg(bundledFfmpegPath)
 
 /** 退出时杀死所有 ffmpeg 子进程 */
 export function killAllFfmpeg(): void {
@@ -39,7 +52,7 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 // PERF: Shared HTTPS agent with keep-alive enabled.
 // Reuses TCP+TLS connections across segment downloads, avoiding 720 TLS handshakes
 // for a typical video (~72s saved on 100ms-RTT connections).
-const hlsKeepAliveAgent = new HttpsAgent({ keepAlive: true, maxSockets: 5 })
+const hlsKeepAliveAgent = new HttpsAgent({ keepAlive: true, maxSockets: 32 })
 
 export interface HlsProgress {
   phase: 'capturing' | 'downloading' | 'remuxing' | 'transcoding' | 'uploading'
@@ -117,7 +130,8 @@ export async function resolveM3u8(
   for (let i = 0; i < maxDepth; i++) {
     for (let retry = 0; retry <= MAX_FETCH_RETRIES; retry++) {
       try {
-        const resp = await ses.fetch(url, {
+        const fetchFn = (ses && typeof ses.fetch === 'function') ? ses.fetch.bind(ses) : fetch
+        const resp = await fetchFn(url, {
           headers: { Referer: TV_REFERER, 'User-Agent': USER_AGENT }
         })
         const text = await resp.text()
@@ -173,7 +187,7 @@ export async function downloadHls(
   m3u8Url: string,
   destPath: string,
   onProgress?: (p: HlsProgress) => void,
-  maxWorkers = 5
+  maxWorkers = 10
 ): Promise<number> {
   const { mediaUrl, body } = await resolveM3u8(ses, m3u8Url)
   const segments = parseSegments(mediaUrl, body)
@@ -430,6 +444,51 @@ export async function transcodeVideo(
   })
 }
 
+// ─── 提取纯音频 ────────────────────────────────────────────
+
+/** 从视频/切片中提取纯音频 (AAC .m4a) */
+export async function extractAudioFromVideo(
+  srcPath: string,
+  m4aPath: string,
+  onProgress?: (p: HlsProgress) => void
+): Promise<boolean> {
+  onProgress?.({
+    phase: 'transcoding',
+    segmentsDone: 0,
+    segmentsTotal: 0,
+    bytesWritten: 0,
+    message: '正在提取纯音频 (AAC .m4a)…'
+  })
+
+  return new Promise<boolean>((resolve) => {
+    let proc: ChildProcess | null = null
+    try {
+      proc = execFile(FFMPEG_PATH, [
+        '-y', '-loglevel', 'error',
+        '-i', srcPath,
+        '-vn',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        m4aPath
+      ], { timeout: 600_000, windowsHide: true }, (err) => {
+        activeFfmpegProcesses.delete(proc!)
+        if (err) {
+          console.warn(`[hls:audio] ffmpeg 提取音频失败: ${err.message}`)
+          try { unlinkSync(m4aPath) } catch { /* ignore */ }
+          resolve(false)
+        } else {
+          try { unlinkSync(srcPath) } catch { /* ignore */ }
+          resolve(true)
+        }
+      })
+    } catch (err) {
+      console.warn(`[hls:audio] execFile 同步抛出: ${err instanceof Error ? err.message : String(err)}`)
+      resolve(false)
+    }
+    if (proc) activeFfmpegProcesses.add(proc)
+  })
+}
+
 // ─── 完整流程：捕获 m3u8 → 下载 → remux ─────────────────────
 
 export async function downloadModuleVideo(
@@ -438,18 +497,25 @@ export async function downloadModuleVideo(
   destDir: string,
   baseName: string,
   onProgress?: (p: HlsProgress) => void,
-  transcodeMaxHeight?: number
-): Promise<{ path: string; format: 'mp4' | 'ts' }> {
+  transcodeMaxHeight?: number,
+  isAudioOnly = false
+): Promise<{ path: string; format: 'mp4' | 'ts' | 'm4a'; skipped?: boolean }> {
+  const m4aPath = join(destDir, `${baseName}.m4a`)
   const mp4Path = join(destDir, `${baseName}.mp4`)
   const tsPath = join(destDir, `${baseName}.ts`)
 
-  // 已存在 → 跳过
-  if (existsSync(mp4Path) && statSync(mp4Path).size > 0) {
-    return { path: mp4Path, format: 'mp4' }
+  if (isAudioOnly && existsSync(m4aPath) && statSync(m4aPath).size > 0) {
+    return { path: m4aPath, format: 'm4a', skipped: true }
   }
-  // 历史 .ts → 尝试 remux
+  if (!isAudioOnly && existsSync(mp4Path) && statSync(mp4Path).size > 0) {
+    return { path: mp4Path, format: 'mp4', skipped: true }
+  }
   if (existsSync(tsPath) && statSync(tsPath).size > 0) {
-    if (await remuxTsToMp4(tsPath, mp4Path)) {
+    if (isAudioOnly) {
+      if (await extractAudioFromVideo(tsPath, m4aPath, onProgress)) {
+        return { path: m4aPath, format: 'm4a' }
+      }
+    } else if (await remuxTsToMp4(tsPath, mp4Path)) {
       return { path: mp4Path, format: 'mp4' }
     }
     return { path: tsPath, format: 'ts' }
@@ -464,20 +530,91 @@ export async function downloadModuleVideo(
   onProgress?.({ phase: 'downloading', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0, message: '正在下载 HLS 切片…' })
   await downloadHls(ses, m3u8, tsPath, onProgress)
 
-  // remux
-  onProgress?.({ phase: 'remuxing', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0, message: '正在转换为 mp4…' })
+  // remux / 纯音频
+  onProgress?.({ phase: 'remuxing', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0, message: '正在处理媒体格式…' })
   if (await remuxTsToMp4(tsPath, mp4Path)) {
-    // remux 成功后可选重编码（缩放 + 标准 GOP 结构）
+    if (isAudioOnly) {
+      const ok = await extractAudioFromVideo(mp4Path, m4aPath, onProgress)
+      if (ok) return { path: m4aPath, format: 'm4a' }
+    }
     if (transcodeMaxHeight) {
       const tmpOut = mp4Path + '.transcode.mp4'
       const ok = await transcodeVideo(mp4Path, tmpOut, transcodeMaxHeight, onProgress)
       if (ok) return { path: mp4Path, format: 'mp4' }
-      // 重编码失败（保留原始 remux 文件）
-      console.warn(`[hls:download] 重编码失败，保留原始 remux 文件`)
     }
     return { path: mp4Path, format: 'mp4' }
   }
+  if (isAudioOnly) {
+    const ok = await extractAudioFromVideo(tsPath, m4aPath, onProgress)
+    if (ok) return { path: m4aPath, format: 'm4a' }
+  }
   return { path: tsPath, format: 'ts' }
+}
+
+// ─── 课堂视频 HLS 下载管道 ──────────────────────────────────
+
+export interface HlsOptions {
+  session?: Electron.Session
+  onProgress?: (p: HlsProgress) => void
+  maxWorkers?: number
+  transcodeMaxHeight?: number
+  isAudioOnly?: boolean
+}
+
+/** 完整 HLS 视频下载管道：下载 TS 切片并在本地通过 FFmpeg remux 为标准 MP4 文件 */
+export async function downloadHlsVideo(
+  m3u8Url: string,
+  destMp4Path: string,
+  options?: HlsOptions
+): Promise<{ path: string; format: 'mp4' | 'ts' | 'm4a' }> {
+  const ses = options?.session ?? (session && session.defaultSession ? session.defaultSession : ({} as Electron.Session))
+  const isAudioOnly = options?.isAudioOnly || destMp4Path.endsWith('.m4a')
+  const tsPath = destMp4Path.replace(/\.(mp4|m4a)$/, '') + '.ts'
+
+  // 1. 下载 HLS 切片
+  await downloadHls(ses, m3u8Url, tsPath, options?.onProgress, options?.maxWorkers)
+
+  // 2. 纯音频提取
+  if (isAudioOnly) {
+    const m4aPath = destMp4Path.endsWith('.m4a') ? destMp4Path : destMp4Path.replace(/\.mp4$/, '.m4a')
+    options?.onProgress?.({
+      phase: 'remuxing',
+      segmentsDone: 0,
+      segmentsTotal: 0,
+      bytesWritten: 0,
+      message: '正在提取纯音频 (AAC .m4a)…'
+    })
+    const audioOk = await extractAudioFromVideo(tsPath, m4aPath, options?.onProgress)
+    if (audioOk) {
+      return { path: m4aPath, format: 'm4a' }
+    }
+  }
+
+  // 3. remux TS 到 MP4
+  options?.onProgress?.({
+    phase: 'remuxing',
+    segmentsDone: 0,
+    segmentsTotal: 0,
+    bytesWritten: 0,
+    message: '正在合并转码 MP4…'
+  })
+
+  const remuxOk = await remuxTsToMp4(tsPath, destMp4Path)
+  if (remuxOk) {
+    if (options?.transcodeMaxHeight) {
+      const tmpOut = destMp4Path + '.transcode.mp4'
+      await transcodeVideo(destMp4Path, tmpOut, options.transcodeMaxHeight, options.onProgress)
+    }
+    return { path: destMp4Path, format: 'mp4' }
+  }
+
+  // 若 FFmpeg remux 失败，退化为将 .ts 转为目标文件名，防止文件丢失
+  try {
+    if (existsSync(tsPath) && !existsSync(destMp4Path)) {
+      renameSync(tsPath, destMp4Path)
+    }
+  } catch { /* ignore */ }
+  return { path: destMp4Path, format: 'ts' }
 }
 
 function sleep(ms: number): Promise<void> {

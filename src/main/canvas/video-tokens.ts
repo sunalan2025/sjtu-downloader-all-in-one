@@ -17,11 +17,38 @@ import { sanitizeFsName } from './api'
 
 const VSJTU_REFERER = 'https://v.sjtu.edu.cn/'
 
+// ─── LTI Tab 匹配器 ──────────────────────────────────────────
+
+const LTI_TAB_KEYWORDS = ['课堂视频', '课堂录像', '在线课堂', 'class video']
+
+/** 判断 Canvas tab 标签是否为课堂视频工具 tab（大小写不敏感） */
+export function isClassVideoTab(label: string): boolean {
+  if (!label) return false
+  const lower = label.toLowerCase()
+  return LTI_TAB_KEYWORDS.some(kw => lower.includes(kw))
+}
+
 // ─── LTI Token 提取 ──────────────────────────────────────────
 
+/** 全局 LTI 提取互斥锁：确保同一时间仅有 1 个提取窗口运行，彻底避免句柄和资源堆叠 */
+let ltiScanMutex: Promise<unknown> = Promise.resolve()
+
+function withLtiLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = ltiScanMutex.then(fn, fn)
+  ltiScanMutex = next.catch(() => {})
+  return next
+}
+
 /** 从 Canvas 课程的 "课堂视频new" tab 中提取 LTI token + canvasCourseId。
- *  流程：打开 tab URL → 等待 v.sjtu iframe 加载 → 从 sessionStorage 取 Canvas_UserState */
+ *  流程：互斥窗口打开 tab URL → 毫秒级拦截 302 重定向里的 jwt_token → 立即销毁窗口返回 */
 export async function extractLtiToken(
+  ses: Electron.Session,
+  tabHtmlUrl: string
+): Promise<{ token: string; canvasCourseId: string } | null> {
+  return withLtiLock(() => doExtractLtiToken(ses, tabHtmlUrl))
+}
+
+async function doExtractLtiToken(
   ses: Electron.Session,
   tabHtmlUrl: string
 ): Promise<{ token: string; canvasCourseId: string } | null> {
@@ -29,71 +56,104 @@ export async function extractLtiToken(
     ? tabHtmlUrl
     : `${CANVAS_BASE_URL}${tabHtmlUrl}`
 
+  const mCourse = tabHtmlUrl.match(/\/courses\/(\d+)/)
+  const canvasCourseId = mCourse ? mCourse[1] : ''
+
   console.log('[lti] 打开 Canvas tab:', fullUrl)
   const win = new BrowserWindow({
     show: false,
-    width: 1200,
-    height: 800,
-    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
+    width: 1000,
+    height: 700,
+    webPreferences: {
+      session: ses,
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false
+    }
   })
   // 静音：隐藏窗口加载的页面可能含自动播放的音视频
   win.webContents.setAudioMuted(true)
 
-  try {
-    await win.loadURL(fullUrl)
+  let capturedToken: string | null = null
 
-    // PERF: 轮询检查 v.sjtu 重定向（替代固定 sleep(3000)），典型情况 ~500ms 即完成
-    const redirectDeadline = Date.now() + 3000
-    let realUrl = ''
-    while (Date.now() < redirectDeadline) {
+  const checkUrl = (url: string) => {
+    if (!url || capturedToken) return
+    const m = url.match(/[?&#]jwt_token=([^&#]+)/)
+    if (m && m[1]) {
       try {
-        realUrl = await win.webContents.executeJavaScript('location.href') as string
-        if (realUrl.includes('v.sjtu.edu.cn')) break
-      } catch { /* frame not ready */ }
-      await sleep(300)
-    }
-
-    // 情况 1：LTI 整页重定向到 v.sjtu.edu.cn
-    if (realUrl.includes('v.sjtu.edu.cn')) {
-      console.log('[lti] 检测到 v.sjtu 重定向，直接读取 sessionStorage')
-      const mainFrame = win.webContents.mainFrame
-      if (mainFrame) {
-        const state = await waitForUserState(mainFrame, 20_000)
-        if (state?.token) {
-          const accessParams = state.accessParams as Record<string, unknown> | undefined
-          const canvasCourseId = String(accessParams?.courId || '')
-          console.log('[lti] Token 提取成功')
-          return { token: String(state.token), canvasCourseId }
-        }
+        capturedToken = decodeURIComponent(m[1])
+      } catch {
+        capturedToken = m[1]
       }
-      console.log('[lti] sessionStorage 中未找到 token')
-      return null
+    }
+  }
+
+  // 监听所有跳转与导航事件，一旦 URL 出现 jwt_token 毫秒级捕获
+  win.webContents.on('will-redirect', (_e, url) => checkUrl(url))
+  win.webContents.on('did-redirect-navigation', (_e, url) => checkUrl(url))
+  win.webContents.on('did-navigate', (_e, url) => checkUrl(url))
+  win.webContents.on('did-frame-navigate', (_e, url) => checkUrl(url))
+
+  const startTime = Date.now()
+  try {
+    await win.loadURL(fullUrl).catch(err => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!msg.includes('ERR_ABORTED')) {
+        console.log('[lti] loadURL 信息:', msg)
+      }
+    })
+
+    // 快速轮询检查 URL 或 storage（最多 8 秒，通常 500ms~1000ms 即命中）
+    const deadline = Date.now() + 8000
+    while (Date.now() < deadline && !capturedToken) {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) break
+      checkUrl(win.webContents.getURL())
+      if (capturedToken) break
+
+      try {
+        const token = await win.webContents.executeJavaScript(`
+          (() => {
+            try {
+              return sessionStorage.getItem('jy-application-resourcemanage-ui_STORAGE_KEY_JWT_TOKEN') ||
+                     JSON.parse(sessionStorage.getItem('Canvas_UserState') || '{}').token ||
+                     null;
+            } catch { return null; }
+          })()
+        `)
+        if (token) {
+          capturedToken = String(token)
+          break
+        }
+      } catch { /* frame not ready */ }
+
+      await sleep(150)
     }
 
-    // 情况 2：iframe 嵌套模式（备用）
-    const frame = await waitForVsjtuFrame(win, 50_000)
-    if (!frame) {
-      console.log('[lti] 超时：未找到 v.sjtu iframe')
-      return null
-    }
-    console.log('[lti] 找到 v.sjtu iframe')
-
-    // 轮询 sessionStorage.Canvas_UserState（最多 20s）
-    const state = await waitForUserState(frame, 20_000)
-    if (!state?.token) {
-      console.log('[lti] sessionStorage 中未找到 token')
-      return null
+    if (capturedToken) {
+      console.log(`[lti] Token 提取成功 (耗时 ${Date.now() - startTime}ms)`)
+      return { token: capturedToken, canvasCourseId }
     }
 
-    const accessParams = state.accessParams as Record<string, unknown> | undefined
-    const canvasCourseId = String(accessParams?.courId || '')
-    console.log('[lti] Token 提取成功')
-    return { token: String(state.token), canvasCourseId }
+    // 备用兼容：旧系统 iframe 查找（超时缩减至 4 秒）
+    const frame = await waitForVsjtuFrame(win, 4000)
+    if (frame) {
+      const state = await waitForUserState(frame, 4000)
+      if (state?.token) {
+        const accessParams = state.accessParams as Record<string, unknown> | undefined
+        const courId = String(accessParams?.courId || canvasCourseId)
+        return { token: String(state.token), canvasCourseId: courId }
+      }
+    }
+
+    console.log(`[lti] 超时：未捕获到 token (耗时 ${Date.now() - startTime}ms)`)
+    return null
   } catch (err) {
     console.log('[lti] 异常:', err)
     return null
   } finally {
-    win.destroy()
+    if (!win.isDestroyed()) {
+      win.destroy()
+    }
   }
 }
 
@@ -104,6 +164,7 @@ async function waitForVsjtuFrame(
 ): Promise<Electron.WebFrameMain | null> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return null
     const frames = win.webContents.mainFrame?.frames ?? []
     for (const f of frames) {
       if (f.url.includes('v.sjtu.edu.cn') && f.url.includes('jy-application')) {
@@ -146,36 +207,135 @@ async function waitForUserState(
 
 // ─── Vod API 调用 ─────────────────────────────────────────────
 
-/** 获取课程所有录课场次列表 */
+/** 判断是否为 LTI 1.3 JWT Token（3段 base64 结构，且以 eyJ 开头） */
+export function isJwtToken(token: string): boolean {
+  return typeof token === 'string' && token.startsWith('eyJ') && token.split('.').length === 3
+}
+
+/** 获取课程所有录课场次列表（适配全新 jy-application-resourcemanage 系统并向下兼容旧系统） */
 export async function fetchVodVideoList(
+  ses: Electron.Session,
+  token: string,
+  canvasCourseId: string
+): Promise<CanvasVideoSession[]> {
+  // 1. 若为全新 LTI 1.3 JWT Token，调用全新 jy-application-resourcemanage API (GET /lms/launch-context + /v1/subject_vod_list_new)
+  if (isJwtToken(token)) {
+    try {
+    const contextResp = await safeFetch(ses,
+      'https://v.sjtu.edu.cn/jy-application-resourcemanage/lms/launch-context',
+      {
+        headers: {
+          'jwt-token': token,
+          token,
+          Referer: VSJTU_REFERER,
+          Accept: 'application/json'
+        }
+      }
+    )
+    if (contextResp.ok) {
+      const cData = await contextResp.json() as Record<string, unknown>
+      // 课程未录课 / 未排课：接口直接返回 LMS_TEACHING_CLASS_NOT_FOUND 或 ok: false
+      if (cData.code === 'LMS_TEACHING_CLASS_NOT_FOUND' || cData.ok === false) {
+        console.log(`[canvas] 课程 ${canvasCourseId} 未安排直录播 (${cData.message || 'LMS_TEACHING_CLASS_NOT_FOUND'})`)
+        return []
+      }
+      const dataObj = (cData.data || {}) as Record<string, unknown>
+      const canvasRecord = (dataObj.canvasRecord || {}) as Record<string, unknown>
+      const courseObj = (dataObj.course || {}) as Record<string, unknown>
+      const teachingClassId = canvasRecord.teachingClassId || courseObj.teachingClassId
+      if (teachingClassId) {
+        console.log(`[canvas] 获取到 teachingClassId: ${teachingClassId}，拉取录播讲次列表…`)
+        const vodListUrl = `https://v.sjtu.edu.cn/jy-application-resourcemanage/v1/subject_vod_list_new?page.pageIndex=1&page.pageSize=1000&teclIds=${teachingClassId}&page.orders[0].asc=false&page.orders[0].field=courBeginTime&schoolOpenStatusFlag=false`
+        const listResp = await safeFetch(ses, vodListUrl, {
+          headers: {
+            'jwt-token': token,
+            token,
+            Referer: VSJTU_REFERER,
+            Accept: 'application/json'
+          }
+        })
+        if (listResp.ok) {
+          const listData = await listResp.json() as Record<string, unknown>
+          const innerData = (listData.data || {}) as Record<string, unknown>
+          const records = (innerData.records as Array<Record<string, unknown>>) || []
+          console.log(`[canvas] subject_vod_list_new 获取到 ${records.length} 条记录`)
+          const mapped: CanvasVideoSession[] = records.map((r, idx) => {
+            const id = String(r.id || idx + 1)
+            const teacNames = Array.isArray(r.teacNames) ? r.teacNames.join('/') : String(r.userName || '未知教师')
+            const subjName = String(r.subjName || '')
+            const weekStr = r.weekNumber ? `第${r.weekNumber}周` : ''
+            const beginTime = String(r.courBeginTime || '')
+            return {
+              videoId: id,
+              courId: Number(r.id || 0),
+              teacher: teacNames,
+              classroom: String(r.clroName || '未知地点'),
+              beginTime,
+              videoName: [subjName, weekStr, beginTime ? `(${beginTime})` : ''].filter(Boolean).join(' ')
+            }
+          })
+          return mapped
+        }
+      }
+    }
+  } catch (err) {
+    console.log('[canvas] 新版 resourcemanage API 调用异常，尝试旧版回退:', err)
+    }
+  }
+
+  // 2. 回退：旧版 directOnDemandPlay/findVodVideoList（兼容旧系统及既有单测 mock）
+  return fetchVodVideoListLegacy(ses, token, canvasCourseId)
+}
+
+/** 旧版 directOnDemandPlay/findVodVideoList 接口回退实现 */
+async function fetchVodVideoListLegacy(
   ses: Electron.Session,
   token: string,
   canvasCourseId: string
 ): Promise<CanvasVideoSession[]> {
   // SPA 对 courId 做 encodeURIComponent，服务端要求编码
   const enc = encodeURIComponent(canvasCourseId)
-  const resp = await safeFetch(ses,
-    `${VSJTU_CANVAS_BASE}/directOnDemandPlay/findVodVideoList`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        token,
-        Referer: VSJTU_REFERER
-      },
-      body: JSON.stringify({ canvasCourseId: enc })
+  let current = 1
+  const size = 500
+  const allRecords: Array<Record<string, unknown>> = []
+
+  while (true) {
+    const resp = await safeFetch(ses,
+      `${VSJTU_CANVAS_BASE}/directOnDemandPlay/findVodVideoList`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          token,
+          Referer: VSJTU_REFERER
+        },
+        body: JSON.stringify({
+          canvasCourseId: enc,
+          current,
+          size,
+          pageSize: size
+        })
+      }
+    )
+    const data = await resp.json() as Record<string, unknown>
+    if (data.code !== '0') {
+      throw new Error(`findVodVideoList code=${data.code}: ${data.message}`)
     }
-  )
-  const data = await resp.json() as Record<string, unknown>
-  if (data.code !== '0') {
-    throw new Error(`findVodVideoList code=${data.code}: ${data.message}`)
+    const rootData = (data.data || {}) as Record<string, unknown>
+    const records = (rootData.records as Array<Record<string, unknown>>) || []
+    allRecords.push(...records)
+
+    const total = Number(rootData.total ?? allRecords.length)
+    if (records.length === 0 || allRecords.length >= total || records.length < size) {
+      break
+    }
+    current++
   }
-  const rootData = (data.data || {}) as Record<string, unknown>
-  const records = (rootData.records as Array<Record<string, unknown>>) || []
+
   // 按 videoName 中的讲次编号排序，每条记录 = 1 讲（内含教师+PPT 两路流）
   // 例："课程名(第1讲)" "课程名(第2讲)" 各自独立，getVodVideoInfos 可取两路
-  const sorted = records
-    .filter(r => r.videoId)
+  const sorted = allRecords
+    .filter(r => r && r.videoId)
     .sort((a, b) => {
       const na = extractLectureNum(String(a.videoName || ''))
       const nb = extractLectureNum(String(b.videoName || ''))
@@ -194,10 +354,118 @@ export async function fetchVodVideoList(
     }))
 }
 
+// ─── 多路视频流识别 ──────────────────────────────────────────
+
+export interface VideoStream {
+  channelNum: number
+  channelName: string
+  url: string
+  label: '教师' | 'PPT' | '全景'
+}
+
+/** 识别并分类多路视频流（教师 / PPT / 全景），并提供单路流保护逻辑 */
+export function identifyVideoStreams(rawStreams: any[]): VideoStream[] {
+  if (!rawStreams || !Array.isArray(rawStreams)) return []
+  const valid = rawStreams.filter(s => s && (s.rtmpUrlHdv || s.url))
+  if (valid.length === 0) return []
+
+  const result: VideoStream[] = []
+
+  for (const s of valid) {
+    const channelNum = Number(s.cdviChannelNum ?? s.channelNum ?? 0)
+    const name = String(s.channelName || '')
+    const url = String(s.rtmpUrlHdv || s.url || '')
+
+    let label: '教师' | 'PPT' | '全景' = '教师'
+    if (name.includes('PPT') || name.includes('电脑') || channelNum === 1) {
+      label = 'PPT'
+    } else if (name.includes('全景') || channelNum === 2) {
+      label = '全景'
+    } else {
+      label = '教师'
+    }
+
+    result.push({
+      channelNum,
+      channelName: name,
+      url,
+      label
+    })
+  }
+
+  // If only 1 stream exists, do not arbitrarily label as PPT unless explicitly named PPT
+  if (result.length === 1 && !result[0].channelName.includes('PPT')) {
+    result[0].label = '教师'
+  }
+
+  return result
+}
+
 /** 获取单个视频的多路流信息（教师 + PPT）。
- *  统一规则：每个 videoId 一定有 2 路流（教师 + PPT）。
- *  区分方式：channelNum 不同 → 按 channelNum 去重；channelNum 相同 → 按 URL 设备 ID 去重。 */
-async function fetchVodVideoInfos(
+ *  适配全新 course_vod_urls_new API（直链 MP4）并向下兼容旧系统 getVodVideoInfos */
+export async function getVodVideoInfos(
+  ses: Electron.Session,
+  token: string,
+  videoId: string
+): Promise<CanvasClassVideoInfo[]> {
+  // 1. 若为全新 LTI 1.3 JWT Token，调用全新 resourcemanage/v1/course_vod_urls_new API (获取高清直链 MP4)
+  if (isJwtToken(token)) {
+    try {
+      const newVodUrl = `https://v.sjtu.edu.cn/jy-application-resourcemanage/v1/course_vod_urls_new?courseId=${encodeURIComponent(videoId)}`
+    const resp = await safeFetch(ses, newVodUrl, {
+      headers: {
+        'jwt-token': token,
+        token,
+        Referer: VSJTU_REFERER,
+        Accept: 'application/json'
+      }
+    })
+    if (resp.ok) {
+      const data = await resp.json() as Record<string, unknown>
+      const inner = (data.data || {}) as Record<string, unknown>
+      const views = (inner.courseVodViewList as Array<Record<string, unknown>>) || []
+      if (views.length > 0) {
+        // 缓存 ivsVideoId 供 PPT 切片使用
+        const courIdNum = Number(views[0].courId || videoId)
+        if (Number.isFinite(courIdNum) && courIdNum > 0) {
+          ivsVideoIdCache.set(`${token}::${videoId}`, { ts: Date.now(), ivsVideoId: courIdNum })
+          if (ivsVideoIdCache.size > VOD_CACHE_MAX_SIZE) {
+            const oldest = ivsVideoIdCache.keys().next().value
+            if (oldest) ivsVideoIdCache.delete(oldest)
+          }
+        }
+
+        const result: CanvasClassVideoInfo[] = []
+        for (const item of views) {
+          const viewNum = Number(item.viewNum ?? 1)
+          const label = viewNum === 5 ? 'PPT' : (viewNum === 1 ? '教师' : '全景')
+          result.push({
+            channelNum: viewNum,
+            url: String(item.url || ''),
+            label
+          })
+        }
+        result.sort((a, b) => {
+          if (a.label === '教师' && b.label !== '教师') return -1
+          if (b.label === '教师' && a.label !== '教师') return 1
+          if (a.label === 'PPT' && b.label !== 'PPT') return -1
+          if (b.label === 'PPT' && a.label !== 'PPT') return 1
+          return 0
+        })
+        return result
+      }
+    }
+  } catch (err) {
+    console.log('[canvas] 新版 course_vod_urls_new 调用异常，尝试旧版回退:', err)
+    }
+  }
+
+  // 2. 回退：旧版 directOnDemandPlay/getVodVideoInfos
+  return getVodVideoInfosLegacy(ses, token, videoId)
+}
+
+/** 旧版 directOnDemandPlay/getVodVideoInfos 回退实现 */
+async function getVodVideoInfosLegacy(
   ses: Electron.Session,
   token: string,
   videoId: string
@@ -226,9 +494,6 @@ async function fetchVodVideoInfos(
   const streams = (info.videoPlayResponseVoList as Array<Record<string, unknown>>) || []
 
   // [PPT Fix] getVodVideoInfos 返回的 data.courId（数值型）即 PPT 切片 API 需要的 ivsVideoId。
-  // 它与 findVodVideoList record 里的 courId 不同（后者是另一套加密串），也与 videoId（加密串）不同。
-  // 经浏览器真实链路验证：query-ppt-slice-es?ivsVideoId={courId数值} 才能拿到切片，传 videoId 会 500。
-  // 这里解析流直链时顺手缓存 (token, videoId) → courId，供 PPT 下载复用，避免重复请求。
   const courIdNum = Number(info.courId)
   if (Number.isFinite(courIdNum) && courIdNum > 0) {
     ivsVideoIdCache.set(`${token}::${videoId}`, { ts: Date.now(), ivsVideoId: courIdNum })
@@ -238,34 +503,26 @@ async function fetchVodVideoInfos(
     }
   }
 
-  const valid = streams.filter(v => v.rtmpUrlHdv)
-  if (valid.length === 0) return []
+  const identified = identifyVideoStreams(streams)
+  if (identified.length === 0) return []
 
-  // 提取 URL 路径中的设备 ID（第 6 段），用于 channelNum 相同时区分
-  const getDeviceId = (url: string): string => {
-    try { return url.split('/')[5] || '' } catch { return '' }
-  }
+  // 保证排序稳定：教师排第0位，PPT排第1位
+  const sorted = [...identified].sort((a, b) => {
+    if (a.label === '教师' && b.label !== '教师') return -1
+    if (b.label === '教师' && a.label !== '教师') return 1
+    if (a.label === 'PPT' && b.label !== 'PPT') return -1
+    if (b.label === 'PPT' && a.label !== 'PPT') return 1
+    return 0
+  })
 
-  // 按 channelNum 是否有差异选择去重键
-  const channelNums = new Set(valid.map(v => Number(v.cdviChannelNum)))
-  const useChannelNum = channelNums.size > 1
-
-  const seen = new Set<string>()
-  const result: CanvasClassVideoInfo[] = []
-  for (const v of valid) {
-    const key = useChannelNum
-      ? String(v.cdviChannelNum)
-      : getDeviceId(String(v.rtmpUrlHdv))
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    result.push({
-      channelNum: Number(v.cdviChannelNum),
-      url: String(v.rtmpUrlHdv),
-      label: '' // 由调用方根据返回顺序标注：第0=教师，第1=PPT
-    })
-  }
-  return result
+  return sorted.map(s => ({
+    channelNum: s.channelNum,
+    url: s.url,
+    label: s.label
+  }))
 }
+
+export const fetchVodVideoInfos = getVodVideoInfos
 
 // ─── 进程级 videoId→channels 缓存（懒解析去重） ───────────────
 //
@@ -361,10 +618,37 @@ function sleep(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms))
 }
 
-/** 从 videoName 中提取讲次编号，例如 "课程名(第1讲)" → 1 */
+const CHINESE_NUM_MAP: Record<string, number> = {
+  '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+  '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+  '十一': 11, '十二': 12
+}
+
+/** 从 videoName 中提取讲次编号，支持多种命名规范：
+ *  1. 标准：第X讲 / 第X次课
+ *  2. 中文数字：第一讲 ~ 第十二讲
+ *  3. 英文：Lecture X / Lec X / Class X
+ *  4. 独立首尾数字：01_导论 / 导论_01
+ */
 export function extractLectureNum(name: string): number {
-  const m = name.match(/第(\d+)讲/)
-  return m ? Number(m[1]) : 0
+  if (!name) return 0
+  // 1. Standard: 第X讲 / 第X次课
+  const m1 = name.match(/第\s*(\d+)\s*[讲次课]/i)
+  if (m1) return Number.parseInt(m1[1], 10)
+
+  // 2. Chinese numbers: 第一讲 ~ 第十二讲
+  const m2 = name.match(/第\s*([一二三四五六七八九十]+)\s*[讲次课]/)
+  if (m2 && CHINESE_NUM_MAP[m2[1]]) return CHINESE_NUM_MAP[m2[1]]
+
+  // 3. English: Lecture X / Lec X / Class X
+  const m3 = name.match(/(?:lecture|lec|class)\s*(\d+)/i)
+  if (m3) return Number.parseInt(m3[1], 10)
+
+  // 4. Standalone leading or trailing digits: 01_导论 or 导论_01
+  const m4 = name.match(/(?:^|[^\d])(\d{1,3})(?:[^\d]|$)/)
+  if (m4) return Number.parseInt(m4[1], 10)
+
+  return 0
 }
 
 // ─── ExternalTool 模块视频：LTI 跳转 + /file/{id} → S3 直链 MP4 ─────
@@ -499,25 +783,148 @@ async function getExtToolAccessToken(ses: Electron.Session, tokenId: string): Pr
 
 const VSHARE_BASE = 'https://vshare.sjtu.edu.cn'
 
-/** 拉取 vshare 视频 S3 直链：GET /api/video/play/{uuid}（带 vshare cookie）。
- *  vshare 通过 jAccount SSO 登录，ses 已有 cookie。 */
-export async function fetchVsharePlayUrl(
+// vshare 登录态（vshare 域 JSESSIONID cookie）是否已建立。
+// 与 Canvas/v.sjtu 不同：vshare 后端另发 JSESSIONID，必须访问 vshare 时经 jAccount SSO
+// 落盘——persist:sjtu 虽有 jAccount cookie，但从未访问过 vshare 时 vshare 域无 JSESSIONID，
+// /api/video/play/{uuid} 直接返回 USER_LOGIN_REQUIRED。首次调用前需 ensureVshareLogin。
+let _vshareLoginDone = false
+
+// SSO in-flight Promise：并发下载多个 vshare 视频时，resolveDirectUrl 逐任务调
+// ensureVshareLogin，若无去重会同时开 N 个 BrowserWindow 走 SSO（隐藏失败再各弹可见窗
+// → 满屏白屏小窗口）。所有并发调用方共用同一次 SSO attempt，结果共享。
+let _vshareLoginPromise: Promise<boolean> | null = null
+
+/** 标记 vshare 登录态失效（API 返回 USER_LOGIN_REQUIRED 时调用，强制下次重走 SSO） */
+export function invalidateVshareLogin(): void {
+  _vshareLoginDone = false
+  _vshareLoginPromise = null
+}
+
+/** 探测 vshare 会话是否有效：调 /api/user/me/profile，errno:0 视为已登录。
+ *  vshare API 用 body.errno 表示成败（HTTP 永远 200）。 */
+async function isVshareSessionValid(ses: Electron.Session): Promise<boolean> {
+  try {
+    const resp = await safeFetch(ses, `${VSHARE_BASE}/api/user/me/profile`, {
+      headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    const data = await resp.json() as { errno?: number }
+    return data.errno === 0
+  } catch {
+    return false
+  }
+}
+
+/** 确保 vshare 已登录：先探现有会话，无效则隐藏窗口走 jAccount SSO。
+ *  uuid 用于构造触发 SSO 的 play 页 URL（play 页 JS 检测登录态，未登录跳 jaccount SSO）。
+ *  并发去重：所有并发调用方共用同一次 in-flight SSO Promise，避免同时开多个 BrowserWindow。
+ *  jAccount cookie 已在 persist:sjtu（用户登录 v.sjtu 时建立），SSO 必能自动完成，无需可见窗。 */
+export async function ensureVshareLogin(
   ses: Electron.Session,
   uuid: string
-): Promise<{ url: string; fileName: string; fileSize: number }> {
+): Promise<boolean> {
+  if (_vshareLoginDone) return true
+  if (_vshareLoginPromise) return _vshareLoginPromise
+  _vshareLoginPromise = (async () => {
+    if (_vshareLoginDone) return true
+    if (await isVshareSessionValid(ses)) {
+      _vshareLoginDone = true
+      return true
+    }
+    console.log('[vshare] 触发 jAccount SSO（隐藏窗口）…')
+    if (await completeVshareSso(ses, uuid)) {
+      _vshareLoginDone = true
+      return true
+    }
+    const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
+    const jaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
+    console.log(`[vshare] SSO 失败（jaccount 会话${jaSession ? '存在但未落 vshare cookie' : '不存在，请先在应用内登录 v.sjtu'}）`)
+    return false
+  })()
+  try {
+    return await _vshareLoginPromise
+  } finally {
+    // SSO 失败时清空 in-flight，允许下次重试；成功时 _vshareLoginDone 已置 true，
+    // 下次调用首行直接返回，不会再走到这里
+    if (!_vshareLoginDone) _vshareLoginPromise = null
+  }
+}
+
+/** 隐藏 BrowserWindow 加载 vshare play 页触发 jAccount SSO，轮询会话生效。
+ *  vshare play 页 JS 调 /api/user/me/profile，未登录则跳 jaccount SSO，回跳后落 JSESSIONID。
+ *  关 backgroundThrottling：隐藏窗口默认被节流，SSO 重定向链路会被拖慢甚至卡住。
+ *  setAudioMuted：play 页含自动播放视频。jAccount cookie 已在 persist:sjtu，SSO 自动完成无需用户交互。 */
+async function completeVshareSso(
+  ses: Electron.Session,
+  uuid: string
+): Promise<boolean> {
+  const win = new BrowserWindow({
+    show: false,
+    width: 1000,
+    height: 700,
+    webPreferences: {
+      session: ses,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false
+    }
+  })
+  win.webContents.setAudioMuted(true)
+  try {
+    await win.loadURL(`${VSHARE_BASE}/play/${uuid}`).catch(() => { /* SSO 跳转会 reject，忽略 */ })
+    const deadline = Date.now() + 60_000
+    while (Date.now() < deadline) {
+      await sleep(1000)
+      if (await isVshareSessionValid(ses)) {
+        await sleep(500) // 等 cookie 完全落盘
+        console.log('[vshare] SSO 完成')
+        return true
+      }
+    }
+    return false
+  } catch (e) {
+    console.log('[vshare] SSO 异常:', e)
+    return false
+  } finally {
+    win.destroy()
+  }
+}
+
+/** 单次拉取 vshare 视频 S3 直链（不处理登录）。errno:0 返回直链，否则返回 error。 */
+async function fetchVsharePlayUrlOnce(
+  ses: Electron.Session,
+  uuid: string
+): Promise<{ ok: boolean; url: string; fileName: string; fileSize: number; error: string }> {
   const resp = await safeFetch(ses, `${VSHARE_BASE}/api/video/play/${uuid}?locale=zh`, {
     headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
   })
   const data = await resp.json() as { errno: number; error: string; entities?: Array<{ playUrl?: string; title?: string; fileSize?: number; type?: string }> }
   const e = data.entities?.[0]
   const playUrl = e?.playUrl
-  if (data.errno !== 0 || !playUrl) {
-    throw new Error(`vshare /play/${uuid} 失败: ${data.error || data.errno}`)
+  if (data.errno === 0 && playUrl) {
+    const ext = e?.type || 'mp4'
+    return { ok: true, url: playUrl, fileName: `${e?.title || uuid}.${ext}`, fileSize: Number(e?.fileSize || 0), error: '' }
   }
-  const ext = e?.type || 'mp4'
-  return {
-    url: playUrl,
-    fileName: `${e?.title || uuid}.${ext}`,
-    fileSize: Number(e?.fileSize || 0)
+  return { ok: false, url: '', fileName: '', fileSize: 0, error: data.error || String(data.errno) }
+}
+
+/** 拉取 vshare 视频 S3 直链：GET /api/video/play/{uuid}（带 vshare JSESSIONID cookie）。
+ *  首次 ensureVshareLogin 通过 jAccount SSO 建立 vshare 会话；API 返回 USER_LOGIN_REQUIRED
+ *  时 invalidate + 重走 SSO + 重试一次（防 cookie 边界过期自愈）。 */
+export async function fetchVsharePlayUrl(
+  ses: Electron.Session,
+  uuid: string
+): Promise<{ url: string; fileName: string; fileSize: number }> {
+  await ensureVshareLogin(ses, uuid)
+  let r = await fetchVsharePlayUrlOnce(ses, uuid)
+  if (r.ok) return { url: r.url, fileName: r.fileName, fileSize: r.fileSize }
+  // 登录态失效：清缓存重走 SSO 后重试一次
+  if (/USER_LOGIN_REQUIRED|login|未登录|登录/i.test(r.error)) {
+    console.log(`[vshare] /play/${uuid} 返回 ${r.error}，重走 SSO 重试`)
+    invalidateVshareLogin()
+    if (await ensureVshareLogin(ses, uuid)) {
+      r = await fetchVsharePlayUrlOnce(ses, uuid)
+      if (r.ok) return { url: r.url, fileName: r.fileName, fileSize: r.fileSize }
+    }
   }
+  throw new Error(`vshare /play/${uuid} 失败: ${r.error}`)
 }

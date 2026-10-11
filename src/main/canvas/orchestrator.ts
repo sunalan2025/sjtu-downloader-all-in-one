@@ -15,8 +15,12 @@ import {
   CANVAS_BASE_URL,
   type CanvasDownloadTaskSpec,
   type CanvasFileItem,
+  type CanvasLectureDownloadItem,
+  type CanvasModule,
   type CanvasTeacherSelection,
-  type CanvasVideoSession
+  type CanvasVideoSession,
+  type CourseResourceSummary,
+  type VideoQualityOption
 } from '../../shared/types'
 import {
   listCourses,
@@ -30,17 +34,19 @@ import {
   extractVideoIframes,
   extractVshareLinks,
   fetchFileMeta,
-  sanitizeFsName
+  sanitizeFsName,
+  isForbiddenError
 } from './api'
 import {
   extractLtiToken,
   fetchVodVideoList,
   buildClassVideoFileName,
   extractLectureNum,
-  resolveIvsVideoId
+  resolveIvsVideoId,
+  isClassVideoTab
 } from './video-tokens'
 import { downloadModuleVideo } from './hls-download'
-import { uploadLocalFileToCloud } from '../cloudpan'
+import { cloudFileExists, uploadLocalFileToCloud } from '../cloudpan'
 
 let ses: Electron.Session | null = null
 
@@ -148,21 +154,47 @@ function emitScanProgress(courseId: number, phase: string, message: string): voi
 /** SSO 是否已成功过（避免每次 API 调用都重新走 SSO） */
 let _canvasSsoDone = false
 
+// [B4 Fix] SSO in-flight Promise：并发扫描多课程 / 下载时各调用方共用同一次 SSO attempt，
+// 避免同时开 N 个隐藏 BrowserWindow 走 SSO（镜像 vshare 的 _vshareLoginPromise）。
+let _canvasLoginPromise: Promise<boolean> | null = null
+
+/** 标记 Canvas 登录态失效（clearSjtuSession / cleanupOnQuit 调用，强制下次重走 SSO）。
+ *  [B5 Fix] 原先无此函数，_canvasSsoDone 被清后无 in-flight 去重，session 失效后各 handler 静默失败。 */
+export function invalidateCanvasLogin(): void {
+  _canvasSsoDone = false
+  _canvasLoginPromise = null
+}
+
 async function ensureCanvasLogin(): Promise<boolean> {
   if (_canvasSsoDone) return true
+  if (_canvasLoginPromise) return _canvasLoginPromise
+  _canvasLoginPromise = (async () => {
+    if (_canvasSsoDone) return true
+    const session = getSession()
 
-  const session = getSession()
+    // 预检：若无有效 jAccount 会话，跳过静默 SSO，绝不弹出可见窗口打扰用户
+    const jaCookies = await session.cookies.get({ domain: 'jaccount.sjtu.edu.cn' }).catch(() => [])
+    const hasJaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
+    if (!hasJaSession) {
+      console.log('[canvas] 无有效 jAccount 会话，跳过静默 SSO')
+      return false
+    }
 
-  // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成
-  console.log('[canvas] 触发 OIDC SSO（隐藏窗口）…')
-  const ok = await completeOidcSso(session, false)
-  if (ok) { _canvasSsoDone = true; return true }
-
-  // 隐藏窗口失败 → 弹出可见窗口（首次登录需用户扫码/授权）
-  console.log('[canvas] 隐藏 SSO 失败，弹出可见窗口')
-  const ok2 = await completeOidcSso(session, true)
-  if (ok2) _canvasSsoDone = true
-  return ok2
+    // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成
+    console.log('[canvas] 触发 OIDC SSO（隐藏窗口）…')
+    const ok = await completeOidcSso(session, false)
+    if (ok) { _canvasSsoDone = true; return true }
+    // 隐藏窗口失败 → 弹出可见窗口（首次登录需用户扫码/授权）
+    console.log('[canvas] 隐藏 SSO 失败，弹出可见窗口')
+    const ok2 = await completeOidcSso(session, true)
+    if (ok2) _canvasSsoDone = true
+    return ok2
+  })()
+  try {
+    return await _canvasLoginPromise
+  } finally {
+    if (!_canvasSsoDone) _canvasLoginPromise = null
+  }
 }
 
 /** 通过 BrowserWindow 完成 Canvas OIDC SSO 流程。
@@ -199,10 +231,15 @@ async function completeOidcSso(session: Electron.Session, show: boolean): Promis
     console.log('[canvas] SSO 超时，最后 URL:', win.webContents.getURL().slice(0, 120))
     return false
   } catch (e) {
-    console.log('[canvas] SSO 异常:', e)
+    const msg = e instanceof Error ? e.message : String(e)
+    if (!msg.includes('ERR_FAILED (-2)')) {
+      console.log('[canvas] SSO 异常:', e)
+    }
     return false
   } finally {
-    win.destroy()
+    if (!win.isDestroyed()) {
+      win.destroy()
+    }
   }
 }
 
@@ -217,6 +254,116 @@ function isCanvasDashboardUrl(url: string): boolean {
   if (path.startsWith('/login')) return false
   if (path.startsWith('/saml')) return false
   return true
+}
+
+/**
+ * 扫描单个 Canvas 课程资源（含 403 文件 Tab 容错与模块/大纲附件补漏） (R2-F2)
+ */
+export async function scanCourse(
+  session: Electron.Session,
+  courseId: number
+): Promise<CourseResourceSummary> {
+  try {
+    emitScanProgress(courseId, 'files', '正在扫描文件和模块…')
+
+    const [folderMapRes, filesRes, modulesRes, syllabusRes] = await Promise.allSettled([
+      fetchFolderMap(session, courseId),
+      fetchCourseFiles(session, courseId),
+      fetchCourseModules(session, courseId),
+      fetchSyllabusBody(session, courseId)
+    ])
+
+    let filesTabAccessible = true
+    let files: CanvasFileItem[] = []
+    let folderMap = new Map<number, string>()
+    let warning: string | undefined
+
+    // 1. 处理文件列表结果 (403 容错)
+    if (filesRes.status === 'fulfilled') {
+      files = filesRes.value
+    } else {
+      if (isForbiddenError(filesRes.reason)) {
+        filesTabAccessible = false
+        files = []
+        warning = '教师已禁用文件列表，已自动从单元和大纲提取可用课件'
+        console.warn(`[canvas] 课程 ${courseId} 文件 Tab 禁用 (403 Forbidden)，已降级至模块和大纲提取`)
+      } else {
+        throw filesRes.reason
+      }
+    }
+
+    // 2. 处理文件夹树映射 (403 容错)
+    if (folderMapRes.status === 'fulfilled') {
+      folderMap = folderMapRes.value
+    } else {
+      if (isForbiddenError(folderMapRes.reason) || !filesTabAccessible) {
+        folderMap = new Map<number, string>()
+      } else {
+        console.warn(`[canvas] 课程 ${courseId} fetchFolderMap 失败:`, folderMapRes.reason)
+        folderMap = new Map<number, string>()
+      }
+    }
+
+    // 3. 处理模块列表 (容错)
+    let modules: CanvasModule[] = []
+    if (modulesRes.status === 'fulfilled') {
+      modules = modulesRes.value
+    } else {
+      console.warn(`[canvas] 课程 ${courseId} fetchCourseModules 失败:`, modulesRes.reason)
+      modules = []
+    }
+
+    // 4. 处理教学大纲 (容错)
+    let syllabusHtml = ''
+    if (syllabusRes.status === 'fulfilled') {
+      syllabusHtml = syllabusRes.value
+    } else {
+      console.warn(`[canvas] 课程 ${courseId} fetchSyllabusBody 失败:`, syllabusRes.reason)
+      syllabusHtml = ''
+    }
+
+    // 5. 模块与大纲附件提取去重
+    const knownFileIds = new Set(files.filter(f => f.url).map(f => f.fileId))
+    const moduleFileIds: number[] = []
+    for (const m of modules) {
+      for (const item of m.items) {
+        if (item.type === 'File' && item.contentId && !knownFileIds.has(item.contentId)) {
+          moduleFileIds.push(item.contentId)
+          knownFileIds.add(item.contentId)
+        }
+      }
+    }
+
+    const syllabusFileIds = extractCanvasFileIds(syllabusHtml)
+      .filter(id => !knownFileIds.has(id))
+
+    // 补漏文件（模块/大纲里出现、但不在常规文件列表里的 File）取 meta，
+    // 当作普通 Canvas 文件合并进 UI 的 files 列表，统一走 canvas-files 下载路径。
+    const moduleFiles = await fetchFileMetaBatch(session, moduleFileIds)
+    const syllabusFiles = await fetchFileMetaBatch(session, syllabusFileIds, -3)
+
+    emitScanProgress(courseId, 'done', '扫描完成')
+
+    return {
+      ok: true,
+      filesTabAccessible,
+      files: files.filter(f => f.url && !f.locked),
+      folderMap: Object.fromEntries(folderMap),
+      moduleFiles,
+      syllabusFiles,
+      warning
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      filesTabAccessible: false,
+      files: [],
+      folderMap: {},
+      moduleFiles: [],
+      syllabusFiles: [],
+      error: err instanceof Error ? err.message : String(err)
+    }
+  }
 }
 
 // ─── 注册所有 Canvas IPC handler ──────────────────────────────
@@ -251,52 +398,9 @@ export function registerCanvasHandlers(): void {
 
   // ─── 扫描课程（文件 + modules + syllabus） ───
   ipcMain.handle('canvas:scan-course', async (_e, courseId: number) => {
-    try {
-      const session = getSession()
-      emitScanProgress(courseId, 'files', '正在扫描文件和模块…')
-
-      // PERF: 并行拉取四组独立 API（共享 courseId），扫描时间从 ~4s 降到 ~1s
-      const [folderMap, files, modules, syllabusHtml] = await Promise.all([
-        fetchFolderMap(session, courseId),
-        fetchCourseFiles(session, courseId),
-        fetchCourseModules(session, courseId),
-        fetchSyllabusBody(session, courseId)
-      ])
-
-      const knownFileIds = new Set(files.filter(f => f.url).map(f => f.fileId))
-      const moduleFileIds: number[] = []
-      for (const m of modules) {
-        for (const item of m.items) {
-          if (item.type === 'File' && item.contentId && !knownFileIds.has(item.contentId)) {
-            moduleFileIds.push(item.contentId)
-            knownFileIds.add(item.contentId)
-          }
-        }
-      }
-
-      const syllabusFileIds = extractCanvasFileIds(syllabusHtml)
-        .filter(id => !knownFileIds.has(id))
-
-      // 补漏文件（模块/大纲里出现、但不在常规文件列表里的 File）取 meta，
-      // 当作普通 Canvas 文件合并进 UI 的 files 列表，统一走 canvas-files 下载路径。
-      // 模块补漏用真实 folderId（落真实 Canvas 文件夹，查不到兜底 files/ 根）；
-      // 大纲补漏固定落 files/大纲/（对应浏览器「大纲」tab，其真实 folder 不在课程 folderMap 里）。
-      const moduleFiles = await fetchFileMetaBatch(session, moduleFileIds)
-      const syllabusFiles = await fetchFileMetaBatch(session, syllabusFileIds, -3)
-
-      emitScanProgress(courseId, 'done', '扫描完成')
-
-      return {
-        ok: true,
-        files: files.filter(f => f.url && !f.locked),
-        folderMap: Object.fromEntries(folderMap),
-        moduleFiles,
-        syllabusFiles
-      }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
+    return scanCourse(getSession(), courseId)
   })
+
 
   // ─── 构建下载任务 spec 列表 ───
   ipcMain.handle(
@@ -351,7 +455,7 @@ export function registerCanvasHandlers(): void {
       // 1. 找 tab
       emitScanProgress(courseId, 'class-video', '')
       const tabs = await fetchCourseTabs(session, courseId)
-      const tab = tabs.find(t => t.label.includes('课堂视频new'))
+      const tab = tabs.find(t => isClassVideoTab(t.label))
       if (!tab) return { ok: true, sessions: [], teachers: [] }
 
       // 2. LTI token 提取（最耗时的步骤）
@@ -435,7 +539,8 @@ export function registerCanvasHandlers(): void {
               canvasCourseId: courseId,
               canvasVideoId: s.videoId,
               canvasVideoToken: token,
-              canvasStreamIdx: chIdx
+              canvasStreamIdx: chIdx,
+              isHls: true
             })
           }
         }
@@ -457,11 +562,12 @@ export function registerCanvasHandlers(): void {
       _e,
       courseName: string,
       courseId: number,
-      lectureItems: Array<{ lectureNum: number; teacher?: CanvasVideoSession; ppt?: CanvasVideoSession }>,
+      lectureItems: CanvasLectureDownloadItem[],
       token: string,
       destRoot: string,
       conflictStrategy?: 'skip' | 'overwrite',
-      term?: string
+      term?: string,
+      qualityOption?: VideoQualityOption
     ) => {
       try {
         const cPath = canvasCoursePath(courseName, term)
@@ -469,15 +575,21 @@ export function registerCanvasHandlers(): void {
         if (videosDir) mkdirSync(videosDir, { recursive: true })
 
         const overwrite = conflictStrategy === 'overwrite'
+        const isAudioOnly = qualityOption === 'audio_only'
         const specs: CanvasDownloadTaskSpec[] = []
         for (const item of lectureItems) {
-          // teacher/ppt 指向同一 videoId；每讲产 2 个占位 spec，下载时各自解析对应 streamIdx
+          // teacher/ppt 指向同一 videoId；按用户实际勾选的角色产 spec，
+          // 避免未勾选的一路被一并下载（修复「选教师/PPT 任一会两个都下」）
           const session = item.teacher ?? item.ppt
           if (!session) continue
-          for (let chIdx = 0; chIdx < 2; chIdx++) {
-            const chRole = chIdx === 0 ? 'teacher' : 'ppt'
+          // 角色意图由 item.teacher / item.ppt 是否存在决定：可只产一路或两路
+          const roles: Array<{ role: 'teacher' | 'ppt'; idx: number }> = []
+          if (item.teacher) roles.push({ role: 'teacher', idx: 0 })
+          if (item.ppt && !isAudioOnly) roles.push({ role: 'ppt', idx: 1 })
+          for (const { role: chRole, idx: chIdx } of roles) {
             const taskId = `canvas_lecture_${courseId}_${item.lectureNum}_${chRole}`
-            const fileName = buildClassVideoFileName(courseName, session, chIdx)
+            const rawFileName = buildClassVideoFileName(courseName, session, chIdx)
+            const fileName = isAudioOnly ? rawFileName.replace(/\.mp4$/, '.m4a') : rawFileName
             const destPath = videosDir ? join(videosDir, fileName) : ''
             // overwrite 模式不预跳过：交由 runTask 删旧文件后重下
             if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
@@ -495,7 +607,9 @@ export function registerCanvasHandlers(): void {
               canvasCourseId: courseId,
               canvasVideoId: session.videoId,
               canvasVideoToken: token,
-              canvasStreamIdx: chIdx
+              canvasStreamIdx: chIdx,
+              isHls: true,
+              extractAudio: isAudioOnly
             })
           }
         }
@@ -659,6 +773,10 @@ export function registerCanvasHandlers(): void {
 
   // ─── 模块嵌入视频实时下载（HLS 流程，不走常规下载引擎） ───
   // [Bug 37 Fix] 等待全局并发槽位空闲，避免与主下载队列争抢带宽
+  // [Conflict] 与 PPT 课件 / 常规文件一致的三层冲突检查：
+  //   (1) cloud-only + skip：下载前先查云盘，已有则跳过整个下载（避免下完整视频再发现远端已存在）；
+  //   (2) 本地：downloadModuleVideo 内部 existsSync 跳过（skip 复用已有 mp4；overwrite 由这里预先删旧）；
+  //   (3) 上传：uploadLocalFileToCloud 内部 startChunkedUpload 的 HEAD 检查兜底，FileExistsError 视为跳过。
   ipcMain.handle(
     'canvas:download-module-video-now',
     async (
@@ -670,7 +788,7 @@ export function registerCanvasHandlers(): void {
       taskId: string,
       cloudUserToken?: string,
       conflictStrategy?: 'skip' | 'overwrite',
-      transcodeMaxHeight?: number,
+      qualityOption?: number | string,
       term?: string
     ) => {
       try {
@@ -681,6 +799,28 @@ export function registerCanvasHandlers(): void {
         const videosDir = join(localDest, 'Canvas课程', ...cPath.split('/'), 'videos', '单元视频')
         mkdirSync(videosDir, { recursive: true })
 
+        const strategy = conflictStrategy ?? 'skip'
+        // 云盘远端路径用 sanitizeFsName（与原行为一致）；本地 mp4/ts 用原始 baseName（downloadModuleVideo 内部如此）
+        const remotePathBase = `SJTU Canvas课程/${cPath}/videos/单元视频/${sanitizeFsName(baseName)}`
+        const localMp4 = join(videosDir, `${baseName}.mp4`)
+        const localTs = join(videosDir, `${baseName}.ts`)
+
+        // (1) cloud-only + skip：下载图片/切片前先查云盘是否已有该 mp4，已有则跳过整个下载。
+        //     overwrite 不提前查（由 uploadLocalFileToCloud 内部 deleteCloudFile 处理）；
+        //     both 模式本地需要 mp4，不提前查（云端 skip 由 uploadLocalFileToCloud 兜底）。
+        if (cloudUserToken && !destRoot && strategy === 'skip') {
+          if (await cloudFileExists(cloudUserToken, `${remotePathBase}.mp4`)) {
+            console.log(`[hls] 云盘已存在，跳过: ${remotePathBase}.mp4`)
+            return { ok: true, skipped: true, cloudPath: `${remotePathBase}.mp4` }
+          }
+        }
+
+        // (2) overwrite：删本地旧 mp4/ts，强制重下（否则 downloadModuleVideo 的"已存在跳过"会跳过）
+        if (strategy === 'overwrite') {
+          try { if (existsSync(localMp4)) unlinkSync(localMp4) } catch { /* ignore */ }
+          try { if (existsSync(localTs)) unlinkSync(localTs) } catch { /* ignore */ }
+        }
+
         // 等待主下载队列有空闲并发槽位
         await waitForConcurrencySlot()
 
@@ -688,6 +828,9 @@ export function registerCanvasHandlers(): void {
         // 任务算进去，调度器才不会在 HLS 进行时继续拉本地/云任务到上限导致超发。
         // 必须在拿到槽位之后才 +1，否则等待期间会把自己也算进 active 反而更难拿到槽位。
         _hlsActiveReporter?.(1)
+        const isAudioOnly = qualityOption === 'audio_only'
+        const maxHeight = typeof qualityOption === 'number' ? qualityOption : (qualityOption === '720p' ? 720 : qualityOption === '1080p' ? 1080 : undefined)
+
         let result
         try {
           result = await downloadModuleVideo(
@@ -702,26 +845,31 @@ export function registerCanvasHandlers(): void {
                 ...p
               })
             },
-            transcodeMaxHeight
+            maxHeight,
+            isAudioOnly
           )
         } finally {
           _hlsActiveReporter?.(-1)
         }
 
+        // local 模式（无云盘目标）：不上传，按本地是否复用已有 mp4 标记 skipped
+        if (!cloudUserToken) {
+          return { ok: true, skipped: result.skipped, path: result.path, format: result.format }
+        }
+
         // cloud/both 模式：下载完成后把 mp4 上传到云盘
-        let cloudPath: string | undefined
-        if (cloudUserToken) {
-          const remotePath = `SJTU Canvas课程/${cPath}/videos/单元视频/${sanitizeFsName(baseName)}.${result.format}`
-          emitToRenderer('canvas:hls-progress', {
-            taskId, baseName,
-            phase: 'uploading', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0,
-            message: '正在上传到云盘…'
-          })
+        const remotePath = `${remotePathBase}.${result.format}`
+        emitToRenderer('canvas:hls-progress', {
+          taskId, baseName,
+          phase: 'uploading', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0,
+          message: '正在上传到云盘…'
+        })
+        try {
           const r = await uploadLocalFileToCloud(
             cloudUserToken,
             result.path,
             remotePath,
-            conflictStrategy ?? 'skip',
+            strategy,
             (uploaded, total) => {
               emitToRenderer('canvas:hls-progress', {
                 taskId, baseName,
@@ -731,7 +879,7 @@ export function registerCanvasHandlers(): void {
               })
             }
           )
-          cloudPath = r.path?.[0] ?? remotePath
+          const cloudPath = r.path?.[0] ?? remotePath
 
           // cloud-only 模式（渲染端传空 destRoot → 走临时目录兜底）：
           // mp4 仅作上传中间产物，上传成功后清理避免长期累积。
@@ -741,9 +889,23 @@ export function registerCanvasHandlers(): void {
           if (!destRoot) {
             try { unlinkSync(result.path) } catch { /* ignore */ }
           }
+          // 上传成功 = 云端有新产出，算成功（不标 skipped，即便本地是复用的已有 mp4）
+          return { ok: true, path: result.path, format: result.format, cloudPath }
+        } catch (err) {
+          // skip 策略下远端已存在 → 跳过上传（云端无新产出，标 skipped，与 PPT 一致）
+          if (err instanceof Error && err.name === 'FileExistsError') {
+            if (!destRoot) {
+              try { unlinkSync(result.path) } catch { /* ignore */ }
+            }
+            return { ok: true, skipped: true, cloudPath: remotePath }
+          }
+          // 上传失败：cloud-only 清理本地临时 mp4
+          if (!destRoot) {
+            try { unlinkSync(result.path) } catch { /* ignore */ }
+          }
+          const msg = err instanceof Error ? err.message : String(err)
+          return { ok: false, path: result.path, error: `云盘上传失败: ${msg}` }
         }
-
-        return { ok: true, path: result.path, format: result.format, cloudPath }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
@@ -773,35 +935,58 @@ export function registerCanvasHandlers(): void {
       lectureName: string
       videoSession?: { beginTime: string; teacher: string; classroom: string }
     },
-    baseOpts: { courseName: string; destRoot: string; term?: string },
+    baseOpts: { courseName: string; destRoot: string; term?: string; saveImages?: boolean },
     cloudOpts: { cloudUserToken?: string; conflictStrategy?: 'skip' | 'overwrite' },
     cPath: string,
     taskId: string | undefined,
     onLectureProgress: (imgCurrent: number, imgTotal: number, phase: string) => void
-  ): Promise<{ ok: boolean; path?: string; cloudPath?: string; error?: string }> {
+  ): Promise<{ ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> {
     // lecture.ivsVideoId 是加密串 videoId（前端原样传入），用 resolveIvsVideoId 解析成
     // PPT API 真正需要的数值型 ivsVideoId（= getVodVideoInfos.data.courId）。
     const videoIdStr = lecture.ivsVideoId
     const realIvsVideoId = await resolveIvsVideoId(session, token, videoIdStr)
     if (!realIvsVideoId) {
-      return { ok: false, error: '无法解析该讲视频信息（可能未发布或无录播流）' }
+      // 视频无流/未发布：跳过而非失败（自然也没有 PPT 课件可下）
+      return { ok: true, skipped: true }
     }
-    const { downloadPptAsPdf } = await import('./ppt-download')
+
+    // 动态 import（懒加载 pdf-lib 等重依赖）
+    const { downloadPptAsPdf, buildPptFileNameForLecture } = await import('./ppt-download')
+
+    // cloud-only（destRoot 空）+ skip：下载图片前先查云盘是否已有该 PDF，已有则跳过整个下载，
+    // 避免先下几十张图 + 合并 PDF 再发现远端已存在。overwrite 不提前查（由 uploadLocalFileToCloud
+    // 内部 deleteCloudFile 处理）；both 模式本地需要 PDF，不提前查（云端 skip 由 uploadLocalFileToCloud 兜底）。
+    if (cloudOpts.cloudUserToken && !baseOpts.destRoot && (cloudOpts.conflictStrategy ?? 'skip') === 'skip') {
+      const fileName = buildPptFileNameForLecture(lecture.lectureName, lecture.videoSession)
+      const remotePath = `SJTU Canvas课程/${cPath}/videos/课堂视频/${fileName}`
+      if (await cloudFileExists(cloudOpts.cloudUserToken, remotePath)) {
+        console.log(`[ppt] 云盘已存在，跳过: ${remotePath}`)
+        return { ok: true, skipped: true, cloudPath: remotePath }
+      }
+    }
+
     const result = await downloadPptAsPdf(session, token, {
       ivsVideoId: realIvsVideoId,
       courseName: baseOpts.courseName,
       lectureName: lecture.lectureName,
       destRoot: baseOpts.destRoot,
       term: baseOpts.term,
-      videoSession: lecture.videoSession
+      videoSession: lecture.videoSession,
+      conflictStrategy: cloudOpts.conflictStrategy,
+      saveImages: baseOpts.saveImages
     }, onLectureProgress)
+
+    // 无 PPT 课件（skipped 且无 path）→ 跳过；本地已存在 PDF（skipped 但有 path）→ 继续走上传
+    if (result.skipped && !result.path) {
+      return { ok: true, skipped: true }
+    }
     if (!result.ok || !result.path || !result.fileName) {
       return { ok: false, error: result.error }
     }
 
-    // cloud/both：上传 PDF 到云盘
+    // local 模式（无云盘目标）：不上传，保留 skipped 标记（本地是否跳过）
     if (!cloudOpts.cloudUserToken) {
-      return { ok: true, path: result.path }
+      return { ok: true, skipped: result.skipped, path: result.path }
     }
     const remotePath = `SJTU Canvas课程/${cPath}/videos/课堂视频/${result.fileName}`
     if (taskId) {
@@ -822,14 +1007,15 @@ export function registerCanvasHandlers(): void {
       if (!baseOpts.destRoot) {
         try { unlinkSync(result.path) } catch { /* ignore */ }
       }
+      // 上传成功 = 云端有新产出，算成功（不标 skipped，即便本地是跳过复用的已有 PDF）
       return { ok: true, path: result.path, cloudPath }
     } catch (err) {
-      // skip 策略下远端已存在 → 视为成功（跳过上传）
+      // skip 策略下远端已存在 → 跳过上传（云端无新产出，标 skipped）
       if (err instanceof Error && err.name === 'FileExistsError') {
         if (!baseOpts.destRoot) {
           try { unlinkSync(result.path) } catch { /* ignore */ }
         }
-        return { ok: true, path: result.path, cloudPath: remotePath }
+        return { ok: true, skipped: true, path: result.path, cloudPath: remotePath }
       }
       const msg = err instanceof Error ? err.message : String(err)
       // 上传失败：cloud-only 清理本地临时 PDF
@@ -851,6 +1037,7 @@ export function registerCanvasHandlers(): void {
     conflictStrategy?: 'skip' | 'overwrite'
     term?: string
     videoSession?: { beginTime: string; teacher: string; classroom: string }
+    saveImages?: boolean
   }) => {
     try {
       const session = getSession()
@@ -862,7 +1049,7 @@ export function registerCanvasHandlers(): void {
       const result = await runPptLecture(
         session, token,
         { ivsVideoId: opts.ivsVideoId, lectureName: opts.lectureName, videoSession: opts.videoSession },
-        { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term },
+        { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages },
         { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy },
         cPath, opts.taskId,
         (current, total, phase) => {
@@ -889,6 +1076,7 @@ export function registerCanvasHandlers(): void {
     cloudUserToken?: string
     conflictStrategy?: 'skip' | 'overwrite'
     term?: string
+    saveImages?: boolean
   }) => {
     try {
       const session = getSession()
@@ -899,7 +1087,7 @@ export function registerCanvasHandlers(): void {
       const cPath = canvasCoursePath(opts.courseName, opts.term)
       const taskId = opts.taskId
       const total = opts.lectures.length
-      const results: Array<{ lectureName: string; ok: boolean; path?: string; cloudPath?: string; error?: string }> = []
+      const results: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> = []
 
       if (taskId) {
         emitToRenderer('canvas:ppt-progress', { taskId, ivsVideoId: 0, current: 0, total, phase: '开始下载PPT课件…' })
@@ -915,7 +1103,7 @@ export function registerCanvasHandlers(): void {
         }
         const result = await runPptLecture(
           session, token, lecture,
-          { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term },
+          { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages },
           { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy },
           cPath, taskId,
           (imgCurrent, imgTotal, phase) => {
@@ -931,7 +1119,7 @@ export function registerCanvasHandlers(): void {
         if (taskId) {
           emitToRenderer('canvas:ppt-progress', {
             taskId, ivsVideoId: lecture.ivsVideoId, current: i + 1, total,
-            phase: result.ok ? `${lecture.lectureName} 完成` : `${lecture.lectureName} 失败`,
+            phase: result.skipped ? `${lecture.lectureName} 跳过` : (result.ok ? `${lecture.lectureName} 完成` : `${lecture.lectureName} 失败`),
             lectureName: lecture.lectureName
           })
         }

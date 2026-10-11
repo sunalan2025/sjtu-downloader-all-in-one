@@ -86,14 +86,18 @@ async function ensureCred(userToken: string): Promise<CloudPanSpaceCred> {
 
 // ─── path encoding ─────────────────────────────────────────────
 
+export function strictEncodeURIComponent(str: string): string {
+  return encodeURIComponent(str).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
 function enc(segs: string[]): string {
-  return segs.map(s => encodeURIComponent(s)).join('/')
+  return segs.map(strictEncodeURIComponent).join('/')
 }
 
 // ─── public: validate / space info ──────────────────────────────
 
 export async function validateUserToken(userToken: string): Promise<{ ok: boolean; error?: string }> {
-  if (!userToken || userToken.length < 64) return { ok: false, error: 'UserToken 格式不正确' }
+  if (!userToken || userToken.length < 32) return { ok: false, error: 'UserToken 格式不正确' }
   try {
     const cred = await getSpaceCred(userToken)
     cachedToken = userToken; cachedCred = cred; credExpAt = Date.now() + cred.expiresIn * 1000
@@ -214,6 +218,14 @@ async function checkFileExists(cred: CloudPanSpaceCred, remotePath: string): Pro
   }
 }
 
+/** 检查云盘文件是否已存在（HEAD，不创建上传会话）。
+ *  供 PPT 课件等场景在上传前预判 skip，避免先生成文件再发现远端已存在。
+ *  与 startChunkedUpload 同样的宽松判定：HEAD 失败一律视为不存在，由后续上传兜底。 */
+export async function cloudFileExists(userToken: string, remotePath: string): Promise<boolean> {
+  const cred = await ensureCred(userToken)
+  return checkFileExists(cred, remotePath)
+}
+
 /** 删除云盘文件/文件夹（移入回收站）。供「替换」策略在上传前先清掉同名文件。
  *  接口：DELETE /api/v1/file/{libraryId}/{spaceId}/{path}?permanent=0&access_token=...
  *  路径按段 URL 编码（参考 JboxTransfer TboxService.DeleteFile）。
@@ -264,23 +276,38 @@ export async function startChunkedUpload(userToken: string, remotePath: string):
         method: 'POST',
         body: { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => i + 1) }
       })
-      return buildUploader(cred, initResult)
+      return buildUploader(userToken, cred, initResult)
     }
     throw err
   }
 
-  return buildUploader(cred, initResult)
+  return buildUploader(userToken, cred, initResult)
 }
 
 /** 从保存的会话状态恢复 uploader，跳过已传分片 */
 export async function resumeChunkedUpload(userToken: string, state: UploadSessionState): Promise<ChunkedUploader> {
-  const cred = await ensureCred(userToken)
-  // renew 凭证以获取最新 parts
-  const r = await api<CloudPanStartUploadResult>(
-    `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${state.confirmKey}?renew&access_token=${cred.accessToken}`,
-    { method: 'POST', body: { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => state.nextPart + i) } }
-  )
-  return buildUploader(cred, {
+  let cred = await ensureCred(userToken)
+  const renewBody = { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => state.nextPart + i) }
+  let r: CloudPanStartUploadResult
+  try {
+    r = await api<CloudPanStartUploadResult>(
+      `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${state.confirmKey}?renew&access_token=${cred.accessToken}`,
+      { method: 'POST', body: renewBody }
+    )
+  } catch (err) {
+    if (err instanceof Error && (err.message.includes('HTTP 401') || err.message.includes('401'))) {
+      cred = await getSpaceCred(userToken)
+      cachedCred = cred
+      credExpAt = Date.now() + cred.expiresIn * 1000
+      r = await api<CloudPanStartUploadResult>(
+        `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${state.confirmKey}?renew&access_token=${cred.accessToken}`,
+        { method: 'POST', body: renewBody }
+      )
+    } else {
+      throw err
+    }
+  }
+  return buildUploader(userToken, cred, {
     confirmKey: state.confirmKey,
     domain: state.domain,
     uploadId: state.uploadId,
@@ -292,6 +319,7 @@ export async function resumeChunkedUpload(userToken: string, state: UploadSessio
 }
 
 function buildUploader(
+  userToken: string,
   cred: CloudPanSpaceCred,
   init: CloudPanStartUploadResult,
   alreadyUploaded?: Set<number>,
@@ -304,20 +332,37 @@ function buildUploader(
   let nextPart = startPart ?? 1
   let bytesReceived = startBytes ?? 0
   const trackedParts = alreadyUploaded ?? new Set<number>()
+  let activeCred = cred
 
-  const renewUrl = `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${confirmKey}?renew&access_token=${cred.accessToken}`
-
-  /** renew 上传会话凭证，400 时等待后重试（网络抖动导致会话暂时不可用）；
+  /** renew 上传会话凭证，[R3-F4] 支持动态刷新 accessToken 避免长时间大文件上传中会话凭证过期；
+   *  400 时等待后重试（网络抖动导致会话暂时不可用）；
    *  [Bug 31 Fix] 若两次 400，则上传会话可能已过期（COS 服务端清理），抛出明确错误。 */
   async function renewWithRetry(pn: number): Promise<CloudPanStartUploadResult> {
     const body = { partNumberRange: Array.from({ length: MAX_PARTS_PER_REQ }, (_, i) => pn + i) }
+    if (userToken) {
+      try {
+        activeCred = await ensureCred(userToken)
+      } catch {
+        // fallback to current activeCred
+      }
+    }
+    const currentRenewUrl = `${PAN_BASE}/api/v1/file/${activeCred.libraryId}/${activeCred.spaceId}/${confirmKey}?renew&access_token=${activeCred.accessToken}`
     try {
-      return await api<CloudPanStartUploadResult>(renewUrl, { method: 'POST', body })
+      return await api<CloudPanStartUploadResult>(currentRenewUrl, { method: 'POST', body })
     } catch (err) {
+      if (err instanceof Error && (err.message.includes('HTTP 401') || err.message.includes('401'))) {
+        if (userToken) {
+          activeCred = await getSpaceCred(userToken)
+          cachedCred = activeCred
+          credExpAt = Date.now() + activeCred.expiresIn * 1000
+          const retryRenewUrl = `${PAN_BASE}/api/v1/file/${activeCred.libraryId}/${activeCred.spaceId}/${confirmKey}?renew&access_token=${activeCred.accessToken}`
+          return await api<CloudPanStartUploadResult>(retryRenewUrl, { method: 'POST', body })
+        }
+      }
       if (err instanceof Error && err.message.includes('HTTP 400')) {
         await new Promise(r => setTimeout(r, 3000))
         try {
-          return await api<CloudPanStartUploadResult>(renewUrl, { method: 'POST', body })
+          return await api<CloudPanStartUploadResult>(currentRenewUrl, { method: 'POST', body })
         } catch {
           throw new Error('上传会话已过期（服务端返回 400），请取消后重新上传')
         }
@@ -386,15 +431,32 @@ function buildUploader(
     async confirm(): Promise<CloudPanConfirmResult> {
       // COS 在收到 confirm 请求后需要时间整合分片，偶尔会返回 MultipartUploadIncomplete；
       // 网络抖动也可能导致 400/5xx/超时。多次指数退避重试以提升末段鲁棒性。
-      const url = `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${confirmKey}?confirm&conflict_resolution_strategy=overwrite&access_token=${cred.accessToken}`
       const MAX_CONFIRM_RETRIES = 4
       let lastErr: unknown
       for (let attempt = 0; attempt < MAX_CONFIRM_RETRIES; attempt++) {
+        if (userToken) {
+          try {
+            activeCred = await ensureCred(userToken)
+          } catch {
+            // fallback to current activeCred
+          }
+        }
+        const url = `${PAN_BASE}/api/v1/file/${activeCred.libraryId}/${activeCred.spaceId}/${confirmKey}?confirm&conflict_resolution_strategy=overwrite&access_token=${activeCred.accessToken}`
         try {
           return await api<CloudPanConfirmResult>(url, { method: 'POST' })
         } catch (err) {
           lastErr = err
           const msg = err instanceof Error ? err.message : String(err)
+          if ((msg.includes('HTTP 401') || msg.includes('401')) && userToken) {
+            try {
+              activeCred = await getSpaceCred(userToken)
+              cachedCred = activeCred
+              credExpAt = Date.now() + activeCred.expiresIn * 1000
+              continue
+            } catch {
+              // retry with backoff
+            }
+          }
           const retryable = msg.includes('MultipartUploadIncomplete')
             || msg.includes('HTTP 400')
             || msg.includes('HTTP 5')
@@ -412,9 +474,13 @@ function buildUploader(
 
 // ─── 本地文件 → 云盘（HLS 模块视频下载后上传） ────────────────
 
-const LOCAL_UPLOAD_CHUNK = 4 * 1024 * 1024 // 4MB per COS part（与 CHUNK_SIZE 一致）
+export function getDynamicChunkSize(totalBytes: number): number {
+  if (totalBytes > 1024 * 1024 * 1024) return 16 * 1024 * 1024 // >1GB: 16MB
+  if (totalBytes > 200 * 1024 * 1024) return 8 * 1024 * 1024  // >200MB: 8MB
+  return 4 * 1024 * 1024                                       // <=200MB: 4MB
+}
 
-/** 把本地文件按 4MB 分片上传到云盘。
+/** 把本地文件按动态分片（4MB ~ 16MB）上传到云盘。
  *  - skip 策略：远端已存在 → 抛 FileExistsError（调用方据此标 skipped）
  *  - overwrite 策略：先 deleteCloudFile 再 startChunkedUpload
  *  - 自动 ensureFolderPath（逐级创建父目录）
@@ -445,15 +511,14 @@ export async function uploadLocalFileToCloud(
     try {
       // fd 持有期间文件不会被删/截断 → 用 fstatSync 拿 size，消除 stat→open 的 TOCTOU
       const total = fstatSync(fd).size
-      const buf = Buffer.allocUnsafe(LOCAL_UPLOAD_CHUNK)
+      const chunkSize = getDynamicChunkSize(total)
+      const buf = Buffer.allocUnsafe(chunkSize)
       let uploaded = 0
-      let partNum = 0
       while (uploaded < total) {
-        const n = readSync(fd, buf, 0, LOCAL_UPLOAD_CHUNK, uploaded)
+        const n = readSync(fd, buf, 0, chunkSize, uploaded)
         if (n <= 0) break
-        partNum++
-        // 最后一片不足 4MB：只传实际读到的字节
-        const chunk = n < LOCAL_UPLOAD_CHUNK ? buf.subarray(0, n) : buf
+        // 最后一片不足 chunkSize：只传实际读到的字节
+        const chunk = n < chunkSize ? buf.subarray(0, n) : buf
         await uploader.uploadChunk(chunk)
         uploaded += n
         onProgress?.(uploaded, total)
