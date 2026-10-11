@@ -38,6 +38,7 @@ jobs:
           GIT_TERMINAL_PROMPT: 0
 
       - name: Verify tag matches package.json version
+        shell: bash
         run: |
           PKG_VER="v$(node -p "require('./package.json').version")"
           TAG_VER="${GITHUB_REF#refs/tags/}"
