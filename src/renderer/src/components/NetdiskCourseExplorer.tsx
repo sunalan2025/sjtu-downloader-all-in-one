@@ -84,45 +84,55 @@ export interface NetdiskCourseExplorerProps {
 // Category Icon Renderer
 // ─────────────────────────────────────────────────────────────
 
-function CategoryIcon({ icon }: { icon?: NetdiskCategoryItem['icon'] }) {
+function CategoryIcon({
+  icon,
+  size = 'md'
+}: {
+  icon?: NetdiskCategoryItem['icon']
+  size?: 'sm' | 'md' | 'lg'
+}) {
   if (typeof icon === 'object' && icon !== null) {
     return <>{icon}</>
   }
+
+  const boxSize = size === 'lg' ? 'h-14 w-14 rounded-2xl' : size === 'sm' ? 'h-5 w-5 rounded-md' : 'h-7 w-7 rounded-lg'
+  const svgSize = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
+
   if (icon === 'video') {
     return (
-      <svg className="h-6 w-6 text-sky-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
-        <line x1="7" y1="2" x2="7" y2="22" />
-        <line x1="17" y1="2" x2="17" y2="22" />
-        <line x1="2" y1="12" x2="22" y2="12" />
-        <line x1="2" y1="7" x2="7" y2="7" />
-        <line x1="2" y1="17" x2="7" y2="17" />
-        <line x1="17" y1="17" x2="22" y2="17" />
-        <line x1="17" y1="7" x2="22" y2="7" />
-      </svg>
+      <div className={`flex ${boxSize} shrink-0 items-center justify-center bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-sm ring-1 ring-sky-400/20`}>
+        <svg className={`${svgSize} fill-current drop-shadow-2xs`} viewBox="0 0 24 24">
+          <path d="M8 5.14v13.72a1 1 0 0 0 1.55.83l11-6.86a1 1 0 0 0 0-1.66l-11-6.86A1 1 0 0 0 8 5.14z" />
+        </svg>
+      </div>
     )
   }
   if (icon === 'presentation') {
     return (
-      <svg className="h-6 w-6 text-emerald-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M2 3h20" />
-        <path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3" />
-        <path d="m7 21 5-5 5 5" />
-      </svg>
+      <div className={`flex ${boxSize} shrink-0 items-center justify-center bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-sm ring-1 ring-amber-400/20`}>
+        <svg className={`${svgSize} fill-none stroke-current drop-shadow-2xs`} viewBox="0 0 24 24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="13" rx="2" />
+          <path d="M8 21l4-5 4 5" />
+          <path d="M12 16v5" />
+          <line x1="7" y1="8" x2="17" y2="8" />
+          <line x1="7" y1="11" x2="13" y2="11" />
+        </svg>
+      </div>
     )
   }
   if (icon === 'file') {
     return (
-      <svg className="h-6 w-6 text-violet-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" />
-        <polyline points="10 9 9 9 8 9" />
-      </svg>
+      <div className={`flex ${boxSize} shrink-0 items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-sm ring-1 ring-indigo-400/20`}>
+        <svg className={`${svgSize} fill-none stroke-current drop-shadow-2xs`} viewBox="0 0 24 24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+        </svg>
+      </div>
     )
   }
-  return <FolderIcon className="h-6 w-6 text-amber-500 shrink-0" />
+  return <FolderIcon className={`${size === 'lg' ? 'h-14 w-14' : size === 'sm' ? 'h-4 w-4' : 'h-6 w-6'} text-amber-500 shrink-0`} />
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -278,51 +288,53 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
         </div>
       </div>
 
-      {/* 核心视图区域：依据 viewMode 呈现 */}
+      {/* 核心视图区域：依据 viewMode 呈现（带平滑渐入微缩放过渡动效） */}
       <div className="flex-1 overflow-hidden p-4">
-        {viewMode === 'column' ? (
-          <ColumnView
-            courses={courses}
-            activeCourse={columnActiveCourse}
-            activeCategory={columnActiveCategory}
-            onSelectCourse={c => {
-              if (lastEnteredCourseIdRef.current !== c.id) {
-                lastEnteredCourseIdRef.current = c.id
-                c.onEnter?.()
-              }
-              onNavigate({
-                level: 'course',
-                courseId: c.id,
-                categoryId: c.categories[0]?.id
-              })
-            }}
-            onSelectCategory={cat => {
-              if (columnActiveCourse) {
+        <div key={viewMode} className="h-full w-full animate-fadeIn">
+          {viewMode === 'column' ? (
+            <ColumnView
+              courses={courses}
+              activeCourse={columnActiveCourse}
+              activeCategory={columnActiveCategory}
+              onSelectCourse={c => {
+                if (lastEnteredCourseIdRef.current !== c.id) {
+                  lastEnteredCourseIdRef.current = c.id
+                  c.onEnter?.()
+                }
                 onNavigate({
-                  level: 'category',
-                  courseId: columnActiveCourse.id,
-                  categoryId: cat.id
+                  level: 'course',
+                  courseId: c.id,
+                  categoryId: c.categories[0]?.id
                 })
-              }
-            }}
-          />
-        ) : viewMode === 'list' ? (
-          <ListView
-            courses={courses}
-            currentCourse={currentCourse}
-            currentCategory={currentCategory}
-            navState={navState}
-            onNavigate={onNavigate}
-          />
-        ) : (
-          <GridView
-            courses={courses}
-            currentCourse={currentCourse}
-            currentCategory={currentCategory}
-            navState={navState}
-            onNavigate={onNavigate}
-          />
-        )}
+              }}
+              onSelectCategory={cat => {
+                if (columnActiveCourse) {
+                  onNavigate({
+                    level: 'category',
+                    courseId: columnActiveCourse.id,
+                    categoryId: cat.id
+                  })
+                }
+              }}
+            />
+          ) : viewMode === 'list' ? (
+            <ListView
+              courses={courses}
+              currentCourse={currentCourse}
+              currentCategory={currentCategory}
+              navState={navState}
+              onNavigate={onNavigate}
+            />
+          ) : (
+            <GridView
+              courses={courses}
+              currentCourse={currentCourse}
+              currentCategory={currentCategory}
+              navState={navState}
+              onNavigate={onNavigate}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
@@ -388,9 +400,7 @@ function GridView({
 
               <div className="my-3 flex flex-col items-center text-center">
                 <div className="relative mb-2 transition-transform duration-200 group-hover:scale-105">
-                  <svg className="h-16 w-16 text-accent drop-shadow-sm" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z" />
-                  </svg>
+                  <FolderIcon className="h-16 w-16 drop-shadow-sm" />
                 </div>
                 <h3 className="line-clamp-2 text-sm font-bold text-text-1 group-hover:text-accent transition-colors" title={c.name}>
                   {c.name}
@@ -485,7 +495,7 @@ function GridView({
 
               <div className="my-4 flex flex-col items-center text-center">
                 <div className="mb-2 transition-transform duration-200 group-hover:scale-105">
-                  <CategoryIcon icon={cat.icon} />
+                  <CategoryIcon icon={cat.icon} size="lg" />
                 </div>
                 <h4 className="text-sm font-bold text-text-1 group-hover:text-accent transition-colors">
                   {cat.name}

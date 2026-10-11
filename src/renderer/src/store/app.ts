@@ -121,8 +121,6 @@ interface AppState {
   concurrency: number
   /** 是否处于自动并发模式 */
   autoConcurrency: boolean
-  /** 课程列表排版模式：deck=多列网格卡片流（新版），list=传统紧凑通栏列表流（旧版） */
-  courseLayoutMode: 'deck' | 'list'
   /** 网盘式课程导航视图模式：grid=网格大图标，list=详细列表，column=分栏多级并列 */
   courseViewMode: CourseViewMode
   /** 上一次激活的内容课程 tab（canvas / audited / cnmooc） */
@@ -138,8 +136,6 @@ interface AppState {
   setExitWhenDownloading: (policy: ExitWhenDownloadingPolicy) => void
   /** 切换 UI 主题（dark/light/system） */
   setTheme: (t: Theme) => void
-  /** 切换课程列表排版模式 */
-  setCourseLayoutMode: (mode: 'deck' | 'list') => void
   /** 切换网盘式课程导航视图模式 */
   setCourseViewMode: (mode: CourseViewMode) => void
   /** 记录上一次激活的课程 tab */
@@ -422,7 +418,6 @@ export const useAppStore = create<AppState>()(
       concurrency: 3,
       autoConcurrency: false,
       autoDownloadUpdate: false,
-      courseLayoutMode: 'deck' as 'deck' | 'list',
       courseViewMode: 'grid' as CourseViewMode,
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
       windowCloseAction: 'tray' as WindowCloseAction,
@@ -430,7 +425,6 @@ export const useAppStore = create<AppState>()(
       setWindowCloseAction: windowCloseAction => set({ windowCloseAction }),
       setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
-      setCourseLayoutMode: courseLayoutMode => set({ courseLayoutMode }),
       setCourseViewMode: courseViewMode => set({ courseViewMode }),
       setLastCourseTab: lastCourseTab => set({ lastCourseTab }),
       setStage: stage => set({ stage }),
@@ -783,7 +777,6 @@ export const useAppStore = create<AppState>()(
         namingTemplate: state.namingTemplate,
         videoQualityOption: state.videoQualityOption,
         downloadHistory: state.downloadHistory,
-        courseLayoutMode: state.courseLayoutMode,
         courseViewMode: state.courseViewMode,
         lastCourseTab: state.lastCourseTab,
         windowCloseAction: state.windowCloseAction,

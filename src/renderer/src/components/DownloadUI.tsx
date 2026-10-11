@@ -738,15 +738,41 @@ export function FileTypeBadge({
 export function FolderIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
     <svg
-      className={className}
+      className={`${className} shrink-0 drop-shadow-2xs`}
       viewBox="0 0 24 24"
       fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      xmlns="http://www.w3.org/2000/svg"
     >
-      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+      {/* 文件夹后盖与标签 (Back Plate & Tab) */}
+      <path
+        d="M2.5 5.5C2.5 4.4 3.4 3.5 4.5 3.5H9.2C9.8 3.5 10.4 3.8 10.8 4.3L12.2 6H19.5C20.6 6 21.5 6.9 21.5 8V18.5C21.5 19.6 20.6 20.5 19.5 20.5H4.5C3.4 20.5 2.5 19.6 2.5 18.5V5.5Z"
+        fill="#D97706"
+      />
+      {/* 内部文件露白轻微衬托 (Paper Sheet Reveal) */}
+      <path
+        d="M5 7H19V11H5V7Z"
+        fill="#FEF3C7"
+        opacity="0.9"
+      />
+      {/* 文件夹正面封套 (Front Cover with Gradient) */}
+      <path
+        d="M2.5 9.5C2.5 8.4 3.4 7.5 4.5 7.5H19.5C20.6 7.5 21.5 8.4 21.5 9.5V18.5C21.5 19.6 20.6 20.5 19.5 20.5H4.5C3.4 20.5 2.5 19.6 2.5 18.5V9.5Z"
+        fill="url(#folder_front_gradient)"
+      />
+      {/* 封面顶部微光泽折边 (Subtle Sheen Edge) */}
+      <path
+        d="M3 8.5C3 8 3.5 7.5 4.5 7.5H19.5C20.5 7.5 21 8 21 8.5"
+        stroke="#FDE68A"
+        strokeWidth="0.8"
+        strokeLinecap="round"
+        opacity="0.6"
+      />
+      <defs>
+        <linearGradient id="folder_front_gradient" x1="12" y1="7.5" x2="12" y2="20.5" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FBBF24" />
+          <stop offset="1" stopColor="#F59E0B" />
+        </linearGradient>
+      </defs>
     </svg>
   )
 }
@@ -906,7 +932,7 @@ export function LayoutModeSwitch({
   )
 }
 
-/** 网盘式导航视图模式切换器（分栏 / 列表 / 网格） */
+/** 网盘式导航视图模式切换器（分栏 / 列表 / 网格，带平滑滑动胶囊动效） */
 export function NetdiskViewModeSwitch({
   mode,
   onChange
@@ -914,13 +940,23 @@ export function NetdiskViewModeSwitch({
   mode: CourseViewMode
   onChange: (m: CourseViewMode) => void
 }) {
+  const modes: CourseViewMode[] = ['column', 'list', 'grid']
+  const activeIdx = modes.indexOf(mode)
+
   return (
-    <div className="flex h-10 items-center rounded-xl border border-bd bg-surface-2 p-1 shadow-2xs">
+    <div className="relative flex h-10 items-center rounded-xl border border-bd bg-surface-2 p-1 shadow-2xs select-none">
+      {/* 弹性滑动胶囊背景 (Sliding Pill Indicator) */}
+      <div
+        className="absolute top-1 bottom-1 w-8 rounded-lg bg-surface-1 shadow-2xs transition-transform duration-200 ease-out pointer-events-none"
+        style={{
+          transform: `translateX(${Math.max(0, activeIdx) * 32}px)`
+        }}
+      />
       <button
         type="button"
         onClick={() => onChange('column')}
-        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'column' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
+        className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+          mode === 'column' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
         title="分栏多级并列视图 (Column)"
       >
@@ -933,8 +969,8 @@ export function NetdiskViewModeSwitch({
       <button
         type="button"
         onClick={() => onChange('list')}
-        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'list' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
+        className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+          mode === 'list' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
         title="详细列表视图 (List)"
       >
@@ -950,8 +986,8 @@ export function NetdiskViewModeSwitch({
       <button
         type="button"
         onClick={() => onChange('grid')}
-        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'grid' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
+        className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+          mode === 'grid' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
         title="网格大图标视图 (Grid)"
       >

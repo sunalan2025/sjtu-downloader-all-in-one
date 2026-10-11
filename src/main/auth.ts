@@ -422,8 +422,8 @@ export async function vsjtuFetch(
     if (resp.status === 401) {
       console.log(`[auth] vsjtuFetch ${path} 返回 401，尝试自动刷新 JWT…`)
       const refreshed = await refreshJwtToken()
-      if (refreshed) {
-        resp = await doRequest()
+      if (refreshed && attempt < VSJTU_FETCH_MAX_RETRIES) {
+        continue
       } else {
         _isSessionExpired = true
       }
@@ -451,11 +451,21 @@ export async function vsjtuFetch(
     const text = await resp.text()
     try {
       const json = JSON.parse(text)
-      if (
+      const isJwtExpiredCode =
+        json?.code === 'auth.authz.jwt.expired' ||
+        json?.code === 'auth.authz.jwt.invalid' ||
         json?.code === '401' ||
-        json?.message?.includes('未登录') ||
-        json?.message?.includes('登录已过期')
-      ) {
+        (typeof json?.code === 'string' && json.code.startsWith('auth.authz.')) ||
+        (typeof json?.message === 'string' && /jwt.*expired|token.*expired|未登录|登录已过期/i.test(json.message))
+
+      if (isJwtExpiredCode) {
+        if (attempt < VSJTU_FETCH_MAX_RETRIES) {
+          console.log(`[auth] vsjtuFetch ${path} 返回业务认证过期码 (${json?.code || json?.message})，尝试自动刷新 JWT…`)
+          const refreshed = await refreshJwtToken()
+          if (refreshed) {
+            continue
+          }
+        }
         _isSessionExpired = true
       }
       return json
