@@ -106,6 +106,7 @@ async function doExtractLtiToken(
     // 快速轮询检查 URL 或 storage（最多 8 秒，通常 500ms~1000ms 即命中）
     const deadline = Date.now() + 8000
     while (Date.now() < deadline && !capturedToken) {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) break
       checkUrl(win.webContents.getURL())
       if (capturedToken) break
 
@@ -163,6 +164,7 @@ async function waitForVsjtuFrame(
 ): Promise<Electron.WebFrameMain | null> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return null
     const frames = win.webContents.mainFrame?.frames ?? []
     for (const f of frames) {
       if (f.url.includes('v.sjtu.edu.cn') && f.url.includes('jy-application')) {
