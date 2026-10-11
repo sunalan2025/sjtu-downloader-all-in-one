@@ -112,9 +112,17 @@ interface AppState {
   concurrency: number
   /** 是否处于自动并发模式 */
   autoConcurrency: boolean
+  /** 课程列表排版模式：deck=多列网格卡片流（新版），list=传统紧凑通栏列表流（旧版） */
+  courseLayoutMode: 'deck' | 'list'
+  /** 上一次激活的内容课程 tab（canvas / audited / cnmooc） */
+  lastCourseTab: 'canvas' | 'audited' | 'cnmooc'
   // setters
   /** 切换 UI 主题（dark/light/system） */
   setTheme: (t: Theme) => void
+  /** 切换课程列表排版模式 */
+  setCourseLayoutMode: (mode: 'deck' | 'list') => void
+  /** 记录上一次激活的课程 tab */
+  setLastCourseTab: (tab: 'canvas' | 'audited' | 'cnmooc') => void
   /** 切换主界面 stage */
   setStage: (s: Stage) => void
   /** 切换顶部 tab（旁听/Canvas） */
@@ -254,7 +262,7 @@ const emptyScanResults = {
 }
 
 const clampConcurrency = (n: number): number =>
-  Math.max(2, Math.min(16, Math.floor(Number.isFinite(n) ? n : 3) || 3))
+  Math.max(1, Math.min(16, Math.floor(Number.isFinite(n) ? n : 3) || 3))
 
 /** both 模式下，把云端进度合并到本地 taskId 对应的条目上；
  *  单任务组件（AngleCell）直接订阅此 selector 即可拿到聚合后的状态。
@@ -393,9 +401,19 @@ export const useAppStore = create<AppState>()(
       concurrency: 3,
       autoConcurrency: false,
       autoDownloadUpdate: false,
+      courseLayoutMode: 'deck' as 'deck' | 'list',
+      lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
       setTheme: theme => set({ theme }),
+      setCourseLayoutMode: courseLayoutMode => set({ courseLayoutMode }),
+      setLastCourseTab: lastCourseTab => set({ lastCourseTab }),
       setStage: stage => set({ stage }),
-      setActiveTab: activeTab => set({ activeTab }),
+      setActiveTab: activeTab => set(state => {
+        const isCourse = activeTab === 'canvas' || activeTab === 'audited' || activeTab === 'cnmooc'
+        return {
+          activeTab,
+          lastCourseTab: isCourse ? activeTab : state.lastCourseTab
+        }
+      }),
       setAuth: auth => set({ auth }),
       setScan: (scanState, scanMessage = '') => set({ scanState, scanMessage }),
       setCourses: courses => set({ courses }),
@@ -701,7 +719,9 @@ export const useAppStore = create<AppState>()(
         maxDownloadSpeedKBps: state.maxDownloadSpeedKBps,
         namingTemplate: state.namingTemplate,
         videoQualityOption: state.videoQualityOption,
-        downloadHistory: state.downloadHistory
+        downloadHistory: state.downloadHistory,
+        courseLayoutMode: state.courseLayoutMode,
+        lastCourseTab: state.lastCourseTab
       })
     }
   )

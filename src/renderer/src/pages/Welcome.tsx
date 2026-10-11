@@ -1,18 +1,34 @@
 import { useAppStore } from '../store/app'
+import type { ActiveTab } from '@shared/types'
+import pkg from '../../../../package.json'
 
 export function Welcome() {
   const setStage = useAppStore(s => s.setStage)
+  const setActiveTab = useAppStore(s => s.setActiveTab)
   const auth = useAppStore(s => s.auth)
+  const appVersion = window.api?.version || pkg.version
 
   const ctaText = auth.expired
     ? '重新登录'
     : (auth.loggedIn ? '进入主页' : '使用 jAccount 登录')
 
-  const onStart = (): void => setStage(auth.loggedIn ? 'browser' : 'login')
+  const onStart = (targetTab?: ActiveTab): void => {
+    if (targetTab) {
+      setActiveTab(targetTab)
+    }
+    setStage(auth.loggedIn ? 'browser' : 'login')
+  }
 
-  const serviceItems = [
+  const serviceItems: Array<{
+    id: string
+    targetTab: ActiveTab
+    title: string
+    desc: string
+    icon: React.ReactNode
+  }> = [
     {
       id: 'canvas',
+      targetTab: 'canvas',
       title: 'Canvas 教学平台',
       desc: '课程课件资料、大纲附件、课堂视频与讲义 PDF',
       icon: (
@@ -25,6 +41,7 @@ export function Welcome() {
     },
     {
       id: 'lecture',
+      targetTab: 'audited',
       title: '旁听课程',
       desc: '旁听课程回放、教师与 PPT 双视角高清视频流',
       icon: (
@@ -36,6 +53,7 @@ export function Welcome() {
     },
     {
       id: 'cnmooc',
+      targetTab: 'cnmooc',
       title: '好大学在线',
       desc: '在线慕课课程、章节视频与配套课件文档一键同步',
       icon: (
@@ -48,6 +66,7 @@ export function Welcome() {
     },
     {
       id: 'cloudpan',
+      targetTab: 'transfer',
       title: '交大云盘备份',
       desc: '单点登录高速分片直传，一份带宽本地与云端双备份',
       icon: (
@@ -75,7 +94,7 @@ export function Welcome() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <h1 className="truncate text-lg font-bold tracking-tight text-text-1">SJTU 课程下载</h1>
-                <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-2xs font-medium text-text-3">v2.3</span>
+                <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-2xs font-medium text-text-3">v{appVersion}</span>
               </div>
               <p className="truncate text-xs text-text-3">交大课程一站式转存与同步工具</p>
             </div>
@@ -99,7 +118,7 @@ export function Welcome() {
 
           <button
             type="button"
-            onClick={onStart}
+            onClick={() => onStart()}
             className="no-drag group flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:bg-accent-light hover:shadow-md active:scale-[0.99] cursor-pointer"
           >
             <span>{ctaText}</span>
@@ -137,7 +156,7 @@ export function Welcome() {
             {serviceItems.map(item => (
               <div
                 key={item.id}
-                onClick={onStart}
+                onClick={() => onStart(item.targetTab)}
                 className="group flex items-start gap-4 rounded-xl p-3.5 transition-all duration-150 hover:bg-surface-2 hover:shadow-sm cursor-pointer"
               >
                 <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-3 text-text-2 transition-colors duration-150 group-hover:bg-accent-10 group-hover:text-accent">

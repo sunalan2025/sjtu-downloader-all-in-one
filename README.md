@@ -24,16 +24,22 @@
 - **三大来源共享会话** — v.sjtu、Canvas、好大学在线复用同一 jAccount 登录态，一次扫码全通
 - **交大云盘一键连接** — 利用已有的 jAccount session 自动完成云盘 SSO 登录，无需额外操作
 
+### 界面与信息架构
+
+- **原生双栏启动面板** — 采用原生桌面双栏面板设计，右侧认证操作区自适应流体几何居中，无论如何拖拽缩放窗口均保持黄金比例，彻底消除网页弹窗嵌套感
+- **纯净内容源主导航** — 顶栏主选项卡汇聚三大业务源：`📚 Canvas 课程`、`🎬 旁听课程` 与 `🎓 好大学在线`，剔除一切杂质英文与多层括号
+- **全局传输看板** — 右上角常驻动态传输胶囊，无任务时静雅待命，有任务时显示动态脉冲与实时吞吐（如 `📥 2 项进行中 · 3.5 MB/s`），一键在选课与传输监控间无缝切换
+- **全屏双栏「全局设置」** — 独立的系统设置大模块，提供存储模式、保存目录、并发档位、视频视角与外观等全选项化卡片组，告别繁琐手动输入
+- **外观自动跟随系统** — 默认跟随操作系统深色/浅色偏好自动无缝切换，亦可在全局设置中手动指定
+
 ### 课程来源
 
-#### v.sjtu 旁听课程
-
+#### 旁听课程
 - **自动扫描旁听课** — 登录后自动拉取全部已通过审核的旁听课程
 - **双视角视频** — 每节课同时提供教师视角（讲台画面）和 PPT 视角（板书画面），可按需勾选
 - **智能排序** — 按上课时间重新编号，消除原始排序中的错乱和重复
 
 #### Canvas 课程
-
 - **自动拉取课程列表** — 登录后自动获取全部 Canvas 课程（含已结课）
 - **学期筛选** — 按学期快速筛选课程
 - **课件文件下载** — 支持下载课程文件、模块补漏文件、大纲嵌入文件，保留 Canvas 文件夹层级
@@ -42,8 +48,7 @@
 - **单元视频下载** — 下载 Canvas「单元」tab 里嵌入的视频（HLS 网页嵌入 / v.sjtu / vshare 三类来源）
 - **教师筛选** — 多教师课程可按教师筛选
 
-#### 好大学在线（cnmooc.sjtu.cn）
-
+#### 好大学在线
 - **自动拉取课程列表** — 登录后自动获取正在学习的好大学在线课程
 - **按章节结构组织** — 解析课程章节树，按章节折叠展示视频与课件条目
 - **资源类型筛选** — 一键切换「全部 / 仅视频 / 仅课件」，下载前过滤
@@ -493,15 +498,17 @@ src/
         └── pages/
             ├── Welcome.tsx       # 欢迎页：功能介绍 + 登录入口
             ├── Login.tsx         # 登录页：内嵌 jAccount 扫码 webview（含域名白名单导航限制）
-            ├── Browser.tsx       # v.sjtu 旁听课程页：课程列表、双视角卡片、选择、下载、实时进度
+            ├── AuditedCourses.tsx # 旁听课程页：课程列表、双视角卡片、选择、下载、实时进度
             ├── CanvasBrowser.tsx # Canvas 课程页：学期筛选、分类选择、课件/视频下载、串行课程处理、PPT 课件 PDF 下载
-            └── CnmoocBrowser.tsx # 好大学在线页：章节折叠、资源类型筛选、懒解析下载
+            ├── CnmoocBrowser.tsx # 好大学在线页：章节折叠、资源类型筛选、懒解析下载
+            ├── TransferCenter.tsx # 传输中心页：实时速率看板、活跃任务队列、历史记录管理
+            └── Settings.tsx      # 全局设置页：双栏设计、全选项化卡片交互
 ```
 
 ### 数据流
 
 ```
-用户操作 → Browser.tsx / CanvasBrowser.tsx / CnmoocBrowser.tsx
+用户操作 → AuditedCourses.tsx / CanvasBrowser.tsx / CnmoocBrowser.tsx
          → window.api.xxx (通过 useSharedBrowserHooks 调用)
          → preload IPC (contextBridge 安全桥)
          → main/index.ts 或 main/canvas/orchestrator.ts 或 main/cnmooc/orchestrator.ts
@@ -525,12 +532,13 @@ src/
 | 渲染端 | `store/app.ts` | Zustand 全局状态：登录态、课程列表、选中态、下载进度（queueMicrotask 微任务批处理）、云盘信息、并发数、云盘连接状态。`persist` 中间件持久化用户偏好（主题、下载目录）。`useEffectiveProgress` 聚合 both 模式本地+云端进度；`useDownloadStats` 编码统计为单个数字避免级联重渲染 |
 | 渲染端 | `hooks/useSharedBrowserHooks.ts` | Browser / CanvasBrowser / CnmoocBrowser 共享的 hooks：`useCloudConnection`（云盘连接/断开、状态管理，状态存 zustand 跨 tab 共享；连接逻辑委托 `services/prefetch.ts` 的 `prefetchCloudConnection`）、`useDownloadProgressSubscription`（App 级进度订阅）、`useDownloadCompletion`（选中任务全部终态后自动停止下载状态，弹出系统通知汇报成功/失败数量） |
 | 渲染端 | `services/prefetch.ts` | 登录后后台预加载：`prefetchCanvasCourses` / `prefetchCnmoocCourses` / `prefetchCloudConnection`，由 App.tsx 在 `stage==='browser'` 时并行触发；各页面 `loadCourses`/`runScan`/`onConnectCloud` 也复用以去重 |
-| 渲染端 | `pages/Browser.tsx` | v.sjtu 旁听课程页：自动扫描、双视角卡片、全选/单选、下载控制、实时进度（memo + useShallow 优化、tasksKey 稳定化避免不必要重算）、刷新键（重走扫描，登录失效跳登录页后自动重载） |
-| 渲染端 | `pages/CanvasBrowser.tsx` | Canvas 课程页：学期筛选、分类选择（课件/教师/PPT/单元视频/PPT课件）、串行课程处理（扫描→下载→等待→清理→下一门）、内存优化 |
-| 渲染端 | `pages/CnmoocBrowser.tsx` | 好大学在线页：章节折叠卡片、资源类型分段（全部/仅视频/仅课件）、懒解析下载、刷新键 |
-| 渲染端 | `components/DownloadUI.tsx` | 下载 UI 原子组件：进度条（EMA 速度）、三态复选框、全局/单任务控制按钮、下载模式选择器、同名文件冲突策略选择器（跳过/替换） |
-| 渲染端 | `components/Segmented.tsx` | 统一的「玻璃滑动指示器」分段选择器，Tab 导航、下载模式、主题切换共用 |
-| 渲染端 | `components/TitleBar.tsx` | 自定义标题栏：并发滑块、自动并发 AIMD 按钮、主题切换、登出、帮助弹窗 |
+| 渲染端 | `pages/Welcome.tsx` | 原生双栏启动与认证面板：左侧版本与服务特性，右侧认证操作区自适应流体居中 |
+| 渲染端 | `pages/AuditedCourses.tsx` | 旁听课程页：自动扫描已授权旁听课程、双视角卡片、全选/单选、批量下载控制、实时进度与重载 |
+| 渲染端 | `pages/CanvasBrowser.tsx` | Canvas 课程页：学期筛选、分类选择（课件/教师/PPT/单元视频/PPT课件）、串行课程处理、内存优化 |
+| 渲染端 | `pages/CnmoocBrowser.tsx` | 好大学在线页：章节折叠卡片、资源类型分段（全部/仅视频/仅课件）、懒解析下载、刷新重载 |
+| 渲染端 | `pages/TransferCenter.tsx` | 独立传输中心：实时下行/上行速率看板、并发任务队列实时管理、已完成历史检索与本地文件高亮定位 |
+| 渲染端 | `pages/Settings.tsx` | 全屏双栏全局设置：存储目标模式、保存目录、并发档位、视频视角偏好、PPT 导出、深浅外观等全选项化配置 |
+| 渲染端 | `components/TitleBar.tsx` | 自定义顶栏：三大课程源纯净切换标签、右上角动态流速传输胶囊看板、云盘连接状态、全局设置与登出 |
 
 ---
 
@@ -585,6 +593,41 @@ npm run build:unpack   # 仅构建不打包（输出目录）
 ### 开发模式下的进程关闭
 
 应用在关闭窗口时会主动销毁所有活跃的 HTTP 请求、文件写入流和定时器，确保不会有资源泄漏。下载过程中的 `.part` 文件会保留，下次启动时自动从断点续传。
+
+---
+
+## 自动更新机制与版本发布指引
+
+本应用采用**轻量级原生无感更新方案**，具备完备的 GitHub Releases 联动与静默安装升级链路：
+
+### 1. 客户端更新检测机制
+- **静默检测**：应用启动时，主进程自动向 GitHub Releases API 发送探测请求（`GET /repos/sunalan2025/sjtu-downloader-all-in-one/releases/latest`），主进程内建 1 小时缓存节流，避免高频请求触发 GitHub 限流。
+- **语义化版本比对**：当检测到线上 Release 的 `tag_name` 高于当前客户端本地版本，且 Release assets 中包含当前操作系统的安装包时，顶栏右侧会自动亮起新版本提醒徽章。
+- **一键无感安装**：
+  - Windows：支持应用内一键下载更新包，下载完成后自动调用 NSIS 静默升级模式（`--updated /S --force-run`），旧进程平滑退出释放文件锁，新版本覆盖安装并自动重启；
+  - macOS / Linux：支持流式下载并校验解包，或提供直达官方 Releases 的下载指引。
+
+### 2. 为何单纯 push 代码无法自动更新？
+- GitHub Actions 发布工作流（`.github/workflows/release.yml`）严格声明了仅由 Git Tag 触发（`on: push: tags: ['v*']`）。
+- 普通分支的代码提交（如 `git push origin master`）仅会触发基本的 CI 语法与单元测试检查，**不会**生成打包文件，亦**不会**发布 Release 资产。
+- 工作流内设有严格的版本一致性门禁：Git Tag 名称（如 `v2.4.0`）必须与 `package.json` 中的 `version` 字段（如 `2.4.0`）完全匹配，否则 CI 自动拦截报错。
+
+### 3. 正确发布新版本并推送自动更新的步骤
+
+当您需要向所有旧版本用户推送新版本更新时，只需按以下三步操作：
+
+```bash
+# 步骤 1：确认 package.json 中版本号已递增（例如 2.4.0），提交代码并推送到 GitHub
+git push origin master
+
+# 步骤 2：在本地打上与 package.json 严格一致的 Git Tag
+git tag v2.4.0
+
+# 步骤 3：将 Tag 推送至 GitHub 触发跨平台编译打包与 Release 发布
+git push origin v2.4.0
+```
+
+推送完成后，GitHub Actions 将自动并行启动 Ubuntu、macOS 与 Windows 三大打包矩阵，编译生成全平台安装包并将构建产物上传至最新 Release。旧版本用户在启动应用或点击检查更新时，即可无感获取并一键升级至最新版本！
 
 ---
 

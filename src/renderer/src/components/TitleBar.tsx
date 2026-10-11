@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, type Theme } from '../store/app'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { formatBytes } from './DownloadUI'
@@ -16,21 +16,67 @@ function applyTheme(theme: Theme): void {
 
 export { applyTheme }
 
-export function TitleBar({ onLogout, onOpenSettings }: { onLogout?: () => void, onOpenSettings?: () => void }) {
+export function TitleBar({
+  onLogout,
+  onOpenSettings,
+  onOpenTransfer
+}: {
+  onLogout?: () => void
+  onOpenSettings?: () => void
+  onOpenTransfer?: () => void
+}) {
   const stage = useAppStore(s => s.stage)
   const auth = useAppStore(s => s.auth)
   const activeTab = useAppStore(s => s.activeTab)
+  const lastCourseTab = useAppStore(s => s.lastCourseTab)
   const setActiveTab = useAppStore(s => s.setActiveTab)
   const cloudConnStatus = useAppStore(s => s.cloudConnStatus)
+  const progress = useAppStore(s => s.progress)
+
+  const [speed, setSpeed] = useState<{ down: number; up: number }>({ down: 0, up: 0 })
+  useEffect(() => {
+    return window.api.download.onTransferSpeed(s => setSpeed(s))
+  }, [])
+
+  const activeItems = useMemo(
+    () => Object.values(progress).filter(
+      p => p.state === 'downloading' || p.state === 'pending' || p.state === 'paused'
+    ),
+    [progress]
+  )
+  const activeCount = activeItems.length
+
+  const doneCount = useMemo(
+    () => Object.values(progress).filter(p => p.state === 'done' || p.state === 'skipped').length,
+    [progress]
+  )
+
+  const overallPct = useMemo(() => {
+    if (activeCount === 0) return 0
+    let totalBytes = 0
+    let receivedBytes = 0
+    for (const item of activeItems) {
+      if (item.total > 0) {
+        totalBytes += item.total
+        receivedBytes += item.received
+      }
+    }
+    if (totalBytes > 0) {
+      return Math.min(99, Math.round((receivedBytes / totalBytes) * 100))
+    }
+    return 0
+  }, [activeItems, activeCount])
 
   const isMac = window.api.platform === 'darwin'
 
+  // 纯净三大课程内容源，与全局系统传输中心/设置严格解耦
   const tabOptions: SegmentedOption<string>[] = [
     { key: 'canvas', label: 'Canvas 课程' },
     { key: 'audited', label: '旁听课程' },
-    { key: 'cnmooc', label: '好大学在线' },
-    { key: 'transfer', label: '传输中心' }
+    { key: 'cnmooc', label: '好大学在线' }
   ]
+
+  const isDetailView = activeTab === 'settings' || activeTab === 'transfer'
 
   return (
     <div
@@ -41,15 +87,35 @@ export function TitleBar({ onLogout, onOpenSettings }: { onLogout?: () => void, 
       {!isMac && <CaptionButtons />}
       
       {stage === 'browser' && (
-        <div className="no-drag flex h-full items-end ml-4">
-          <Segmented 
-            options={tabOptions} 
-            value={activeTab === 'settings' ? '' : activeTab} 
-            onChange={(v) => setActiveTab(v as any)} 
-            size="lg" 
-            className="mb-2"
-          />
-        </div>
+        isDetailView ? (
+          <div className="no-drag flex items-center gap-2.5 ml-4">
+            <button
+              type="button"
+              onClick={() => setActiveTab(lastCourseTab || 'canvas')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
+              title="返回课程列表"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5m7 7l-7-7 7-7" />
+              </svg>
+              <span>返回课程</span>
+            </button>
+            <span className="text-text-4 font-mono text-xs">/</span>
+            <span className="text-xs font-semibold text-text-1">
+              {activeTab === 'transfer' ? '📥 传输中心' : '⚙️ 全局设置'}
+            </span>
+          </div>
+        ) : (
+          <div className="no-drag flex h-full items-end ml-4">
+            <Segmented 
+              options={tabOptions} 
+              value={activeTab} 
+              onChange={(v) => setActiveTab(v as any)} 
+              size="lg" 
+              className="mb-2"
+            />
+          </div>
+        )
       )}
 
       <div className="flex-1" />
@@ -59,20 +125,53 @@ export function TitleBar({ onLogout, onOpenSettings }: { onLogout?: () => void, 
           {cloudConnStatus === 'connecting' && <span className="text-xs text-info">云盘连接中...</span>}
           {cloudConnStatus === 'idle' && <span className="text-xs text-success">☁️ 云盘已连接</span>}
 
-          {onLogout && (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-xs font-medium text-success ring-1 ring-success-ring"
-              title={auth.accountName ? `账号：${auth.accountName}${auth.studentId ? ` (${auth.studentId})` : ''}` : '已登录'}
-            >
-              <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success shadow-[0_0_8px_var(--success-ring)]" />
-              <span className="truncate">{auth.accountName ? `${auth.accountName}` : '已登录'}</span>
-            </span>
-          )}
+          {/* 全局传输看板胶囊入口 */}
+          <button
+            type="button"
+            onClick={onOpenTransfer}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all ${
+              activeTab === 'transfer'
+                ? 'bg-accent text-white border-accent shadow-glow-sm'
+                : activeCount > 0
+                  ? 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
+                  : 'border-bd bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-1'
+            }`}
+            title={`传输中心：${activeCount > 0 ? `${activeCount} 项任务进行中` : '查看传输队列与历史'}`}
+          >
+            {activeCount > 0 ? (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
+                </span>
+                <span>
+                  📥 传输 ({activeCount} 项
+                  {speed.down > 1024 ? ` · ↓ ${formatBytes(speed.down)}/s` : ''}
+                  {overallPct > 0 ? ` · ${overallPct}%` : ''})
+                </span>
+              </>
+            ) : (
+              <>
+                <span>📥 传输中心</span>
+                {doneCount > 0 && (
+                  <span className="rounded-full bg-surface-3 px-1.5 py-0.2 font-mono text-2xs text-text-3">
+                    {doneCount}
+                  </span>
+                )}
+              </>
+            )}
+          </button>
+
+          <UpdateBadge />
 
           <button
             type="button"
             onClick={onOpenSettings}
-            className="rounded-lg p-1.5 text-text-3 transition-all hover:bg-surface-2 hover:text-text-1"
+            className={`rounded-lg p-1.5 text-xs transition-all ${
+              activeTab === 'settings'
+                ? 'bg-accent text-white font-medium shadow-glow-sm'
+                : 'text-text-3 hover:bg-surface-2 hover:text-text-1'
+            }`}
             title="全局设置与偏好"
           >
             ⚙️ 设置
@@ -171,123 +270,6 @@ function CaptionButtons() {
   )
 }
 
-// ─── 实时传输速度 ────────────────────────────────────────────
-
-/** 订阅主进程 transfer:speed 事件，在标题栏显示下行/上行实时速度。
- *  独立组件 + 本地 state，避免速度高频更新触发整个 TitleBar 重渲染。 */
-function TransferSpeedIndicator() {
-  const [speed, setSpeed] = useState<{ down: number; up: number }>({ down: 0, up: 0 })
-
-  useEffect(() => {
-    return window.api.download.onTransferSpeed(s => {
-      setSpeed({ down: s.down, up: s.up })
-    })
-  }, [])
-
-  const idle = speed.down < 1024 && speed.up < 1024
-  return (
-    <div
-      className={`inline-flex select-none items-center gap-2 rounded-lg border border-bd bg-surface-3 px-2.5 py-1 text-xs font-mono tabular-nums ${
-        idle ? 'text-text-4' : 'text-text-2'
-      }`}
-      title={`下行 ${formatBytes(speed.down)}/s · 上行 ${formatBytes(speed.up)}/s`}
-    >
-      <span className="inline-flex items-center gap-1" title="下载速度">
-        <span className="text-info">↓</span>
-        <span className={speed.down < 1024 ? 'text-text-4' : 'text-info'}>{formatBytes(speed.down)}/s</span>
-      </span>
-      <span className="h-3 w-px bg-bd" />
-      <span className="inline-flex items-center gap-1" title="上传速度">
-        <span className="text-accent">↑</span>
-        <span className={speed.up < 1024 ? 'text-text-4' : 'text-accent'}>{formatBytes(speed.up)}/s</span>
-      </span>
-    </div>
-  )
-}
-
-// ─── 并发滑块 ────────────────────────────────────────────────
-
-function ConcurrencyControl({ value, auto, onChange }: { value: number; auto: boolean; onChange: (n: number) => void }) {
-  return (
-    <label
-      className="inline-flex select-none items-center gap-2 rounded-lg border border-bd bg-surface-3 px-2.5 py-1 text-xs text-text-2"
-      title="同时进行的下载/上传任务数量。自动模式根据网络状况动态调整"
-    >
-      <span className="shrink-0 text-text-2">并发</span>
-      <button
-        type="button"
-        onClick={() => onChange(auto ? 3 : 0)}
-        className={`rounded px-1.5 py-0.5 text-xs font-medium transition-colors ${
-          auto ? 'bg-accent/15 text-accent' : 'text-text-3 hover:text-text-1'
-        }`}
-      >
-        自动
-      </button>
-      {!auto && (
-        <>
-          <input
-            type="range"
-            min={2}
-            max={16}
-            step={1}
-            value={value}
-            onChange={e => onChange(Number(e.target.value))}
-            className="h-1.5 w-16 cursor-pointer accent-accent"
-          />
-          <span className="w-5 text-center font-mono text-xs font-medium text-text-1">{value}</span>
-        </>
-      )}
-      {auto && (
-        <span className="font-mono text-xs font-medium text-accent">{value}</span>
-      )}
-    </label>
-  )
-}
-
-// ─── 帮助弹窗 ────────────────────────────────────────────────
-
-function HelpButton() {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: globalThis.MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent text-xs font-bold text-text-1 shadow-glow-sm transition-all duration-150 hover:scale-110 hover:shadow-glow"
-        title="查看并发设置说明"
-      >
-        ?
-      </button>
-      {open && (
-        <div className="animate-fadeIn absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-bd-strong bg-surface-1/95 p-4 text-xs leading-relaxed text-text-2 shadow-xl backdrop-blur-md">
-          <div className="mb-2 text-sm font-semibold text-text-1">并发数设置</div>
-          <div className="space-y-1.5 text-text-3">
-            <p>并发数 = 同时进行的下载/上传任务数量。数值越大速度越快，但对带宽和 CPU 的要求越高。</p>
-            <div className="mt-2 space-y-1">
-              <p><span className="font-medium text-success">2-3</span> — 校园无线网、VPN、带宽有限时推荐</p>
-              <p><span className="font-medium text-info">4-6</span> — 有线网络、带宽充裕时推荐（默认）</p>
-              <p><span className="font-medium text-warning">7-10</span> — 千兆网络、需要快速批量下载时</p>
-              <p><span className="font-medium text-danger">11-16</span> — 仅限非常充裕的带宽环境，过高可能触发限流</p>
-            </div>
-            <p className="mt-1.5 text-text-4">建议从低并发开始，逐步调高观察速度变化。如果速度反而下降或频繁出错，请降低并发数。</p>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** 新版本提醒徽章：启动时检查 GitHub releases/latest，有新版显示在标题旁。
  *  支持应用内自动更新：下载安装包 → 静默安装 → 退出当前进程释放文件锁 → 安装器启动新版本。
  *  状态机：idle（有新版待下载）→ downloading → ready（可安装）→ installUpdate 后 app.quit；
@@ -364,7 +346,7 @@ function UpdateBadge() {
         {badgeText}
       </button>
       {open && (
-        <div className="animate-fadeIn absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-bd-strong bg-surface-1/95 p-4 text-xs leading-relaxed text-text-2 shadow-xl backdrop-blur-md">
+        <div className="animate-fadeIn absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-bd-strong bg-surface-1 p-4 text-xs leading-relaxed text-text-2 shadow-2xl">
           <div className="mb-1 text-sm font-semibold text-text-1">发现新版本</div>
           <div className="mb-2 text-text-3">
             v{info.currentVersion} → <span className="font-medium text-accent-light">v{info.latestVersion}</span>
@@ -486,119 +468,4 @@ function UpdateBadge() {
   )
 }
 
-// ─── 全局限速控制 ─────────────────────────────────────────────
-
-function SpeedLimitControl() {
-  const maxDownloadSpeedKBps = useAppStore(s => s.maxDownloadSpeedKBps)
-  const setMaxDownloadSpeedKBps = useAppStore(s => s.setMaxDownloadSpeedKBps)
-
-  const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const limit = Number(e.target.value) || 0
-    setMaxDownloadSpeedKBps(limit)
-    void window.api.download.setSpeedLimit(limit)
-  }
-
-  return (
-    <div
-      className="inline-flex select-none items-center gap-1.5 rounded-lg border border-bd bg-surface-3 px-2 py-1 text-xs text-text-2"
-      title="全局下载速度上限控制"
-    >
-      <span className="text-accent font-bold">⚡</span>
-      <select
-        value={maxDownloadSpeedKBps}
-        onChange={handleSelect}
-        className="bg-transparent text-text-2 focus:outline-none cursor-pointer text-xs font-medium"
-      >
-        <option value={0} className="bg-surface-2 text-text-1">⚡ 不限速</option>
-        <option value={1024} className="bg-surface-2 text-text-1">限速 1 MB/s</option>
-        <option value={2048} className="bg-surface-2 text-text-1">限速 2 MB/s</option>
-        <option value={5120} className="bg-surface-2 text-text-1">限速 5 MB/s</option>
-        <option value={10240} className="bg-surface-2 text-text-1">限速 10 MB/s</option>
-        <option value={20480} className="bg-surface-2 text-text-1">限速 20 MB/s</option>
-      </select>
-    </div>
-  )
-}
-
-// ─── 自定义命名规则 ───────────────────────────────────────────
-
-function NamingTemplateControl() {
-  const namingTemplate = useAppStore(s => s.namingTemplate)
-  const setNamingTemplate = useAppStore(s => s.setNamingTemplate)
-  const [open, setOpen] = useState(false)
-  const [tempVal, setTempVal] = useState(namingTemplate)
-
-  const handleSave = () => {
-    setNamingTemplate(tempVal)
-    setOpen(false)
-  }
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => { setTempVal(namingTemplate); setOpen(true) }}
-        className="inline-flex select-none items-center gap-1 rounded-lg border border-bd bg-surface-3 px-2 py-1 text-xs text-text-2 hover:bg-surface-2 transition-colors"
-        title="设置文件/目录自定义命名规则"
-      >
-        <span>🏷️</span>
-        <span className="truncate max-w-[80px]">命名规则</span>
-      </button>
-
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-surface-1 p-5 border border-border/40 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-text-1 text-base flex items-center gap-2">
-                <span>🏷️ 自定义文件命名模板</span>
-              </h3>
-              <button onClick={() => setOpen(false)} className="text-text-3 hover:text-text-1 text-sm">✕</button>
-            </div>
-
-            <p className="text-xs text-text-3">
-              支持在下载路径中自动替换变量：
-              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{term}"}</code>、
-              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{course}"}</code>、
-              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{category}"}</code>、
-              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{teacher}"}</code>、
-              <code className="text-accent bg-surface-2 px-1 rounded ml-1">{"{fileName}"}</code>
-            </p>
-
-            <input
-              type="text"
-              value={tempVal}
-              onChange={e => setTempVal(e.target.value)}
-              placeholder="{term}/{course}/{category}/{fileName}"
-              className="w-full px-3 py-2 rounded-lg bg-surface-2 text-text-1 text-sm border border-border/40 focus:outline-none focus:border-accent font-mono"
-            />
-
-            <div className="p-3 rounded-lg bg-surface-2/60 text-xs space-y-1">
-              <span className="text-text-3 block font-medium">样例渲染路径效果：</span>
-              <div className="font-mono text-text-2 break-all">
-                2025-2026-1/高等数学/videos/lecture_01.mp4
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="px-3 py-1.5 rounded-lg bg-surface-2 text-text-2 text-xs hover:bg-surface-3 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                className="px-3 py-1.5 rounded-lg bg-accent text-white text-xs hover:bg-accent-light font-medium transition-colors"
-              >
-                保存模板
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
 

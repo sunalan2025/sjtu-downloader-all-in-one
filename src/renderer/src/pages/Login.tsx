@@ -87,12 +87,20 @@ function getJAccountEmbedCss(isDark: boolean): string {
       padding: 0 !important;
       width: 100% !important;
       height: 100% !important;
-      overflow: hidden !important;
+      overflow-x: hidden !important;
+      overflow-y: auto !important;
+      scrollbar-width: none !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif !important;
       -webkit-font-smoothing: antialiased !important;
+    }
+
+    ::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
     }
 
     #page,
@@ -106,19 +114,20 @@ function getJAccountEmbedCss(isDark: boolean): string {
       margin: 0 !important;
       padding: 0 !important;
       width: 100% !important;
-      height: 100% !important;
+      min-height: 100% !important;
+      height: auto !important;
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
-      overflow: hidden !important;
+      overflow: visible !important;
     }
 
-    /* 核心卡片容器：水平 Flex 布局，左扫码右账密，若触发交我办推送确认或二次验证则自适应切为单栏居中 */
+    /* 核心卡片容器：支持 flex-wrap，自适应顶部提示与下层双栏（扫码 + 账密/二次验证） */
     #login-form.login-card,
     .login-card,
     .login-box {
       display: flex !important;
-      flex-direction: row !important;
+      flex-flow: row wrap !important;
       align-items: center !important;
       justify-content: center !important;
       box-shadow: none !important;
@@ -127,29 +136,57 @@ function getJAccountEmbedCss(isDark: boolean): string {
       padding: 0 !important;
       background: transparent !important;
       background-color: transparent !important;
-      width: auto !important;
-      max-width: 560px !important;
+      width: 100% !important;
+      max-width: 540px !important;
       box-sizing: border-box !important;
     }
 
-    #login-form:has(.confirm-title),
-    #login-form:has(.confirm-msg),
-    #login-form:has(table),
-    #login-form:has(#second-auth-form) {
-      flex-direction: column !important;
+    /* 顶部提示栏（如二次验证说明、推送确认等非扫码和非表单的直接子元素）：独占第一行全宽并居中 */
+    #login-form > :not(.login-qr):not(.form-login):not(script):not(style),
+    .confirm-title,
+    .confirm-msg,
+    .confirm-msg-left {
+      width: 100% !important;
+      flex: 0 0 100% !important;
+      text-align: center !important;
+      margin: 0 0 16px 0 !important;
+      padding: 0 12px !important;
+      order: 1 !important;
+      box-sizing: border-box !important;
+      color: var(--theme-text) !important;
     }
 
-    /* 左侧二维码扫码专区 */
+    #login-form > :not(.login-qr):not(.form-login) h1,
+    #login-form > :not(.login-qr):not(.form-login) h2,
+    #login-form > :not(.login-qr):not(.form-login) h3,
+    #login-form > :not(.login-qr):not(.form-login) strong {
+      font-size: 16px !important;
+      font-weight: 600 !important;
+      color: var(--theme-text) !important;
+      margin-bottom: 4px !important;
+      line-height: 1.4 !important;
+    }
+
+    #login-form > :not(.login-qr):not(.form-login) p,
+    #login-form > :not(.login-qr):not(.form-login) span {
+      font-size: 13px !important;
+      color: var(--theme-text-sub) !important;
+      line-height: 1.5 !important;
+    }
+
+    /* 左侧二维码扫码专区：第二行左侧 */
     .login-qr {
       display: flex !important;
       flex-direction: column !important;
       align-items: center !important;
       justify-content: center !important;
+      order: 2 !important;
       float: none !important;
-      width: 220px !important;
-      min-width: 220px !important;
+      flex: 0 0 210px !important;
+      width: 210px !important;
+      min-width: 210px !important;
       margin: 0 !important;
-      padding: 8px 28px 8px 0 !important;
+      padding: 4px 20px 4px 0 !important;
       border-right: 1px solid var(--theme-border) !important;
       box-sizing: border-box !important;
     }
@@ -157,7 +194,7 @@ function getJAccountEmbedCss(isDark: boolean): string {
     .login-qr .qr-title {
       font-size: 14px !important;
       font-weight: 600 !important;
-      margin-bottom: 12px !important;
+      margin-bottom: 10px !important;
       color: var(--theme-text) !important;
       text-align: center !important;
     }
@@ -171,9 +208,9 @@ function getJAccountEmbedCss(isDark: boolean): string {
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
-      width: 176px !important;
-      height: 176px !important;
-      padding: 6px !important;
+      width: 170px !important;
+      height: 170px !important;
+      padding: 5px !important;
       background: var(--theme-qr-bg) !important;
       border-radius: 12px !important;
       border: 1px solid var(--theme-qr-border) !important;
@@ -183,8 +220,8 @@ function getJAccountEmbedCss(isDark: boolean): string {
 
     #qr-img {
       display: block !important;
-      width: 160px !important;
-      height: 160px !important;
+      width: 156px !important;
+      height: 156px !important;
       border-radius: 6px !important;
       visibility: visible !important;
       opacity: 1 !important;
@@ -201,16 +238,18 @@ function getJAccountEmbedCss(isDark: boolean): string {
       color: var(--theme-accent) !important;
     }
 
-    /* 右侧表单专区（账号密码 / 短信验证） */
+    /* 右侧表单专区（账号密码 / 短信 / 二次验证）：第二行右侧 */
     .form-login {
       display: flex !important;
       flex-direction: column !important;
       justify-content: center !important;
+      order: 3 !important;
       float: none !important;
+      flex: 0 0 260px !important;
       width: 260px !important;
       min-width: 260px !important;
       margin: 0 !important;
-      padding: 8px 0 8px 28px !important;
+      padding: 4px 0 4px 20px !important;
       box-sizing: border-box !important;
     }
 
@@ -295,9 +334,12 @@ function getJAccountEmbedCss(isDark: boolean): string {
       border: 1px solid var(--theme-input-border) !important;
     }
 
-    /* 登录按钮 */
+    /* 登录/提交按钮 */
     .form-submit,
     .btn-primary,
+    input[type="submit"],
+    button[type="submit"],
+    input[value="提交"],
     #submit-password-button,
     #submit-sms-button {
       width: 100% !important;
@@ -314,10 +356,13 @@ function getJAccountEmbedCss(isDark: boolean): string {
       cursor: pointer !important;
       box-shadow: 0 2px 6px var(--theme-accent-shadow) !important;
       transition: opacity 0.15s, transform 0.05s !important;
+      margin-top: 8px !important;
     }
 
     .form-submit:hover,
     .btn-primary:hover,
+    input[type="submit"]:hover,
+    button[type="submit"]:hover,
     #submit-password-button:hover,
     #submit-sms-button:hover {
       opacity: 0.9 !important;
@@ -325,6 +370,8 @@ function getJAccountEmbedCss(isDark: boolean): string {
 
     .form-submit:active,
     .btn-primary:active,
+    input[type="submit"]:active,
+    button[type="submit"]:active,
     #submit-password-button:active,
     #submit-sms-button:active {
       transform: scale(0.99) !important;
@@ -416,13 +463,66 @@ function getJAccountEmbedCss(isDark: boolean): string {
       text-align: center !important;
     }
 
-    /* 二次验证 (2FA) 容器兼容 */
-    #second-auth-form {
-      display: flex !important;
-      flex-direction: column !important;
+    /* 二次验证 (2FA) 细部交互适配 */
+    .form-login input[type="radio"] {
+      accent-color: var(--theme-accent) !important;
+      margin-right: 8px !important;
+      cursor: pointer !important;
+      vertical-align: middle !important;
+    }
+
+    .form-login input[type="checkbox"] {
+      accent-color: var(--theme-accent) !important;
+      margin-right: 8px !important;
+      cursor: pointer !important;
+      vertical-align: middle !important;
+    }
+
+    .form-select,
+    .form-login .radio-group,
+    .form-login .form-group,
+    .form-login label:has(input[type="radio"]),
+    .form-login div:has(input[type="radio"]) {
+      font-size: 13px !important;
+      color: var(--theme-text) !important;
+      cursor: pointer !important;
+      display: inline-flex !important;
       align-items: center !important;
-      justify-content: center !important;
-      width: 100% !important;
+      margin-bottom: 24px !important;
+    }
+
+    .form-login label:has(input[type="checkbox"]),
+    .form-login div:has(input[type="checkbox"]) {
+      font-size: 12px !important;
+      color: var(--theme-text-sub) !important;
+      margin: 12px 0 10px 0 !important;
+      display: flex !important;
+      align-items: center !important;
+      cursor: pointer !important;
+    }
+
+    /* 气泡提示自适应，避免与上方单选框遮挡 */
+    .tooltip-wrapper {
+      z-index: 100 !important;
+      margin-bottom: 2px !important;
+    }
+
+    .tooltip {
+      border-radius: 6px !important;
+      font-size: 12px !important;
+      line-height: 1.4 !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+      background-color: ${isDark ? 'rgba(34, 197, 94, 0.15)' : '#f0f9eb'} !important;
+      border-color: ${isDark ? 'rgba(34, 197, 94, 0.5)' : '#67c23a'} !important;
+    }
+
+    .tooltip-message {
+      color: ${isDark ? '#4ade80' : '#67c23a'} !important;
+      font-size: 12px !important;
+    }
+
+    .tooltip-arrow:after {
+      border-top-color: ${isDark ? 'rgba(34, 197, 94, 0.5)' : '#67c23a'} !important;
     }
   `
 }
@@ -620,6 +720,24 @@ export function Login() {
               void handleLoginCompletion()
               return
             }
+
+            if (url.includes('jaccount.sjtu.edu.cn')) {
+              const is2FA = await wv
+                .executeJavaScript(`
+                (() => {
+                  try {
+                    const text = document.body ? document.body.innerText : '';
+                    return text.includes('二次验证') || text.includes('安全验证') || !!document.querySelector('.confirm-title, input[value="提交"]');
+                  } catch {
+                    return false;
+                  }
+                })()
+              `)
+                .catch(() => false)
+              if (is2FA) {
+                setStatusMsg('请完成二次验证（支持交我办扫码、动态码或短信）')
+              }
+            }
           } catch {
             /* ignore */
           }
@@ -642,6 +760,30 @@ export function Login() {
     const wv = webviewRef.current
     if (!wv) return
 
+    const updateAuthStatus = async (): Promise<void> => {
+      try {
+        const is2FA = await wv
+          .executeJavaScript(`
+          (() => {
+            try {
+              const text = document.body ? document.body.innerText : '';
+              return text.includes('二次验证') || text.includes('安全验证') || !!document.querySelector('.confirm-title, input[value="提交"]');
+            } catch {
+              return false;
+            }
+          })()
+        `)
+          .catch(() => false)
+        if (is2FA) {
+          setStatusMsg('请完成二次验证（支持交我办扫码、动态码或短信）')
+        } else {
+          setStatusMsg('请扫码、账号密码或短信验证登录')
+        }
+      } catch {
+        setStatusMsg('请扫码、账号密码或短信验证登录')
+      }
+    }
+
     const onDomReady = (): void => {
       const url = wv.getURL()
       if (isLoginSuccessUrl(url)) {
@@ -658,7 +800,7 @@ export function Login() {
         void wv.insertCSS(getJAccountEmbedCss(isDarkRef.current)).catch(() => undefined)
         setReady(true)
         setError(null)
-        setStatusMsg('请扫码、账号密码或短信验证登录')
+        void updateAuthStatus()
       }
     }
 
@@ -672,7 +814,7 @@ export function Login() {
 
       if (url.includes('jaccount.sjtu.edu.cn')) {
         setError(null)
-        setStatusMsg('请扫码、账号密码或短信验证登录')
+        void updateAuthStatus()
         return
       }
 
@@ -730,7 +872,7 @@ export function Login() {
         </header>
 
         <div className="relative rounded-2xl border border-bd bg-surface-1 p-6 shadow-card backdrop-blur">
-          <div className="relative h-[380px] w-full overflow-hidden rounded-xl bg-surface-1">
+          <div className="relative h-[415px] min-h-[380px] w-full overflow-hidden rounded-xl bg-surface-1">
             {!ready && !error && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface-1 backdrop-blur-sm">
                 <Spinner size={28} />
@@ -781,7 +923,7 @@ export function Login() {
           <div className="flex items-start gap-2.5 rounded-xl bg-surface-3 px-4 py-3">
             <span className="mt-0.5 text-sm">💡</span>
             <p className="text-xs leading-relaxed text-text-3">
-              打开「<strong className="text-text-2">交我办</strong>」App 或微信，扫描左侧二维码即可完成扫码登录；亦可在右侧直接使用账号密码登录。
+              打开「<strong className="text-text-2">交我办</strong>」App 或微信，扫描左侧二维码即可完成扫码登录与二次验证；亦可在右侧直接使用账号密码登录。
             </p>
           </div>
           <div className="flex items-start gap-2.5 rounded-xl border border-amber/20 bg-amber/5 px-4 py-3">

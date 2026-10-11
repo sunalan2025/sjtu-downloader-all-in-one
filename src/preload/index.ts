@@ -27,6 +27,8 @@ import type {
   UpdateProgress
 } from '../shared/types'
 
+import pkg from '../../package.json'
+
 /** 通用订阅器：注册 ipcRenderer 监听并返回取消订阅函数 */
 const subscribe = <T>(channel: string, cb: (p: T) => void): (() => void) => {
   const listener = (_: unknown, p: T): void => cb(p)
@@ -36,6 +38,8 @@ const subscribe = <T>(channel: string, cb: (p: T) => void): (() => void) => {
 
 /** 暴露给 renderer 进程的完整 API 表面，通过 contextBridge 挂载到 window.api */
 const api = {
+  /** 应用当前版本号（直接从 package.json 读取，与安装包和 GitHub Release 对齐） */
+  version: pkg.version,
   /** 主进程平台标识（darwin/win32/linux），renderer 据此做平台分支（如 macOS 用原生交通灯） */
   platform: process.platform,
   /** 切换标题栏按钮主题（深色/浅色） */

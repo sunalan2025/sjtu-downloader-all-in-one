@@ -14,8 +14,7 @@ import {
   type CanvasDownloadTaskSpec,
   type DownloadState,
   type DownloadTaskSpec,
-  type FileConflictStrategy,
-  type VodInfoData
+  type FileConflictStrategy
 } from '../../shared/types'
 import { getHlsActive, noteTaskError } from '../concurrency'
 import { emitProgress } from './progress'
