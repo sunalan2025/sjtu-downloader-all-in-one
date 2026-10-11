@@ -62,13 +62,17 @@ describe('window exit preferences and resolution', () => {
     try {
       useAppStore.getState().setExitWhenDownloading('background')
       expect(await resolveWindowAction('close')).toBe('minimize')
+      expect(await resolveWindowAction('minimize')).toBe('minimize')
 
       useAppStore.getState().setExitWhenDownloading('pause_quit')
       expect(await resolveWindowAction('close')).toBe('quit')
+      // 关键修复验证：进行中任务存在且策略为 pause_quit 时，点击最小化依然保持 minimize
+      expect(await resolveWindowAction('minimize')).toBe('minimize')
 
       // prompt with unmounted modal returns cancel
       useAppStore.getState().setExitWhenDownloading('prompt')
       expect(await resolveWindowAction('close')).toBe('cancel')
+      expect(await resolveWindowAction('minimize')).toBe('minimize')
     } finally {
       useAppStore.getState().setExitWhenDownloading('prompt')
       ;(globalThis as any).window = originalWindow
