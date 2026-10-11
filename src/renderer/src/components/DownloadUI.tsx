@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react'
 import type { DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, CnmoocResourceFilter, VideoQualityOption } from '@shared/types'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { Spinner } from './Spinner'
-import { useAppStore } from '../store/app'
+import { useAppStore, type CourseViewMode } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { formatBytes } from '../../../shared/utils'
 
@@ -905,4 +905,65 @@ export function LayoutModeSwitch({
     </div>
   )
 }
+
+/** 网盘式导航视图模式切换器（分栏 / 列表 / 网格） */
+export function NetdiskViewModeSwitch({
+  mode,
+  onChange
+}: {
+  mode: CourseViewMode
+  onChange: (m: CourseViewMode) => void
+}) {
+  return (
+    <div className="flex h-10 items-center rounded-xl border border-bd bg-surface-2 p-1 shadow-2xs">
+      <button
+        type="button"
+        onClick={() => onChange('column')}
+        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+          mode === 'column' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
+        }`}
+        title="分栏多级并列视图 (Column)"
+      >
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="5.5" height="18" rx="1" />
+          <rect x="10.5" y="3" width="5.5" height="18" rx="1" />
+          <rect x="18" y="3" width="3" height="18" rx="0.5" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('list')}
+        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+          mode === 'list' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
+        }`}
+        title="详细列表视图 (List)"
+      >
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <line x1="3" y1="6" x2="3.01" y2="6" strokeWidth="3" />
+          <line x1="3" y1="12" x2="3.01" y2="12" strokeWidth="3" />
+          <line x1="3" y1="18" x2="3.01" y2="18" strokeWidth="3" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('grid')}
+        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+          mode === 'grid' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
+        }`}
+        title="网格大图标视图 (Grid)"
+      >
+        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 

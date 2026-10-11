@@ -19,6 +19,9 @@ export type WindowCloseAction = 'tray' | 'taskbar' | 'quit'
 /** 正在下载时关闭窗口的策略：prompt=始终弹窗询问，background=自动转入托盘继续下载，pause_quit=自动暂停任务并退出应用 */
 export type ExitWhenDownloadingPolicy = 'prompt' | 'background' | 'pause_quit'
 
+/** 网盘式课程导航视图模式：grid=网格大图标，list=详细列表，column=分栏多级并列 */
+export type CourseViewMode = 'grid' | 'list' | 'column'
+
 /** renderer 侧讲次分组类型，与 shared/types 的 CanvasLectureGroup 同构 */
 export type LectureGroup = CanvasLectureGroup
 
@@ -120,6 +123,8 @@ interface AppState {
   autoConcurrency: boolean
   /** 课程列表排版模式：deck=多列网格卡片流（新版），list=传统紧凑通栏列表流（旧版） */
   courseLayoutMode: 'deck' | 'list'
+  /** 网盘式课程导航视图模式：grid=网格大图标，list=详细列表，column=分栏多级并列 */
+  courseViewMode: CourseViewMode
   /** 上一次激活的内容课程 tab（canvas / audited / cnmooc） */
   lastCourseTab: 'canvas' | 'audited' | 'cnmooc'
   /** 关闭主窗口时的默认动作（tray=最小化到托盘，taskbar=最小化到任务栏，quit=彻底退出应用） */
@@ -135,6 +140,8 @@ interface AppState {
   setTheme: (t: Theme) => void
   /** 切换课程列表排版模式 */
   setCourseLayoutMode: (mode: 'deck' | 'list') => void
+  /** 切换网盘式课程导航视图模式 */
+  setCourseViewMode: (mode: CourseViewMode) => void
   /** 记录上一次激活的课程 tab */
   setLastCourseTab: (tab: 'canvas' | 'audited' | 'cnmooc') => void
   /** 切换主界面 stage */
@@ -416,6 +423,7 @@ export const useAppStore = create<AppState>()(
       autoConcurrency: false,
       autoDownloadUpdate: false,
       courseLayoutMode: 'deck' as 'deck' | 'list',
+      courseViewMode: 'grid' as CourseViewMode,
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
       windowCloseAction: 'tray' as WindowCloseAction,
       exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
@@ -423,6 +431,7 @@ export const useAppStore = create<AppState>()(
       setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
       setCourseLayoutMode: courseLayoutMode => set({ courseLayoutMode }),
+      setCourseViewMode: courseViewMode => set({ courseViewMode }),
       setLastCourseTab: lastCourseTab => set({ lastCourseTab }),
       setStage: stage => set({ stage }),
       setActiveTab: activeTab => set(state => {
@@ -775,6 +784,7 @@ export const useAppStore = create<AppState>()(
         videoQualityOption: state.videoQualityOption,
         downloadHistory: state.downloadHistory,
         courseLayoutMode: state.courseLayoutMode,
+        courseViewMode: state.courseViewMode,
         lastCourseTab: state.lastCourseTab,
         windowCloseAction: state.windowCloseAction,
         exitWhenDownloading: state.exitWhenDownloading
