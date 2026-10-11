@@ -15,6 +15,11 @@ export function Welcome() {
   const onStart = (targetTab?: ActiveTab): void => {
     if (targetTab) {
       setActiveTab(targetTab)
+    } else {
+      const currentTab = useAppStore.getState().activeTab
+      if (currentTab === 'settings' || currentTab === 'transfer') {
+        setActiveTab(useAppStore.getState().lastCourseTab || 'canvas')
+      }
     }
     setStage(auth.loggedIn ? 'browser' : 'login')
   }

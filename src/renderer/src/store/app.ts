@@ -699,7 +699,27 @@ export const useAppStore = create<AppState>()(
         if (version < 3 && state) {
           state.theme = 'system'
         }
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer')) {
+          state.activeTab = (state.lastCourseTab as string) || 'canvas'
+        }
         return state
+      },
+      merge: (persistedState: unknown, currentState: AppState) => {
+        const persisted = (persistedState ?? {}) as Partial<AppState>
+        const activeTab =
+          persisted.activeTab === 'settings' || persisted.activeTab === 'transfer'
+            ? persisted.lastCourseTab || currentState.lastCourseTab || 'canvas'
+            : (persisted.activeTab ?? currentState.activeTab)
+        return {
+          ...currentState,
+          ...persisted,
+          activeTab
+        }
+      },
+      onRehydrateStorage: () => state => {
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer')) {
+          state.activeTab = state.lastCourseTab || 'canvas'
+        }
       },
       storage: createJSONStorage(() => localStorage),
       // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据。
@@ -708,7 +728,9 @@ export const useAppStore = create<AppState>()(
       // prefetchCloudConnection 自动隐式 SSO 重新连接。
       partialize: state => ({
         theme: state.theme,
-        activeTab: state.activeTab,
+        activeTab: (state.activeTab === 'settings' || state.activeTab === 'transfer')
+          ? (state.lastCourseTab || 'canvas')
+          : state.activeTab,
         concurrency: state.concurrency,
         autoConcurrency: state.autoConcurrency,
         downloadMode: state.downloadMode,
