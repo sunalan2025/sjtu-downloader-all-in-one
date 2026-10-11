@@ -146,12 +146,18 @@ export function AuditedCourses() {
     try {
       const env = await window.api.vsjtu.scanAudit(1, 100)
       if (!env?.success) {
-        const msg = env?.message || '拉取课程列表失败'
-        if (msg.includes('未登录') || msg.includes('登录已过期')) {
+        const msg = env?.message || (env as any)?.code || '拉取课程列表失败'
+        if (
+          msg.includes('未登录') ||
+          msg.includes('登录已过期') ||
+          msg.includes('expired') ||
+          (env as any)?.code === 'auth.authz.jwt.expired' ||
+          (env as any)?.code === '401'
+        ) {
           // 登录态失效：先清空扫描结果（scanState→idle）再跳登录页。
           // 用户在登录页扫码成功后 Browser 重新挂载，scanState=idle 会自动触发
           // runScan 重新完整加载课程列表（=「确认登陆之后重新完整加载」）。
-          setAuth({ loggedIn: false })
+          setAuth({ loggedIn: false, expired: true })
           resetScanResults()
           setStage('login')
         } else {

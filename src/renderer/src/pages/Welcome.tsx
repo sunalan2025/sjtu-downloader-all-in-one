@@ -1,3 +1,4 @@
+import appLogo from '../assets/logo.png'
 import { useAppStore } from '../store/app'
 import type { ActiveTab } from '@shared/types'
 import pkg from '../../../../package.json'
@@ -89,12 +90,8 @@ export function Welcome() {
         {/* 顶部：品牌 Logo 与定位 */}
         <div>
           <div className="flex items-center gap-3.5">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent text-white shadow-sm ring-1 ring-accent-light/30">
-              <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-surface-1 shadow-sm ring-1 ring-bd overflow-hidden p-1">
+              <img src={appLogo} alt="SJTU Logo" className="h-full w-full object-contain" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">

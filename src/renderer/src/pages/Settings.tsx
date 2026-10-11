@@ -1,8 +1,14 @@
 import { useState } from 'react'
-import { useAppStore, type Theme, type WindowCloseAction, type ExitWhenDownloadingPolicy } from '../store/app'
+import {
+  useAppStore,
+  type Theme,
+  type WindowCloseAction,
+  type ExitWhenDownloadingPolicy,
+  type CourseViewMode
+} from '../store/app'
 import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
-import type { DownloadMode } from '@shared/types'
+import type { DownloadMode, VideoQualityOption } from '@shared/types'
 import pkg from '../../../../package.json'
 
 export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
@@ -12,24 +18,26 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
   const setFileConflictStrategy = useAppStore(s => s.setFileConflictStrategy)
   const concurrency = useAppStore(s => s.concurrency)
   const setConcurrency = useAppStore(s => s.setConcurrency)
+  const maxDownloadSpeedKBps = useAppStore(s => s.maxDownloadSpeedKBps)
+  const setMaxDownloadSpeedKBps = useAppStore(s => s.setMaxDownloadSpeedKBps)
+  const videoQualityOption = useAppStore(s => s.videoQualityOption)
+  const setVideoQualityOption = useAppStore(s => s.setVideoQualityOption)
   const cloudUserToken = useAppStore(s => s.cloudUserToken)
   const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
   const localDestRoot = useAppStore(s => s.localDestRoot)
   const setLocalDestRoot = useAppStore(s => s.setLocalDestRoot)
   const theme = useAppStore(s => s.theme)
   const setTheme = useAppStore(s => s.setTheme)
-  const courseLayoutMode = useAppStore(s => s.courseLayoutMode)
-  const setCourseLayoutMode = useAppStore(s => s.setCourseLayoutMode)
+  const courseViewMode = useAppStore(s => s.courseViewMode)
+  const setCourseViewMode = useAppStore(s => s.setCourseViewMode)
   const windowCloseAction = useAppStore(s => s.windowCloseAction)
   const setWindowCloseAction = useAppStore(s => s.setWindowCloseAction)
   const exitWhenDownloading = useAppStore(s => s.exitWhenDownloading)
   const setExitWhenDownloading = useAppStore(s => s.setExitWhenDownloading)
+  const autoDownloadUpdate = useAppStore(s => s.autoDownloadUpdate)
+  const setAutoDownloadUpdate = useAppStore(s => s.setAutoDownloadUpdate)
 
   const [activeNav, setActiveNav] = useState('storage')
-  const [videoStreamPref, setVideoStreamPref] = useState<'both' | 'teacher' | 'ppt'>('both')
-  const [pptToPdf, setPptToPdf] = useState(true)
-  const [pptExportSlices, setPptExportSlices] = useState(true)
-  const [autoSyncCourses, setAutoSyncCourses] = useState(true)
 
   const handleSelectFolder = async (): Promise<void> => {
     const p = await window.api.selectFolder()
@@ -69,14 +77,14 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
   return (
     <div className="flex h-full w-full flex-col bg-surface-1">
       <div className="flex flex-1 overflow-hidden">
-        {/* 左栏分类导航：通透极简，无厚重背景 */}
+        {/* 左栏分类导航 */}
         <aside className="w-52 shrink-0 border-r border-bd/60 bg-surface-1/40 p-3 flex flex-col gap-1 select-none">
           {[
             { id: 'storage', label: '📦 存储与下载' },
             { id: 'cloud', label: '☁️ 交大云盘集成' },
             { id: 'performance', label: '⚡ 性能与并发' },
             { id: 'video', label: '🎬 课件与视频' },
-            { id: 'appearance', label: '🎨 外观与通用' }
+            { id: 'appearance', label: '🎨 外观与窗口' }
           ].map(item => (
             <button
               key={item.id}
@@ -93,7 +101,7 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
           ))}
         </aside>
 
-        {/* 右栏内容：去框化无界排版（Divided List Rows），透气舒展 */}
+        {/* 右栏内容 */}
         <main className="flex-1 overflow-y-auto px-10 py-8">
           <div className="mx-auto max-w-2xl">
             
@@ -161,7 +169,7 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                         value={fileConflictStrategy}
                         onChange={(v) => setFileConflictStrategy(v as any)}
                         options={[
-                          { key: 'skip', label: '智能跳过' },
+                          { key: 'skip', label: '智能跳过 (推荐)' },
                           { key: 'overwrite', label: '覆盖更新' }
                         ]}
                       />
@@ -190,7 +198,7 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                         </span>
                       </div>
                       <div className="text-xs text-text-3">
-                        {cloudUserToken ? '会话有效，支持直传与秒传' : '点击右侧按钮可通过 jAccount 免密快速登录'}
+                        {cloudUserToken ? '会话有效，支持秒传与分片直传' : '点击右侧按钮可通过 jAccount 免密快速授权'}
                       </div>
                     </div>
                     <button
@@ -223,6 +231,19 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                       </div>
                     </div>
                   )}
+
+                  {/* 行 3：云端保存目录说明 */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="text-sm font-medium text-text-1">云端保存根目录</div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        直传或备份时自动保存在交大云盘根目录下的专属文件夹中，保持与课程相同的分类层级。
+                      </div>
+                    </div>
+                    <span className="rounded-lg border border-bd bg-surface-2 px-3 py-1 font-mono text-xs text-text-2">
+                      /SJTU课程下载
+                    </span>
+                  </div>
                 </div>
               </section>
             )}
@@ -232,17 +253,17 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
               <section className="space-y-6">
                 <div>
                   <h2 className="text-base font-bold text-text-1">性能与并发</h2>
-                  <p className="mt-1 text-xs text-text-3">精细控制网络吞吐与多任务并行数，支持自定义 1~16 并发</p>
+                  <p className="mt-1 text-xs text-text-3">精细控制网络吞吐与多任务并行数，支持自定义并发与下载限速</p>
                 </div>
 
                 <div className="divide-y divide-bd/50 border-t border-bd/50">
-                  {/* 并发数：支持快速预设与滑动/数字微调自定义 */}
+                  {/* 并发数 */}
                   <div className="py-5 space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div className="space-y-1">
                         <div className="text-sm font-medium text-text-1">最大并发任务数</div>
                         <div className="text-xs text-text-3">
-                          同时下载或上传的最大文件数，范围 1 ~ 16
+                          同时进行网络传输的文件数量，千兆有线网络推荐 5~8，校园网无线 Wi-Fi 推荐 3
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 self-start sm:self-auto">
@@ -257,13 +278,12 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                                 : 'bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-1'
                             }`}
                           >
-                            {p}
+                            {p}{p === 3 ? ' (推荐)' : ''}
                           </button>
                         ))}
                       </div>
                     </div>
 
-                    {/* 自定义精确滑块 + 数字步进 */}
                     <div className="flex items-center gap-4 rounded-xl bg-surface-2/60 p-3.5">
                       <span className="text-xs text-text-3 shrink-0">1</span>
                       <input
@@ -282,6 +302,29 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                       </div>
                     </div>
                   </div>
+
+                  {/* 全局下载限速 */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="text-sm font-medium text-text-1">全局下载限速</div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        限制单机总下载带宽，避免占满网络影响其他正常业务
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      <Segmented
+                        size="md"
+                        value={String(maxDownloadSpeedKBps)}
+                        onChange={(v) => setMaxDownloadSpeedKBps(parseInt(v, 10))}
+                        options={[
+                          { key: '0', label: '不限速 (推荐)' },
+                          { key: '10240', label: '10 MB/s' },
+                          { key: '25600', label: '25 MB/s' },
+                          { key: '51200', label: '50 MB/s' }
+                        ]}
+                      />
+                    </div>
+                  </div>
                 </div>
               </section>
             )}
@@ -291,85 +334,53 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
               <section className="space-y-6">
                 <div>
                   <h2 className="text-base font-bold text-text-1">课件与视频</h2>
-                  <p className="mt-1 text-xs text-text-3">针对 Canvas LTI 与交大视频的双流视角提取及课件格式处理</p>
+                  <p className="mt-1 text-xs text-text-3">针对 Canvas 教学平台、旁听课程及好大学在线的音视频偏好</p>
                 </div>
 
                 <div className="divide-y divide-bd/50 border-t border-bd/50">
-                  {/* 行 1：视角偏好 */}
+                  {/* 视频清晰度与提取偏好 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
-                      <div className="text-sm font-medium text-text-1">课堂视频视角偏好</div>
-                      <div className="text-xs text-text-3">
-                        {videoStreamPref === 'both' && '同时解析并下载教师讲台与 PPT 高清投影机位'}
-                        {videoStreamPref === 'teacher' && '仅保留教师端机位'}
-                        {videoStreamPref === 'ppt' && '仅保留 PPT 高清演示机位'}
+                      <div className="text-sm font-medium text-text-1">视频清晰度与提取偏好</div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        课堂视频与在线慕课解析时优先获取的分辨率规格，亦可直接抽取为纯音频文件
                       </div>
                     </div>
                     <div className="shrink-0">
                       <Segmented
                         size="md"
-                        value={videoStreamPref}
-                        onChange={(v) => setVideoStreamPref(v as any)}
+                        value={videoQualityOption}
+                        onChange={(v) => setVideoQualityOption(v as VideoQualityOption)}
                         options={[
-                          { key: 'both', label: '双视角' },
-                          { key: 'teacher', label: '仅教师' },
-                          { key: 'ppt', label: '仅 PPT' }
+                          { key: 'origin', label: '原画高清 (推荐)' },
+                          { key: '1080p', label: '1080P' },
+                          { key: '720p', label: '720P' },
+                          { key: 'audio_only', label: '仅提取音频' }
                         ]}
                       />
                     </div>
                   </div>
 
-                  {/* 行 2：PPT 转 PDF */}
-                  <div className="flex items-center justify-between gap-4 py-5">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-text-1">自动转存 PPT 课件为 PDF</div>
-                      <div className="text-xs text-text-3">便于在 iPad 或平板设备上进行手写批注</div>
+                  {/* 智能 PPT 讲义与切片导出说明 */}
+                  <div className="py-5 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-text-1">📑 PPT 演示切片导出为 PDF 讲义</span>
+                      <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">已就绪</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setPptToPdf(!pptToPdf)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
-                        pptToPdf ? 'bg-accent' : 'bg-surface-4'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
-                          pptToPdf ? 'translate-x-4' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {/* 行 3：PPT 幻灯片切片导出 */}
-                  <div className="flex items-center justify-between gap-4 py-5">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-text-1">导出讲义高清切片图集目录</div>
-                      <div className="text-xs text-text-3">将讲义单页保存为高清图片伴生目录</div>
+                    <div className="text-xs text-text-3 leading-relaxed">
+                      在 Canvas 课程浏览器的「📑 PPT课件 (PDF)」分类中，勾选后下载器会在抓取课堂录像演示画面的同时自动整合生成包含全部板书与幻灯片切片的高清矢量 PDF 电子讲义，适合导入 iPad / 平板进行无纸化批注。
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setPptExportSlices(!pptExportSlices)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
-                        pptExportSlices ? 'bg-accent' : 'bg-surface-4'
-                      }`}
-                    >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
-                          pptExportSlices ? 'translate-x-4' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
                   </div>
                 </div>
               </section>
             )}
 
-            {/* 5. 外观与通用 */}
+            {/* 5. 外观与窗口 */}
             {activeNav === 'appearance' && (
               <section className="space-y-6">
                 <div>
-                  <h2 className="text-base font-bold text-text-1">外观与通用</h2>
-                  <p className="mt-1 text-xs text-text-3">界面色彩主题与客户端后台偏好设置</p>
+                  <h2 className="text-base font-bold text-text-1">外观与窗口</h2>
+                  <p className="mt-1 text-xs text-text-3">界面色彩主题、网盘排版视图与客户端关闭保护策略</p>
                 </div>
 
                 <div className="divide-y divide-bd/50 border-t border-bd/50">
@@ -393,20 +404,21 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                     </div>
                   </div>
 
-                  {/* 行 2：课程列表排版模式切换 (新版 Deck vs 旧版 List) */}
+                  {/* 行 2：默认网盘浏览视图 (替换旧版冲突的 courseLayoutMode) */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1">
-                      <div className="text-sm font-medium text-text-1">课程列表排版风格</div>
-                      <div className="text-xs text-text-3">支持在现代卡片网格流（新版）与传统全宽紧凑列表（旧版）之间自由切换</div>
+                      <div className="text-sm font-medium text-text-1">默认网盘浏览视图</div>
+                      <div className="text-xs text-text-3">进入课程页面时默认呈现的排版视图（顶部切换栏可随时临时调整）</div>
                     </div>
                     <div className="shrink-0">
                       <Segmented
                         size="md"
-                        value={courseLayoutMode}
-                        onChange={(v) => setCourseLayoutMode(v as 'deck' | 'list')}
+                        value={courseViewMode}
+                        onChange={(v) => setCourseViewMode(v as CourseViewMode)}
                         options={[
-                          { key: 'deck', label: '🎴 卡片网格 (Deck)' },
-                          { key: 'list', label: '📋 紧凑列表 (List)' }
+                          { key: 'grid', label: '⊞ 网格大图标 (推荐)' },
+                          { key: 'list', label: '☰ 详细列表' },
+                          { key: 'column', label: '◫ 分栏多级并列' }
                         ]}
                       />
                     </div>
@@ -456,28 +468,28 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                     </div>
                   </div>
 
-                  {/* 行 3：启动自动同步 */}
+                  {/* 行 5：新版本自动后台下载 */}
                   <div className="flex items-center justify-between gap-4 py-5">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-text-1">启动时静默预检课程</div>
-                      <div className="text-xs text-text-3">进入应用后在后台静默刷新 Canvas 与好大学在线课程索引</div>
+                    <div className="space-y-1 max-w-sm">
+                      <div className="text-sm font-medium text-text-1">新版本自动下载</div>
+                      <div className="text-xs text-text-3">检测到新版本时在后台静默下载安装包（下载就绪后提示安装，不强制打断）</div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setAutoSyncCourses(!autoSyncCourses)}
+                      onClick={() => setAutoDownloadUpdate(!autoDownloadUpdate)}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
-                        autoSyncCourses ? 'bg-accent' : 'bg-surface-4'
+                        autoDownloadUpdate ? 'bg-accent' : 'bg-surface-4'
                       }`}
                     >
                       <span
                         className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
-                          autoSyncCourses ? 'translate-x-4' : 'translate-x-0'
+                          autoDownloadUpdate ? 'translate-x-4' : 'translate-x-0'
                         }`}
                       />
                     </button>
                   </div>
 
-                  {/* 行 3：版本与信息 */}
+                  {/* 行 6：版本信息 */}
                   <div className="flex items-center justify-between gap-4 py-5">
                     <div className="space-y-1">
                       <div className="text-sm font-medium text-text-1">当前客户端版本</div>
