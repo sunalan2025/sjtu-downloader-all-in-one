@@ -32,12 +32,14 @@ export interface NetdiskFileItem {
   selected: boolean
   onToggle: () => void
   renderExtra?: React.ReactNode
+  disabled?: boolean
+  disabledReason?: string
 }
 
 export interface NetdiskCategoryItem {
   id: string
   name: string
-  icon?: 'folder' | 'video' | 'file' | 'presentation' | React.ReactNode
+  icon?: 'folder' | 'video' | 'file' | 'presentation' | 'audio' | React.ReactNode
   badge?: string
   state: TriState
   onToggle: () => void
@@ -46,6 +48,8 @@ export interface NetdiskCategoryItem {
   loadingMessage?: string
   emptyMessage?: string
   renderExtra?: React.ReactNode
+  disabled?: boolean
+  disabledReason?: string
 }
 
 export interface NetdiskCourseItem {
@@ -98,6 +102,17 @@ function CategoryIcon({
   const boxSize = size === 'lg' ? 'h-14 w-14 rounded-2xl' : size === 'sm' ? 'h-5 w-5 rounded-md' : 'h-7 w-7 rounded-lg'
   const svgSize = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
 
+  if (icon === 'audio') {
+    return (
+      <div className={`flex ${boxSize} shrink-0 items-center justify-center bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm ring-1 ring-emerald-400/20`}>
+        <svg className={`${svgSize} fill-none stroke-current drop-shadow-2xs`} viewBox="0 0 24 24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+      </div>
+    )
+  }
   if (icon === 'video') {
     return (
       <div className={`flex ${boxSize} shrink-0 items-center justify-center bg-gradient-to-br from-sky-500 to-blue-600 text-white shadow-sm ring-1 ring-sky-400/20`}>
@@ -575,21 +590,40 @@ function GridView({
           {currentCategory.items.map(item => (
             <div
               key={item.id}
-              onClick={() => item.onToggle()}
-              className="flex flex-col justify-between rounded-xl border border-bd bg-surface-1 p-3 shadow-2xs hover:border-bd-strong hover:bg-surface-2/40 transition-colors cursor-pointer select-none"
+              onClick={() => {
+                if (item.disabled) return
+                item.onToggle()
+              }}
+              className={`flex flex-col justify-between rounded-xl border p-3 shadow-2xs transition-colors select-none ${
+                item.disabled
+                  ? 'border-bd/40 bg-surface-2/30 opacity-60 cursor-not-allowed'
+                  : 'border-bd bg-surface-1 hover:border-bd-strong hover:bg-surface-2/40 cursor-pointer'
+              }`}
             >
               <div className="flex items-start gap-2.5">
                 <span className="shrink-0 mt-0.5">
-                  <ItemCheckbox checked={item.selected} onChange={() => item.onToggle()} />
+                  <ItemCheckbox
+                    checked={item.selected}
+                    disabled={item.disabled}
+                    onChange={() => {
+                      if (item.disabled) return
+                      item.onToggle()
+                    }}
+                  />
                 </span>
                 <span className="shrink-0">
                   <FileTypeBadge filename={item.name} type={item.type} />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium text-text-1 line-clamp-2" title={item.name}>
+                  <div className={`text-xs font-medium line-clamp-2 ${item.disabled ? 'text-text-3' : 'text-text-1'}`} title={item.name}>
                     {item.name}
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[11px] font-mono text-text-3">
+                    {item.disabledReason ? (
+                      <span className="rounded bg-surface-3/80 px-1 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                        {item.disabledReason}
+                      </span>
+                    ) : null}
                     {item.size ? <span>{formatBytes(item.size)}</span> : null}
                     {item.date ? <span>{item.date}</span> : null}
                   </div>
@@ -764,18 +798,37 @@ function ListView({
           {currentCategory.items.map(item => (
             <tr
               key={item.id}
-              onClick={() => item.onToggle()}
-              className="hover:bg-surface-2/60 transition-colors cursor-pointer"
+              onClick={() => {
+                if (item.disabled) return
+                item.onToggle()
+              }}
+              className={`transition-colors ${
+                item.disabled
+                  ? 'opacity-60 bg-surface-2/20 cursor-not-allowed'
+                  : 'hover:bg-surface-2/60 cursor-pointer'
+              }`}
             >
               <td className="py-2.5 px-4">
                 <div className="flex items-center gap-2.5">
                   <span className="shrink-0" onClick={e => e.stopPropagation()}>
-                    <ItemCheckbox checked={item.selected} onChange={() => item.onToggle()} />
+                    <ItemCheckbox
+                      checked={item.selected}
+                      disabled={item.disabled}
+                      onChange={() => {
+                        if (item.disabled) return
+                        item.onToggle()
+                      }}
+                    />
                   </span>
                   <FileTypeBadge filename={item.name} type={item.type} />
-                  <span className="font-medium text-text-1 truncate max-w-md" title={item.name}>
+                  <span className={`font-medium truncate max-w-md ${item.disabled ? 'text-text-3' : 'text-text-1'}`} title={item.name}>
                     {item.name}
                   </span>
+                  {item.disabledReason && (
+                    <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                      {item.disabledReason}
+                    </span>
+                  )}
                 </div>
               </td>
               <td className="py-2.5 px-4 text-text-3 font-mono">
@@ -959,17 +1012,36 @@ function ColumnView({
           {activeCategory?.items.map(item => (
             <div
               key={item.id}
-              onClick={() => item.onToggle()}
-              className="flex flex-col px-4 py-2 hover:bg-surface-2/40 transition-colors cursor-pointer select-none"
+              onClick={() => {
+                if (item.disabled) return
+                item.onToggle()
+              }}
+              className={`flex flex-col px-4 py-2 transition-colors select-none ${
+                item.disabled
+                  ? 'opacity-60 bg-surface-2/20 cursor-not-allowed'
+                  : 'hover:bg-surface-2/40 cursor-pointer'
+              }`}
             >
               <div className="flex items-center gap-2.5">
                 <span className="shrink-0" onClick={e => e.stopPropagation()}>
-                  <ItemCheckbox checked={item.selected} onChange={() => item.onToggle()} />
+                  <ItemCheckbox
+                    checked={item.selected}
+                    disabled={item.disabled}
+                    onChange={() => {
+                      if (item.disabled) return
+                      item.onToggle()
+                    }}
+                  />
                 </span>
                 <FileTypeBadge filename={item.name} type={item.type} />
-                <span className="min-w-0 flex-1 truncate text-xs text-text-1" title={item.name}>
+                <span className={`min-w-0 flex-1 truncate text-xs ${item.disabled ? 'text-text-3' : 'text-text-1'}`} title={item.name}>
                   {item.name}
                 </span>
+                {item.disabledReason && (
+                  <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                    {item.disabledReason}
+                  </span>
+                )}
                 {item.size ? (
                   <span className="shrink-0 font-mono text-[11px] text-text-3">
                     {formatBytes(item.size)}

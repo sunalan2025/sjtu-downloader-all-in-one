@@ -198,7 +198,7 @@ export function CanvasBrowser() {
     downloadMode, canvasCourses, canvasScanState, canvasScanMessage,
     canvasCourseData, canvasTeachers, canvasSelectedTeachers,
     canvasLectures, canvasModuleVideos, canvasCourseCategorySelections,
-    courseViewMode, cloudLinkedIds
+    courseViewMode, cloudLinkedIds, videoQualityOption
   } = useAppStore(useShallow(s => ({
     localDestRoot: s.localDestRoot,
     cloudUserToken: s.cloudUserToken,
@@ -213,7 +213,8 @@ export function CanvasBrowser() {
     canvasModuleVideos: s.canvasModuleVideos,
     canvasCourseCategorySelections: s.canvasCourseCategorySelections,
     courseViewMode: s.courseViewMode,
-    cloudLinkedIds: s.cloudLinkedIds
+    cloudLinkedIds: s.cloudLinkedIds,
+    videoQualityOption: s.videoQualityOption
   })))
   const setCourseViewMode = useAppStore(s => s.setCourseViewMode)
   // Group 2: frequently-changing (downloading flag — derived from progress)
@@ -1138,7 +1139,8 @@ export function CanvasBrowser() {
         }
       }
 
-      // 视频项
+      // 视频/音频项
+      const isAudioOnly = videoQualityOption === 'audio_only'
       const videoItems: NetdiskFileItem[] = []
       if (lec) {
         for (const l of lec) {
@@ -1146,9 +1148,11 @@ export function CanvasBrowser() {
             const tTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'teacher')
             videoItems.push({
               id: tTid,
-              name: `${c.name} - 第${l.lectureNum}讲 教师 (MP4)`,
+              name: isAudioOnly
+                ? `${c.name} - 第${l.lectureNum}讲 教师 (音频 M4A)`
+                : `${c.name} - 第${l.lectureNum}讲 教师 (MP4)`,
               date: l.date,
-              type: 'MP4',
+              type: isAudioOnly ? 'M4A' : 'MP4',
               selected: selected.has(tTid),
               onToggle: () => toggleSelect(tTid),
               renderExtra: <VideoRowProgress tid={tTid} controllable={true} />
@@ -1156,11 +1160,18 @@ export function CanvasBrowser() {
             const pTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'ppt')
             videoItems.push({
               id: pTid,
-              name: `${c.name} - 第${l.lectureNum}讲 PPT (MP4)`,
+              name: isAudioOnly
+                ? `${c.name} - 第${l.lectureNum}讲 PPT (无独立音频流)`
+                : `${c.name} - 第${l.lectureNum}讲 PPT (MP4)`,
               date: l.date,
-              type: 'PPT',
-              selected: selected.has(pTid),
-              onToggle: () => toggleSelect(pTid),
+              type: isAudioOnly ? 'DISABLED' : 'PPT',
+              disabled: isAudioOnly,
+              disabledReason: isAudioOnly ? '无独立音频流' : undefined,
+              selected: isAudioOnly ? false : selected.has(pTid),
+              onToggle: () => {
+                if (isAudioOnly) return
+                toggleSelect(pTid)
+              },
               renderExtra: <VideoRowProgress tid={pTid} controllable={true} />
             })
           }
@@ -1171,8 +1182,8 @@ export function CanvasBrowser() {
           const tid = iframeVideoTaskId(c.courseId, t.pageTitle)
           videoItems.push({
             id: tid,
-            name: `${t.pageTitle} (MP4)`,
-            type: 'MP4',
+            name: isAudioOnly ? `${t.pageTitle} (音频 M4A)` : `${t.pageTitle} (MP4)`,
+            type: isAudioOnly ? 'M4A' : 'MP4',
             selected: selected.has(tid),
             onToggle: () => toggleSelect(tid),
             renderExtra: <VideoRowProgress tid={tid} controllable={false} />
@@ -1182,8 +1193,8 @@ export function CanvasBrowser() {
           const tid = extToolVideoTaskId(c.courseId, t.fileId)
           videoItems.push({
             id: tid,
-            name: `${t.title} (MP4)`,
-            type: 'MP4',
+            name: isAudioOnly ? `${t.title} (音频 M4A)` : `${t.title} (MP4)`,
+            type: isAudioOnly ? 'M4A' : 'MP4',
             selected: selected.has(tid),
             onToggle: () => toggleSelect(tid),
             renderExtra: <VideoRowProgress tid={tid} controllable={true} />
@@ -1193,8 +1204,8 @@ export function CanvasBrowser() {
           const tid = extUrlVideoTaskId(c.courseId, t.uuid)
           videoItems.push({
             id: tid,
-            name: `${t.title} (MP4)`,
-            type: 'MP4',
+            name: isAudioOnly ? `${t.title} (音频 M4A)` : `${t.title} (MP4)`,
+            type: isAudioOnly ? 'M4A' : 'MP4',
             selected: selected.has(tid),
             onToggle: () => toggleSelect(tid),
             renderExtra: <VideoRowProgress tid={tid} controllable={true} />
@@ -1267,8 +1278,8 @@ export function CanvasBrowser() {
         },
         {
           id: 'videos',
-          name: '课堂视频',
-          icon: 'video',
+          name: isAudioOnly ? '🎵 课堂原声音频 (M4A)' : '🎬 课堂视频',
+          icon: isAudioOnly ? 'audio' : 'video',
           state: (cStates.teacher === 'all' && cStates.ppt === 'all' && cStates.moduleVideo === 'all')
             ? 'all'
             : (cStates.teacher === 'none' && cStates.ppt === 'none' && cStates.moduleVideo === 'none')
@@ -1283,8 +1294,10 @@ export function CanvasBrowser() {
           },
           items: videoItems,
           isLoading: scanningVideoCourseIds[c.courseId],
-          loadingMessage: '正在扫描课堂视频…',
-          emptyMessage: lec ? '该课程未发现课堂视频' : '点击扫描课堂视频',
+          loadingMessage: isAudioOnly ? '正在扫描课堂音频…' : '正在扫描课堂视频…',
+          emptyMessage: lec
+            ? (isAudioOnly ? '该课程未发现课堂音频' : '该课程未发现课堂视频')
+            : (isAudioOnly ? '点击扫描课堂音频' : '点击扫描课堂视频'),
           renderExtra: !lec && !scanningVideoCourseIds[c.courseId] ? (
             <div className="py-1 text-center">
               <button
@@ -1292,7 +1305,7 @@ export function CanvasBrowser() {
                 onClick={() => void doClassVideoScan(c.courseId)}
                 className="text-xs text-accent hover:underline cursor-pointer"
               >
-                点击扫描课堂视频
+                {isAudioOnly ? '点击扫描课堂音频' : '点击扫描课堂视频'}
               </button>
             </div>
           ) : undefined
@@ -1334,7 +1347,8 @@ export function CanvasBrowser() {
     canvasCourseCategorySelections, courseStates, courseTaskIds, selected,
     toggleSelect, toggleSelectMany, setCanvasCourseCategorySelection,
     scanningCourseIds, scanningVideoCourseIds, doScanFiles, doClassVideoScan,
-    toggleCourse, canvasCourseTaskIds, progressMap, downloadMode, cloudLinkedIds
+    toggleCourse, canvasCourseTaskIds, progressMap, downloadMode, cloudLinkedIds,
+    videoQualityOption
   ])
 
   return (
