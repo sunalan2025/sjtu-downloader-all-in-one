@@ -621,20 +621,32 @@ export function OverallProgressBar() {
 // 设计图对齐视觉徽标与图标
 // ─────────────────────────────────────────────────────────────
 
-export function ItemCheckbox({ checked, onChange }: { checked: boolean; onChange?: () => void }) {
+export function ItemCheckbox({
+  checked,
+  disabled,
+  onChange
+}: {
+  checked: boolean
+  disabled?: boolean
+  onChange?: () => void
+}) {
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
+      disabled={disabled}
       onClick={(e) => {
         e.stopPropagation()
+        if (disabled) return
         onChange?.()
       }}
-      className={`inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded border transition-all duration-150 ${
-        checked
-          ? 'border-accent bg-accent text-white shadow-2xs'
-          : 'border-bd-strong bg-surface-1 hover:border-text-3'
+      className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-all duration-150 ${
+        disabled
+          ? 'cursor-not-allowed opacity-40 border-bd/40 bg-surface-2'
+          : checked
+            ? 'cursor-pointer border-accent bg-accent text-white shadow-2xs'
+            : 'cursor-pointer border-bd-strong bg-surface-1 hover:border-text-3'
       }`}
     >
       {checked && (
@@ -696,6 +708,29 @@ export function FileTypeBadge({
         <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#93C5FD"/>
         <polygon points="8,10.5 13.5,13.5 8,16.5" fill="#FFFFFF"/>
         <text x="10" y="20.5" fill="#DBEAFE" fontSize="3.8" fontWeight="bold" textAnchor="middle" fontFamily="system-ui, sans-serif">MP4</text>
+      </svg>
+    )
+  }
+  if (ext === 'M4A' || ext === 'MP3' || ext === 'AAC' || ext === 'AUDIO' || ext === 'WAV' || ext === 'FLAC') {
+    return (
+      <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>M4A 音频</title>
+        <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#10B981"/>
+        <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#6EE7B7"/>
+        <path d="M8 14.5C8 13.67 8.67 13 9.5 13C10.33 13 11 13.67 11 14.5C11 15.33 10.33 16 9.5 16C8.67 16 8 15.33 8 14.5ZM11 14.5V9.5L14 9V11.5L11 12V14.5Z" fill="#FFFFFF"/>
+        <text x="10" y="20.5" fill="#D1FAE5" fontSize="3.8" fontWeight="bold" textAnchor="middle" fontFamily="system-ui, sans-serif">M4A</text>
+      </svg>
+    )
+  }
+  if (ext === 'DISABLED' || ext === 'MUTE') {
+    return (
+      <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>无独立音频</title>
+        <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#94A3B8"/>
+        <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#CBD5E1"/>
+        <circle cx="10" cy="13.5" r="3" stroke="#FFFFFF" strokeWidth="1.2" fill="none"/>
+        <line x1="8" y1="15.5" x2="12" y2="11.5" stroke="#FFFFFF" strokeWidth="1.2"/>
+        <text x="10" y="20.5" fill="#F1F5F9" fontSize="3" fontWeight="bold" textAnchor="middle" fontFamily="system-ui, sans-serif">MUTE</text>
       </svg>
     )
   }

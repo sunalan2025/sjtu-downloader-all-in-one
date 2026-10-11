@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { useAppStore } from '../store/app'
-import { triStateFromCount, formatBytes } from './DownloadUI'
+import { triStateFromCount, formatBytes, FileTypeBadge, ItemCheckbox } from './DownloadUI'
 import { resolveWindowAction } from './WindowConfirmModal'
 
 describe('window exit preferences and resolution', () => {
@@ -161,6 +161,28 @@ describe('initial setup and audio-only preferences', () => {
 
     store.setVideoQualityOption('origin')
     expect(useAppStore.getState().videoQualityOption).toBe('origin')
+  })
+})
+
+describe('FileTypeBadge and ItemCheckbox', () => {
+  it('FileTypeBadge renders audio badge for M4A and disabled badge for DISABLED', () => {
+    const m4aBadge = FileTypeBadge({ type: 'M4A' })
+    expect(m4aBadge.props.children[0].props.children).toBe('M4A 音频')
+
+    const m4aFilenameBadge = FileTypeBadge({ filename: 'lecture.m4a' })
+    expect(m4aFilenameBadge.props.children[0].props.children).toBe('M4A 音频')
+
+    const disabledBadge = FileTypeBadge({ type: 'DISABLED' })
+    expect(disabledBadge.props.children[0].props.children).toBe('无独立音频')
+
+    const mp4Badge = FileTypeBadge({ type: 'MP4' })
+    expect(mp4Badge.props.children[0].props.children).toBe('MP4 视频')
+  })
+
+  it('ItemCheckbox renders with disabled attribute', () => {
+    const cb = ItemCheckbox({ checked: false, disabled: true })
+    expect(cb.props.disabled).toBe(true)
+    expect(cb.props.className).toContain('cursor-not-allowed')
   })
 })
 

@@ -70,7 +70,8 @@ export function AuditedCourses() {
     cloudLinkedIds, downloading, setScan, setCourses, setTasksForCourse,
     resetScanResults, setSelected, toggleSelect, toggleSelectMany,
     setCloudLinkedIds, setDownloading, applyProgress,
-    courseViewMode, setCourseViewMode
+    courseViewMode, setCourseViewMode,
+    videoQualityOption
   } = useAppStore(useShallow(s => ({
     setAuth: s.setAuth,
     setStage: s.setStage,
@@ -95,7 +96,8 @@ export function AuditedCourses() {
     setDownloading: s.setDownloading,
     applyProgress: s.applyProgress,
     courseViewMode: s.courseViewMode,
-    setCourseViewMode: s.setCourseViewMode
+    setCourseViewMode: s.setCourseViewMode,
+    videoQualityOption: s.videoQualityOption
   })))
 
   // ── 辅助：both 模式下判断单个任务是否完成 / 出错 ──
@@ -402,13 +404,16 @@ export function AuditedCourses() {
       const triState = triStateFromCount(selCount, tasks.length)
 
       // 教师实录与 PPT 画面
+      const isAudioOnly = videoQualityOption === 'audio_only'
       const teacherTasks = tasks.filter(t => t.angle === 0)
       const pptTasks = tasks.filter(t => t.angle === 3)
 
       const teacherItems: NetdiskFileItem[] = teacherTasks.map(t => ({
         id: t.taskId,
-        name: `${c.name} - ${t.lectureLabel} (教师 MP4)`,
-        type: 'MP4',
+        name: isAudioOnly
+          ? `${c.name} - ${t.lectureLabel} (教师音频 M4A)`
+          : `${c.name} - ${t.lectureLabel} (教师 MP4)`,
+        type: isAudioOnly ? 'M4A' : 'MP4',
         date: t.lectureDate,
         selected: selected.has(t.taskId),
         onToggle: () => onToggle(t.taskId),
@@ -424,11 +429,18 @@ export function AuditedCourses() {
 
       const pptItems: NetdiskFileItem[] = pptTasks.map(t => ({
         id: t.taskId,
-        name: `${c.name} - ${t.lectureLabel} (PPT MP4)`,
-        type: 'PPT',
+        name: isAudioOnly
+          ? `${c.name} - ${t.lectureLabel} (PPT 纯画面/无独立音频)`
+          : `${c.name} - ${t.lectureLabel} (PPT MP4)`,
+        type: isAudioOnly ? 'DISABLED' : 'PPT',
+        disabled: isAudioOnly,
+        disabledReason: isAudioOnly ? '无独立音频流' : undefined,
         date: t.lectureDate,
-        selected: selected.has(t.taskId),
-        onToggle: () => onToggle(t.taskId),
+        selected: isAudioOnly ? false : selected.has(t.taskId),
+        onToggle: () => {
+          if (isAudioOnly) return
+          onToggle(t.taskId)
+        },
         renderExtra: (
           <AuditedItemProgress
             tid={t.taskId}
@@ -445,22 +457,25 @@ export function AuditedCourses() {
       const categories: NetdiskCategoryItem[] = [
         {
           id: 'teacher',
-          name: '👨‍🏫 教师实录 (MP4)',
-          icon: 'video',
+          name: isAudioOnly ? '🎵 教师原声音频 (M4A)' : '👨‍🏫 教师实录 (MP4)',
+          icon: isAudioOnly ? 'audio' : 'video',
           state: triStateFromCount(teacherSelCount, teacherTasks.length),
           onToggle: () => {
             const isAll = teacherSelCount === teacherTasks.length
             toggleSelectMany(teacherTasks.map(t => t.taskId), !isAll)
           },
           items: teacherItems,
-          emptyMessage: '暂无教师视角录像'
+          emptyMessage: isAudioOnly ? '暂无教师音频录像' : '暂无教师视角录像'
         },
         {
           id: 'ppt',
-          name: '📑 课堂PPT实录 (MP4)',
+          name: isAudioOnly ? '📑 课堂PPT实录 (无独立音频)' : '📑 课堂PPT实录 (MP4)',
           icon: 'presentation',
-          state: triStateFromCount(pptSelCount, pptTasks.length),
+          state: isAudioOnly ? 'none' : triStateFromCount(pptSelCount, pptTasks.length),
+          disabled: isAudioOnly,
+          disabledReason: isAudioOnly ? '无独立音频流' : undefined,
           onToggle: () => {
+            if (isAudioOnly) return
             const isAll = pptSelCount === pptTasks.length
             toggleSelectMany(pptTasks.map(t => t.taskId), !isAll)
           },
@@ -519,7 +534,8 @@ export function AuditedCourses() {
     })
   }, [
     filteredCourses, tasksByCourse, selected, progressMap, isBothMode,
-    cloudLinkedIds, onToggleMany, onToggle, toggleSelectMany, onPauseTask, onCancelTask, onResumeTask
+    cloudLinkedIds, onToggleMany, onToggle, toggleSelectMany, onPauseTask, onCancelTask, onResumeTask,
+    videoQualityOption
   ])
 
   const handleRelogin = useCallback(() => {

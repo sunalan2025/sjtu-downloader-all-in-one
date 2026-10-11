@@ -86,7 +86,8 @@ export function CnmoocBrowser() {
     setCloudLinkedIds,
     resetCnmoocScanResults,
     courseViewMode,
-    setCourseViewMode
+    setCourseViewMode,
+    videoQualityOption
   } = useAppStore(
     useShallow(s => ({
       courses: s.cnmoocCourses,
@@ -107,7 +108,8 @@ export function CnmoocBrowser() {
       setCloudLinkedIds: s.setCloudLinkedIds,
       resetCnmoocScanResults: s.resetCnmoocScanResults,
       courseViewMode: s.courseViewMode,
-      setCourseViewMode: s.setCourseViewMode
+      setCourseViewMode: s.setCourseViewMode,
+      videoQualityOption: s.videoQualityOption
     }))
   )
 
@@ -295,6 +297,7 @@ export function CnmoocBrowser() {
 
   const netdiskCourses = useMemo<NetdiskCourseItem[]>(() => {
     return filteredCourses.map(c => {
+      const isAudioOnly = videoQualityOption === 'audio_only'
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
       const ids: string[] = []
       for (const ch of chapters) for (const it of ch.items) ids.push(makeTid(c.courseId, it.itemId))
@@ -308,10 +311,13 @@ export function CnmoocBrowser() {
 
         const items: NetdiskFileItem[] = ch.items.map(it => {
           const tid = makeTid(c.courseId, it.itemId)
+          const isVideo = it.itemType === '10'
           return {
             id: tid,
-            name: it.title,
-            type: it.itemType === '10' ? 'MP4' : 'DOC',
+            name: isVideo
+              ? (isAudioOnly ? `${it.title} (音频 M4A)` : `${it.title} (MP4)`)
+              : it.title,
+            type: isVideo ? (isAudioOnly ? 'M4A' : 'MP4') : 'DOC',
             selected: selected.has(tid),
             onToggle: () => toggleSelect(tid),
             renderExtra: (
@@ -371,7 +377,8 @@ export function CnmoocBrowser() {
     })
   }, [
     filteredCourses, courseData, selected, progressMap, cloudLinkedIds,
-    onToggleMany, toggleSelect, onPauseTask, onCancelTask, onResumeTask
+    onToggleMany, toggleSelect, onPauseTask, onCancelTask, onResumeTask,
+    videoQualityOption
   ])
 
   return (
