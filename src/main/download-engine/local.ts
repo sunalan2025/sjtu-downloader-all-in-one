@@ -39,7 +39,7 @@ import {
   sharedActiveCount,
   isHlsStreamTask
 } from './shared'
-import { downloadHlsVideo } from '../canvas/hls-download'
+import { downloadHlsVideo, extractAudioFromVideo } from '../canvas/hls-download'
 import { sjtuSession } from '../session'
 import {
   noteTaskResult,
@@ -164,8 +164,10 @@ async function runTask(t: TaskRuntime): Promise<void> {
 
   try {
     if (isHlsStreamTask(t.spec)) {
-      await downloadHlsVideo(t.spec.url, t.filePath, {
+      const isAudioOnly = t.spec.extractAudio || t.filePath.endsWith('.m4a')
+      const hlsRes = await downloadHlsVideo(t.spec.url, t.filePath, {
         session: sjtuSession(),
+        isAudioOnly,
         onProgress: (p) => {
           if (t.state === 'cancelled' || t.state === 'paused') return
           t.received = p.bytesWritten || p.segmentsDone
@@ -180,6 +182,7 @@ async function runTask(t: TaskRuntime): Promise<void> {
           })
         }
       })
+      if (hlsRes?.path) t.filePath = hlsRes.path
       assertDownloadIntegrity(t.filePath, 1, false)
       t.state = 'done'
       emitProgress({
@@ -230,7 +233,19 @@ async function runTask(t: TaskRuntime): Promise<void> {
       }
       throw integrityErr
     }
-    renameSync(t.partPath, t.filePath)
+    const isAudioOnly = t.spec.extractAudio || t.filePath.endsWith('.m4a')
+    if (isAudioOnly) {
+      const m4aPath = t.filePath.endsWith('.m4a') ? t.filePath : t.filePath.replace(/\.mp4$/, '.m4a')
+      emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: t.received, total: t.total, message: '正在提取纯音频 (AAC .m4a)…' })
+      const ok = await extractAudioFromVideo(t.partPath, m4aPath)
+      if (ok) {
+        t.filePath = m4aPath
+      } else {
+        renameSync(t.partPath, t.filePath)
+      }
+    } else {
+      renameSync(t.partPath, t.filePath)
+    }
     t.state = 'done'
     // 下载字节已在 downloadStream 的 data 事件里逐块计入 noteDownloadBytes，此处不重复累计
     emitProgress({

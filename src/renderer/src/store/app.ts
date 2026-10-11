@@ -129,7 +129,11 @@ interface AppState {
   windowCloseAction: WindowCloseAction
   /** 正在下载时关闭窗口的策略（prompt=始终弹窗询问，background=自动转入托盘继续下载，pause_quit=自动暂停任务并退出应用） */
   exitWhenDownloading: ExitWhenDownloadingPolicy
+  /** 是否已完成首次登录后的初始化配置向导 */
+  hasCompletedInitialSetup: boolean
   // setters
+  /** 标记是否完成首次初始化配置 */
+  setHasCompletedInitialSetup: (completed: boolean) => void
   /** 切换关闭主窗口动作偏好 */
   setWindowCloseAction: (action: WindowCloseAction) => void
   /** 切换正在下载时关闭策略偏好 */
@@ -422,6 +426,8 @@ export const useAppStore = create<AppState>()(
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
       windowCloseAction: 'tray' as WindowCloseAction,
       exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
+      hasCompletedInitialSetup: false,
+      setHasCompletedInitialSetup: hasCompletedInitialSetup => set({ hasCompletedInitialSetup }),
       setWindowCloseAction: windowCloseAction => set({ windowCloseAction }),
       setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
@@ -780,7 +786,8 @@ export const useAppStore = create<AppState>()(
         courseViewMode: state.courseViewMode,
         lastCourseTab: state.lastCourseTab,
         windowCloseAction: state.windowCloseAction,
-        exitWhenDownloading: state.exitWhenDownloading
+        exitWhenDownloading: state.exitWhenDownloading,
+        hasCompletedInitialSetup: state.hasCompletedInitialSetup
       })
     }
   )

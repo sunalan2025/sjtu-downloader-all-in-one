@@ -301,7 +301,11 @@ export function AuditedCourses() {
         const cloudDone = !cloudId
           || curProgress[cloudId]?.state === 'done'
           || curProgress[cloudId]?.state === 'skipped'
-        if (localDone && cloudDone) continue
+        const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
+        // 在仅提取音频模式下，自动跳过无声/重复的 PPT 视角 (angle=3)，只保留教师视角 (angle=0)！
+        if (isAudioOnly && t.angle === 3) continue
+        const finalFileName = isAudioOnly ? t.fileName.replace(/\.mp4$/, '.m4a') : t.fileName
+
         applyProgress({
           taskId: t.taskId,
           state: 'pending',
@@ -313,9 +317,10 @@ export function AuditedCourses() {
           taskId: t.taskId,
           url: '',
           courseName: t.courseName,
-          fileName: t.fileName,
+          fileName: finalFileName,
           refId: t.refId,
-          angle: t.angle
+          angle: t.angle,
+          extractAudio: isAudioOnly
         })
       }
     }

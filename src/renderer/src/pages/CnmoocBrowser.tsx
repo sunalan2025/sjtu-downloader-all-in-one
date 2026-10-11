@@ -226,11 +226,16 @@ export function CnmoocBrowser() {
 
     useAppStore.getState().resetBatchTaskIds()
 
+    const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
     const specs: DownloadTaskSpec[] = []
     for (const { course, items } of byCourse.values()) {
       const r = await window.api.cnmooc.buildSpecs(course.name, course.courseId, items, resourceFilter)
       if (r.ok && r.specs) {
         for (const spec of r.specs) {
+          if (isAudioOnly && (spec.fileName.endsWith('.mp4') || (spec as any).source === 'cnmooc-video')) {
+            spec.fileName = spec.fileName.replace(/\.mp4$/, '.m4a')
+            spec.extractAudio = true
+          }
           applyProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, message: '等待解析直链…' })
           specs.push(spec)
         }

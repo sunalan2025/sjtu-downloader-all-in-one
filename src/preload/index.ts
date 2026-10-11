@@ -24,7 +24,8 @@ import type {
   PageResult,
   TransferSpeed,
   UpdateCheckResult,
-  UpdateProgress
+  UpdateProgress,
+  VideoQualityOption
 } from '../shared/types'
 
 import pkg from '../../package.json'
@@ -262,9 +263,10 @@ const api = {
       token: string,
       destRoot: string,
       conflictStrategy?: FileConflictStrategy,
-      term?: string
+      term?: string,
+      qualityOption?: VideoQualityOption
     ): Promise<{ ok: boolean; specs?: CanvasDownloadTaskSpec[]; error?: string }> =>
-      ipcRenderer.invoke('canvas:download-lectures', courseName, courseId, lectureItems, token, destRoot, conflictStrategy, term),
+      ipcRenderer.invoke('canvas:download-lectures', courseName, courseId, lectureItems, token, destRoot, conflictStrategy, term, qualityOption),
     onScanProgress: (cb: (p: { courseId: number; phase: string; message: string }) => void) => subscribe<{ courseId: number; phase: string; message: string }>('canvas:scan-progress', cb),
     onHlsProgress: (cb: (p: { taskId: string; baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }) => void) => subscribe<{ taskId: string; baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }>('canvas:hls-progress', cb)
   },

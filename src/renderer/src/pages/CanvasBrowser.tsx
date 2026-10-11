@@ -734,13 +734,16 @@ export function CanvasBrowser() {
 
         if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
         if (lectures?.length && lti) {
-          // 按角色携带意图：只下用户实际勾选的一路（teacher 或 ppt），
-          // 避免每讲无脑产 2 路 spec 把未勾选的一路也下载（修复「选教师/PPT 任一会两个都下」）
+          const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
+          // 按角色携带意图：只下用户实际勾选的一路（teacher 或 ppt）。
+          // 若为仅提取音频模式，按用户确认的设计：自动跳过无声/重复的 PPT 视角，仅下载教师视角！
           const lectureItems: CanvasLectureDownloadItem[] = []
           for (const l of lectures) {
             if (!l.teacher) continue
-            const teacherWanted = catSel?.teacher || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'teacher'))
-            const pptWanted = catSel?.ppt || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'ppt'))
+            const teacherWanted = isAudioOnly
+              ? (catSel?.teacher || catSel?.ppt || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'teacher')) || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'ppt')))
+              : (catSel?.teacher || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'teacher')))
+            const pptWanted = isAudioOnly ? false : (catSel?.ppt || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'ppt')))
             if (!teacherWanted && !pptWanted) continue
             lectureItems.push({
               lectureNum: l.lectureNum,
@@ -749,7 +752,16 @@ export function CanvasBrowser() {
             })
           }
           if (lectureItems.length > 0) {
-            const r = await window.api.canvas.downloadLectures(courseName, courseId, lectureItems, lti.token, needsLocal ? st.localDestRoot : '', st.fileConflictStrategy, c.term || '')
+            const r = await window.api.canvas.downloadLectures(
+              courseName,
+              courseId,
+              lectureItems,
+              lti.token,
+              needsLocal ? st.localDestRoot : '',
+              st.fileConflictStrategy,
+              c.term || '',
+              useAppStore.getState().videoQualityOption
+            )
             if (r.ok && r.specs) courseSpecs.push(...r.specs)
           }
         }
@@ -880,7 +892,16 @@ export function CanvasBrowser() {
           if (selExtTools.length > 0 || selExtUrls.length > 0) {
             try {
               const r = await window.api.canvas.moduleVideoDownload(courseName, courseId, selExtTools, selExtUrls, needsLocal ? st.localDestRoot : '', st.fileConflictStrategy, c.term || '')
-              if (r.ok && r.specs) courseSpecs.push(...r.specs)
+              if (r.ok && r.specs) {
+                const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
+                if (isAudioOnly) {
+                  for (const s of r.specs) {
+                    s.fileName = s.fileName.replace(/\.mp4$/, '.m4a')
+                    s.extractAudio = true
+                  }
+                }
+                courseSpecs.push(...r.specs)
+              }
             } catch { /* skip */ }
           }
         }
