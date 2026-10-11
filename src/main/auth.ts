@@ -125,6 +125,37 @@ let _authCache: { result: AuthInfo; ts: number } | null = null
 let _refreshPromise: Promise<boolean> | null = null
 
 /**
+ * 通过 OAuth2 授权回调所携带的 code，直接向交大视频后台换取最新的有效 JWT Token。
+ * 此端点为官方单页应用换取 Token 的真实底层接口，耗时 < 100ms，无需等待繁重的 SPA 页面加载与 JS 执行。
+ */
+export async function exchangeVsjtuJwtByCode(code: string): Promise<string | null> {
+  if (!code) return null
+  try {
+    const url = `${V_SJTU_API_BASE}/sso/login?code=${encodeURIComponent(code)}`
+    const resp = await sjtuSession().fetch(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        Origin: V_SJTU_ORIGIN,
+        Referer: `${V_SJTU_ORIGIN}/jy-application-resmgr-ui/`
+      }
+    })
+    if (!resp.ok) return null
+    const text = await resp.text()
+    const json = JSON.parse(text) as { code?: string; data?: { jwt_token?: string } }
+    if (json?.code === '0' && json?.data?.jwt_token) {
+      const token = json.data.jwt_token
+      console.log('[auth] 成功通过 SSO 接口凭借 OAuth Code 换取到 JWT Token！')
+      setJwtToken(token)
+      return token
+    }
+  } catch (err) {
+    console.warn('[auth] SSO Code 换取 JWT 异常:', err)
+  }
+  return null
+}
+
+/**
  * 借助 persist:sjtu session 内已有的 jAccount Cookie，通过离屏 BrowserWindow
  * 加载 v.sjtu 登录回跳页，触发 SPA 自动刷新并抽取最新 JWT。
  */
@@ -147,27 +178,51 @@ export async function refreshJwtToken(): Promise<boolean> {
         show: false,
         width: 800,
         height: 600,
-        webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
+        webPreferences: {
+          session: ses,
+          nodeIntegration: false,
+          contextIsolation: true,
+          backgroundThrottling: false
+        }
       })
 
       const JACCOUNT_AUTH_URL =
         'https://jaccount.sjtu.edu.cn/oauth2/authorize?response_type=code&scope=openid&client_id=pmZTZ9QZEAwXGLGheU99&redirect_uri=https%3A%2F%2Fv.sjtu.edu.cn%2F%23%2Flogin'
 
       try {
+        let codeExtracted: string | null = null
+        const tryExtractCode = (targetUrl: string) => {
+          if (codeExtracted || !targetUrl) return
+          try {
+            const u = new URL(targetUrl)
+            const code = u.searchParams.get('code') || targetUrl.match(/[?&#]code=([a-zA-Z0-9_-]+)/)?.[1]
+            if (code) codeExtracted = code
+          } catch {}
+        }
+
+        win.webContents.on('will-navigate', (_e, url) => tryExtractCode(url))
+        win.webContents.on('did-navigate', (_e, url) => tryExtractCode(url))
+        win.webContents.on('did-redirect-navigation', (_e, url) => tryExtractCode(url))
+
         await win.loadURL(JACCOUNT_AUTH_URL)
         const deadline = Date.now() + 15_000
         while (Date.now() < deadline) {
-          await new Promise(r => setTimeout(r, 500))
-          if (win.isDestroyed()) return false
-          const url = win.webContents.getURL()
+          const currentUrl = win.isDestroyed() ? '' : win.webContents.getURL()
+          tryExtractCode(currentUrl)
+
+          if (codeExtracted) {
+            console.log('[auth] 拦截到 OAuth2 授权 Code，直接调用 SSO 接口秒换 Token…')
+            const token = await exchangeVsjtuJwtByCode(codeExtracted)
+            if (token) return true
+          }
 
           // 若停留在密码登录或二维码表单页，说明 jAccount Cookie 彻底过期
-          if (url.includes('jaccount.sjtu.edu.cn/jaccount/jalogin') || url.includes('/qrcode')) {
+          if (currentUrl.includes('jaccount.sjtu.edu.cn/jaccount/jalogin') || currentUrl.includes('/qrcode')) {
             console.log('[auth] jAccount cookie 已失效，需交互式重新登录')
             return false
           }
 
-          if (url.includes('v.sjtu.edu.cn')) {
+          if (!win.isDestroyed() && currentUrl.includes('v.sjtu.edu.cn')) {
             const token = (await win.webContents
               .executeJavaScript(`localStorage.getItem(${JSON.stringify(VSJTU_JWT_LS_KEY)})`)
               .catch(() => null)) as string | null
@@ -185,6 +240,9 @@ export async function refreshJwtToken(): Promise<boolean> {
               }
             }
           }
+
+          await new Promise(r => setTimeout(r, 400))
+          if (win.isDestroyed()) return false
         }
         return false
       } finally {
@@ -201,6 +259,15 @@ export async function refreshJwtToken(): Promise<boolean> {
   } finally {
     _refreshPromise = null
   }
+}
+
+/** 确保当前持有未过期的交大视频 JWT Token，若无则自动触发静默刷新 */
+export async function ensureVsjtuLogin(): Promise<boolean> {
+  const exp = jwtToken ? extractJwtExpiry(jwtToken) : undefined
+  const isFresh = !!jwtToken && (!exp || Date.now() < exp)
+  if (isFresh) return true
+  console.log('[auth] 检测到当前交大视频凭据缺失或过期，主动触发静默登录刷新…')
+  return await refreshJwtToken()
 }
 
 /** 从 /cloud-rbac/authority/me 的响应中取用户显示名和学号，兼容嵌套结构与多种命名。 */

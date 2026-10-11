@@ -634,10 +634,44 @@ export function Login() {
   }, [])
 
   const handleLoginCompletion = useCallback(async (): Promise<void> => {
+    // 0. 优先从 webview 当前 URL 拦截 OAuth2 Code，直接调 SSO 接口换取 JWT（耗时 <100ms）
+    const initialUrl = webviewRef.current?.getURL() || ''
+    const initialCode = initialUrl.match(/[?&#]code=([a-zA-Z0-9_-]+)/)?.[1]
+    if (initialCode) {
+      try {
+        const res = await window.api.auth.exchangeCode(initialCode)
+        if (res.success) {
+          const a = await window.api.auth.status(false)
+          setAuth(a)
+          try {
+            const cloudToken = await window.api.cloudpan.getCachedToken()
+            if (cloudToken) useAppStore.getState().setCloudUserToken(cloudToken)
+          } catch {}
+          navigateToBrowser()
+          return
+        }
+      } catch {}
+    }
+
     let attempts = 0
     const maxAttempts = 40 // 40 * 250ms = 10s
     while (attempts++ < maxAttempts) {
-      // 1. 尝试从 webview 抽取 JWT
+      // 1. 若 URL 随后才变化出 code，也第一时间直换
+      const currentUrl = webviewRef.current?.getURL() || ''
+      const code = currentUrl.match(/[?&#]code=([a-zA-Z0-9_-]+)/)?.[1]
+      if (code) {
+        try {
+          const res = await window.api.auth.exchangeCode(code)
+          if (res.success) {
+            const a = await window.api.auth.status(false)
+            setAuth(a)
+            navigateToBrowser()
+            return
+          }
+        } catch {}
+      }
+
+      // 2. 尝试从 webview 抽取 JWT（本地存储兜底）
       const token = await pullJwt()
       if (token) {
         // 成功提取 JWT，由于主进程已将其置为已登录，立即获取状态并秒进主页！
