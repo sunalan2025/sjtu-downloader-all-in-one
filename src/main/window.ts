@@ -17,6 +17,7 @@ import { formatBytes } from '../shared/utils'
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
 let tray: Tray | null = null
+let isMinimizingToTaskbar = false
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
@@ -28,6 +29,14 @@ export function getIsQuitting(): boolean {
 
 export function setIsQuitting(v: boolean): void {
   isQuitting = v
+}
+
+/** 最小化到任务栏（不隐藏到系统托盘） */
+export function minimizeToTaskbar(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    isMinimizingToTaskbar = true
+    mainWindow.minimize()
+  }
 }
 
 /** 应用窗口图标路径。dev 下从项目 build/icons 解析；打包后从 extraResources(icons) 解析。
@@ -91,6 +100,10 @@ export function createMainWindow(): void {
   // close 事件可 preventDefault，统一走 handleCloseAction（含下载中确认弹窗），覆盖 Alt+F4/任务栏关闭。
   let trayHintShown = false
   mainWindow.on('minimize', () => {
+    if (isMinimizingToTaskbar) {
+      isMinimizingToTaskbar = false
+      return
+    }
     mainWindow?.hide()
     if (!trayHintShown && tray && process.platform === 'win32') {
       trayHintShown = true

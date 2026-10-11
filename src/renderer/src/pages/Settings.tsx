@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAppStore, type Theme } from '../store/app'
+import { useAppStore, type Theme, type WindowCloseAction, type ExitWhenDownloadingPolicy } from '../store/app'
 import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
 import type { DownloadMode } from '@shared/types'
@@ -20,6 +20,10 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
   const setTheme = useAppStore(s => s.setTheme)
   const courseLayoutMode = useAppStore(s => s.courseLayoutMode)
   const setCourseLayoutMode = useAppStore(s => s.setCourseLayoutMode)
+  const windowCloseAction = useAppStore(s => s.windowCloseAction)
+  const setWindowCloseAction = useAppStore(s => s.setWindowCloseAction)
+  const exitWhenDownloading = useAppStore(s => s.exitWhenDownloading)
+  const setExitWhenDownloading = useAppStore(s => s.setExitWhenDownloading)
 
   const [activeNav, setActiveNav] = useState('storage')
   const [videoStreamPref, setVideoStreamPref] = useState<'both' | 'teacher' | 'ppt'>('both')
@@ -403,6 +407,50 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                         options={[
                           { key: 'deck', label: '🎴 卡片网格 (Deck)' },
                           { key: 'list', label: '📋 紧凑列表 (List)' }
+                        ]}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 行 3：关闭主窗口动作 */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="text-sm font-medium text-text-1">关闭主窗口动作</div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        点击窗口右上角关闭按钮或按快捷键时的响应动作。选择最小化到托盘可后台无感驻留。
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      <Segmented
+                        size="md"
+                        value={windowCloseAction}
+                        onChange={(v) => setWindowCloseAction(v as WindowCloseAction)}
+                        options={[
+                          { key: 'tray', label: '最小化到系统托盘 (推荐)' },
+                          { key: 'taskbar', label: '最小化到任务栏' },
+                          { key: 'quit', label: '彻底退出应用' }
+                        ]}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 行 4：正在下载时关闭策略 */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="text-sm font-medium text-text-1">正在下载时关闭策略</div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        当有未完成的课件或视频传输时触发关闭的应对机制，有效防误触中断传输。
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      <Segmented
+                        size="md"
+                        value={exitWhenDownloading}
+                        onChange={(v) => setExitWhenDownloading(v as ExitWhenDownloadingPolicy)}
+                        options={[
+                          { key: 'prompt', label: '始终弹窗询问确认 (推荐)' },
+                          { key: 'background', label: '自动转入托盘继续下载' },
+                          { key: 'pause_quit', label: '自动暂停任务并退出应用' }
                         ]}
                       />
                     </div>
