@@ -44,7 +44,9 @@ import {
   clearAuthState,
   hydrateSjtuSession,
   saveSessionStore,
-  loadSessionStoreRaw
+  loadSessionStoreRaw,
+  exchangeVsjtuJwtByCode,
+  ensureVsjtuLogin
 } from './auth'
 import {
   getConcurrency,
@@ -525,7 +527,16 @@ app.whenReady().then(async () => {
     }
   })
 
+  ipcMain.handle('auth:exchange-code', async (_e, code: string) => {
+    if (!code) return { success: false }
+    const token = await exchangeVsjtuJwtByCode(code)
+    return { success: !!token, token }
+  })
+
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
+    // 类似于好大学在线的 ensureCnmoocLogin，发起扫描前主动确保持有有效 JWT
+    await ensureVsjtuLogin()
+
     const first = (await vsjtuFetch(V_SJTU_API.auditCourseMy, {
       method: 'POST',
       body: { pageNo, pageSize }
@@ -573,6 +584,7 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('vsjtu:audit-course-detail', async (_e, resourceId: number) => {
+    await ensureVsjtuLogin()
     const r = await vsjtuFetch(V_SJTU_API.auditCourseDetail, {
       method: 'POST',
       body: { resourceId }

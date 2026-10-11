@@ -109,7 +109,10 @@ const api = {
       token: string | null,
       userInfo?: { name?: string; studentId?: string }
     ): Promise<{ ok: boolean }> =>
-      ipcRenderer.invoke('auth:set-jwt-token', token, userInfo)
+      ipcRenderer.invoke('auth:set-jwt-token', token, userInfo),
+    /** 使用 OAuth2 授权 Code 直接换取交大视频 JWT Token */
+    exchangeCode: (code: string): Promise<{ success: boolean; token?: string | null }> =>
+      ipcRenderer.invoke('auth:exchange-code', code)
   },
   vsjtu: {
     /** 分页扫描旁听课程申请列表 */
