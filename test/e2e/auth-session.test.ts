@@ -259,13 +259,13 @@ describe('Auth & Session Persistence E2E Suite (R1-F1, R1-F2, R1-F3)', () => {
       const prodPayload = {
         code: '0',
         user: {
-          name: '孙正直',
-          code: '525080910055'
+          name: '周同学',
+          code: '520030910001'
         }
       }
       const info = pickAccountInfo(prodPayload)
-      expect(info.name).toBe('孙正直')
-      expect(info.studentId).toBe('525080910055')
+      expect(info.name).toBe('周同学')
+      expect(info.studentId).toBe('520030910001')
     })
 
     it('extracts account info when nested under data envelope', () => {
