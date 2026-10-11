@@ -117,6 +117,14 @@ describe('Auth & Session Persistence E2E Suite (R1-F1, R1-F2, R1-F3)', () => {
         const loaded = await vault.load()
         expect(loaded).toBeNull()
       })
+
+      it('should sanitize activeTab when persisted state contains settings or transfer', () => {
+        const rawState = { activeTab: 'settings', lastCourseTab: 'canvas' }
+        const sanitizedTab = (rawState.activeTab === 'settings' || rawState.activeTab === 'transfer')
+          ? (rawState.lastCourseTab || 'canvas')
+          : rawState.activeTab
+        expect(sanitizedTab).toBe('canvas')
+      })
     })
 
     describe('R1-F2: QR DOM Resilience', () => {

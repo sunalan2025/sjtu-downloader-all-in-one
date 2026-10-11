@@ -1087,7 +1087,7 @@ export function CanvasBrowser() {
 
         {/* 右侧：已选统计 + 已选全部 + 立即下载 */}
         <div className="flex items-center gap-3">
-          <div className="flex h-10 items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 text-xs font-medium text-text-2 shadow-2xs">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-text-2">
             <span className="text-accent font-bold">☑</span>
             <span>已选 {selectedStats.totalCount} 项{selectedStats.totalBytes > 0 ? ` (${formatBytes(selectedStats.totalBytes)})` : ''}</span>
           </div>

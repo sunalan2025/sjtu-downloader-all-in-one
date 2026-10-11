@@ -578,6 +578,14 @@ export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [statusMsg, setStatusMsg] = useState('正在加载交大统一身份认证…')
 
+  const navigateToBrowser = useCallback(() => {
+    const currentTab = useAppStore.getState().activeTab
+    if (currentTab === 'settings' || currentTab === 'transfer') {
+      useAppStore.getState().setActiveTab(useAppStore.getState().lastCourseTab || 'canvas')
+    }
+    setStage('browser')
+  }, [setStage])
+
   const checkAuth = useCallback(async (force = false): Promise<boolean> => {
     try {
       const a = await window.api.auth.status(force)
@@ -643,7 +651,7 @@ export function Login() {
         } catch {
           /* ignore */
         }
-        setStage('browser')
+        navigateToBrowser()
         return
       }
 
@@ -660,7 +668,7 @@ export function Login() {
           } catch {
             /* ignore */
           }
-          setStage('browser')
+          navigateToBrowser()
           return
         }
       } catch {
@@ -673,7 +681,7 @@ export function Login() {
     // 兜底进入（部分业务页面 cookie 已就绪但 JWT 写入慢）
     const a = await checkAuth(false)
     if (a) {
-      setStage('browser')
+      navigateToBrowser()
       return
     }
 
@@ -681,14 +689,14 @@ export function Login() {
     setReady(true)
     setError('会话同步耗时较长，请点击下方「刷新」重试')
     setStatusMsg('登录同步超时')
-  }, [checkAuth, pullJwt, setAuth, setStage])
+  }, [checkAuth, navigateToBrowser, pullJwt, setAuth])
 
   // 初始挂载时预检：若已有登录态直接切入主界面
   useEffect(() => {
     void (async () => {
-      if (await checkAuth()) setStage('browser')
+      if (await checkAuth()) navigateToBrowser()
     })()
-  }, [checkAuth, setStage])
+  }, [checkAuth, navigateToBrowser])
 
   // 主题动态响应：在深浅主题切换时实时更新 webview 样式变量
   useEffect(() => {
@@ -747,14 +755,14 @@ export function Login() {
         if (token) {
           const a = await checkAuth(false)
           if (a) {
-            setStage('browser')
+            navigateToBrowser()
             return
           }
         }
       })()
     }, 1500)
     return () => clearInterval(id)
-  }, [checkAuth, handleLoginCompletion, pullJwt, setStage])
+  }, [checkAuth, handleLoginCompletion, navigateToBrowser, pullJwt])
 
   useEffect(() => {
     const wv = webviewRef.current

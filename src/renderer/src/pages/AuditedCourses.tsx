@@ -411,7 +411,7 @@ export function AuditedCourses() {
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex h-10 items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 text-xs font-medium text-text-2 shadow-2xs">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-text-2">
             <span className="text-accent font-bold">☑</span>
             <span>已选 {selectedCount} / {total} 节视频</span>
           </div>
