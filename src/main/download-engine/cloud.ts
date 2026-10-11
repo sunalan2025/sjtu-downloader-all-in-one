@@ -566,8 +566,7 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
             noteNetworkError()
             const delay = Math.pow(2, retryCount) * 1000
             const label = isDnsError(err) ? 'DNS 解析失败' : '连接错误'
-            const sanitizedErrMsg = String(err.message || '').replace(/[\r\n]+/g, ' ').slice(0, 500)
-            console.warn(`[cloudpan:cdn] ${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES}): ${sanitizedErrMsg}`)
+            console.warn(`[cloudpan:cdn] ${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})`)
             emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total, message: `${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})` })
             const retryTimer = setTimeout(() => {
               t.retryTimers.delete(retryTimer)
