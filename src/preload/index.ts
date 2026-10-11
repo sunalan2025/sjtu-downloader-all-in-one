@@ -78,6 +78,8 @@ const api = {
   window: {
     /** 隐藏到系统托盘（最小化按钮/确认窗"最小化"选项） */
     minimize: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('window:minimize'),
+    /** 最小化到任务栏 */
+    minimizeToTaskbar: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('window:minimize-to-taskbar'),
     /** 直接退出（无下载时关闭按钮） */
     quit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('window:quit'),
     /** 取消所有下载并退出（确认窗"取消下载并退出"） */

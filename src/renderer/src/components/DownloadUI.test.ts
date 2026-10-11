@@ -1,12 +1,80 @@
 import { describe, it, expect, vi } from 'vitest'
-
-// DownloadUI.tsx 导入会触发 store/app.ts 加载，其 persist 中间件在 node 环境访问 localStorage 会报错。
-// 用 vi.mock 拦截 store，仅测纯函数。vi.mock hoist，在 import 前生效。
-vi.mock('../store/app', () => ({
-  useAppStore: (() => ({})) as unknown
-}))
-
+import { useAppStore } from '../store/app'
 import { triStateFromCount, formatBytes } from './DownloadUI'
+import { resolveWindowAction } from './WindowConfirmModal'
+
+describe('window exit preferences and resolution', () => {
+  it('has correct default window exit preferences', () => {
+    const store = useAppStore.getState()
+    expect(store.windowCloseAction).toBe('tray')
+    expect(store.exitWhenDownloading).toBe('prompt')
+  })
+
+  it('updates preferences via setters', () => {
+    const store = useAppStore.getState()
+    store.setWindowCloseAction('taskbar')
+    expect(useAppStore.getState().windowCloseAction).toBe('taskbar')
+    store.setExitWhenDownloading('background')
+    expect(useAppStore.getState().exitWhenDownloading).toBe('background')
+
+    // reset
+    store.setWindowCloseAction('tray')
+    store.setExitWhenDownloading('prompt')
+  })
+
+  it('resolves close action correctly when no ongoing tasks', async () => {
+    const originalWindow = globalThis.window
+    ;(globalThis as any).window = {
+      api: {
+        window: {
+          hasOngoingTasks: vi.fn().mockResolvedValue({ ongoing: false })
+        }
+      }
+    }
+
+    try {
+      useAppStore.getState().setWindowCloseAction('tray')
+      expect(await resolveWindowAction('close')).toBe('minimize')
+
+      useAppStore.getState().setWindowCloseAction('taskbar')
+      expect(await resolveWindowAction('close')).toBe('taskbar')
+
+      useAppStore.getState().setWindowCloseAction('quit')
+      expect(await resolveWindowAction('close')).toBe('quit')
+
+      expect(await resolveWindowAction('minimize')).toBe('minimize')
+    } finally {
+      useAppStore.getState().setWindowCloseAction('tray')
+      ;(globalThis as any).window = originalWindow
+    }
+  })
+
+  it('resolves close action correctly when ongoing tasks exist', async () => {
+    const originalWindow = globalThis.window
+    ;(globalThis as any).window = {
+      api: {
+        window: {
+          hasOngoingTasks: vi.fn().mockResolvedValue({ ongoing: true })
+        }
+      }
+    }
+
+    try {
+      useAppStore.getState().setExitWhenDownloading('background')
+      expect(await resolveWindowAction('close')).toBe('minimize')
+
+      useAppStore.getState().setExitWhenDownloading('pause_quit')
+      expect(await resolveWindowAction('close')).toBe('quit')
+
+      // prompt with unmounted modal returns cancel
+      useAppStore.getState().setExitWhenDownloading('prompt')
+      expect(await resolveWindowAction('close')).toBe('cancel')
+    } finally {
+      useAppStore.getState().setExitWhenDownloading('prompt')
+      ;(globalThis as any).window = originalWindow
+    }
+  })
+})
 
 describe('triStateFromCount', () => {
   it('sel=0 → none', () => {

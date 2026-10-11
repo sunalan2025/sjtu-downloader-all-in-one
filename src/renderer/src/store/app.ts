@@ -13,6 +13,12 @@ export type ScanState = 'idle' | 'scanning' | 'done' | 'error'
 /** UI 主题偏好 */
 export type Theme = 'light' | 'dark' | 'system'
 
+/** 窗口关闭行为：tray=最小化到托盘，taskbar=最小化到任务栏，quit=彻底退出应用 */
+export type WindowCloseAction = 'tray' | 'taskbar' | 'quit'
+
+/** 正在下载时关闭窗口的策略：prompt=始终弹窗询问，background=自动转入托盘继续下载，pause_quit=自动暂停任务并退出应用 */
+export type ExitWhenDownloadingPolicy = 'prompt' | 'background' | 'pause_quit'
+
 /** renderer 侧讲次分组类型，与 shared/types 的 CanvasLectureGroup 同构 */
 export type LectureGroup = CanvasLectureGroup
 
@@ -116,7 +122,15 @@ interface AppState {
   courseLayoutMode: 'deck' | 'list'
   /** 上一次激活的内容课程 tab（canvas / audited / cnmooc） */
   lastCourseTab: 'canvas' | 'audited' | 'cnmooc'
+  /** 关闭主窗口时的默认动作（tray=最小化到托盘，taskbar=最小化到任务栏，quit=彻底退出应用） */
+  windowCloseAction: WindowCloseAction
+  /** 正在下载时关闭窗口的策略（prompt=始终弹窗询问，background=自动转入托盘继续下载，pause_quit=自动暂停任务并退出应用） */
+  exitWhenDownloading: ExitWhenDownloadingPolicy
   // setters
+  /** 切换关闭主窗口动作偏好 */
+  setWindowCloseAction: (action: WindowCloseAction) => void
+  /** 切换正在下载时关闭策略偏好 */
+  setExitWhenDownloading: (policy: ExitWhenDownloadingPolicy) => void
   /** 切换 UI 主题（dark/light/system） */
   setTheme: (t: Theme) => void
   /** 切换课程列表排版模式 */
@@ -403,6 +417,10 @@ export const useAppStore = create<AppState>()(
       autoDownloadUpdate: false,
       courseLayoutMode: 'deck' as 'deck' | 'list',
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
+      windowCloseAction: 'tray' as WindowCloseAction,
+      exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
+      setWindowCloseAction: windowCloseAction => set({ windowCloseAction }),
+      setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
       setCourseLayoutMode: courseLayoutMode => set({ courseLayoutMode }),
       setLastCourseTab: lastCourseTab => set({ lastCourseTab }),
@@ -721,7 +739,21 @@ export const useAppStore = create<AppState>()(
           state.activeTab = state.lastCourseTab || 'canvas'
         }
       },
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => {
+        if (typeof window !== 'undefined' && typeof window.document !== 'undefined') {
+          try {
+            if (typeof localStorage !== 'undefined') return localStorage
+          } catch { /* ignore */ }
+        }
+        return {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {},
+          clear: () => {},
+          key: () => null,
+          length: 0
+        }
+      }),
       // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据。
       // cloudUserToken 不持久化：每次启动必须重新扫码登录 + 重新连接云盘，
       // 避免凭证残留（符合"每次开 APP 销毁所有凭证"）。登录后由 App.tsx 的
@@ -743,7 +775,9 @@ export const useAppStore = create<AppState>()(
         videoQualityOption: state.videoQualityOption,
         downloadHistory: state.downloadHistory,
         courseLayoutMode: state.courseLayoutMode,
-        lastCourseTab: state.lastCourseTab
+        lastCourseTab: state.lastCourseTab,
+        windowCloseAction: state.windowCloseAction,
+        exitWhenDownloading: state.exitWhenDownloading
       })
     }
   )

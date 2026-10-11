@@ -67,6 +67,7 @@ import {
   createMainWindow,
   showMainWindow,
   getMainWindow,
+  minimizeToTaskbar,
   setIsQuitting,
   getIsQuitting,
   createTray,
@@ -307,6 +308,7 @@ app.whenReady().then(async () => {
   // close 事件可 preventDefault：发 window:close-requested 给 renderer 弹确认窗，
   // renderer 选择后回调 window:minimize / window:cancel-and-quit / 不动。
   ipcMain.handle('window:minimize', () => { getMainWindow()?.hide(); return { ok: true } })
+  ipcMain.handle('window:minimize-to-taskbar', () => { minimizeToTaskbar(); return { ok: true } })
   /** 直接退出（无下载时用）：不取消下载，cleanupOnQuit 统一回收句柄 */
   ipcMain.handle('window:quit', () => { setIsQuitting(true); app.quit(); return { ok: true } })
   /** 取消所有下载并退出（有下载时用户选"取消下载并退出"） */
