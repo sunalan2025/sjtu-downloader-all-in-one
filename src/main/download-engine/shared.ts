@@ -372,7 +372,7 @@ export async function resolveDirectUrl(
         }
         if (!ch?.url) throw new Error(`未找到该路视频流（streamIdx=${cs.canvasStreamIdx ?? 0}）`)
         t.spec.url = ch.url
-        t.spec.isHls = true
+        t.spec.isHls = ch.url.includes('.m3u8')
       } catch (err) {
         if (t.state === 'cancelled') return false
         t.state = 'error'

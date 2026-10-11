@@ -30,9 +30,25 @@ export function isClassVideoTab(label: string): boolean {
 
 // ─── LTI Token 提取 ──────────────────────────────────────────
 
+/** 全局 LTI 提取互斥锁：确保同一时间仅有 1 个提取窗口运行，彻底避免句柄和资源堆叠 */
+let ltiScanMutex: Promise<unknown> = Promise.resolve()
+
+function withLtiLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = ltiScanMutex.then(fn, fn)
+  ltiScanMutex = next.catch(() => {})
+  return next
+}
+
 /** 从 Canvas 课程的 "课堂视频new" tab 中提取 LTI token + canvasCourseId。
- *  流程：打开 tab URL → 等待 v.sjtu iframe 加载 → 从 sessionStorage 取 Canvas_UserState */
+ *  流程：互斥窗口打开 tab URL → 毫秒级拦截 302 重定向里的 jwt_token → 立即销毁窗口返回 */
 export async function extractLtiToken(
+  ses: Electron.Session,
+  tabHtmlUrl: string
+): Promise<{ token: string; canvasCourseId: string } | null> {
+  return withLtiLock(() => doExtractLtiToken(ses, tabHtmlUrl))
+}
+
+async function doExtractLtiToken(
   ses: Electron.Session,
   tabHtmlUrl: string
 ): Promise<{ token: string; canvasCourseId: string } | null> {
@@ -40,71 +56,103 @@ export async function extractLtiToken(
     ? tabHtmlUrl
     : `${CANVAS_BASE_URL}${tabHtmlUrl}`
 
+  const mCourse = tabHtmlUrl.match(/\/courses\/(\d+)/)
+  const canvasCourseId = mCourse ? mCourse[1] : ''
+
   console.log('[lti] 打开 Canvas tab:', fullUrl)
   const win = new BrowserWindow({
     show: false,
-    width: 1200,
-    height: 800,
-    webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
+    width: 1000,
+    height: 700,
+    webPreferences: {
+      session: ses,
+      nodeIntegration: false,
+      contextIsolation: true,
+      backgroundThrottling: false
+    }
   })
   // 静音：隐藏窗口加载的页面可能含自动播放的音视频
   win.webContents.setAudioMuted(true)
 
-  try {
-    await win.loadURL(fullUrl)
+  let capturedToken: string | null = null
 
-    // PERF: 轮询检查 v.sjtu 重定向（替代固定 sleep(3000)），典型情况 ~500ms 即完成
-    const redirectDeadline = Date.now() + 3000
-    let realUrl = ''
-    while (Date.now() < redirectDeadline) {
+  const checkUrl = (url: string) => {
+    if (!url || capturedToken) return
+    const m = url.match(/[?&#]jwt_token=([^&#]+)/)
+    if (m && m[1]) {
       try {
-        realUrl = await win.webContents.executeJavaScript('location.href') as string
-        if (realUrl.includes('v.sjtu.edu.cn')) break
-      } catch { /* frame not ready */ }
-      await sleep(300)
-    }
-
-    // 情况 1：LTI 整页重定向到 v.sjtu.edu.cn
-    if (realUrl.includes('v.sjtu.edu.cn')) {
-      console.log('[lti] 检测到 v.sjtu 重定向，直接读取 sessionStorage')
-      const mainFrame = win.webContents.mainFrame
-      if (mainFrame) {
-        const state = await waitForUserState(mainFrame, 20_000)
-        if (state?.token) {
-          const accessParams = state.accessParams as Record<string, unknown> | undefined
-          const canvasCourseId = String(accessParams?.courId || '')
-          console.log('[lti] Token 提取成功')
-          return { token: String(state.token), canvasCourseId }
-        }
+        capturedToken = decodeURIComponent(m[1])
+      } catch {
+        capturedToken = m[1]
       }
-      console.log('[lti] sessionStorage 中未找到 token')
-      return null
+    }
+  }
+
+  // 监听所有跳转与导航事件，一旦 URL 出现 jwt_token 毫秒级捕获
+  win.webContents.on('will-redirect', (_e, url) => checkUrl(url))
+  win.webContents.on('did-redirect-navigation', (_e, url) => checkUrl(url))
+  win.webContents.on('did-navigate', (_e, url) => checkUrl(url))
+  win.webContents.on('did-frame-navigate', (_e, url) => checkUrl(url))
+
+  const startTime = Date.now()
+  try {
+    await win.loadURL(fullUrl).catch(err => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!msg.includes('ERR_ABORTED')) {
+        console.log('[lti] loadURL 信息:', msg)
+      }
+    })
+
+    // 快速轮询检查 URL 或 storage（最多 8 秒，通常 500ms~1000ms 即命中）
+    const deadline = Date.now() + 8000
+    while (Date.now() < deadline && !capturedToken) {
+      checkUrl(win.webContents.getURL())
+      if (capturedToken) break
+
+      try {
+        const token = await win.webContents.executeJavaScript(`
+          (() => {
+            try {
+              return sessionStorage.getItem('jy-application-resourcemanage-ui_STORAGE_KEY_JWT_TOKEN') ||
+                     JSON.parse(sessionStorage.getItem('Canvas_UserState') || '{}').token ||
+                     null;
+            } catch { return null; }
+          })()
+        `)
+        if (token) {
+          capturedToken = String(token)
+          break
+        }
+      } catch { /* frame not ready */ }
+
+      await sleep(150)
     }
 
-    // 情况 2：iframe 嵌套模式（备用）
-    const frame = await waitForVsjtuFrame(win, 50_000)
-    if (!frame) {
-      console.log('[lti] 超时：未找到 v.sjtu iframe')
-      return null
-    }
-    console.log('[lti] 找到 v.sjtu iframe')
-
-    // 轮询 sessionStorage.Canvas_UserState（最多 20s）
-    const state = await waitForUserState(frame, 20_000)
-    if (!state?.token) {
-      console.log('[lti] sessionStorage 中未找到 token')
-      return null
+    if (capturedToken) {
+      console.log(`[lti] Token 提取成功 (耗时 ${Date.now() - startTime}ms)`)
+      return { token: capturedToken, canvasCourseId }
     }
 
-    const accessParams = state.accessParams as Record<string, unknown> | undefined
-    const canvasCourseId = String(accessParams?.courId || '')
-    console.log('[lti] Token 提取成功')
-    return { token: String(state.token), canvasCourseId }
+    // 备用兼容：旧系统 iframe 查找（超时缩减至 4 秒）
+    const frame = await waitForVsjtuFrame(win, 4000)
+    if (frame) {
+      const state = await waitForUserState(frame, 4000)
+      if (state?.token) {
+        const accessParams = state.accessParams as Record<string, unknown> | undefined
+        const courId = String(accessParams?.courId || canvasCourseId)
+        return { token: String(state.token), canvasCourseId: courId }
+      }
+    }
+
+    console.log(`[lti] 超时：未捕获到 token (耗时 ${Date.now() - startTime}ms)`)
+    return null
   } catch (err) {
     console.log('[lti] 异常:', err)
     return null
   } finally {
-    win.destroy()
+    if (!win.isDestroyed()) {
+      win.destroy()
+    }
   }
 }
 
@@ -157,8 +205,88 @@ async function waitForUserState(
 
 // ─── Vod API 调用 ─────────────────────────────────────────────
 
-/** 获取课程所有录课场次列表 */
+/** 判断是否为 LTI 1.3 JWT Token（3段 base64 结构，且以 eyJ 开头） */
+export function isJwtToken(token: string): boolean {
+  return typeof token === 'string' && token.startsWith('eyJ') && token.split('.').length === 3
+}
+
+/** 获取课程所有录课场次列表（适配全新 jy-application-resourcemanage 系统并向下兼容旧系统） */
 export async function fetchVodVideoList(
+  ses: Electron.Session,
+  token: string,
+  canvasCourseId: string
+): Promise<CanvasVideoSession[]> {
+  // 1. 若为全新 LTI 1.3 JWT Token，调用全新 jy-application-resourcemanage API (GET /lms/launch-context + /v1/subject_vod_list_new)
+  if (isJwtToken(token)) {
+    try {
+    const contextResp = await safeFetch(ses,
+      'https://v.sjtu.edu.cn/jy-application-resourcemanage/lms/launch-context',
+      {
+        headers: {
+          'jwt-token': token,
+          token,
+          Referer: VSJTU_REFERER,
+          Accept: 'application/json'
+        }
+      }
+    )
+    if (contextResp.ok) {
+      const cData = await contextResp.json() as Record<string, unknown>
+      // 课程未录课 / 未排课：接口直接返回 LMS_TEACHING_CLASS_NOT_FOUND 或 ok: false
+      if (cData.code === 'LMS_TEACHING_CLASS_NOT_FOUND' || cData.ok === false) {
+        console.log(`[canvas] 课程 ${canvasCourseId} 未安排直录播 (${cData.message || 'LMS_TEACHING_CLASS_NOT_FOUND'})`)
+        return []
+      }
+      const dataObj = (cData.data || {}) as Record<string, unknown>
+      const canvasRecord = (dataObj.canvasRecord || {}) as Record<string, unknown>
+      const courseObj = (dataObj.course || {}) as Record<string, unknown>
+      const teachingClassId = canvasRecord.teachingClassId || courseObj.teachingClassId
+      if (teachingClassId) {
+        console.log(`[canvas] 获取到 teachingClassId: ${teachingClassId}，拉取录播讲次列表…`)
+        const vodListUrl = `https://v.sjtu.edu.cn/jy-application-resourcemanage/v1/subject_vod_list_new?page.pageIndex=1&page.pageSize=1000&teclIds=${teachingClassId}&page.orders[0].asc=false&page.orders[0].field=courBeginTime&schoolOpenStatusFlag=false`
+        const listResp = await safeFetch(ses, vodListUrl, {
+          headers: {
+            'jwt-token': token,
+            token,
+            Referer: VSJTU_REFERER,
+            Accept: 'application/json'
+          }
+        })
+        if (listResp.ok) {
+          const listData = await listResp.json() as Record<string, unknown>
+          const innerData = (listData.data || {}) as Record<string, unknown>
+          const records = (innerData.records as Array<Record<string, unknown>>) || []
+          console.log(`[canvas] subject_vod_list_new 获取到 ${records.length} 条记录`)
+          const mapped: CanvasVideoSession[] = records.map((r, idx) => {
+            const id = String(r.id || idx + 1)
+            const teacNames = Array.isArray(r.teacNames) ? r.teacNames.join('/') : String(r.userName || '未知教师')
+            const subjName = String(r.subjName || '')
+            const weekStr = r.weekNumber ? `第${r.weekNumber}周` : ''
+            const beginTime = String(r.courBeginTime || '')
+            return {
+              videoId: id,
+              courId: Number(r.id || 0),
+              teacher: teacNames,
+              classroom: String(r.clroName || '未知地点'),
+              beginTime,
+              videoName: [subjName, weekStr, beginTime ? `(${beginTime})` : ''].filter(Boolean).join(' ')
+            }
+          })
+          return mapped
+        }
+      }
+    }
+  } catch (err) {
+    console.log('[canvas] 新版 resourcemanage API 调用异常，尝试旧版回退:', err)
+    }
+  }
+
+  // 2. 回退：旧版 directOnDemandPlay/findVodVideoList（兼容旧系统及既有单测 mock）
+  return fetchVodVideoListLegacy(ses, token, canvasCourseId)
+}
+
+/** 旧版 directOnDemandPlay/findVodVideoList 接口回退实现 */
+async function fetchVodVideoListLegacy(
   ses: Electron.Session,
   token: string,
   canvasCourseId: string
@@ -272,9 +400,70 @@ export function identifyVideoStreams(rawStreams: any[]): VideoStream[] {
 }
 
 /** 获取单个视频的多路流信息（教师 + PPT）。
- *  统一规则：每个 videoId 通常有教师 + PPT 等多路流。
- *  区分方式：identifyVideoStreams 自动识别 教师 / PPT / 全景，并保证教师流在前。 */
+ *  适配全新 course_vod_urls_new API（直链 MP4）并向下兼容旧系统 getVodVideoInfos */
 export async function getVodVideoInfos(
+  ses: Electron.Session,
+  token: string,
+  videoId: string
+): Promise<CanvasClassVideoInfo[]> {
+  // 1. 若为全新 LTI 1.3 JWT Token，调用全新 resourcemanage/v1/course_vod_urls_new API (获取高清直链 MP4)
+  if (isJwtToken(token)) {
+    try {
+      const newVodUrl = `https://v.sjtu.edu.cn/jy-application-resourcemanage/v1/course_vod_urls_new?courseId=${encodeURIComponent(videoId)}`
+    const resp = await safeFetch(ses, newVodUrl, {
+      headers: {
+        'jwt-token': token,
+        token,
+        Referer: VSJTU_REFERER,
+        Accept: 'application/json'
+      }
+    })
+    if (resp.ok) {
+      const data = await resp.json() as Record<string, unknown>
+      const inner = (data.data || {}) as Record<string, unknown>
+      const views = (inner.courseVodViewList as Array<Record<string, unknown>>) || []
+      if (views.length > 0) {
+        // 缓存 ivsVideoId 供 PPT 切片使用
+        const courIdNum = Number(views[0].courId || videoId)
+        if (Number.isFinite(courIdNum) && courIdNum > 0) {
+          ivsVideoIdCache.set(`${token}::${videoId}`, { ts: Date.now(), ivsVideoId: courIdNum })
+          if (ivsVideoIdCache.size > VOD_CACHE_MAX_SIZE) {
+            const oldest = ivsVideoIdCache.keys().next().value
+            if (oldest) ivsVideoIdCache.delete(oldest)
+          }
+        }
+
+        const result: CanvasClassVideoInfo[] = []
+        for (const item of views) {
+          const viewNum = Number(item.viewNum ?? 1)
+          const label = viewNum === 5 ? 'PPT' : (viewNum === 1 ? '教师' : '全景')
+          result.push({
+            channelNum: viewNum,
+            url: String(item.url || ''),
+            label
+          })
+        }
+        result.sort((a, b) => {
+          if (a.label === '教师' && b.label !== '教师') return -1
+          if (b.label === '教师' && a.label !== '教师') return 1
+          if (a.label === 'PPT' && b.label !== 'PPT') return -1
+          if (b.label === 'PPT' && a.label !== 'PPT') return 1
+          return 0
+        })
+        return result
+      }
+    }
+  } catch (err) {
+    console.log('[canvas] 新版 course_vod_urls_new 调用异常，尝试旧版回退:', err)
+    }
+  }
+
+  // 2. 回退：旧版 directOnDemandPlay/getVodVideoInfos
+  return getVodVideoInfosLegacy(ses, token, videoId)
+}
+
+/** 旧版 directOnDemandPlay/getVodVideoInfos 回退实现 */
+async function getVodVideoInfosLegacy(
   ses: Electron.Session,
   token: string,
   videoId: string
@@ -303,9 +492,6 @@ export async function getVodVideoInfos(
   const streams = (info.videoPlayResponseVoList as Array<Record<string, unknown>>) || []
 
   // [PPT Fix] getVodVideoInfos 返回的 data.courId（数值型）即 PPT 切片 API 需要的 ivsVideoId。
-  // 它与 findVodVideoList record 里的 courId 不同（后者是另一套加密串），也与 videoId（加密串）不同。
-  // 经浏览器真实链路验证：query-ppt-slice-es?ivsVideoId={courId数值} 才能拿到切片，传 videoId 会 500。
-  // 这里解析流直链时顺手缓存 (token, videoId) → courId，供 PPT 下载复用，避免重复请求。
   const courIdNum = Number(info.courId)
   if (Number.isFinite(courIdNum) && courIdNum > 0) {
     ivsVideoIdCache.set(`${token}::${videoId}`, { ts: Date.now(), ivsVideoId: courIdNum })

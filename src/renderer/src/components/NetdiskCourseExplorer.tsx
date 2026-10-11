@@ -1,4 +1,4 @@
-import { memo, useMemo, useEffect } from 'react'
+import { memo, useMemo, useEffect, useRef } from 'react'
 import type React from 'react'
 import { BreadcrumbBar, type BreadcrumbItem } from './BreadcrumbBar'
 import {
@@ -161,12 +161,19 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     )
   }, [columnActiveCourse, navState.categoryId])
 
-  // Column 模式下自动触发选中课程的进入加载
+  const lastEnteredCourseIdRef = useRef<number | string | null>(null)
+
+  // Column 模式下仅在选中的课程 ID 变化时触发进入加载（阻断每帧重新触发的死循环）
   useEffect(() => {
-    if (viewMode === 'column' && columnActiveCourse) {
-      columnActiveCourse.onEnter?.()
+    if (viewMode === 'column' && columnActiveCourse?.id) {
+      if (lastEnteredCourseIdRef.current !== columnActiveCourse.id) {
+        lastEnteredCourseIdRef.current = columnActiveCourse.id
+        columnActiveCourse.onEnter?.()
+      }
+    } else if (viewMode !== 'column') {
+      lastEnteredCourseIdRef.current = null
     }
-  }, [viewMode, columnActiveCourse])
+  }, [viewMode, columnActiveCourse?.id])
 
   // 构造面包屑项目
   const breadcrumbItems = useMemo<BreadcrumbItem[]>(() => {
@@ -279,7 +286,10 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
             activeCourse={columnActiveCourse}
             activeCategory={columnActiveCategory}
             onSelectCourse={c => {
-              c.onEnter?.()
+              if (lastEnteredCourseIdRef.current !== c.id) {
+                lastEnteredCourseIdRef.current = c.id
+                c.onEnter?.()
+              }
               onNavigate({
                 level: 'course',
                 courseId: c.id,

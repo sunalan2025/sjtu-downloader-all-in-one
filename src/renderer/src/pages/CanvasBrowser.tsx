@@ -250,9 +250,15 @@ export function CanvasBrowser() {
   const [scanningVideoCourseIds, setScanningVideoCourseIds] = useState<Record<number, boolean>>({})
 
   const scanStartedRef = useRef(false)
+  const scanningVideoInFlightRef = useRef<Set<number>>(new Set())
+  const scannedVideoCourseIdsRef = useRef<Set<number>>(new Set())
+  const scanningFilesInFlightRef = useRef<Set<number>>(new Set())
+  const scannedFilesCourseIdsRef = useRef<Set<number>>(new Set())
 
   const doScanFiles = useCallback(async (courseId: number): Promise<void> => {
     if (canvasCourseData[courseId]) return
+    if (scanningFilesInFlightRef.current.has(courseId) || scannedFilesCourseIdsRef.current.has(courseId)) return
+    scanningFilesInFlightRef.current.add(courseId)
     setScanningCourseIds(prev => ({ ...prev, [courseId]: true }))
     try {
       const r = await window.api.canvas.scanCourse(courseId)
@@ -260,11 +266,17 @@ export function CanvasBrowser() {
         setCanvasCourseData(courseId, buildCourseData(r))
       }
     } catch { /* ignore */ }
-    setScanningCourseIds(prev => ({ ...prev, [courseId]: false }))
+    finally {
+      scanningFilesInFlightRef.current.delete(courseId)
+      scannedFilesCourseIdsRef.current.add(courseId)
+      setScanningCourseIds(prev => ({ ...prev, [courseId]: false }))
+    }
   }, [canvasCourseData, setCanvasCourseData])
 
   const doClassVideoScan = useCallback(async (courseId: number): Promise<void> => {
     if (canvasLectures[courseId]) return
+    if (scanningVideoInFlightRef.current.has(courseId) || scannedVideoCourseIdsRef.current.has(courseId)) return
+    scanningVideoInFlightRef.current.add(courseId)
     setScanningVideoCourseIds(prev => ({ ...prev, [courseId]: true }))
     try {
       const r = await window.api.canvas.classVideoScan(courseId)
@@ -274,13 +286,20 @@ export function CanvasBrowser() {
         if (r.token && r.canvasCourseId) setCanvasLtiToken(courseId, { token: r.token, canvasCourseId: r.canvasCourseId })
         const allTeachers = (r.teachers ?? []).filter(t => t.selected).map(t => t.teacher)
         if (allTeachers.length > 0) setCanvasSelectedTeachers(courseId, allTeachers)
+      } else {
+        setCanvasLectures(courseId, [])
       }
       const mv = await window.api.canvas.moduleVideoScan(courseId)
       if (mv.ok) {
         setCanvasModuleVideos(courseId, { iframes: mv.tasks ?? [], extTools: mv.extTools ?? [], extUrls: mv.extUrls ?? [] })
       }
-    } catch { /* ignore */ }
-    setScanningVideoCourseIds(prev => ({ ...prev, [courseId]: false }))
+    } catch {
+      setCanvasLectures(courseId, [])
+    } finally {
+      scanningVideoInFlightRef.current.delete(courseId)
+      scannedVideoCourseIdsRef.current.add(courseId)
+      setScanningVideoCourseIds(prev => ({ ...prev, [courseId]: false }))
+    }
   }, [canvasLectures, setCanvasLectures, setCanvasTeachers, setCanvasLtiToken, setCanvasSelectedTeachers, setCanvasModuleVideos])
 
   // ── 学期列表 ──
@@ -371,6 +390,10 @@ export function CanvasBrowser() {
     setDownloading(false)
     // 3. 清空所有 Canvas 扫描数据 / 分类选中 / 展开 / 教师 / LTI token / 讲次
     resetCanvasScanResults()
+    scanningVideoInFlightRef.current.clear()
+    scannedVideoCourseIdsRef.current.clear()
+    scanningFilesInFlightRef.current.clear()
+    scannedFilesCourseIdsRef.current.clear()
     // 4. 清空本地勾选与学期筛选
     setSelected(new Set())
     setSelectedTerm('all')
@@ -1278,8 +1301,8 @@ export function CanvasBrowser() {
         categories,
         onToggle: () => toggleCourse(c.courseId),
         onEnter: () => {
-          if (!canvasCourseData[c.courseId]) void doScanFiles(c.courseId)
-          if (!canvasLectures[c.courseId]) void doClassVideoScan(c.courseId)
+          if (!canvasCourseData[c.courseId] && !scannedFilesCourseIdsRef.current.has(c.courseId)) void doScanFiles(c.courseId)
+          if (!canvasLectures[c.courseId] && !scannedVideoCourseIdsRef.current.has(c.courseId)) void doClassVideoScan(c.courseId)
         },
         isLoading: scanningCourseIds[c.courseId] || scanningVideoCourseIds[c.courseId],
         summary: progressIds.length > 0 ? { done, downloading: dl, errors: err, inflight, total: progressIds.length } : undefined
