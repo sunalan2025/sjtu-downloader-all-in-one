@@ -12,7 +12,7 @@ import {
   FolderIcon,
   GlobalCtrlButton,
   ItemCheckbox,
-  LayoutModeSwitch,
+  NetdiskViewModeSwitch,
   ProgressBar,
   ResourceTypeSegmented,
   TaskCtrlButtons,
@@ -20,6 +20,13 @@ import {
   triStateFromCount,
   type TriState
 } from '../components/DownloadUI'
+import {
+  NetdiskCourseExplorer,
+  type NetdiskNavState,
+  type NetdiskCourseItem,
+  type NetdiskCategoryItem,
+  type NetdiskFileItem
+} from '../components/NetdiskCourseExplorer'
 import { Spinner } from '../components/Spinner'
 import type {
   CnmoocChapter,
@@ -33,6 +40,36 @@ import type {
 const makeTid = (courseId: string, itemId: string): string => `cnmooc_${courseId}_${itemId}`
 
 const EMPTY_CHAPTERS: CnmoocChapter[] = []
+
+const CnmoocItemProgress = memo(function CnmoocItemProgress({
+  tid,
+  onPauseTask,
+  onCancelTask,
+  onResumeTask
+}: {
+  tid: string
+  onPauseTask: (id: string) => void
+  onCancelTask: (id: string) => void
+  onResumeTask: (id: string) => void
+}) {
+  const p = useEffectiveProgress(tid)
+  if (!p || (p.state !== 'downloading' && p.state !== 'pending' && p.state !== 'error' && p.state !== 'paused')) {
+    return null
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 min-w-[80px]">
+        <ProgressBar p={p} />
+      </div>
+      <TaskCtrlButtons
+        state={p.state}
+        onPause={() => onPauseTask(tid)}
+        onCancel={() => onCancelTask(tid)}
+        onResume={() => onResumeTask(tid)}
+      />
+    </div>
+  )
+})
 
 export function CnmoocBrowser() {
   const {
@@ -55,8 +92,8 @@ export function CnmoocBrowser() {
     setDownloading,
     setCloudLinkedIds,
     resetCnmoocScanResults,
-    courseLayoutMode,
-    setCourseLayoutMode
+    courseViewMode,
+    setCourseViewMode
   } = useAppStore(
     useShallow(s => ({
       courses: s.cnmoocCourses,
@@ -78,12 +115,13 @@ export function CnmoocBrowser() {
       setDownloading: s.setDownloading,
       setCloudLinkedIds: s.setCloudLinkedIds,
       resetCnmoocScanResults: s.resetCnmoocScanResults,
-      courseLayoutMode: s.courseLayoutMode,
-      setCourseLayoutMode: s.setCourseLayoutMode
+      courseViewMode: s.courseViewMode,
+      setCourseViewMode: s.setCourseViewMode
     }))
   )
 
   const [searchQuery, setSearchQuery] = useState('')
+  const [navState, setNavState] = useState<NetdiskNavState>({ level: 'root' })
 
   // 摊平所有条目的 taskId（用于全选 / 计数 / 统计）。依赖 courses + courseData 引用。
   const dataKey = useMemo(
@@ -132,19 +170,6 @@ export function CnmoocBrowser() {
       setSelected(new Set(allTaskIds))
     }
   }, [scanState, total, allTaskIds, setSelected])
-
-  // 默认平铺展开所有课程卡片
-  const autoExpandedRef = useRef(false)
-  useEffect(() => {
-    if (!autoExpandedRef.current && courses.length > 0 && scanState === 'done') {
-      autoExpandedRef.current = true
-      for (const c of courses) {
-        if (!expanded.has(c.courseId)) {
-          toggleExpand(c.courseId)
-        }
-      }
-    }
-  }, [courses, scanState, expanded, toggleExpand])
 
   // 搜索过滤课程
   const filteredCourses = useMemo(() => {
@@ -269,6 +294,90 @@ export function CnmoocBrowser() {
     && (!needsCloud || !!cloudUserToken)
     && (!needsLocal || !!localDestRoot)
 
+  const progressMap = useAppStore(s => s.progress)
+  const cloudLinkedIds = useAppStore(s => s.cloudLinkedIds)
+
+  const netdiskCourses = useMemo<NetdiskCourseItem[]>(() => {
+    return filteredCourses.map(c => {
+      const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
+      const ids: string[] = []
+      for (const ch of chapters) for (const it of ch.items) ids.push(makeTid(c.courseId, it.itemId))
+      const selCount = ids.filter(id => selected.has(id)).length
+      const triState = triStateFromCount(selCount, ids.length)
+
+      const categories: NetdiskCategoryItem[] = chapters.map(ch => {
+        const chIds = ch.items.map(it => makeTid(c.courseId, it.itemId))
+        const chSelCount = chIds.filter(id => selected.has(id)).length
+        const chTri = triStateFromCount(chSelCount, chIds.length)
+
+        const items: NetdiskFileItem[] = ch.items.map(it => {
+          const tid = makeTid(c.courseId, it.itemId)
+          return {
+            id: tid,
+            name: it.title,
+            type: it.itemType === '10' ? 'MP4' : 'DOC',
+            selected: selected.has(tid),
+            onToggle: () => toggleSelect(tid),
+            renderExtra: (
+              <CnmoocItemProgress
+                tid={tid}
+                onPauseTask={onPauseTask}
+                onCancelTask={onCancelTask}
+                onResumeTask={onResumeTask}
+              />
+            )
+          }
+        })
+
+        return {
+          id: ch.chapter,
+          name: ch.chapter,
+          icon: 'folder',
+          state: chTri,
+          onToggle: () => {
+            onToggleMany(chIds, chTri !== 'all')
+          },
+          items,
+          emptyMessage: '该章节暂无可下载资源'
+        }
+      })
+
+      // 课程级聚合进度
+      let done = 0, downloadingCount = 0, errors = 0, inflight = 0
+      for (const id of ids) {
+        const prog = progressMap[id]
+        const st = prog?.state
+        const cloudId = cloudLinkedIds[id]
+        const cloudProg = cloudId ? progressMap[cloudId] : undefined
+        const cloudSt = cloudProg?.state
+        if (st === 'error' || cloudSt === 'error') errors++
+        const localDone = st === 'done' || st === 'skipped'
+        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+        if (localDone && cloudDone) done++
+        else if (st === 'downloading' || st === 'pending' || cloudSt === 'downloading' || cloudSt === 'pending') {
+          downloadingCount++
+          if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+          else if (localDone) inflight += 1
+        }
+      }
+
+      return {
+        id: c.courseId,
+        name: c.name,
+        state: triState,
+        itemCount: ids.length,
+        categories,
+        onToggle: () => {
+          onToggleMany(ids, triState !== 'all')
+        },
+        summary: ids.length > 0 ? { done, downloading: downloadingCount, errors, inflight, total: ids.length } : undefined
+      }
+    })
+  }, [
+    filteredCourses, courseData, selected, progressMap, cloudLinkedIds,
+    onToggleMany, toggleSelect, onPauseTask, onCancelTask, onResumeTask
+  ])
+
   return (
     <div className="flex h-full w-full flex-col">
       {/* 顶部单行置顶操作栏 (对齐设计图：搜索框 + 资源类型筛选 + 统计 + 全选 + 立即下载) */}
@@ -292,9 +401,9 @@ export function CnmoocBrowser() {
             <ResourceTypeSegmented value={resourceFilter} onChange={setResourceFilter} />
           </div>
 
-          <LayoutModeSwitch
-            mode={courseLayoutMode}
-            onChange={setCourseLayoutMode}
+          <NetdiskViewModeSwitch
+            mode={courseViewMode}
+            onChange={setCourseViewMode}
           />
 
           {scanState === 'scanning' && (
@@ -353,40 +462,24 @@ export function CnmoocBrowser() {
         </div>
       </div>
 
-      {/* 课程列表：多列网格流 (Deck) 或 紧凑列表流 (List) */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* 课程列表：网盘资源浏览器 */}
+      <div className="flex-1 overflow-y-auto">
         {scanState === 'scanning' && courses.length === 0 && <ScanningHero msg={scanMessage} />}
         {scanState === 'error' && <ErrorHero msg={scanMessage} onRetry={() => void runScan()} />}
         {scanState === 'done' && courses.length === 0 && <EmptyHero />}
         {scanState === 'done' && courses.length > 0 && filteredCourses.length === 0 && (
-          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
+          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center p-6">
             <div className="text-base font-medium text-text-1">没有匹配的好大学课程</div>
             <div className="mt-2 text-sm text-text-3">请尝试更改搜索关键词</div>
           </div>
         )}
         {filteredCourses.length > 0 && (
-          <div className={courseLayoutMode === 'deck' ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start" : "flex flex-col gap-4 max-w-5xl mx-auto w-full"}>
-            {filteredCourses.map((c, idx) => (
-              <div
-                key={c.courseId}
-                className="animate-fadeInUp"
-                style={{ animationDelay: `${Math.min(idx, 8) * 40}ms`, animationFillMode: 'backwards' }}
-              >
-                <CnmoocCourseCard
-                  course={c}
-                  chapters={courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS}
-                  expanded={expanded.has(c.courseId)}
-                  selected={selected}
-                  onToggle={onToggle}
-                  onToggleMany={onToggleMany}
-                  onToggleExpand={toggleExpand}
-                  onPauseTask={onPauseTask}
-                  onCancelTask={onCancelTask}
-                  onResumeTask={onResumeTask}
-                />
-              </div>
-            ))}
-          </div>
+          <NetdiskCourseExplorer
+            courses={netdiskCourses}
+            viewMode={courseViewMode}
+            navState={navState}
+            onNavigate={setNavState}
+          />
         )}
       </div>
     </div>

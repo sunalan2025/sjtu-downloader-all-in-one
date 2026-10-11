@@ -12,13 +12,20 @@ import {
   FileTypeBadge,
   FolderIcon,
   DropdownSelect,
-  LayoutModeSwitch,
+  NetdiskViewModeSwitch,
   GlobalCtrlButton,
   TaskCtrlButtons,
   CourseProgressSummary,
   formatBytes,
   type TriState
 } from '../components/DownloadUI'
+import {
+  NetdiskCourseExplorer,
+  type NetdiskNavState,
+  type NetdiskCourseItem,
+  type NetdiskCategoryItem,
+  type NetdiskFileItem
+} from '../components/NetdiskCourseExplorer'
 import type {
   CanvasCourse,
   CanvasDownloadTaskSpec,
@@ -149,6 +156,36 @@ function combinePptPdf(base: TriState, pptPdfOn: boolean | undefined): TriState 
   return 'some'
 }
 
+const FileRowProgress = memo(function FileRowProgress({ tid }: { tid: string }) {
+  const p = useEffectiveProgress(tid)
+  if (!p || (p.state !== 'downloading' && p.state !== 'pending' && p.state !== 'error' && p.state !== 'paused')) {
+    return null
+  }
+  return <ProgressBar p={p} />
+})
+
+const VideoRowProgress = memo(function VideoRowProgress({ tid, controllable }: { tid: string; controllable: boolean }) {
+  const p = useEffectiveProgress(tid)
+  if (!p || (p.state !== 'downloading' && p.state !== 'pending' && p.state !== 'error' && p.state !== 'paused')) {
+    return null
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 min-w-[80px]">
+        <ProgressBar p={p} />
+      </div>
+      {controllable && (
+        <TaskCtrlButtons
+          state={p.state}
+          onPause={() => window.api.download.pause(tid).catch(() => undefined)}
+          onCancel={() => window.api.download.cancel(tid).catch(() => undefined)}
+          onResume={() => window.api.download.resume(tid).catch(() => undefined)}
+        />
+      )}
+    </div>
+  )
+})
+
 // ─── 主组件 ──────────────────────────────────────────────────
 
 export function CanvasBrowser() {
@@ -159,7 +196,7 @@ export function CanvasBrowser() {
     downloadMode, canvasCourses, canvasScanState, canvasScanMessage,
     canvasExpandedCourses, canvasCourseData, canvasTeachers, canvasSelectedTeachers,
     canvasLectures, canvasModuleVideos, canvasCourseCategorySelections,
-    courseLayoutMode
+    courseViewMode, cloudLinkedIds
   } = useAppStore(useShallow(s => ({
     localDestRoot: s.localDestRoot,
     cloudUserToken: s.cloudUserToken,
@@ -174,9 +211,10 @@ export function CanvasBrowser() {
     canvasLectures: s.canvasLectures,
     canvasModuleVideos: s.canvasModuleVideos,
     canvasCourseCategorySelections: s.canvasCourseCategorySelections,
-    courseLayoutMode: s.courseLayoutMode
+    courseViewMode: s.courseViewMode,
+    cloudLinkedIds: s.cloudLinkedIds
   })))
-  const setCourseLayoutMode = useAppStore(s => s.setCourseLayoutMode)
+  const setCourseViewMode = useAppStore(s => s.setCourseViewMode)
   // Group 2: frequently-changing (downloading flag — derived from progress)
   const downloading = useAppStore(s => s.downloading)
   // Group 3: stable action references (setters are stable, but grouped for clarity)
@@ -211,9 +249,43 @@ export function CanvasBrowser() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selectedTerm, setSelectedTerm] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [navState, setNavState] = useState<NetdiskNavState>({ level: 'root' })
+  const [scanningCourseIds, setScanningCourseIds] = useState<Record<number, boolean>>({})
+  const [scanningVideoCourseIds, setScanningVideoCourseIds] = useState<Record<number, boolean>>({})
 
   const scanStartedRef = useRef(false)
-  const autoExpandedRef = useRef(false)
+
+  const doScanFiles = useCallback(async (courseId: number): Promise<void> => {
+    if (canvasCourseData[courseId]) return
+    setScanningCourseIds(prev => ({ ...prev, [courseId]: true }))
+    try {
+      const r = await window.api.canvas.scanCourse(courseId)
+      if (r.ok && r.files) {
+        setCanvasCourseData(courseId, buildCourseData(r))
+      }
+    } catch { /* ignore */ }
+    setScanningCourseIds(prev => ({ ...prev, [courseId]: false }))
+  }, [canvasCourseData, setCanvasCourseData])
+
+  const doClassVideoScan = useCallback(async (courseId: number): Promise<void> => {
+    if (canvasLectures[courseId]) return
+    setScanningVideoCourseIds(prev => ({ ...prev, [courseId]: true }))
+    try {
+      const r = await window.api.canvas.classVideoScan(courseId)
+      if (r.ok) {
+        setCanvasLectures(courseId, r.lectures ?? [])
+        setCanvasTeachers(courseId, r.teachers ?? [])
+        if (r.token && r.canvasCourseId) setCanvasLtiToken(courseId, { token: r.token, canvasCourseId: r.canvasCourseId })
+        const allTeachers = (r.teachers ?? []).filter(t => t.selected).map(t => t.teacher)
+        if (allTeachers.length > 0) setCanvasSelectedTeachers(courseId, allTeachers)
+      }
+      const mv = await window.api.canvas.moduleVideoScan(courseId)
+      if (mv.ok) {
+        setCanvasModuleVideos(courseId, { iframes: mv.tasks ?? [], extTools: mv.extTools ?? [], extUrls: mv.extUrls ?? [] })
+      }
+    } catch { /* ignore */ }
+    setScanningVideoCourseIds(prev => ({ ...prev, [courseId]: false }))
+  }, [canvasLectures, setCanvasLectures, setCanvasTeachers, setCanvasLtiToken, setCanvasSelectedTeachers, setCanvasModuleVideos])
 
   // ── 学期列表 ──
   const terms = useMemo(() => {
@@ -247,18 +319,6 @@ export function CanvasBrowser() {
     }
     return list
   }, [canvasCourses, selectedTerm, searchQuery])
-
-  // 首次拉取课程后，默认将课程卡片全部展开以多列卡片流平铺展示
-  useEffect(() => {
-    if (!autoExpandedRef.current && canvasCourses.length > 0) {
-      autoExpandedRef.current = true
-      for (const c of canvasCourses) {
-        if (!canvasExpandedCourses.has(c.courseId)) {
-          toggleCanvasExpand(c.courseId)
-        }
-      }
-    }
-  }, [canvasCourses, canvasExpandedCourses, toggleCanvasExpand])
 
   // 计算已选任务条数与总预估大小
   const selectedStats = useMemo(() => {
@@ -1038,6 +1098,235 @@ export function CanvasBrowser() {
     && (!needsLocal || !!localDestRoot)
   const pendingCourseCount = filteredCourseIds.filter(isCourseDownloadable).length
 
+  const canvasCourseTaskIds = useAppStore(s => s.canvasCourseTaskIds)
+  const progressMap = useAppStore(s => s.progress)
+
+  const netdiskCourses = useMemo<NetdiskCourseItem[]>(() => {
+    return filteredCourses.map(c => {
+      const cd = canvasCourseData[c.courseId]
+      const lec = canvasLectures[c.courseId]
+      const mv = canvasModuleVideos[c.courseId]
+      const catSel = canvasCourseCategorySelections[c.courseId]
+      const cStates = courseStates(c.courseId)
+      const tIds = courseTaskIds(c.courseId)
+
+      // 课件项
+      const fileItems: NetdiskFileItem[] = []
+      let totalFilesBytes = 0
+      if (cd) {
+        const allFiles = [...cd.files, ...cd.moduleFiles, ...cd.syllabusFiles]
+        for (const f of allFiles) {
+          const tid = fileTaskId(c.courseId, f.fileId)
+          totalFilesBytes += f.size || 0
+          fileItems.push({
+            id: tid,
+            name: f.displayName,
+            size: f.size,
+            type: f.displayName.includes('.') ? f.displayName.split('.').pop()?.toUpperCase() : 'FILE',
+            selected: selected.has(tid),
+            onToggle: () => toggleSelect(tid),
+            renderExtra: <FileRowProgress tid={tid} />
+          })
+        }
+      }
+
+      // 视频项
+      const videoItems: NetdiskFileItem[] = []
+      if (lec) {
+        for (const l of lec) {
+          if (l.teacher) {
+            const tTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'teacher')
+            videoItems.push({
+              id: tTid,
+              name: `${c.name} - 第${l.lectureNum}讲 教师 (MP4)`,
+              date: l.date,
+              type: 'MP4',
+              selected: selected.has(tTid),
+              onToggle: () => toggleSelect(tTid),
+              renderExtra: <VideoRowProgress tid={tTid} controllable={true} />
+            })
+            const pTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'ppt')
+            videoItems.push({
+              id: pTid,
+              name: `${c.name} - 第${l.lectureNum}讲 PPT (MP4)`,
+              date: l.date,
+              type: 'PPT',
+              selected: selected.has(pTid),
+              onToggle: () => toggleSelect(pTid),
+              renderExtra: <VideoRowProgress tid={pTid} controllable={true} />
+            })
+          }
+        }
+      }
+      if (mv) {
+        for (const t of mv.iframes) {
+          const tid = iframeVideoTaskId(c.courseId, t.pageTitle)
+          videoItems.push({
+            id: tid,
+            name: `${t.pageTitle} (MP4)`,
+            type: 'MP4',
+            selected: selected.has(tid),
+            onToggle: () => toggleSelect(tid),
+            renderExtra: <VideoRowProgress tid={tid} controllable={false} />
+          })
+        }
+        for (const t of mv.extTools) {
+          const tid = extToolVideoTaskId(c.courseId, t.fileId)
+          videoItems.push({
+            id: tid,
+            name: `${t.title} (MP4)`,
+            type: 'MP4',
+            selected: selected.has(tid),
+            onToggle: () => toggleSelect(tid),
+            renderExtra: <VideoRowProgress tid={tid} controllable={true} />
+          })
+        }
+        for (const t of mv.extUrls) {
+          const tid = extUrlVideoTaskId(c.courseId, t.uuid)
+          videoItems.push({
+            id: tid,
+            name: `${t.title} (MP4)`,
+            type: 'MP4',
+            selected: selected.has(tid),
+            onToggle: () => toggleSelect(tid),
+            renderExtra: <VideoRowProgress tid={tid} controllable={true} />
+          })
+        }
+      }
+
+      // 进度统计
+      const committedTaskIds = canvasCourseTaskIds[c.courseId] ?? EMPTY_TASK_IDS
+      const progressIds = tIds.all.length > 0 ? tIds.all : committedTaskIds
+      let done = 0, dl = 0, err = 0, inflight = 0
+      const isBoth = downloadMode === 'both'
+      for (const id of progressIds) {
+        const prog = progressMap[id]
+        const st = prog?.state
+        const localDone = st === 'done' || st === 'skipped'
+        if (isBoth) {
+          const cloudId = cloudLinkedIds[id]
+          const cloudSt = cloudId ? progressMap[cloudId]?.state : undefined
+          const cloudDone = cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+          const isLocalFinal = localDone || st === 'error' || st === 'cancelled'
+          const isCloudFinal = !cloudId || cloudDone || cloudSt === 'error'
+          if (localDone && (cloudDone || !cloudId)) done++
+          else if (!isLocalFinal || !isCloudFinal) {
+            if (st === 'error' || cloudSt === 'error') err++
+            else {
+              dl++
+              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+              else if (localDone) inflight += 1
+            }
+          }
+        } else {
+          if (localDone) done++
+          else if (st !== 'cancelled') {
+            if (st === 'error') err++
+            else {
+              dl++
+              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+            }
+          }
+        }
+      }
+
+      const categories: NetdiskCategoryItem[] = [
+        {
+          id: 'files',
+          name: '课件资料',
+          icon: 'file',
+          state: cStates.files,
+          onToggle: () => {
+            const newOn = cStates.files !== 'all'
+            setCanvasCourseCategorySelection(c.courseId, { files: newOn })
+            if (tIds.files.length > 0) toggleSelectMany(tIds.files, newOn)
+          },
+          items: fileItems,
+          isLoading: scanningCourseIds[c.courseId],
+          loadingMessage: '正在扫描课程课件…',
+          emptyMessage: cd ? '该课程无课件文件' : '点击扫描课件',
+          renderExtra: !cd && !scanningCourseIds[c.courseId] ? (
+            <div className="py-2 text-center">
+              <button
+                type="button"
+                onClick={() => void doScanFiles(c.courseId)}
+                className="text-xs text-accent hover:underline cursor-pointer"
+              >
+                点击扫描课件文件
+              </button>
+            </div>
+          ) : undefined
+        },
+        {
+          id: 'videos',
+          name: '课堂视频',
+          icon: 'video',
+          state: (cStates.teacher === 'all' && cStates.ppt === 'all' && cStates.moduleVideo === 'all')
+            ? 'all'
+            : (cStates.teacher === 'none' && cStates.ppt === 'none' && cStates.moduleVideo === 'none')
+              ? 'none'
+              : 'some',
+          onToggle: () => {
+            const isAll = cStates.teacher === 'all' && cStates.ppt === 'all' && cStates.moduleVideo === 'all'
+            const newOn = !isAll
+            setCanvasCourseCategorySelection(c.courseId, { teacher: newOn, ppt: newOn, moduleVideo: newOn })
+            const vIds = [...tIds.teacher, ...tIds.ppt, ...tIds.moduleVideo]
+            if (vIds.length > 0) toggleSelectMany(vIds, newOn)
+          },
+          items: videoItems,
+          isLoading: scanningVideoCourseIds[c.courseId],
+          loadingMessage: '正在扫描课堂视频…',
+          emptyMessage: lec ? '该课程未发现课堂视频' : '点击扫描课堂视频',
+          renderExtra: (
+            <div className="space-y-2">
+              {!lec && !scanningVideoCourseIds[c.courseId] && (
+                <div className="py-1 text-center">
+                  <button
+                    type="button"
+                    onClick={() => void doClassVideoScan(c.courseId)}
+                    className="text-xs text-accent hover:underline cursor-pointer"
+                  >
+                    点击扫描课堂视频
+                  </button>
+                </div>
+              )}
+              {catSel?.pptPdf && (
+                <div className="pt-2 border-t border-bd/30">
+                  <div className="text-xs font-medium text-text-1 mb-1">PPT课件 (PDF)</div>
+                  <PptPdfProgressRow courseId={c.courseId} />
+                </div>
+              )}
+            </div>
+          )
+        }
+      ]
+
+      return {
+        id: c.courseId,
+        name: c.name,
+        code: c.courseCode,
+        term: c.term,
+        state: cStates.course,
+        itemCount: tIds.all.length,
+        totalBytes: totalFilesBytes > 0 ? totalFilesBytes : undefined,
+        categories,
+        onToggle: () => toggleCourse(c.courseId),
+        onEnter: () => {
+          if (!canvasCourseData[c.courseId]) void doScanFiles(c.courseId)
+          if (!canvasLectures[c.courseId]) void doClassVideoScan(c.courseId)
+        },
+        isLoading: scanningCourseIds[c.courseId] || scanningVideoCourseIds[c.courseId],
+        summary: progressIds.length > 0 ? { done, downloading: dl, errors: err, inflight, total: progressIds.length } : undefined
+      }
+    })
+  }, [
+    filteredCourses, canvasCourseData, canvasLectures, canvasModuleVideos,
+    canvasCourseCategorySelections, courseStates, courseTaskIds, selected,
+    toggleSelect, toggleSelectMany, setCanvasCourseCategorySelection,
+    scanningCourseIds, scanningVideoCourseIds, doScanFiles, doClassVideoScan,
+    toggleCourse, canvasCourseTaskIds, progressMap, downloadMode, cloudLinkedIds
+  ])
+
   return (
     <div className="flex h-full w-full flex-col">
       {/* 顶部粘性操作栏 (对齐设计图：学期下拉 + 搜索框 + 已选统计 + 全选 + 立即下载) */}
@@ -1064,9 +1353,9 @@ export function CanvasBrowser() {
             />
           </div>
 
-          <LayoutModeSwitch
-            mode={courseLayoutMode}
-            onChange={setCourseLayoutMode}
+          <NetdiskViewModeSwitch
+            mode={courseViewMode}
+            onChange={setCourseViewMode}
           />
 
           {canvasScanState === 'scanning' && (
@@ -1123,17 +1412,17 @@ export function CanvasBrowser() {
         </div>
       </div>
 
-      {/* 课程列表：多列网格流 (Deck) 或 紧凑列表流 (List) */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* 课程列表：网盘资源浏览器 */}
+      <div className="flex-1 overflow-y-auto">
         {canvasScanState === 'scanning' && canvasCourses.length === 0 && (
-          <div className="relative mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
+          <div className="relative mx-auto flex h-full max-w-md flex-col items-center justify-center text-center p-6">
             <div className="pointer-events-none absolute inset-0 -z-10 bg-hero-radial opacity-70 blur-2xl" />
             <Spinner size={32} />
             <div className="mt-5 text-base font-medium text-text-1">{canvasScanMessage || '正在扫描…'}</div>
           </div>
         )}
         {canvasScanState === 'error' && (
-          <div className="relative mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
+          <div className="relative mx-auto flex h-full max-w-md flex-col items-center justify-center text-center p-6">
             <div className="pointer-events-none absolute inset-0 -z-10 bg-hero-radial opacity-60 blur-2xl" />
             <svg className="h-12 w-12 text-warning/80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
@@ -1143,44 +1432,18 @@ export function CanvasBrowser() {
           </div>
         )}
         {canvasScanState === 'done' && canvasCourses.length > 0 && filteredCourses.length === 0 && (
-          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
+          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center p-6">
             <div className="text-base font-medium text-text-1">没有匹配的课程</div>
             <div className="mt-2 text-sm text-text-3">请尝试更改搜索关键词或学期</div>
           </div>
         )}
         {filteredCourses.length > 0 && (
-          <div className={courseLayoutMode === 'deck' ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start" : "flex flex-col gap-4 max-w-5xl mx-auto w-full"}>
-            {filteredCourses.map((c, idx) => (
-              <div
-                key={c.courseId}
-                className="animate-fadeInUp"
-                style={{ animationDelay: `${Math.min(idx, 8) * 40}ms`, animationFillMode: 'backwards' }}
-              >
-                <CanvasCourseCard
-                  course={c}
-                  expanded={canvasExpandedCourses.has(c.courseId)}
-                  courseData={canvasCourseData[c.courseId]}
-                  lectures={canvasLectures[c.courseId]}
-                  teachers={canvasTeachers[c.courseId]}
-                  selectedTeachers={canvasSelectedTeachers[c.courseId]}
-                  moduleVideos={canvasModuleVideos[c.courseId]}
-                  categorySelections={canvasCourseCategorySelections[c.courseId]}
-                  selected={selected}
-                  onToggleExpand={() => toggleCanvasExpand(c.courseId)}
-                  onSetCourseData={data => setCanvasCourseData(c.courseId, data)}
-                  onSetLectures={l => setCanvasLectures(c.courseId, l)}
-                  onSetTeachers={t => setCanvasTeachers(c.courseId, t)}
-                  onSetSelectedTeachers={t => setCanvasSelectedTeachers(c.courseId, t)}
-                  onSetLtiToken={d => setCanvasLtiToken(c.courseId, d)}
-                  onSetModuleVideos={v => setCanvasModuleVideos(c.courseId, v)}
-                  onSetCategorySelection={sel => setCanvasCourseCategorySelection(c.courseId, sel)}
-                  toggleSelect={toggleSelect}
-                  toggleSelectMany={toggleSelectMany}
-                  onToggleCourseSelect={() => toggleCourse(c.courseId)}
-                />
-              </div>
-            ))}
-          </div>
+          <NetdiskCourseExplorer
+            courses={netdiskCourses}
+            viewMode={courseViewMode}
+            navState={navState}
+            onNavigate={setNavState}
+          />
         )}
       </div>
     </div>

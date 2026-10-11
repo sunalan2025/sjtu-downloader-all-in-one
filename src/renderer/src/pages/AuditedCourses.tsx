@@ -21,16 +21,53 @@ import {
   ItemCheckbox,
   FileTypeBadge,
   FolderIcon,
-  LayoutModeSwitch,
+  NetdiskViewModeSwitch,
   TaskCtrlButtons,
   TriCheckbox,
   triStateFromCount,
   formatBytes,
   type TriState
 } from '../components/DownloadUI'
+import {
+  NetdiskCourseExplorer,
+  type NetdiskNavState,
+  type NetdiskCourseItem,
+  type NetdiskCategoryItem,
+  type NetdiskFileItem
+} from '../components/NetdiskCourseExplorer'
 
 // 稳定空数组：避免 tasksByCourse[id] 缺失时每次渲染都生成新 [] 引用，破坏子组件 memo
 const EMPTY_TASKS: VideoTask[] = []
+
+const AuditedItemProgress = memo(function AuditedItemProgress({
+  tid,
+  onPauseTask,
+  onCancelTask,
+  onResumeTask
+}: {
+  tid: string
+  onPauseTask: (id: string) => void
+  onCancelTask: (id: string) => void
+  onResumeTask: (id: string) => void
+}) {
+  const p = useEffectiveProgress(tid)
+  if (!p || (p.state !== 'downloading' && p.state !== 'pending' && p.state !== 'error' && p.state !== 'paused')) {
+    return null
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 min-w-[80px]">
+        <ProgressBar p={p} />
+      </div>
+      <TaskCtrlButtons
+        state={p.state}
+        onPause={() => onPauseTask(tid)}
+        onCancel={() => onCancelTask(tid)}
+        onResume={() => onResumeTask(tid)}
+      />
+    </div>
+  )
+})
 
 export function AuditedCourses() {
   // PERF: batch related primitive selectors with useShallow to reduce selector calls per render
@@ -40,7 +77,7 @@ export function AuditedCourses() {
     cloudLinkedIds, downloading, setScan, setCourses, setTasksForCourse,
     resetScanResults, setSelected, toggleSelect, toggleSelectMany, toggleExpand,
     setCloudLinkedIds, setDownloading, applyProgress,
-    courseLayoutMode, setCourseLayoutMode
+    courseViewMode, setCourseViewMode
   } = useAppStore(useShallow(s => ({
     setAuth: s.setAuth,
     setStage: s.setStage,
@@ -66,14 +103,14 @@ export function AuditedCourses() {
     setCloudLinkedIds: s.setCloudLinkedIds,
     setDownloading: s.setDownloading,
     applyProgress: s.applyProgress,
-    courseLayoutMode: s.courseLayoutMode,
-    setCourseLayoutMode: s.setCourseLayoutMode
+    courseViewMode: s.courseViewMode,
+    setCourseViewMode: s.setCourseViewMode
   })))
 
   // ── 辅助：both 模式下判断单个任务是否完成 / 出错 ──
   const isBothMode = downloadMode === 'both' && Object.keys(cloudLinkedIds).length > 0
   const [searchQuery, setSearchQuery] = useState('')
-  const autoExpandedRef = useRef(false)
+  const [navState, setNavState] = useState<NetdiskNavState>({ level: 'root' })
 
   // ── 搜索筛选 ──
   const filteredCourses = useMemo(() => {
@@ -85,18 +122,6 @@ export function AuditedCourses() {
       (c.teacher && c.teacher.toLowerCase().includes(q))
     )
   }, [courses, searchQuery])
-
-  // 首次拉取课程后，默认将课程卡片平铺展开
-  useEffect(() => {
-    if (!autoExpandedRef.current && courses.length > 0) {
-      autoExpandedRef.current = true
-      for (const c of courses) {
-        if (!expandedCourses.has(c.id)) {
-          toggleExpand(c.id)
-        }
-      }
-    }
-  }, [courses, expandedCourses, toggleExpand])
 
   // PERF: stable key that only changes when the actual task arrays change (not just
   // the tasksByCourse object reference). This prevents allTasks from recomputing
@@ -369,6 +394,136 @@ export function AuditedCourses() {
   // 不再订阅整个 progress map（避免每 2s 进度回调重算 + 重渲染 ActionBar）
   // 下载进度统计改由 OverallProgressBar（订阅全局 progress map）统一展示
 
+  const progressMap = useAppStore(s => s.progress)
+
+  const netdiskCourses = useMemo<NetdiskCourseItem[]>(() => {
+    return filteredCourses.map(c => {
+      const tasks = tasksByCourse[c.id] ?? EMPTY_TASKS
+      const taskIds = tasks.map(t => t.taskId)
+      const selCount = tasks.filter(t => selected.has(t.taskId)).length
+      const triState = triStateFromCount(selCount, tasks.length)
+
+      // 教师实录与 PPT 画面
+      const teacherTasks = tasks.filter(t => t.angle === 0)
+      const pptTasks = tasks.filter(t => t.angle === 3)
+
+      const teacherItems: NetdiskFileItem[] = teacherTasks.map(t => ({
+        id: t.taskId,
+        name: `${c.name} - ${t.lectureLabel} (教师 MP4)`,
+        type: 'MP4',
+        date: t.lectureDate,
+        selected: selected.has(t.taskId),
+        onToggle: () => toggleSelect(t.taskId),
+        renderExtra: (
+          <AuditedItemProgress
+            tid={t.taskId}
+            onPauseTask={onPauseTask}
+            onCancelTask={onCancelTask}
+            onResumeTask={onResumeTask}
+          />
+        )
+      }))
+
+      const pptItems: NetdiskFileItem[] = pptTasks.map(t => ({
+        id: t.taskId,
+        name: `${c.name} - ${t.lectureLabel} (PPT MP4)`,
+        type: 'PPT',
+        date: t.lectureDate,
+        selected: selected.has(t.taskId),
+        onToggle: () => toggleSelect(t.taskId),
+        renderExtra: (
+          <AuditedItemProgress
+            tid={t.taskId}
+            onPauseTask={onPauseTask}
+            onCancelTask={onCancelTask}
+            onResumeTask={onResumeTask}
+          />
+        )
+      }))
+
+      const teacherSelCount = teacherTasks.filter(t => selected.has(t.taskId)).length
+      const pptSelCount = pptTasks.filter(t => selected.has(t.taskId)).length
+
+      const categories: NetdiskCategoryItem[] = [
+        {
+          id: 'teacher',
+          name: '👨‍🏫 教师实录 (MP4)',
+          icon: 'video',
+          state: triStateFromCount(teacherSelCount, teacherTasks.length),
+          onToggle: () => {
+            const isAll = teacherSelCount === teacherTasks.length
+            toggleSelectMany(teacherTasks.map(t => t.taskId), !isAll)
+          },
+          items: teacherItems,
+          emptyMessage: '暂无教师视角录像'
+        },
+        {
+          id: 'ppt',
+          name: '📑 课堂PPT实录 (MP4)',
+          icon: 'presentation',
+          state: triStateFromCount(pptSelCount, pptTasks.length),
+          onToggle: () => {
+            const isAll = pptSelCount === pptTasks.length
+            toggleSelectMany(pptTasks.map(t => t.taskId), !isAll)
+          },
+          items: pptItems,
+          emptyMessage: '暂无课堂PPT视角录像'
+        }
+      ]
+
+      // 统计进度
+      let done = 0, downloadingCount = 0, errors = 0, inflight = 0
+      for (const t of tasks) {
+        const prog = progressMap[t.taskId]
+        const st = prog?.state
+        const localDone = st === 'done' || st === 'skipped'
+        if (isBothMode) {
+          const cloudId = cloudLinkedIds[t.taskId]
+          const cloudSt = cloudId ? progressMap[cloudId]?.state : undefined
+          const cloudDone = cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+          const isLocalFinal = localDone || st === 'error' || st === 'cancelled'
+          const isCloudFinal = !cloudId || cloudDone || cloudSt === 'error'
+          if (localDone && (cloudDone || !cloudId)) done++
+          else if (!isLocalFinal || !isCloudFinal) {
+            if (st === 'error' || cloudSt === 'error') errors++
+            else {
+              downloadingCount++
+              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+              else if (localDone) inflight += 1
+            }
+          }
+        } else {
+          if (localDone) done++
+          else if (st !== 'cancelled') {
+            if (st === 'error') errors++
+            else {
+              downloadingCount++
+              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+            }
+          }
+        }
+      }
+
+      return {
+        id: c.id,
+        name: c.name,
+        code: c.courseCode,
+        teacher: c.teacher,
+        term: c.term,
+        state: triState,
+        itemCount: tasks.length,
+        categories,
+        onToggle: () => {
+          onToggleMany(taskIds, triState !== 'all')
+        },
+        summary: tasks.length > 0 ? { done, downloading: downloadingCount, errors, inflight, total: tasks.length } : undefined
+      }
+    })
+  }, [
+    filteredCourses, tasksByCourse, selected, progressMap, isBothMode,
+    cloudLinkedIds, onToggleMany, toggleSelect, onPauseTask, onCancelTask, onResumeTask
+  ])
+
   return (
     <div className="flex h-full w-full flex-col">
       {/* 顶部粘性操作栏 (搜索 + 刷新 + 已选统计 + 全选 + 立即下载) */}
@@ -387,9 +542,9 @@ export function AuditedCourses() {
             />
           </div>
 
-          <LayoutModeSwitch
-            mode={courseLayoutMode}
-            onChange={setCourseLayoutMode}
+          <NetdiskViewModeSwitch
+            mode={courseViewMode}
+            onChange={setCourseViewMode}
           />
 
           {scanState === 'scanning' && (
@@ -447,41 +602,25 @@ export function AuditedCourses() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto">
         {scanState === 'scanning' && courses.length === 0 && <ScanningHero msg={scanMessage} />}
         {scanState === 'error' && (
           <ErrorHero msg={scanMessage} onRetry={() => void runScan()} />
         )}
         {scanState === 'done' && courses.length === 0 && <EmptyHero />}
         {scanState === 'done' && courses.length > 0 && filteredCourses.length === 0 && (
-          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
+          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center p-6">
             <div className="text-base font-medium text-text-1">没有匹配的旁听课程</div>
             <div className="mt-2 text-sm text-text-3">请尝试更改搜索关键词</div>
           </div>
         )}
         {filteredCourses.length > 0 && (
-          <div className={courseLayoutMode === 'deck' ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start" : "flex flex-col gap-4 max-w-5xl mx-auto w-full"}>
-            {filteredCourses.map((c, idx) => (
-              <div
-                key={c.id}
-                className="animate-fadeInUp"
-                style={{ animationDelay: `${Math.min(idx, 8) * 40}ms`, animationFillMode: 'backwards' }}
-              >
-                <CourseSection
-                  course={c}
-                  tasks={tasksByCourse[c.id] ?? EMPTY_TASKS}
-                  selected={selected}
-                  expanded={expandedCourses.has(c.id)}
-                  onToggle={onToggle}
-                  onToggleMany={onToggleMany}
-                  onToggleExpand={toggleExpand}
-                  onPauseTask={onPauseTask}
-                  onCancelTask={onCancelTask}
-                  onResumeTask={onResumeTask}
-                />
-              </div>
-            ))}
-          </div>
+          <NetdiskCourseExplorer
+            courses={netdiskCourses}
+            viewMode={courseViewMode}
+            navState={navState}
+            onNavigate={setNavState}
+          />
         )}
       </div>
     </div>
