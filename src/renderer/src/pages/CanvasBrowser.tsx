@@ -196,7 +196,7 @@ export function CanvasBrowser() {
   const {
     localDestRoot, cloudUserToken,
     downloadMode, canvasCourses, canvasScanState, canvasScanMessage,
-    canvasCourseData, canvasTeachers, canvasSelectedTeachers,
+    canvasCourseData,
     canvasLectures, canvasModuleVideos, canvasCourseCategorySelections,
     courseViewMode, cloudLinkedIds, videoQualityOption
   } = useAppStore(useShallow(s => ({
@@ -207,8 +207,6 @@ export function CanvasBrowser() {
     canvasScanState: s.canvasScanState,
     canvasScanMessage: s.canvasScanMessage,
     canvasCourseData: s.canvasCourseData,
-    canvasTeachers: s.canvasTeachers,
-    canvasSelectedTeachers: s.canvasSelectedTeachers,
     canvasLectures: s.canvasLectures,
     canvasModuleVideos: s.canvasModuleVideos,
     canvasCourseCategorySelections: s.canvasCourseCategorySelections,

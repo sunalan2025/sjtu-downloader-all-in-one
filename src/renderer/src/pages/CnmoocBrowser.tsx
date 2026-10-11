@@ -12,8 +12,7 @@ import {
   ResourceTypeSegmented,
   TaskCtrlButtons,
   TriCheckbox,
-  triStateFromCount,
-  type TriState
+  triStateFromCount
 } from '../components/DownloadUI'
 import {
   NetdiskCourseExplorer,
@@ -26,7 +25,6 @@ import { Spinner } from '../components/Spinner'
 import type {
   CnmoocChapter,
   CnmoocCourse,
-  CnmoocItem,
   CnmoocSelectedItem,
   DownloadTaskSpec
 } from '@shared/types'
@@ -319,7 +317,7 @@ export function CnmoocBrowser() {
               : it.title,
             type: isVideo ? (isAudioOnly ? 'M4A' : 'MP4') : 'DOC',
             selected: selected.has(tid),
-            onToggle: () => toggleSelect(tid),
+            onToggle: () => onToggle(tid),
             renderExtra: (
               <CnmoocItemProgress
                 tid={tid}
@@ -377,7 +375,7 @@ export function CnmoocBrowser() {
     })
   }, [
     filteredCourses, courseData, selected, progressMap, cloudLinkedIds,
-    onToggleMany, toggleSelect, onPauseTask, onCancelTask, onResumeTask,
+    onToggleMany, onToggle, onPauseTask, onCancelTask, onResumeTask,
     videoQualityOption
   ])
 

@@ -17,9 +17,7 @@ import {
   NetdiskViewModeSwitch,
   TaskCtrlButtons,
   TriCheckbox,
-  triStateFromCount,
-  formatBytes,
-  type TriState
+  triStateFromCount
 } from '../components/DownloadUI'
 import {
   NetdiskCourseExplorer,
@@ -66,7 +64,7 @@ export function AuditedCourses() {
   // PERF: batch related primitive selectors with useShallow to reduce selector calls per render
   const {
     setAuth, setStage, scanState, scanMessage, courses, tasksByCourse, selected,
-    cloudUserToken, downloadMode, localDestRoot,
+    downloadMode, localDestRoot,
     cloudLinkedIds, downloading, setScan, setCourses, setTasksForCourse,
     resetScanResults, setSelected, toggleSelect, toggleSelectMany,
     setCloudLinkedIds, setDownloading, applyProgress,
@@ -80,7 +78,6 @@ export function AuditedCourses() {
     courses: s.courses,
     tasksByCourse: s.tasksByCourse,
     selected: s.selected,
-    cloudUserToken: s.cloudUserToken,
     downloadMode: s.downloadMode,
     localDestRoot: s.localDestRoot,
     cloudLinkedIds: s.cloudLinkedIds,
@@ -223,9 +220,7 @@ export function AuditedCourses() {
     resetScanResults,
     setScan,
     setCourses,
-    setTasksForCourse,
-    setAuth,
-    setStage
+    setTasksForCourse
   ])
 
   useEffect(() => {
@@ -303,6 +298,7 @@ export function AuditedCourses() {
         const cloudDone = !cloudId
           || curProgress[cloudId]?.state === 'done'
           || curProgress[cloudId]?.state === 'skipped'
+        if (localDone && cloudDone) continue
         const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
         // 在仅提取音频模式下，自动跳过无声/重复的 PPT 视角 (angle=3)，只保留教师视角 (angle=0)！
         if (isAudioOnly && t.angle === 3) continue
