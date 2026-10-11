@@ -213,7 +213,8 @@ async function runTask(t: TaskRuntime): Promise<void> {
         if (isNetErr && attempt < MAX_DL_RETRIES) {
           const delay = Math.pow(2, attempt + 1) * 1000
           noteNetworkError()
-          console.warn(`[download] ${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES}): ${sanitizeForLog(msg)}`)
+          const sanitizedMsg = String(msg).replace(/[\r\n]+/g, ' ').slice(0, 500)
+          console.warn(`[download] ${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES}): ${sanitizedMsg}`)
           emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: t.received, total: t.total, message: `${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES})` })
           await new Promise(r => setTimeout(r, delay))
           if (t.state !== 'downloading') throw retryErr // 等待期间被 pause/cancel

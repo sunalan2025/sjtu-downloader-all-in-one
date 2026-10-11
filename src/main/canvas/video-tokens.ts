@@ -376,14 +376,12 @@ export function identifyVideoStreams(rawStreams: any[]): VideoStream[] {
     const name = String(s.channelName || '')
     const url = String(s.rtmpUrlHdv || s.url || '')
 
-    let label: '教师' | 'PPT' | '全景' = '教师'
-    if (name.includes('PPT') || name.includes('电脑') || channelNum === 1) {
-      label = 'PPT'
-    } else if (name.includes('全景') || channelNum === 2) {
-      label = '全景'
-    } else {
-      label = '教师'
-    }
+    const label: '教师' | 'PPT' | '全景' =
+      name.includes('PPT') || name.includes('电脑') || channelNum === 1
+        ? 'PPT'
+        : name.includes('全景') || channelNum === 2
+          ? '全景'
+          : '教师'
 
     result.push({
       channelNum,
