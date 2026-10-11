@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { existsSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -40,8 +40,7 @@ import {
   parseCourseHtml,
   parseChapterHtml,
   resolveCnmoocResourceUrl,
-  extractCnmoocDirectUrl,
-  classifyCnmoocResource
+  extractCnmoocDirectUrl
 } from '../src/main/cnmooc/api'
 import {
   parseCliArgs,
@@ -367,7 +366,8 @@ describe('M4 Forensic Audit: Production Implementation & Stress Verification', (
     })
 
     it('saveSessionToFile exports session credentials to disk in valid JSON format', () => {
-      const tempPath = join(tmpdir(), `test_session_${Date.now()}.json`)
+      const testDir = mkdtempSync(join(tmpdir(), 'session-test-'))
+      const tempPath = join(testDir, 'test_session.json')
       const dummyData = {
         timestamp: new Date().toISOString(),
         userToken: 'test_token_12345678901234567890123456789012',
@@ -381,9 +381,7 @@ describe('M4 Forensic Audit: Production Implementation & Stress Verification', (
         expect(content.userToken).toBe(dummyData.userToken)
         expect(content.scorecard.auth).toBe(true)
       } finally {
-        if (existsSync(tempPath)) {
-          rmSync(tempPath, { force: true })
-        }
+        rmSync(testDir, { recursive: true, force: true })
       }
     })
 

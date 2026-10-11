@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'node:fs'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -42,7 +42,6 @@ vi.mock('electron', () => {
 // ─── Import Production Modules ───────────────────────────────────────
 import {
   VsjtuVodResolver,
-  vsjtuVodResolver,
   type VodStreamResult
 } from '../src/main/download-engine/vsjtu-resolver'
 
@@ -57,9 +56,7 @@ import {
 import {
   parseNestedChapterHtml,
   parseChapterHtml,
-  parseCourseHtml,
-  resolveCnmoocResourceUrl,
-  extractCnmoocDirectUrl
+  resolveCnmoocResourceUrl
 } from '../src/main/cnmooc/api'
 
 import {
@@ -918,7 +915,8 @@ describe('Milestone 4 Adversarial Empirical Stress Suite', () => {
       })
 
       it('saveSessionToFile writes valid JSON to specified filepath', () => {
-        const tmpPath = join(tmpdir(), `test_auth_session_${Date.now()}.json`)
+        const testDir = mkdtempSync(join(tmpdir(), 'auth-session-'))
+        const tmpPath = join(testDir, 'test_auth_session.json')
         const testData = {
           userToken: 'tok_test',
           timestamp: new Date().toISOString(),
@@ -932,9 +930,7 @@ describe('Milestone 4 Adversarial Empirical Stress Suite', () => {
           expect(readBack.userToken).toBe('tok_test')
           expect(readBack.cookies[0].name).toBe('A')
         } finally {
-          if (existsSync(tmpPath)) {
-            unlinkSync(tmpPath)
-          }
+          rmSync(testDir, { recursive: true, force: true })
         }
       })
     })

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { writeFileSync, unlinkSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { writeFileSync, unlinkSync, mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
@@ -133,8 +133,7 @@ describe('Canvas LMS & Download Integrity E2E Suite (R2-F1, R2-F2, R2-F3, R2-F4)
   let testDir: string
 
   beforeEach(() => {
-    testDir = join(tmpdir(), `sjtu_test_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`)
-    mkdirSync(testDir, { recursive: true })
+    testDir = mkdtempSync(join(tmpdir(), 'sjtu-test-'))
   })
 
   afterEach(() => {

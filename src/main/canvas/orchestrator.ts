@@ -274,8 +274,8 @@ export async function scanCourse(
     ])
 
     let filesTabAccessible = true
-    let files: CanvasFileItem[] = []
-    let folderMap = new Map<number, string>()
+    let files: CanvasFileItem[]
+    let folderMap: Map<number, string>
     let warning: string | undefined
 
     // 1. 处理文件列表结果 (403 容错)
