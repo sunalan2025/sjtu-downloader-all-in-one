@@ -1,35 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, memo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useShallow } from 'zustand/shallow'
 import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/app'
 import {
-  useCachedCloudTokenValidation,
-  useCloudConnection,
   useDownloadCompletion
 } from '../hooks/useSharedBrowserHooks'
+import { prefetchCnmoocCourses } from '../services/prefetch'
 import {
-  Chevron,
-  ConflictStrategySegmented,
-  CourseProgressSummary,
   GlobalCtrlButton,
-  ModeSegmented,
+  NetdiskViewModeSwitch,
   ProgressBar,
   ResourceTypeSegmented,
-  SmallCheck,
   TaskCtrlButtons,
   TriCheckbox,
-  triStateFromCount,
-  type TriState
+  triStateFromCount
 } from '../components/DownloadUI'
+import {
+  NetdiskCourseExplorer,
+  type NetdiskNavState,
+  type NetdiskCourseItem,
+  type NetdiskCategoryItem,
+  type NetdiskFileItem
+} from '../components/NetdiskCourseExplorer'
 import { Spinner } from '../components/Spinner'
 import type {
   CnmoocChapter,
   CnmoocCourse,
-  CnmoocItem,
-  CnmoocResourceFilter,
   CnmoocSelectedItem,
-  DownloadMode,
-  DownloadTaskSpec,
-  FileConflictStrategy
+  DownloadTaskSpec
 } from '@shared/types'
 
 // cnmooc 任务 taskId 模板：`cnmooc_{courseId}_{itemId}`（courseId/itemId 均为字符串）
@@ -37,74 +34,85 @@ const makeTid = (courseId: string, itemId: string): string => `cnmooc_${courseId
 
 const EMPTY_CHAPTERS: CnmoocChapter[] = []
 
-export function CnmoocBrowser() {
-  // 启动恢复：把持久化的云盘 token 同步给 main 缓存并校验
-  useCachedCloudTokenValidation()
-  const { onConnectCloud, onDisconnectCloud } = useCloudConnection()
+const CnmoocItemProgress = memo(function CnmoocItemProgress({
+  tid,
+  onPauseTask,
+  onCancelTask,
+  onResumeTask
+}: {
+  tid: string
+  onPauseTask: (id: string) => void
+  onCancelTask: (id: string) => void
+  onResumeTask: (id: string) => void
+}) {
+  const p = useEffectiveProgress(tid)
+  if (!p || (p.state !== 'downloading' && p.state !== 'pending' && p.state !== 'error' && p.state !== 'paused')) {
+    return null
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 min-w-[80px]">
+        <ProgressBar p={p} />
+      </div>
+      <TaskCtrlButtons
+        state={p.state}
+        onPause={() => onPauseTask(tid)}
+        onCancel={() => onCancelTask(tid)}
+        onResume={() => onResumeTask(tid)}
+      />
+    </div>
+  )
+})
 
+export function CnmoocBrowser() {
   const {
     courses,
     scanState,
     scanMessage,
     courseData,
-    expanded,
     selected,
     cloudUserToken,
-    cloudSpaceInfo,
-    cloudConnStatus,
-    cloudConnMessage,
     downloadMode,
-    fileConflictStrategy,
     localDestRoot,
     resourceFilter,
     downloading,
-    setCourses,
-    setScan,
-    setCourseData,
-    toggleExpand,
     setSelected,
     toggleSelect,
     toggleSelectMany,
-    setDownloadMode,
-    setFileConflictStrategy,
     setResourceFilter,
-    setLocalDestRoot,
     setDownloading,
     setCloudLinkedIds,
-    resetProgress
+    resetCnmoocScanResults,
+    courseViewMode,
+    setCourseViewMode,
+    videoQualityOption
   } = useAppStore(
     useShallow(s => ({
       courses: s.cnmoocCourses,
       scanState: s.cnmoocScanState,
       scanMessage: s.cnmoocScanMessage,
       courseData: s.cnmoocCourseData,
-      expanded: s.cnmoocExpandedCourses,
       selected: s.selected,
       cloudUserToken: s.cloudUserToken,
-      cloudSpaceInfo: s.cloudSpaceInfo,
-      cloudConnStatus: s.cloudConnStatus,
-      cloudConnMessage: s.cloudConnMessage,
       downloadMode: s.downloadMode,
-      fileConflictStrategy: s.fileConflictStrategy,
       localDestRoot: s.localDestRoot,
       resourceFilter: s.cnmoocResourceFilter,
       downloading: s.downloading,
-      setCourses: s.setCnmoocCourses,
-      setScan: s.setCnmoocScanState,
-      setCourseData: s.setCnmoocCourseData,
-      toggleExpand: s.toggleCnmoocExpand,
       setSelected: s.setSelected,
       toggleSelect: s.toggleSelect,
       toggleSelectMany: s.toggleSelectMany,
-      setDownloadMode: s.setDownloadMode,
-      setFileConflictStrategy: s.setFileConflictStrategy,
       setResourceFilter: s.setCnmoocResourceFilter,
-      setLocalDestRoot: s.setLocalDestRoot,
       setDownloading: s.setDownloading,
       setCloudLinkedIds: s.setCloudLinkedIds,
-      resetProgress: s.resetProgress
+      resetCnmoocScanResults: s.resetCnmoocScanResults,
+      courseViewMode: s.courseViewMode,
+      setCourseViewMode: s.setCourseViewMode,
+      videoQualityOption: s.videoQualityOption
     }))
   )
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [navState, setNavState] = useState<NetdiskNavState>({ level: 'root' })
 
   // 摊平所有条目的 taskId（用于全选 / 计数 / 统计）。依赖 courses + courseData 引用。
   const dataKey = useMemo(
@@ -134,41 +142,9 @@ export function CnmoocBrowser() {
   // ─── 扫描：课程列表 + 并行拉取每门课章节（仅 HTML，不预探直链） ───
   const scanStartedRef = useRef(false)
   const runScan = useCallback(async (): Promise<void> => {
-    resetProgress()
-    setScan('scanning', '正在连接好大学在线…')
-    try {
-      const r = await window.api.cnmooc.scan()
-      if (!r.ok) {
-        setScan('error', r.error || '扫描失败')
-        return
-      }
-      const list = r.courses ?? []
-      setCourses(list)
-      if (list.length === 0) {
-        setScan('done', '没有找到正在学习的好大学在线课程')
-        return
-      }
-      setScan('scanning', `正在解析章节…0 / ${list.length}`)
-      let done = 0
-      await Promise.all(
-        list.map(async c => {
-          try {
-            const cr = await window.api.cnmooc.scanCourse(c.courseId)
-            if (cr.ok && cr.chapters) setCourseData(c.courseId, { chapters: cr.chapters })
-            else setCourseData(c.courseId, { chapters: [] })
-          } catch {
-            setCourseData(c.courseId, { chapters: [] })
-          } finally {
-            done += 1
-            setScan('scanning', `正在解析章节…${done} / ${list.length}`)
-          }
-        })
-      )
-      setScan('done')
-    } catch (err) {
-      setScan('error', '扫描出错：' + String(err))
-    }
-  }, [resetProgress, setScan, setCourses, setCourseData])
+    resetCnmoocScanResults()
+    await prefetchCnmoocCourses()
+  }, [resetCnmoocScanResults])
 
   useEffect(() => {
     if (scanStartedRef.current) return
@@ -186,10 +162,24 @@ export function CnmoocBrowser() {
     }
   }, [scanState, total, allTaskIds, setSelected])
 
+  // 搜索过滤课程
+  const filteredCourses = useMemo(() => {
+    if (!searchQuery.trim()) return courses
+    const q = searchQuery.trim().toLowerCase()
+    return courses.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.courseId.toLowerCase().includes(q) ||
+      (courseData[c.courseId]?.chapters ?? []).some(ch =>
+        ch.chapter.toLowerCase().includes(q) ||
+        ch.items.some(it => it.title.toLowerCase().includes(q))
+      )
+    )
+  }, [courses, searchQuery, courseData])
+
   // 全部任务到终态时收尾（单源扁平列表，复用 hook 形式）
   useDownloadCompletion(selectedTaskIds, stats.active, true, stats.done, stats.failed)
 
-  // 下载进行中锁定选择（同 Browser：避免取消勾选导致 completion 误判）
+  // 下载进行中锁定选择
   const onToggle = useCallback((id: string) => {
     if (useAppStore.getState().downloading) return
     toggleSelect(id)
@@ -210,7 +200,7 @@ export function CnmoocBrowser() {
     const curProgress = useAppStore.getState().progress
     const curLinked = useAppStore.getState().cloudLinkedIds
 
-    // 按课程分组选中条目（build-specs 按课程产 spec，落盘子目录含课程名/章节）
+    // 按课程分组选中条目
     const byCourse = new Map<string, { course: CnmoocCourse; items: CnmoocSelectedItem[] }>()
     for (const c of courses) {
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
@@ -234,11 +224,18 @@ export function CnmoocBrowser() {
 
     if (byCourse.size === 0) return
 
+    useAppStore.getState().resetBatchTaskIds()
+
+    const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
     const specs: DownloadTaskSpec[] = []
     for (const { course, items } of byCourse.values()) {
       const r = await window.api.cnmooc.buildSpecs(course.name, course.courseId, items, resourceFilter)
       if (r.ok && r.specs) {
         for (const spec of r.specs) {
+          if (isAudioOnly && (spec.fileName.endsWith('.mp4') || (spec as any).source === 'cnmooc-video')) {
+            spec.fileName = spec.fileName.replace(/\.mp4$/, '.m4a')
+            spec.extractAudio = true
+          }
           applyProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, message: '等待解析直链…' })
           specs.push(spec)
         }
@@ -247,6 +244,7 @@ export function CnmoocBrowser() {
     if (specs.length === 0) return
 
     setDownloading(true)
+    useAppStore.getState().addBatchTaskIds(specs.map(s => s.taskId))
     if (downloadMode === 'both') {
       const mapping: Record<string, string> = { ...curLinked }
       for (const spec of specs) mapping[spec.taskId] = spec.taskId + '_cloud'
@@ -259,7 +257,7 @@ export function CnmoocBrowser() {
     try {
       result = await window.api.download.start('', specs, {
         mode: downloadMode,
-        conflictStrategy: fileConflictStrategy,
+        conflictStrategy: useAppStore.getState().fileConflictStrategy,
         localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined
       })
     } catch (err) {
@@ -272,7 +270,7 @@ export function CnmoocBrowser() {
         applyProgress({ taskId: spec.taskId, state: 'error', received: 0, total: 0, message: result.error || '下载启动失败' })
       }
     }
-  }, [selectedCount, downloading, courses, courseData, selected, resourceFilter, downloadMode, fileConflictStrategy, localDestRoot, setDownloading, setCloudLinkedIds, applyProgress])
+  }, [selectedCount, downloading, courses, courseData, selected, resourceFilter, downloadMode, localDestRoot, setDownloading, setCloudLinkedIds, applyProgress])
 
   // 单任务 / 全局 控制
   const onPauseTask = useCallback((id: string) => { window.api.download.pause(id).catch(() => undefined) }, [])
@@ -280,187 +278,11 @@ export function CnmoocBrowser() {
   const onResumeTask = useCallback((id: string) => { window.api.download.resume(id).catch(() => undefined) }, [])
   const onPauseAll = useCallback(() => { window.api.download.pauseAll().catch(() => undefined) }, [])
   const onResumeAll = useCallback(() => { window.api.download.resumeAll().catch(() => undefined) }, [])
-  const onCancelAll = useCallback(() => { window.api.download.cancelAll().catch(() => undefined) }, [])
+  const onCancelAll = useCallback(() => {
+    window.api.download.cancelAll().catch(() => undefined)
+    useAppStore.getState().markBatchPendingCancelled()
+  }, [])
 
-  const onSelectLocalFolder = useCallback(async (): Promise<void> => {
-    const p = await window.api.selectFolder()
-    if (p) setLocalDestRoot(p)
-  }, [setLocalDestRoot])
-
-  const completed = stats.done
-  const failed = stats.failed
-
-  return (
-    <div className="flex h-full w-full flex-col">
-      <CnmoocTopBar
-        scanState={scanState}
-        scanMessage={scanMessage}
-        courseCount={courses.length}
-        total={total}
-        onRefresh={() => void runScan()}
-      />
-
-      {scanState === 'done' && total > 0 && (
-        <CnmoocActionBar
-          selectedCount={selectedCount}
-          total={total}
-          cloudUserToken={cloudUserToken}
-          cloudSpaceInfo={cloudSpaceInfo}
-          cloudConnecting={cloudConnStatus === 'connecting'}
-          cloudError={cloudConnStatus === 'error' ? cloudConnMessage : null}
-          downloadMode={downloadMode}
-          fileConflictStrategy={fileConflictStrategy}
-          resourceFilter={resourceFilter}
-          localDestRoot={localDestRoot}
-          downloading={downloading}
-          completed={completed}
-          failed={failed}
-          onToggleAll={onToggleAll}
-          onConnectCloud={onConnectCloud}
-          onDisconnectCloud={onDisconnectCloud}
-          onDownload={onDownload}
-          onSelectLocalFolder={onSelectLocalFolder}
-          onModeChange={setDownloadMode}
-          onConflictStrategyChange={setFileConflictStrategy}
-          onResourceFilterChange={setResourceFilter}
-          onPauseAll={onPauseAll}
-          onResumeAll={onResumeAll}
-          onCancelAll={onCancelAll}
-        />
-      )}
-
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        {scanState === 'scanning' && <ScanningHero msg={scanMessage} />}
-        {scanState === 'error' && <ErrorHero msg={scanMessage} onRetry={() => void runScan()} />}
-        {scanState === 'done' && courses.length === 0 && <EmptyHero />}
-        {scanState === 'done' && courses.length > 0 && (
-          <div className="flex flex-col gap-4">
-            {courses.map((c, idx) => (
-              <div
-                key={c.courseId}
-                className="animate-fadeInUp"
-                style={{ animationDelay: `${Math.min(idx, 8) * 40}ms`, animationFillMode: 'backwards' }}
-              >
-                <CnmoocCourseCard
-                  course={c}
-                  chapters={courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS}
-                  expanded={expanded.has(c.courseId)}
-                  selected={selected}
-                  onToggle={onToggle}
-                  onToggleMany={onToggleMany}
-                  onToggleExpand={toggleExpand}
-                  onPauseTask={onPauseTask}
-                  onCancelTask={onCancelTask}
-                  onResumeTask={onResumeTask}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// 顶栏
-// ─────────────────────────────────────────────────────────────
-
-const CnmoocTopBar = memo(function CnmoocTopBar({
-  scanState,
-  scanMessage,
-  courseCount,
-  total,
-  onRefresh
-}: {
-  scanState: 'idle' | 'scanning' | 'done' | 'error'
-  scanMessage: string
-  courseCount: number
-  total: number
-  onRefresh: () => void
-}) {
-  return (
-    <div className="no-drag flex items-center gap-4 border-b border-bd px-6 py-3">
-      <div className="min-w-0 flex-1 truncate text-sm text-text-2">
-        {scanState === 'scanning' && (
-          <span className="inline-flex items-center gap-2">
-            <Spinner size={14} /> {scanMessage}
-          </span>
-        )}
-        {scanState === 'done' && courseCount > 0 && (
-          <span>扫描完成 · {courseCount} 门课 · 共 {total} 个资源条目</span>
-        )}
-        {scanState === 'error' && <span className="text-warning">{scanMessage}</span>}
-      </div>
-      {scanState === 'done' && courseCount > 0 && (
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs text-text-3 transition-colors duration-150 hover:bg-surface-2 hover:text-text-1"
-        >
-          刷新 ↻
-        </button>
-      )}
-    </div>
-  )
-})
-
-// ─────────────────────────────────────────────────────────────
-// 操作条 — 资源类型 + 模式 + 冲突策略 + 云盘/目录 + 下载
-// ─────────────────────────────────────────────────────────────
-
-function CnmoocActionBar({
-  selectedCount,
-  total,
-  cloudUserToken,
-  cloudSpaceInfo,
-  cloudConnecting,
-  cloudError,
-  downloadMode,
-  fileConflictStrategy,
-  resourceFilter,
-  localDestRoot,
-  downloading,
-  completed,
-  failed,
-  onToggleAll,
-  onConnectCloud,
-  onDisconnectCloud,
-  onDownload,
-  onSelectLocalFolder,
-  onModeChange,
-  onConflictStrategyChange,
-  onResourceFilterChange,
-  onPauseAll,
-  onResumeAll,
-  onCancelAll
-}: {
-  selectedCount: number
-  total: number
-  cloudUserToken: string | null
-  cloudSpaceInfo: import('@shared/types').CloudPanSpaceInfo | null
-  cloudConnecting: boolean
-  cloudError: string | null
-  downloadMode: DownloadMode
-  fileConflictStrategy: FileConflictStrategy
-  resourceFilter: CnmoocResourceFilter
-  localDestRoot: string
-  downloading: boolean
-  completed: number
-  failed: number
-  onToggleAll: () => void
-  onConnectCloud: () => void
-  onDisconnectCloud: () => void
-  onDownload: () => void
-  onSelectLocalFolder: () => void
-  onModeChange: (m: DownloadMode) => void
-  onConflictStrategyChange: (s: FileConflictStrategy) => void
-  onResourceFilterChange: (f: CnmoocResourceFilter) => void
-  onPauseAll: () => void
-  onResumeAll: () => void
-  onCancelAll: () => void
-}) {
-  const triState = triStateFromCount(selectedCount, total)
   const needsCloud = downloadMode === 'cloud' || downloadMode === 'both'
   const needsLocal = downloadMode === 'local' || downloadMode === 'both'
   const canStart = selectedCount > 0
@@ -468,354 +290,204 @@ function CnmoocActionBar({
     && (!needsCloud || !!cloudUserToken)
     && (!needsLocal || !!localDestRoot)
 
-  const btnLabel = downloading
-    ? '进行中…'
-    : downloadMode === 'local'
-      ? `开始下载 ${selectedCount} 项`
-      : downloadMode === 'cloud'
-        ? `开始上传 ${selectedCount} 项`
-        : `开始下载+上传 ${selectedCount} 项`
+  const progressMap = useAppStore(s => s.progress)
+  const cloudLinkedIds = useAppStore(s => s.cloudLinkedIds)
+
+  const netdiskCourses = useMemo<NetdiskCourseItem[]>(() => {
+    return filteredCourses.map(c => {
+      const isAudioOnly = videoQualityOption === 'audio_only'
+      const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
+      const ids: string[] = []
+      for (const ch of chapters) for (const it of ch.items) ids.push(makeTid(c.courseId, it.itemId))
+      const selCount = ids.filter(id => selected.has(id)).length
+      const triState = triStateFromCount(selCount, ids.length)
+
+      const categories: NetdiskCategoryItem[] = chapters.map(ch => {
+        const chIds = ch.items.map(it => makeTid(c.courseId, it.itemId))
+        const chSelCount = chIds.filter(id => selected.has(id)).length
+        const chTri = triStateFromCount(chSelCount, chIds.length)
+
+        const items: NetdiskFileItem[] = ch.items.map(it => {
+          const tid = makeTid(c.courseId, it.itemId)
+          const isVideo = it.itemType === '10'
+          return {
+            id: tid,
+            name: isVideo
+              ? (isAudioOnly ? `${it.title} (音频 M4A)` : `${it.title} (MP4)`)
+              : it.title,
+            type: isVideo ? (isAudioOnly ? 'M4A' : 'MP4') : 'DOC',
+            selected: selected.has(tid),
+            onToggle: () => onToggle(tid),
+            renderExtra: (
+              <CnmoocItemProgress
+                tid={tid}
+                onPauseTask={onPauseTask}
+                onCancelTask={onCancelTask}
+                onResumeTask={onResumeTask}
+              />
+            )
+          }
+        })
+
+        return {
+          id: ch.chapter,
+          name: ch.chapter,
+          icon: 'folder',
+          state: chTri,
+          onToggle: () => {
+            onToggleMany(chIds, chTri !== 'all')
+          },
+          items,
+          emptyMessage: '该章节暂无可下载资源'
+        }
+      })
+
+      // 课程级聚合进度
+      let done = 0, downloadingCount = 0, errors = 0, inflight = 0
+      for (const id of ids) {
+        const prog = progressMap[id]
+        const st = prog?.state
+        const cloudId = cloudLinkedIds[id]
+        const cloudProg = cloudId ? progressMap[cloudId] : undefined
+        const cloudSt = cloudProg?.state
+        if (st === 'error' || cloudSt === 'error') errors++
+        const localDone = st === 'done' || st === 'skipped'
+        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+        if (localDone && cloudDone) done++
+        else if (st === 'downloading' || st === 'pending' || cloudSt === 'downloading' || cloudSt === 'pending') {
+          downloadingCount++
+          if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+          else if (localDone) inflight += 1
+        }
+      }
+
+      return {
+        id: c.courseId,
+        name: c.name,
+        state: triState,
+        itemCount: ids.length,
+        categories,
+        onToggle: () => {
+          onToggleMany(ids, triState !== 'all')
+        },
+        summary: ids.length > 0 ? { done, downloading: downloadingCount, errors, inflight, total: ids.length } : undefined
+      }
+    })
+  }, [
+    filteredCourses, courseData, selected, progressMap, cloudLinkedIds,
+    onToggleMany, onToggle, onPauseTask, onCancelTask, onResumeTask,
+    videoQualityOption
+  ])
 
   return (
-    <div className="no-drag border-b border-bd bg-surface-3 px-6 py-3">
-      {/* 第一行：全选 + 云盘/目录 + 进度 */}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={onToggleAll}
-          className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-text-1 transition-colors duration-150 hover:bg-surface-2 hover:text-text-1"
-        >
-          <TriCheckbox state={triState} size="lg" />
-          <span>全选 <span className="text-text-3">({selectedCount} / {total})</span></span>
-        </button>
+    <div className="flex h-full w-full flex-col">
+      {/* 顶部单行置顶操作栏 (对齐设计图：搜索框 + 资源类型筛选 + 统计 + 全选 + 立即下载) */}
+      <div className="sticky top-0 z-10 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 px-6 py-2.5 shadow-xs">
+        {/* 左侧：搜索框 + 资源类型筛选胶囊 + 刷新 */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex items-center">
+            <svg className="pointer-events-none absolute left-3 h-4 w-4 text-text-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="搜索课程/章节/课件..."
+              className="h-10 w-48 rounded-xl border border-bd bg-surface-2 pl-9 pr-3 text-xs text-text-1 placeholder:text-text-4 shadow-2xs hover:border-bd-strong focus:w-60 focus:border-accent focus:outline-none transition-all duration-200"
+            />
+          </div>
 
-        <div className="h-4 w-px bg-bd-strong" />
+          <div className="flex items-center gap-2">
+            <ResourceTypeSegmented value={resourceFilter} onChange={setResourceFilter} />
+          </div>
 
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          {needsCloud && cloudUserToken ? (
-            <button
-              type="button"
-              onClick={onDisconnectCloud}
-              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-info-ring bg-info-bg px-3 py-1.5 text-xs font-medium text-info transition-all duration-150 hover:border-cloud-40 hover:text-cloud"
-              title="点击断开云盘连接"
-            >
-              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-                <path d="M12 13v5m-3-3l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span className="truncate">
-                交大云盘已连接
-                {cloudSpaceInfo && (
-                  <span className="ml-1.5 text-text-muted">
-                    {(Number(cloudSpaceInfo.size) / (1024 ** 3)).toFixed(1)}GB / {(Number(cloudSpaceInfo.capacity) / (1024 ** 3)).toFixed(0)}GB
-                  </span>
-                )}
-              </span>
-            </button>
-          ) : needsCloud && cloudConnecting ? (
-            <span className="inline-flex items-center gap-2 text-xs text-info">
-              <Spinner size={14} /> 正在连接交大云盘…
+          <NetdiskViewModeSwitch
+            mode={courseViewMode}
+            onChange={setCourseViewMode}
+          />
+
+          {scanState === 'scanning' && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-text-2">
+              <Spinner size={12} /> {scanMessage}
             </span>
-          ) : needsCloud ? (
-            <button
-              type="button"
-              onClick={onConnectCloud}
-              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-bd-strong bg-surface-3 px-3 py-1.5 text-xs text-text-2 transition-all duration-150 hover:border-info-ring hover:text-info"
-              title="通过 jAccount 单点登录连接交大云盘，用于上传文件"
-            >
-              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />
-              </svg>
-              <span>连接交大云盘</span>
-            </button>
-          ) : null}
-          {cloudError && !cloudConnecting && !cloudUserToken && needsCloud && (
-            <span className="text-xs text-warning">{cloudError}</span>
           )}
 
-          {needsLocal && (
+          {scanState === 'done' && courses.length > 0 && (
             <button
               type="button"
-              onClick={onSelectLocalFolder}
-              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-bd-strong bg-surface-3 px-3 py-1.5 text-xs text-text-2 transition-all duration-150 hover:border-success-ring hover:text-success"
-              title="选择文件保存的本地文件夹"
+              onClick={() => void runScan()}
+              title="重新扫描好大学在线课程"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-bd bg-surface-2 text-text-3 hover:border-bd-strong hover:bg-surface-1 hover:text-text-1 transition-all shadow-2xs cursor-pointer text-sm"
             >
-              <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-              <span className="truncate max-w-[180px]">{localDestRoot || '选择下载目录'}</span>
+              ↻
             </button>
-          )}
-
-          {downloading && (
-            <div className="flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-1.5 text-xs">
-              <span className="text-text-2">
-                完成 <span className="font-medium text-success">{completed}</span> / {selectedCount}
-              </span>
-              {failed > 0 && <span className="text-warning">失败 {failed}</span>}
-            </div>
           )}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <ResourceTypeSegmented value={resourceFilter} onChange={onResourceFilterChange} />
-          <ModeSegmented value={downloadMode} onChange={onModeChange} />
-          <ConflictStrategySegmented value={fileConflictStrategy} onChange={onConflictStrategyChange} />
+        {/* 右侧：已选统计 + 已选全部 + 全局下载控制 + 立即下载 */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs font-medium text-text-2">
+            <span className="text-accent font-bold">☑</span>
+            <span>已选 {selectedCount} / {total} 项</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onToggleAll}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
+          >
+            <TriCheckbox state={triStateFromCount(selectedCount, total)} size="sm" />
+            <span>已选全部</span>
+          </button>
+
+          {downloading && (
+            <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
+              <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
+              <GlobalCtrlButton kind="resume" onClick={onResumeAll} title="继续全部下载任务" />
+              <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void onDownload()}
+            disabled={!canStart}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-5 text-xs font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:bg-accent-light active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60 cursor-pointer"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+            </svg>
+            <span>{downloading ? '进行中…' : `立即下载 (${selectedCount})`}</span>
+          </button>
         </div>
       </div>
 
-      {/* 第二行：全局控制 + 开始按钮 */}
-      <div className="mt-2.5 flex flex-wrap items-center justify-end gap-3">
-        {downloading && (
-          <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
-            <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
-            <GlobalCtrlButton kind="resume" onClick={onResumeAll} title="继续全部下载任务" />
-            <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
+      {/* 课程列表：网盘资源浏览器 */}
+      <div className="flex-1 overflow-y-auto">
+        {scanState === 'scanning' && courses.length === 0 && <ScanningHero msg={scanMessage} />}
+        {scanState === 'error' && <ErrorHero msg={scanMessage} onRetry={() => void runScan()} />}
+        {scanState === 'done' && courses.length === 0 && <EmptyHero />}
+        {scanState === 'done' && courses.length > 0 && filteredCourses.length === 0 && (
+          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center p-6">
+            <div className="text-base font-medium text-text-1">没有匹配的好大学课程</div>
+            <div className="mt-2 text-sm text-text-3">请尝试更改搜索关键词</div>
           </div>
         )}
-        <button
-          type="button"
-          onClick={onDownload}
-          disabled={!canStart}
-          className="inline-flex h-9 items-center gap-2 rounded-xl bg-accent px-5 text-sm font-semibold text-white shadow-glow-sm transition-all duration-200 hover:scale-[1.02] hover:bg-accent-light hover:shadow-glow active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60"
-        >
-          {btnLabel}
-        </button>
+        {filteredCourses.length > 0 && (
+          <NetdiskCourseExplorer
+            courses={netdiskCourses}
+            viewMode={courseViewMode}
+            navState={navState}
+            onNavigate={setNavState}
+          />
+        )}
       </div>
     </div>
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// 课程卡片（可折叠） — 内含章节块，每章节块为带三态勾选的标题 + 条目列表
-// ─────────────────────────────────────────────────────────────
 
-const CnmoocCourseCard = memo(function CnmoocCourseCard({
-  course,
-  chapters,
-  expanded,
-  selected,
-  onToggle,
-  onToggleMany,
-  onToggleExpand,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  course: CnmoocCourse
-  chapters: CnmoocChapter[]
-  expanded: boolean
-  selected: Set<string>
-  onToggle: (id: string) => void
-  onToggleMany: (ids: string[], on: boolean) => void
-  onToggleExpand: (courseId: string) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  // 该课程所有条目 taskId
-  const ids = useMemo(() => {
-    const out: string[] = []
-    for (const ch of chapters) for (const it of ch.items) out.push(makeTid(course.courseId, it.itemId))
-    return out
-  }, [chapters, course.courseId])
-  const selCount = ids.filter(id => selected.has(id)).length
-  const triState = triStateFromCount(selCount, ids.length)
-
-  // 课程级聚合进度（编码为单 number，避免每条进度都重渲染卡片）
-  const courseStats = useAppStore(s => {
-    let done = 0, downloading = 0, errors = 0
-    for (const id of ids) {
-      const st = s.progress[id]?.state
-      // both 模式计云端镜像
-      const cloudId = s.cloudLinkedIds[id]
-      const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
-      if (st === 'error' || cloudSt === 'error') errors++
-      const localDone = st === 'done' || st === 'skipped'
-      const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped'
-      if (localDone && cloudDone) done++
-      else if (st === 'downloading' || st === 'pending' || cloudSt === 'downloading' || cloudSt === 'pending') downloading++
-    }
-    return done * 1_000_000 + downloading * 1000 + errors
-  })
-  const doneCount = Math.floor(courseStats / 1_000_000)
-  const downloadingCount = Math.floor(courseStats / 1000) % 1000
-  const errorCount = courseStats % 1000
-
-  return (
-    <section className="overflow-hidden rounded-2xl border border-bd bg-surface-3 shadow-card transition-shadow duration-200 hover:shadow-card-hover">
-      <header
-        className="flex cursor-pointer select-none items-center gap-4 px-5 py-4 transition-colors duration-150 hover:bg-surface-2"
-        onClick={() => onToggleExpand(course.courseId)}
-      >
-        <Chevron open={expanded} />
-        <span
-          role="checkbox"
-          aria-checked={triState === 'some' ? 'mixed' : triState === 'all'}
-          tabIndex={0}
-          onClick={e => { e.stopPropagation(); onToggleMany(ids, triState !== 'all') }}
-          onKeyDown={e => {
-            if (e.key === ' ' || e.key === 'Enter') {
-              e.preventDefault(); e.stopPropagation(); onToggleMany(ids, triState !== 'all')
-            }
-          }}
-          className="shrink-0"
-        >
-          <TriCheckbox state={triState} size="lg" />
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <div className="line-clamp-1 text-base font-semibold text-text-1">{course.name}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-3">
-            <span className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-xs text-text-2">{course.courseId}</span>
-            <span>{chapters.length} 章 · {ids.length} 个资源</span>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2 text-xs text-text-3">
-          <span>已选 <span className="font-medium text-text-1">{selCount}</span> / {ids.length}</span>
-        </div>
-      </header>
-
-      <CourseProgressSummary done={doneCount} downloading={downloadingCount} errors={errorCount} total={ids.length} />
-
-      {expanded && (
-        <div className="animate-fadeIn origin-top border-t border-bd">
-          {chapters.length === 0 ? (
-            <div className="px-5 py-5 text-center text-sm text-text-3">该课程暂无可下载资源</div>
-          ) : (
-            chapters.map((ch, chi) => (
-              <CnmoocChapterBlock
-                key={`${course.courseId}-${chi}-${ch.chapter}`}
-                courseId={course.courseId}
-                chapter={ch}
-                selected={selected}
-                onToggle={onToggle}
-                onToggleMany={onToggleMany}
-                onPauseTask={onPauseTask}
-                onCancelTask={onCancelTask}
-                onResumeTask={onResumeTask}
-              />
-            ))
-          )}
-        </div>
-      )}
-    </section>
-  )
-})
-
-// ─────────────────────────────────────────────────────────────
-// 章节块（带三态勾选的子标题 + 条目列表）
-// ─────────────────────────────────────────────────────────────
-
-const CnmoocChapterBlock = memo(function CnmoocChapterBlock({
-  courseId,
-  chapter,
-  selected,
-  onToggle,
-  onToggleMany,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  courseId: string
-  chapter: CnmoocChapter
-  selected: Set<string>
-  onToggle: (id: string) => void
-  onToggleMany: (ids: string[], on: boolean) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  const ids = useMemo(() => chapter.items.map(it => makeTid(courseId, it.itemId)), [chapter, courseId])
-  const selCount = ids.filter(id => selected.has(id)).length
-  const tri: TriState = triStateFromCount(selCount, ids.length)
-
-  return (
-    <div className="border-b border-bd last:border-b-0">
-      <div className="flex items-center gap-3 bg-surface-2/40 px-5 py-2.5">
-        <span
-          role="checkbox"
-          aria-checked={tri === 'some' ? 'mixed' : tri === 'all'}
-          tabIndex={0}
-          onClick={() => onToggleMany(ids, tri !== 'all')}
-          onKeyDown={e => {
-            if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onToggleMany(ids, tri !== 'all') }
-          }}
-          className="shrink-0 cursor-pointer"
-        >
-          <TriCheckbox state={tri} size="sm" />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-1">{chapter.chapter}</span>
-        <span className="shrink-0 text-xs text-text-3">{selCount} / {ids.length}</span>
-      </div>
-      <ul className="divide-y divide-bd">
-        {chapter.items.map(it => (
-          <CnmoocItemRow
-            key={`${courseId}-${it.itemId}`}
-            courseId={courseId}
-            item={it}
-            isOn={selected.has(makeTid(courseId, it.itemId))}
-            onToggle={onToggle}
-            onPauseTask={onPauseTask}
-            onCancelTask={onCancelTask}
-            onResumeTask={onResumeTask}
-          />
-        ))}
-      </ul>
-    </div>
-  )
-})
-
-// ─────────────────────────────────────────────────────────────
-// 单个条目行
-// ─────────────────────────────────────────────────────────────
-
-const CnmoocItemRow = memo(function CnmoocItemRow({
-  courseId,
-  item,
-  isOn,
-  onToggle,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  courseId: string
-  item: CnmoocItem
-  isOn: boolean
-  onToggle: (id: string) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  const tid = makeTid(courseId, item.itemId)
-  const p = useEffectiveProgress(tid)
-
-  return (
-    <li className="flex items-center gap-3 px-5 py-2.5 transition-colors duration-100 hover:bg-surface-2">
-      <button
-        type="button"
-        onClick={() => onToggle(tid)}
-        title={item.title}
-        className="shrink-0 text-text-3 hover:text-accent"
-      >
-        <SmallCheck on={isOn} />
-      </button>
-      <span className="min-w-0 flex-1 truncate text-sm text-text-2" title={item.title}>{item.title}</span>
-      <div className="w-64 shrink-0">
-        {p ? <ProgressBar p={p} /> : <div className="h-2 rounded-full bg-surface-2" />}
-      </div>
-      {p && (
-        <TaskCtrlButtons
-          state={p.state}
-          onPause={() => onPauseTask(tid)}
-          onCancel={() => onCancelTask(tid)}
-          onResume={() => onResumeTask(tid)}
-        />
-      )}
-    </li>
-  )
-})
 
 // ─────────────────────────────────────────────────────────────
 // Hero 占位

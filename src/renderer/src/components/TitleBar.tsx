@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, type Theme } from '../store/app'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { formatBytes } from './DownloadUI'
@@ -16,144 +16,195 @@ function applyTheme(theme: Theme): void {
 
 export { applyTheme }
 
-const THEME_OPTIONS: SegmentedOption<Theme>[] = [
-  {
-    key: 'dark',
-    title: '深色主题',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-      </svg>
-    )
-  },
-  {
-    key: 'light',
-    title: '浅色主题',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="5" />
-        <line x1="12" y1="1" x2="12" y2="3" />
-        <line x1="12" y1="21" x2="12" y2="23" />
-        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-        <line x1="1" y1="12" x2="3" y2="12" />
-        <line x1="21" y1="12" x2="23" y2="12" />
-        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-      </svg>
-    )
-  },
-  {
-    key: 'system',
-    title: '跟随系统',
-    icon: (
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-        <line x1="8" y1="21" x2="16" y2="21" />
-        <line x1="12" y1="17" x2="12" y2="21" />
-      </svg>
-    )
-  }
-]
-
-export function TitleBar({ onLogout }: { onLogout?: () => void }) {
-  const theme = useAppStore(s => s.theme)
-  const setTheme = useAppStore(s => s.setTheme)
+export function TitleBar({
+  onLogout,
+  onOpenSettings,
+  onOpenTransfer
+}: {
+  onLogout?: () => void
+  onOpenSettings?: () => void
+  onOpenTransfer?: () => void
+}) {
   const stage = useAppStore(s => s.stage)
-  const auth = useAppStore(s => s.auth)
-  const concurrency = useAppStore(s => s.concurrency)
-  const autoConcurrency = useAppStore(s => s.autoConcurrency)
-  const setConcurrency = useAppStore(s => s.setConcurrency)
-  const setAutoConcurrency = useAppStore(s => s.setAutoConcurrency)
+  const activeTab = useAppStore(s => s.activeTab)
+  const lastCourseTab = useAppStore(s => s.lastCourseTab)
+  const setActiveTab = useAppStore(s => s.setActiveTab)
+  const cloudConnStatus = useAppStore(s => s.cloudConnStatus)
+  const hasCompletedInitialSetup = useAppStore(s => s.hasCompletedInitialSetup)
+  const progress = useAppStore(s => s.progress)
 
-  // macOS 用原生交通灯（titleBarStyle: hiddenInset），不渲染自绘按钮；
-  // 左侧留出 ~80px 给原生交通灯。Win/Linux 渲染自绘 Mac 风格交通灯。
+  const [speed, setSpeed] = useState<{ down: number; up: number }>({ down: 0, up: 0 })
+  useEffect(() => {
+    return window.api.download.onTransferSpeed(s => setSpeed(s))
+  }, [])
+
+  const activeItems = useMemo(
+    () => Object.values(progress).filter(
+      p => p.state === 'downloading' || p.state === 'pending' || p.state === 'paused'
+    ),
+    [progress]
+  )
+  const activeCount = activeItems.length
+
+  const doneCount = useMemo(
+    () => Object.values(progress).filter(p => p.state === 'done' || p.state === 'skipped').length,
+    [progress]
+  )
+
+  const overallPct = useMemo(() => {
+    if (activeCount === 0) return 0
+    let totalBytes = 0
+    let receivedBytes = 0
+    for (const item of activeItems) {
+      if (item.total > 0) {
+        totalBytes += item.total
+        receivedBytes += item.received
+      }
+    }
+    if (totalBytes > 0) {
+      return Math.min(99, Math.round((receivedBytes / totalBytes) * 100))
+    }
+    return 0
+  }, [activeItems, activeCount])
+
   const isMac = window.api.platform === 'darwin'
 
-  // 自动并发模式下，监听主进程的并发数变化
-  useEffect(() => {
-    if (!autoConcurrency) return
-    return window.api.download.onConcurrencyChanged((n: number) => {
-      setConcurrency(n)
-    })
-  }, [autoConcurrency, setConcurrency])
+  // 纯净三大课程内容源，与全局系统传输中心/设置严格解耦
+  const tabOptions: SegmentedOption<string>[] = [
+    { key: 'canvas', label: 'Canvas 课程' },
+    { key: 'audited', label: '旁听课程' },
+    { key: 'cnmooc', label: '好大学在线' }
+  ]
 
-  const onSelect = (key: Theme): void => {
-    setTheme(key)
-    applyTheme(key)
-  }
-
-  // PERF [debounce]: debounce IPC call to ~300ms to avoid rapid-fire during slider drag
-  const isFirstMount = useRef(true)
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => {
-    if (isFirstMount.current) {
-      isFirstMount.current = false
-      // Sync persisted concurrency/auto mode to main on mount (main defaults to concurrency=3, auto=false otherwise).
-      void window.api.download.setConcurrency(autoConcurrency ? 0 : concurrency)
-      return
-    }
-    if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => {
-      void window.api.download.setConcurrency(concurrency)
-    }, 300)
-    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
-  }, [concurrency])
+  const isDetailView = activeTab === 'settings' || activeTab === 'transfer'
 
   return (
     <div
-      className={`drag-region flex h-10 select-none items-center gap-3 pr-4 text-sm text-text-2 ${
+      className={`drag-region flex h-14 select-none items-center gap-3 border-b border-bd bg-surface-3 pr-4 text-sm text-text-2 ${
         isMac ? 'pl-[80px]' : 'pl-3'
       }`}
     >
-      {/* Mac 交通灯窗口按钮（左侧）— macOS 用原生，Win/Linux 自绘 */}
       {!isMac && <CaptionButtons />}
-      <div className="flex shrink-0 items-center gap-2.5">
-        <span className="font-semibold tracking-wide text-text-1">SJTU 课程下载器</span>
-        <UpdateBadge />
-      </div>
-      <div className="flex-1" />
+      
       {stage === 'browser' && (
-        <div className="no-drag flex items-center gap-2.5">
-          {/* 已登录 + 账号名 */}
-          {onLogout && (
-            <>
-              <span
-                className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full bg-success-bg px-2.5 py-1 text-xs font-medium text-success ring-1 ring-success-ring"
-                title={auth.accountName ? `账号：${auth.accountName}${auth.studentId ? ` (${auth.studentId})` : ''}` : '已登录'}
-              >
-                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-success shadow-[0_0_8px_var(--success-ring)]" />
-                <span className="truncate">{auth.accountName ? `${auth.accountName}${auth.studentId ? ` (${auth.studentId})` : ''}` : '已登录'}</span>
+        isDetailView ? (
+          <div className="no-drag flex items-center gap-2.5 ml-4">
+            {!hasCompletedInitialSetup ? (
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-accent/10 border border-accent/20 px-3 py-1.5 text-xs font-semibold text-accent shadow-2xs">
+                <span>🚀 新手初始配置向导</span>
               </span>
+            ) : (
               <button
                 type="button"
-                onClick={onLogout}
-                className="rounded-lg px-2.5 py-1 text-xs text-text-3 transition-all hover:bg-surface-2 hover:text-text-1"
-                title="清除本机登录会话，返回首页"
+                onClick={() => setActiveTab(lastCourseTab || 'canvas')}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
+                title="返回课程列表"
               >
-                退出登录
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 12H5m7 7l-7-7 7-7" />
+                </svg>
+                <span>返回课程</span>
               </button>
-            </>
+            )}
+            <span className="text-text-4 font-mono text-xs">/</span>
+            <span className="text-xs font-semibold text-text-1">
+              {activeTab === 'transfer' ? '📥 传输中心' : (!hasCompletedInitialSetup ? '请先配置核心选项' : '⚙️ 全局设置')}
+            </span>
+          </div>
+        ) : (
+          <div className="no-drag flex h-full items-end ml-4">
+            <Segmented 
+              options={tabOptions} 
+              value={activeTab} 
+              onChange={(v) => {
+                if (!hasCompletedInitialSetup) {
+                  setActiveTab('settings')
+                  return
+                }
+                setActiveTab(v as any)
+              }} 
+              size="lg" 
+              className="mb-2"
+            />
+          </div>
+        )
+      )}
+
+      <div className="flex-1" />
+      
+      {stage === 'browser' && (
+        <div className="no-drag flex items-center gap-3">
+          {cloudConnStatus === 'connecting' && <span className="text-xs text-info">云盘连接中...</span>}
+          {cloudConnStatus === 'idle' && <span className="text-xs text-success">☁️ 云盘已连接</span>}
+
+          {/* 全局传输看板胶囊入口 */}
+          <button
+            type="button"
+            onClick={onOpenTransfer}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all ${
+              activeTab === 'transfer'
+                ? 'bg-accent text-white border-accent shadow-glow-sm'
+                : activeCount > 0
+                  ? 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
+                  : 'border-bd bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-1'
+            }`}
+            title={`传输中心：${activeCount > 0 ? `${activeCount} 项任务进行中` : '查看传输队列与历史'}`}
+          >
+            {activeCount > 0 ? (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
+                </span>
+                <span>
+                  📥 传输 ({activeCount} 项
+                  {speed.down > 1024 ? ` · ↓ ${formatBytes(speed.down)}/s` : ''}
+                  {overallPct > 0 ? ` · ${overallPct}%` : ''})
+                </span>
+              </>
+            ) : (
+              <>
+                <span>📥 传输中心</span>
+                {doneCount > 0 && (
+                  <span className="rounded-full bg-surface-3 px-1.5 py-0.2 font-mono text-2xs text-text-3">
+                    {doneCount}
+                  </span>
+                )}
+              </>
+            )}
+          </button>
+
+          <UpdateBadge />
+
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all shadow-2xs cursor-pointer ${
+              activeTab === 'settings'
+                ? 'bg-accent text-white border-accent shadow-glow-sm'
+                : 'border-bd/80 bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
+            }`}
+            title="全局设置与偏好"
+          >
+            <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            <span>设置</span>
+          </button>
+
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="rounded-lg px-2.5 py-1.5 text-xs text-text-3 transition-all hover:bg-surface-2 hover:text-text-1"
+              title="退出登录"
+            >
+              退出
+            </button>
           )}
-          {/* 实时传输速度 */}
-          <TransferSpeedIndicator />
-          {/* 并发控制 */}
-          <ConcurrencyControl
-            value={concurrency}
-            auto={autoConcurrency}
-            onChange={(n) => { setConcurrency(n); setAutoConcurrency(n === 0) }}
-          />
-          <HelpButton />
         </div>
       )}
-      {/* 主题切换 */}
-      <Segmented
-        options={THEME_OPTIONS}
-        value={theme}
-        onChange={onSelect}
-        size="sm"
-        className="no-drag"
-      />
     </div>
   )
 }
@@ -235,123 +286,6 @@ function CaptionButtons() {
   )
 }
 
-// ─── 实时传输速度 ────────────────────────────────────────────
-
-/** 订阅主进程 transfer:speed 事件，在标题栏显示下行/上行实时速度。
- *  独立组件 + 本地 state，避免速度高频更新触发整个 TitleBar 重渲染。 */
-function TransferSpeedIndicator() {
-  const [speed, setSpeed] = useState<{ down: number; up: number }>({ down: 0, up: 0 })
-
-  useEffect(() => {
-    return window.api.download.onTransferSpeed(s => {
-      setSpeed({ down: s.down, up: s.up })
-    })
-  }, [])
-
-  const idle = speed.down < 1024 && speed.up < 1024
-  return (
-    <div
-      className={`inline-flex select-none items-center gap-2 rounded-lg border border-bd bg-surface-3 px-2.5 py-1 text-xs font-mono tabular-nums ${
-        idle ? 'text-text-4' : 'text-text-2'
-      }`}
-      title={`下行 ${formatBytes(speed.down)}/s · 上行 ${formatBytes(speed.up)}/s`}
-    >
-      <span className="inline-flex items-center gap-1" title="下载速度">
-        <span className="text-info">↓</span>
-        <span className={speed.down < 1024 ? 'text-text-4' : 'text-info'}>{formatBytes(speed.down)}/s</span>
-      </span>
-      <span className="h-3 w-px bg-bd" />
-      <span className="inline-flex items-center gap-1" title="上传速度">
-        <span className="text-accent">↑</span>
-        <span className={speed.up < 1024 ? 'text-text-4' : 'text-accent'}>{formatBytes(speed.up)}/s</span>
-      </span>
-    </div>
-  )
-}
-
-// ─── 并发滑块 ────────────────────────────────────────────────
-
-function ConcurrencyControl({ value, auto, onChange }: { value: number; auto: boolean; onChange: (n: number) => void }) {
-  return (
-    <label
-      className="inline-flex select-none items-center gap-2 rounded-lg border border-bd bg-surface-3 px-2.5 py-1 text-xs text-text-2"
-      title="同时进行的下载/上传任务数量。自动模式根据网络状况动态调整"
-    >
-      <span className="shrink-0 text-text-2">并发</span>
-      <button
-        type="button"
-        onClick={() => onChange(auto ? 3 : 0)}
-        className={`rounded px-1.5 py-0.5 text-xs font-medium transition-colors ${
-          auto ? 'bg-accent/15 text-accent' : 'text-text-3 hover:text-text-1'
-        }`}
-      >
-        自动
-      </button>
-      {!auto && (
-        <>
-          <input
-            type="range"
-            min={2}
-            max={16}
-            step={1}
-            value={value}
-            onChange={e => onChange(Number(e.target.value))}
-            className="h-1.5 w-16 cursor-pointer accent-accent"
-          />
-          <span className="w-5 text-center font-mono text-xs font-medium text-text-1">{value}</span>
-        </>
-      )}
-      {auto && (
-        <span className="font-mono text-xs font-medium text-accent">{value}</span>
-      )}
-    </label>
-  )
-}
-
-// ─── 帮助弹窗 ────────────────────────────────────────────────
-
-function HelpButton() {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: globalThis.MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent text-xs font-bold text-text-1 shadow-glow-sm transition-all duration-150 hover:scale-110 hover:shadow-glow"
-        title="查看并发设置说明"
-      >
-        ?
-      </button>
-      {open && (
-        <div className="animate-fadeIn absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-bd-strong bg-surface-1/95 p-4 text-xs leading-relaxed text-text-2 shadow-xl backdrop-blur-md">
-          <div className="mb-2 text-sm font-semibold text-text-1">并发数设置</div>
-          <div className="space-y-1.5 text-text-3">
-            <p>并发数 = 同时进行的下载/上传任务数量。数值越大速度越快，但对带宽和 CPU 的要求越高。</p>
-            <div className="mt-2 space-y-1">
-              <p><span className="font-medium text-success">2-3</span> — 校园无线网、VPN、带宽有限时推荐</p>
-              <p><span className="font-medium text-info">4-6</span> — 有线网络、带宽充裕时推荐（默认）</p>
-              <p><span className="font-medium text-warning">7-10</span> — 千兆网络、需要快速批量下载时</p>
-              <p><span className="font-medium text-danger">11-16</span> — 仅限非常充裕的带宽环境，过高可能触发限流</p>
-            </div>
-            <p className="mt-1.5 text-text-4">建议从低并发开始，逐步调高观察速度变化。如果速度反而下降或频繁出错，请降低并发数。</p>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** 新版本提醒徽章：启动时检查 GitHub releases/latest，有新版显示在标题旁。
  *  支持应用内自动更新：下载安装包 → 静默安装 → 退出当前进程释放文件锁 → 安装器启动新版本。
  *  状态机：idle（有新版待下载）→ downloading → ready（可安装）→ installUpdate 后 app.quit；
@@ -428,7 +362,7 @@ function UpdateBadge() {
         {badgeText}
       </button>
       {open && (
-        <div className="animate-fadeIn absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-bd-strong bg-surface-1/95 p-4 text-xs leading-relaxed text-text-2 shadow-xl backdrop-blur-md">
+        <div className="animate-fadeIn absolute left-0 top-full z-50 mt-2 w-72 rounded-xl border border-bd-strong bg-surface-1 p-4 text-xs leading-relaxed text-text-2 shadow-2xl">
           <div className="mb-1 text-sm font-semibold text-text-1">发现新版本</div>
           <div className="mb-2 text-text-3">
             v{info.currentVersion} → <span className="font-medium text-accent-light">v{info.latestVersion}</span>
@@ -549,3 +483,5 @@ function UpdateBadge() {
     </div>
   )
 }
+
+

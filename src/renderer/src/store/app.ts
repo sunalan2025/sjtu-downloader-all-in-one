@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasDownloadTaskSpec, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter } from '@shared/types'
+import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption } from '@shared/types'
+import { DEFAULT_NAMING_TEMPLATE } from '@shared/utils'
 
 /** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
 export type Stage = 'welcome' | 'login' | 'browser'
@@ -11,6 +12,15 @@ export type ScanState = 'idle' | 'scanning' | 'done' | 'error'
 
 /** UI 主题偏好 */
 export type Theme = 'light' | 'dark' | 'system'
+
+/** 窗口关闭行为：tray=最小化到托盘，taskbar=最小化到任务栏，quit=彻底退出应用 */
+export type WindowCloseAction = 'tray' | 'taskbar' | 'quit'
+
+/** 正在下载时关闭窗口的策略：prompt=始终弹窗询问，background=自动转入托盘继续下载，pause_quit=自动暂停任务并退出应用 */
+export type ExitWhenDownloadingPolicy = 'prompt' | 'background' | 'pause_quit'
+
+/** 网盘式课程导航视图模式：grid=网格大图标，list=详细列表，column=分栏多级并列 */
+export type CourseViewMode = 'grid' | 'list' | 'column'
 
 /** renderer 侧讲次分组类型，与 shared/types 的 CanvasLectureGroup 同构 */
 export type LectureGroup = CanvasLectureGroup
@@ -95,13 +105,45 @@ interface AppState {
   // 下载状态
   downloading: boolean
   progress: Record<string, DownloadProgress>
+  /** 本轮 onDownload 提交的 taskId 集合（含 PPT 聚合 + iframe HLS + 常规文件，不含 _cloud 镜像）。
+   *  OverallProgressBar 据此统计 done/active/total，而非遍历 progress 全表——
+   *  total 精准反映勾选并入队的任务数，扫描占位 / 未勾选残留不计入。resetProgress 同步清空。 */
+  batchTaskIds: string[]
+  /** 全局下载限速（KB/s，0 = 不限速） */
+  maxDownloadSpeedKBps: number
+  /** 自定义文件/目录命名模板 */
+  namingTemplate: string
+  /** 视频下载画质/纯音频选项 */
+  videoQualityOption: VideoQualityOption
+  /** 已下载历史记录 */
+  downloadHistory: DownloadHistoryItem[]
   /** 并发下载数，2-16，会同步到主进程。0 = 自动 */
   concurrency: number
   /** 是否处于自动并发模式 */
   autoConcurrency: boolean
+  /** 网盘式课程导航视图模式：grid=网格大图标，list=详细列表，column=分栏多级并列 */
+  courseViewMode: CourseViewMode
+  /** 上一次激活的内容课程 tab（canvas / audited / cnmooc） */
+  lastCourseTab: 'canvas' | 'audited' | 'cnmooc'
+  /** 关闭主窗口时的默认动作（tray=最小化到托盘，taskbar=最小化到任务栏，quit=彻底退出应用） */
+  windowCloseAction: WindowCloseAction
+  /** 正在下载时关闭窗口的策略（prompt=始终弹窗询问，background=自动转入托盘继续下载，pause_quit=自动暂停任务并退出应用） */
+  exitWhenDownloading: ExitWhenDownloadingPolicy
+  /** 是否已完成首次登录后的初始化配置向导 */
+  hasCompletedInitialSetup: boolean
   // setters
+  /** 标记是否完成首次初始化配置 */
+  setHasCompletedInitialSetup: (completed: boolean) => void
+  /** 切换关闭主窗口动作偏好 */
+  setWindowCloseAction: (action: WindowCloseAction) => void
+  /** 切换正在下载时关闭策略偏好 */
+  setExitWhenDownloading: (policy: ExitWhenDownloadingPolicy) => void
   /** 切换 UI 主题（dark/light/system） */
   setTheme: (t: Theme) => void
+  /** 切换网盘式课程导航视图模式 */
+  setCourseViewMode: (mode: CourseViewMode) => void
+  /** 记录上一次激活的课程 tab */
+  setLastCourseTab: (tab: 'canvas' | 'audited' | 'cnmooc') => void
   /** 切换主界面 stage */
   setStage: (s: Stage) => void
   /** 切换顶部 tab（旁听/Canvas） */
@@ -197,8 +239,32 @@ interface AppState {
   setDownloading: (b: boolean) => void
   /** 清空所有下载进度记录 */
   resetProgress: () => void
+  /** 清空已完成/跳过/失败的终态任务进度记录 */
+  clearCompletedProgress: () => void
+  /** 追加本轮提交的 taskId（去重）。入队时调用，供 OverallProgressBar 精准统计。 */
+  addBatchTaskIds: (ids: string[]) => void
+  /** 清空 batchTaskIds（不动 progress）。Browser/Cnmooc onDownload 入口调用——
+   *  这两页依赖 progress 跨批次残留的 done 态「跳过已完成任务」(不能 resetProgress)，
+   *  但 batchTaskIds 是追加集，跨批次会累积进 total，故每轮单独清空。Canvas 用 resetProgress 一并清。 */
+  resetBatchTaskIds: () => void
+  /** 幽灵兜底：把 batchTaskIds 里非终态任务标 cancelled。
+   *  cancelAll 后或下载循环收尾时调用，确保 OverallProgressBar active 归零、downloading 解除。
+   *  防主进程漏发终态导致 active 永不归零（真幽灵）。 */
+  markBatchPendingCancelled: () => void
   /** 合并单条下载进度到进度表 */
   applyProgress: (p: DownloadProgress) => void
+  /** 设置全局下载限速（KB/s） */
+  setMaxDownloadSpeedKBps: (n: number) => void
+  /** 设置自定义命名模板 */
+  setNamingTemplate: (t: string) => void
+  /** 设置视频下载画质/纯音频选项 */
+  setVideoQualityOption: (q: VideoQualityOption) => void
+  /** 新增已下载历史记录 */
+  addDownloadHistory: (item: DownloadHistoryItem) => void
+  /** 移除单条已下载历史记录 */
+  removeDownloadHistoryItem: (taskId: string) => void
+  /** 清空所有已下载历史记录 */
+  clearDownloadHistory: () => void
   /** 设置下载并发数（0 = 自动） */
   setConcurrency: (n: number) => void
   /** 切换自动并发模式开关 */
@@ -217,7 +283,7 @@ const emptyScanResults = {
 }
 
 const clampConcurrency = (n: number): number =>
-  Math.max(2, Math.min(16, Math.floor(Number.isFinite(n) ? n : 3) || 3))
+  Math.max(1, Math.min(16, Math.floor(Number.isFinite(n) ? n : 3) || 3))
 
 /** both 模式下，把云端进度合并到本地 taskId 对应的条目上；
  *  单任务组件（AngleCell）直接订阅此 selector 即可拿到聚合后的状态。
@@ -252,28 +318,39 @@ export function useEffectiveProgress(taskId: string): DownloadProgress | undefin
   } else if (localDone && cloudDone) {
     mergedState = 'done'
   } else if (localDone && !cloudDone) {
-    mergedState = 'downloading'
-    // 本地已完成，显示云端上传进度而非本地 100%
-    mergedReceived = cloud?.received ?? 0
-    mergedTotal = cloud?.total ?? 0
-    const cpct = cloud.total > 0 ? Math.round((cloud.received / cloud.total) * 100) : 0
-    mergedMsg = `本地完成 · 云端上传中 ${cpct}%`
+    // 本地已完成、云端未完成：按云端真实态细分，避免 cancelled/paused 也误显"上传中"
+    if (cloud?.state === 'cancelled') {
+      // 云端已取消（用户主动放弃云端副本）→ 本地已完成即视为该任务完成
+      mergedState = 'done'
+    } else if (cloud?.state === 'paused') {
+      mergedState = 'downloading'
+      mergedMsg = '本地完成 · 云端已暂停'
+    } else {
+      // 云端上传中（或排队中）→ 显示云端上传进度，pct 由 ProgressBar 单独展示
+      mergedState = 'downloading'
+      mergedReceived = cloud?.received ?? 0
+      mergedTotal = cloud?.total ?? 0
+      mergedMsg = '本地完成 · 云端上传中'
+    }
   }
   return { taskId, state: mergedState, received: mergedReceived, total: mergedTotal, message: mergedMsg }
 }
 
-/** 顶层下载统计：对一组 taskIds 聚合 done/failed/active 计数，编码成单个数字返回。
+/** 顶层下载统计：对一组 taskIds 聚合 done/failed/active 计数返回。
  *  只有当 done/failed/active 任一计数真正变化时才触发重渲染 ——
  *  避免每条任务每 2s 的进度回调都让顶层 Browser/CanvasBrowser + ActionBar 重渲。
- *  沿用 CourseSection 里 dlAndErr 的编码思路，提到顶层并支持 both 模式。
  *
  *  返回 { done, failed, active }；active = 尚未到达终态（含 pending/downloading/paused）的任务数。
- *  allFinal ≡ active === 0（当 taskIds 非空时）。 */
+ *  allFinal ≡ active === 0（当 taskIds 非空时）。
+ *
+ *  [Bug Fix] 原实现用 done*1e8+failed*1e4+active 编码成单个 number 以走原始值比较，
+ *  但 failed≥10000 溢出到 done 位、active≥10000 溢出到 failed 位（Canvas 50 课×200 文件即触发）。
+ *  useShallow 已能正确浅比较对象，编码冗余且有溢出风险，改回对象返回。 */
 export function useDownloadStats(
   taskIds: string[],
   isBothMode: boolean
 ): { done: number; failed: number; active: number } {
-  const encoded = useAppStore(s => {
+  return useAppStore(useShallow(s => {
     let done = 0
     let failed = 0
     let active = 0
@@ -286,7 +363,7 @@ export function useDownloadStats(
         const cloudFinal = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'error' || cloudSt === 'cancelled'
         if (st === 'error' || cloudSt === 'error') failed++
         const localDone = st === 'done' || st === 'skipped'
-        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped'
+        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
         if (localDone && cloudDone) done++
         if (!(localFinal && cloudFinal)) active++
       } else {
@@ -295,14 +372,8 @@ export function useDownloadStats(
         else if (st !== 'cancelled') active++
       }
     }
-    // [Bug Fix] 使用基数 10000 替代 1000，支持最多 9999 个任务不溢出
-    return done * 100_000_000 + failed * 10_000 + active
-  })
-  return {
-    done: Math.floor(encoded / 100_000_000),
-    failed: Math.floor(encoded / 10_000) % 10_000,
-    active: encoded % 10_000
-  }
+    return { done, failed, active }
+  }))
 }
 
 // applyProgress 的批处理缓冲（模块级，便于 resetProgress 同步清零，见下）。
@@ -312,7 +383,7 @@ let progressScheduled = false
 export const useAppStore = create<AppState>()(
   persist(
     set => ({
-      theme: 'dark',
+      theme: 'system',
       stage: 'welcome',
       activeTab: 'audited' as ActiveTab,
       auth: { loggedIn: false },
@@ -347,18 +418,39 @@ export const useAppStore = create<AppState>()(
       fileConflictStrategy: 'skip' as FileConflictStrategy,
       localDestRoot: '',
       cloudLinkedIds: {},
+      batchTaskIds: [],
       concurrency: 3,
       autoConcurrency: false,
       autoDownloadUpdate: false,
+      courseViewMode: 'grid' as CourseViewMode,
+      lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
+      windowCloseAction: 'tray' as WindowCloseAction,
+      exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
+      hasCompletedInitialSetup: false,
+      setHasCompletedInitialSetup: hasCompletedInitialSetup => set({ hasCompletedInitialSetup }),
+      setWindowCloseAction: windowCloseAction => set({ windowCloseAction }),
+      setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
+      setCourseViewMode: courseViewMode => set({ courseViewMode }),
+      setLastCourseTab: lastCourseTab => set({ lastCourseTab }),
       setStage: stage => set({ stage }),
-      setActiveTab: activeTab => set({ activeTab }),
+      setActiveTab: activeTab => set(state => {
+        const isCourse = activeTab === 'canvas' || activeTab === 'audited' || activeTab === 'cnmooc'
+        return {
+          activeTab,
+          lastCourseTab: isCourse ? activeTab : state.lastCourseTab
+        }
+      }),
       setAuth: auth => set({ auth }),
       setScan: (scanState, scanMessage = '') => set({ scanState, scanMessage }),
       setCourses: courses => set({ courses }),
       setTasksForCourse: (id, tasks) =>
         set(state => ({ tasksByCourse: { ...state.tasksByCourse, [id]: tasks } })),
-      resetScanResults: () => set(emptyScanResults),
+      resetScanResults: () => {
+        progressPending = null
+        progressScheduled = false
+        set(emptyScanResults)
+      },
       setSelected: selected => set({ selected }),
       toggleSelect: taskId =>
         set(state => {
@@ -420,21 +512,25 @@ export const useAppStore = create<AppState>()(
           for (const id of ids) next[id] = { ...next[id], ...sel }
           return { canvasCourseCategorySelections: next }
         }),
-      resetCanvasScanResults: () => set({
-        canvasCourses: [],
-        canvasScanState: 'idle',
-        canvasScanMessage: '',
-        canvasExpandedCourses: new Set(),
-        canvasCourseData: {},
-        canvasVideoSessions: {},
-        canvasTeachers: {},
-        canvasSelectedTeachers: {},
-        canvasLtiTokens: {},
-        canvasLectures: {},
-        canvasModuleVideos: {},
-        canvasCourseCategorySelections: {},
-        canvasCourseTaskIds: {},
-      }),
+      resetCanvasScanResults: () => {
+        progressPending = null
+        progressScheduled = false
+        set({
+          canvasCourses: [],
+          canvasScanState: 'idle',
+          canvasScanMessage: '',
+          canvasExpandedCourses: new Set(),
+          canvasCourseData: {},
+          canvasVideoSessions: {},
+          canvasTeachers: {},
+          canvasSelectedTeachers: {},
+          canvasLtiTokens: {},
+          canvasLectures: {},
+          canvasModuleVideos: {},
+          canvasCourseCategorySelections: {},
+          canvasCourseTaskIds: {},
+        })
+      },
       deleteCanvasCourseData: id =>
         set(state => {
           const { [id]: _1, ...restCourseData } = state.canvasCourseData
@@ -460,13 +556,17 @@ export const useAppStore = create<AppState>()(
       setCnmoocCourseData: (id, data) =>
         set(state => ({ cnmoocCourseData: { ...state.cnmoocCourseData, [id]: data } })),
       setCnmoocResourceFilter: cnmoocResourceFilter => set({ cnmoocResourceFilter }),
-      resetCnmoocScanResults: () => set({
-        cnmoocCourses: [],
-        cnmoocScanState: 'idle',
-        cnmoocScanMessage: '',
-        cnmoocExpandedCourses: new Set(),
-        cnmoocCourseData: {}
-      }),
+      resetCnmoocScanResults: () => {
+        progressPending = null
+        progressScheduled = false
+        set({
+          cnmoocCourses: [],
+          cnmoocScanState: 'idle',
+          cnmoocScanMessage: '',
+          cnmoocExpandedCourses: new Set(),
+          cnmoocCourseData: {}
+        })
+      },
       deleteCnmoocCourseData: id =>
         set(state => {
           const { [id]: _cn, ...rest } = state.cnmoocCourseData
@@ -492,8 +592,56 @@ export const useAppStore = create<AppState>()(
         // 让随后的 flush 无条目可写。
         progressPending = null
         progressScheduled = false
-        set({ progress: {} })
+        // batchTaskIds 同步清空：新一轮下载从空集开始，total/active 不受上一轮残留影响
+        set({ progress: {}, batchTaskIds: [] })
       },
+      clearCompletedProgress: () => {
+        progressPending = null
+        progressScheduled = false
+        set(state => {
+          const nextProg: Record<string, DownloadProgress> = {}
+          for (const [id, p] of Object.entries(state.progress)) {
+            if (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') {
+              nextProg[id] = p
+            }
+          }
+          const nextBatchTaskIds = state.batchTaskIds.filter(id => {
+            const p = state.progress[id]
+            return p && (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused')
+          })
+          return { progress: nextProg, batchTaskIds: nextBatchTaskIds }
+        })
+      },
+      // 入队时追加 taskId（去重），供 OverallProgressBar 基于本轮提交集精准统计。
+      // 空数组 no-op（避免无谓 set 触发重渲染）；有新增才返回新数组。
+      addBatchTaskIds: (ids: string[]) =>
+        set(state => {
+          if (ids.length === 0) return {}
+          const acc = new Set(state.batchTaskIds)
+          let changed = false
+          for (const id of ids) if (!acc.has(id)) { acc.add(id); changed = true }
+          return changed ? { batchTaskIds: [...acc] } : {}
+        }),
+      // 仅清 batchTaskIds，保留 progress（跨批次 done 态用于「跳过已完成」判断）。
+      // Browser/Cnmooc onDownload 入口调用，防 batchTaskIds 跨批次累积进 total。
+      resetBatchTaskIds: () => set({ batchTaskIds: [] }),
+      // 幽灵兜底：遍历 batchTaskIds，把非终态任务标 cancelled。
+      // cancelAll 后 / 下载循环收尾时调用，防主进程漏发终态导致 active 永不归零。
+      // 保留已有 received/total（避免进度条回退）；无条目的补一条 cancelled 占位。
+      markBatchPendingCancelled: () =>
+        set(state => {
+          let changed = false
+          const next = { ...state.progress }
+          for (const tid of state.batchTaskIds) {
+            const cur = next[tid]
+            const st = cur?.state
+            if (st !== 'done' && st !== 'skipped' && st !== 'error' && st !== 'cancelled') {
+              next[tid] = { taskId: tid, state: 'cancelled', received: cur?.received ?? 0, total: cur?.total ?? 0, message: '已取消' }
+              changed = true
+            }
+          }
+          return changed ? { progress: next } : {}
+        }),
       // PERF: batch rapid progress updates into a single microtask.
       // Multiple applyProgress calls within the same event loop tick (e.g. 2+ tasks
       // completing simultaneously, or scan + download progress arriving together)
@@ -512,30 +660,134 @@ export const useAppStore = create<AppState>()(
             if (!batch || batch.size === 0) return
             set(state => {
               const next = { ...state.progress }
-              for (const [tid, prog] of batch) next[tid] = prog
-              return { progress: next }
+              let historyUpdated = false
+              let nextHistory = state.downloadHistory
+              for (const [tid, prog] of batch) {
+                next[tid] = prog
+                if (prog.state === 'done' && (prog.filePath || prog.cloudPath)) {
+                  const alreadyExists = nextHistory.some(h => {
+                    const localMatch = !!(prog.filePath && h.filePath === prog.filePath)
+                    const cloudMatch = !!(prog.cloudPath && h.cloudPath === prog.cloudPath)
+                    return localMatch || cloudMatch
+                  })
+                  if (!alreadyExists) {
+                    if (!historyUpdated) {
+                      nextHistory = [...nextHistory]
+                      historyUpdated = true
+                    }
+                    const displayPath = prog.filePath || prog.cloudPath || tid
+                    const fileSize = (prog.total && prog.total > 0)
+                      ? prog.total
+                      : (prog.received && prog.received > 0 ? prog.received : undefined)
+                    nextHistory.unshift({
+                      taskId: tid,
+                      fileName: displayPath.split(/[/\\]/).pop() || tid,
+                      filePath: prog.filePath,
+                      cloudPath: prog.cloudPath,
+                      fileSize,
+                      completedAt: Date.now()
+                    })
+                  }
+                }
+              }
+              return historyUpdated ? { progress: next, downloadHistory: nextHistory } : { progress: next }
             })
           })
         }
       },
+      maxDownloadSpeedKBps: 0,
+      namingTemplate: DEFAULT_NAMING_TEMPLATE,
+      videoQualityOption: 'origin',
+      downloadHistory: [],
+      setMaxDownloadSpeedKBps: n => set({ maxDownloadSpeedKBps: Math.max(0, n) }),
+      setNamingTemplate: t => set({ namingTemplate: t }),
+      setVideoQualityOption: q => set({ videoQualityOption: q }),
+      addDownloadHistory: item =>
+        set(state => {
+          const alreadyExists = state.downloadHistory.some(h => {
+            const localMatch = !!(item.filePath && h.filePath === item.filePath)
+            const cloudMatch = !!(item.cloudPath && h.cloudPath === item.cloudPath)
+            return localMatch || cloudMatch
+          })
+          if (alreadyExists) return {}
+          return { downloadHistory: [item, ...state.downloadHistory] }
+        }),
+      removeDownloadHistoryItem: taskId =>
+        set(state => ({ downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId) })),
+      clearDownloadHistory: () => set({ downloadHistory: [] }),
       setConcurrency: n => set({ concurrency: n === 0 ? 0 : clampConcurrency(n) }),
       setAutoConcurrency: on => set({ autoConcurrency: on })
     }),
     {
       name: 'sjtu-course-downloader',
-      storage: createJSONStorage(() => localStorage),
-      // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据
+      version: 3,
+      migrate: (persistedState: unknown, version: number) => {
+        const state = (persistedState ?? {}) as Record<string, unknown>
+        if (version < 3 && state) {
+          state.theme = 'system'
+        }
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer')) {
+          state.activeTab = (state.lastCourseTab as string) || 'canvas'
+        }
+        return state
+      },
+      merge: (persistedState: unknown, currentState: AppState) => {
+        const persisted = (persistedState ?? {}) as Partial<AppState>
+        const activeTab =
+          persisted.activeTab === 'settings' || persisted.activeTab === 'transfer'
+            ? persisted.lastCourseTab || currentState.lastCourseTab || 'canvas'
+            : (persisted.activeTab ?? currentState.activeTab)
+        return {
+          ...currentState,
+          ...persisted,
+          activeTab
+        }
+      },
+      onRehydrateStorage: () => state => {
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer')) {
+          state.activeTab = state.lastCourseTab || 'canvas'
+        }
+      },
+      storage: createJSONStorage(() => {
+        if (typeof window !== 'undefined' && typeof window.document !== 'undefined') {
+          try {
+            if (typeof localStorage !== 'undefined') return localStorage
+          } catch { /* ignore */ }
+        }
+        return {
+          getItem: () => null,
+          setItem: () => {},
+          removeItem: () => {},
+          clear: () => {},
+          key: () => null,
+          length: 0
+        }
+      }),
+      // 只持久化用户偏好；扫描结果、选中态、进度都是临时数据。
+      // cloudUserToken 不持久化：每次启动必须重新扫码登录 + 重新连接云盘，
+      // 避免凭证残留（符合"每次开 APP 销毁所有凭证"）。登录后由 App.tsx 的
+      // prefetchCloudConnection 自动隐式 SSO 重新连接。
       partialize: state => ({
         theme: state.theme,
-        activeTab: state.activeTab,
-        cloudUserToken: state.cloudUserToken,
+        activeTab: (state.activeTab === 'settings' || state.activeTab === 'transfer')
+          ? (state.lastCourseTab || 'canvas')
+          : state.activeTab,
         concurrency: state.concurrency,
         autoConcurrency: state.autoConcurrency,
         downloadMode: state.downloadMode,
         fileConflictStrategy: state.fileConflictStrategy,
         localDestRoot: state.localDestRoot,
         cnmoocResourceFilter: state.cnmoocResourceFilter,
-        autoDownloadUpdate: state.autoDownloadUpdate
+        autoDownloadUpdate: state.autoDownloadUpdate,
+        maxDownloadSpeedKBps: state.maxDownloadSpeedKBps,
+        namingTemplate: state.namingTemplate,
+        videoQualityOption: state.videoQualityOption,
+        downloadHistory: state.downloadHistory,
+        courseViewMode: state.courseViewMode,
+        lastCourseTab: state.lastCourseTab,
+        windowCloseAction: state.windowCloseAction,
+        exitWhenDownloading: state.exitWhenDownloading,
+        hasCompletedInitialSetup: state.hasCompletedInitialSetup
       })
     }
   )
