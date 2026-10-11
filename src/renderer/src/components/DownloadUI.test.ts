@@ -119,3 +119,23 @@ describe('formatBytes', () => {
     expect(formatBytes(1024 * 1024 * 1024 * 2.5)).toBe('2.50 GB')
   })
 })
+
+describe('courseViewMode preferences', () => {
+  it('has correct default courseViewMode (grid)', () => {
+    const store = useAppStore.getState()
+    expect(store.courseViewMode).toBe('grid')
+  })
+
+  it('updates courseViewMode via setter', () => {
+    const store = useAppStore.getState()
+    store.setCourseViewMode('column')
+    expect(useAppStore.getState().courseViewMode).toBe('column')
+
+    store.setCourseViewMode('list')
+    expect(useAppStore.getState().courseViewMode).toBe('list')
+
+    store.setCourseViewMode('grid')
+    expect(useAppStore.getState().courseViewMode).toBe('grid')
+  })
+})
+
