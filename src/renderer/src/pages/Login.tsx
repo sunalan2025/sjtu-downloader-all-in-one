@@ -563,11 +563,28 @@ function isLoginSuccessUrl(url: string): boolean {
   }
 }
 
+function isJwtFresh(token: string): boolean {
+  try {
+    const parts = token.split('.')
+    if (parts.length < 2) return false
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const jsonStr = atob(base64)
+    const payload = JSON.parse(jsonStr)
+    if (typeof payload.exp === 'number') {
+      return Date.now() < payload.exp * 1000 - 30_000
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function Login() {
   const webviewRef = useRef<WebviewElement | null>(null)
   const isFinishingRef = useRef(false)
   const setStage = useAppStore(s => s.setStage)
   const setAuth = useAppStore(s => s.setAuth)
+  const auth = useAppStore(s => s.auth)
   const theme = useAppStore(s => s.theme)
   const isDark =
     theme === 'dark' || (theme === 'system' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -590,6 +607,7 @@ export function Login() {
     try {
       const a = await window.api.auth.status(force)
       setAuth(a)
+      if (a.expired) return false
       return a.loggedIn
     } catch {
       return false
@@ -623,7 +641,7 @@ export function Login() {
       `)) as { token?: string | null; userInfo?: { name?: string; studentId?: string } | null } | null
 
       const t = data?.token
-      if (t && t.length > 20) {
+      if (t && t.length > 20 && isJwtFresh(t)) {
         await window.api.auth.setJwtToken(t, data?.userInfo || undefined)
         return t
       }

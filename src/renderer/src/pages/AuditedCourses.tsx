@@ -147,19 +147,15 @@ export function AuditedCourses() {
       const env = await window.api.vsjtu.scanAudit(1, 100)
       if (!env?.success) {
         const msg = env?.message || (env as any)?.code || '拉取课程列表失败'
-        if (
+        const isExpired =
           msg.includes('未登录') ||
           msg.includes('登录已过期') ||
           msg.includes('expired') ||
           (env as any)?.code === 'auth.authz.jwt.expired' ||
           (env as any)?.code === '401'
-        ) {
-          // 登录态失效：先清空扫描结果（scanState→idle）再跳登录页。
-          // 用户在登录页扫码成功后 Browser 重新挂载，scanState=idle 会自动触发
-          // runScan 重新完整加载课程列表（=「确认登陆之后重新完整加载」）。
-          setAuth({ loggedIn: false, expired: true })
-          resetScanResults()
-          setStage('login')
+
+        if (isExpired) {
+          setScan('error', '旁听课程认证凭据已失效，请重试或重新授权登录')
         } else {
           setScan('error', msg)
         }
@@ -521,6 +517,12 @@ export function AuditedCourses() {
     cloudLinkedIds, onToggleMany, onToggle, toggleSelectMany, onPauseTask, onCancelTask, onResumeTask
   ])
 
+  const handleRelogin = useCallback(() => {
+    setAuth({ loggedIn: false, expired: true })
+    resetScanResults()
+    setStage('login')
+  }, [setAuth, resetScanResults, setStage])
+
   return (
     <div className="flex h-full w-full flex-col">
       {/* 顶部粘性操作栏 (搜索 + 刷新 + 已选统计 + 全选 + 立即下载) */}
@@ -602,7 +604,7 @@ export function AuditedCourses() {
       <div className="flex-1 overflow-y-auto">
         {scanState === 'scanning' && courses.length === 0 && <ScanningHero msg={scanMessage} />}
         {scanState === 'error' && (
-          <ErrorHero msg={scanMessage} onRetry={() => void runScan()} />
+          <ErrorHero msg={scanMessage} onRetry={() => void runScan()} onRelogin={handleRelogin} />
         )}
         {scanState === 'done' && courses.length === 0 && <EmptyHero />}
         {scanState === 'done' && courses.length > 0 && filteredCourses.length === 0 && (
@@ -647,7 +649,16 @@ const ScanningHero = memo(function ScanningHero({ msg }: { msg: string }) {
 })
 
 // PERF: memoize ErrorHero — pure render with stable onRetry callback
-const ErrorHero = memo(function ErrorHero({ msg, onRetry }: { msg: string; onRetry: () => void }) {
+const ErrorHero = memo(function ErrorHero({
+  msg,
+  onRetry,
+  onRelogin
+}: {
+  msg: string
+  onRetry: () => void
+  onRelogin?: () => void
+}) {
+  const isAuthIssue = msg.includes('失效') || msg.includes('过期') || msg.includes('登录')
   return (
     <div className="relative mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
       <div className="pointer-events-none absolute inset-0 -z-10 bg-hero-radial opacity-60 blur-2xl" />
@@ -657,13 +668,24 @@ const ErrorHero = memo(function ErrorHero({ msg, onRetry }: { msg: string; onRet
       <div className="mt-4 max-w-sm rounded-xl bg-warning-bg px-4 py-2.5 text-sm font-medium text-warning ring-1 ring-warning-ring">
         {msg}
       </div>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="mt-5 inline-flex h-10 items-center gap-1.5 rounded-xl bg-accent px-5 text-sm font-semibold text-white shadow-glow-sm transition-all duration-200 hover:scale-[1.02] hover:bg-accent-light hover:shadow-glow active:scale-[0.98]"
-      >
-        重试扫描
-      </button>
+      <div className="mt-5 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-accent px-5 text-sm font-semibold text-white shadow-glow-sm transition-all duration-200 hover:scale-[1.02] hover:bg-accent-light hover:shadow-glow active:scale-[0.98] cursor-pointer"
+        >
+          重试扫描
+        </button>
+        {isAuthIssue && onRelogin && (
+          <button
+            type="button"
+            onClick={onRelogin}
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-4 text-sm font-medium text-text-1 shadow-2xs transition-all duration-200 hover:bg-surface-1 hover:border-bd-strong active:scale-[0.98] cursor-pointer"
+          >
+            重新登录授权
+          </button>
+        )}
+      </div>
     </div>
   )
 })

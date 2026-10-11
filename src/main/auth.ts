@@ -150,9 +150,12 @@ export async function refreshJwtToken(): Promise<boolean> {
         webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true }
       })
 
+      const JACCOUNT_AUTH_URL =
+        'https://jaccount.sjtu.edu.cn/oauth2/authorize?response_type=code&scope=openid&client_id=pmZTZ9QZEAwXGLGheU99&redirect_uri=https%3A%2F%2Fv.sjtu.edu.cn%2F%23%2Flogin'
+
       try {
-        await win.loadURL(`${V_SJTU_ORIGIN}/jy-application-resmgr-ui/#/login`)
-        const deadline = Date.now() + 4_000
+        await win.loadURL(JACCOUNT_AUTH_URL)
+        const deadline = Date.now() + 15_000
         while (Date.now() < deadline) {
           await new Promise(r => setTimeout(r, 500))
           if (win.isDestroyed()) return false
@@ -164,14 +167,23 @@ export async function refreshJwtToken(): Promise<boolean> {
             return false
           }
 
-          const token = (await win.webContents
-            .executeJavaScript(`localStorage.getItem(${JSON.stringify(VSJTU_JWT_LS_KEY)})`)
-            .catch(() => null)) as string | null
+          if (url.includes('v.sjtu.edu.cn')) {
+            const token = (await win.webContents
+              .executeJavaScript(`localStorage.getItem(${JSON.stringify(VSJTU_JWT_LS_KEY)})`)
+              .catch(() => null)) as string | null
 
-          if (token && token.length > 20 && token !== jwtToken) {
-            console.log('[auth] 自动刷新 JWT 成功')
-            setJwtToken(token)
-            return true
+            if (token && token.length > 20) {
+              const exp = extractJwtExpiry(token)
+              const isFresh = !exp || exp > Date.now() + 30_000
+              const currExp = jwtToken ? extractJwtExpiry(jwtToken) : undefined
+              const currExpired = !currExp || currExp <= Date.now()
+
+              if (isFresh && (token !== jwtToken || currExpired)) {
+                console.log('[auth] 自动刷新 JWT 成功')
+                setJwtToken(token)
+                return true
+              }
+            }
           }
         }
         return false
@@ -455,12 +467,17 @@ export async function vsjtuFetch(
         json?.code === 'auth.authz.jwt.expired' ||
         json?.code === 'auth.authz.jwt.invalid' ||
         json?.code === '401' ||
+        json?.status === 10013 ||
         (typeof json?.code === 'string' && json.code.startsWith('auth.authz.')) ||
+        (json?.code === '-1' &&
+          typeof json?.message === 'string' &&
+          (json.message.startsWith('auth.authz.') || /jwt|token|未登录|登录已过期|过期|rules|signature/i.test(json.message))) ||
         (typeof json?.message === 'string' && /jwt.*expired|token.*expired|未登录|登录已过期/i.test(json.message))
 
       if (isJwtExpiredCode) {
         if (attempt < VSJTU_FETCH_MAX_RETRIES) {
-          console.log(`[auth] vsjtuFetch ${path} 返回业务认证过期码 (${json?.code || json?.message})，尝试自动刷新 JWT…`)
+          const reason = (typeof json?.message === 'string' && json.message) ? json.message : (json?.code || '未知')
+          console.log(`[auth] vsjtuFetch ${path} 返回业务认证过期码 (${reason})，尝试自动刷新 JWT…`)
           const refreshed = await refreshJwtToken()
           if (refreshed) {
             continue
