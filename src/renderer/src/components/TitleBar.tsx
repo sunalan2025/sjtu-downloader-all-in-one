@@ -26,7 +26,6 @@ export function TitleBar({
   onOpenTransfer?: () => void
 }) {
   const stage = useAppStore(s => s.stage)
-  const auth = useAppStore(s => s.auth)
   const activeTab = useAppStore(s => s.activeTab)
   const lastCourseTab = useAppStore(s => s.lastCourseTab)
   const setActiveTab = useAppStore(s => s.setActiveTab)

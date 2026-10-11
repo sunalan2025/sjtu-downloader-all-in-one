@@ -198,7 +198,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     } else if (viewMode !== 'column') {
       lastEnteredCourseIdRef.current = null
     }
-  }, [viewMode, columnActiveCourse?.id])
+  }, [viewMode, columnActiveCourse])
 
   // 构造面包屑项目
   const breadcrumbItems = useMemo<BreadcrumbItem[]>(() => {
