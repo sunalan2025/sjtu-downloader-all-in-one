@@ -13,20 +13,23 @@ type WindowChoice = 'minimize' | 'taskbar' | 'quit' | 'cancel'
 let openFn: ((action: WindowAction) => Promise<WindowChoice>) | null = null
 
 /** 根据任务运行状态与用户偏好解析待执行的窗口动作：
- *  - 无进行中任务：按 windowCloseAction 映射（tray → 'minimize', taskbar → 'taskbar', quit → 'quit'）；
- *  - 有进行中任务：按 exitWhenDownloading 映射（background → 'minimize', pause_quit → 'quit', prompt → 弹窗询问）。 */
+ *  - 最小化动作：始终返回 'minimize'（不受正在下载策略拦截）；
+ *  - 关闭动作且无进行中任务：按 windowCloseAction 映射（tray → 'minimize', taskbar → 'taskbar', quit → 'quit'）；
+ *  - 关闭动作且有进行中任务：按 exitWhenDownloading 映射（background → 'minimize', pause_quit → 'quit', prompt → 弹窗询问）。 */
 export async function resolveWindowAction(action: WindowAction): Promise<WindowChoice> {
+  // 最小化按钮操作始终执行最小化，不受正在下载关闭策略拦截
+  if (action === 'minimize') return 'minimize'
+
   const { ongoing } = await window.api.window.hasOngoingTasks()
   const { windowCloseAction, exitWhenDownloading } = useAppStore.getState()
 
   if (!ongoing) {
-    if (action === 'minimize') return 'minimize'
     if (windowCloseAction === 'taskbar') return 'taskbar'
     if (windowCloseAction === 'quit') return 'quit'
     return 'minimize'
   }
 
-  // 有进行中任务时受 exitWhenDownloading 策略控制
+  // 有进行中任务且关闭窗口时：受 exitWhenDownloading 策略控制
   if (exitWhenDownloading === 'background') return 'minimize'
   if (exitWhenDownloading === 'pause_quit') return 'quit'
 
@@ -37,18 +40,13 @@ export async function resolveWindowAction(action: WindowAction): Promise<WindowC
 /** 执行窗口动作：查询状态与用户策略偏好 → 分流执行对应 IPC。
  *  CaptionButtons 和 close-requested 监听共用此函数。 */
 export async function handleWindowAction(action: WindowAction): Promise<void> {
-  const { ongoing } = await window.api.window.hasOngoingTasks()
   const choice = await resolveWindowAction(action)
   if (choice === 'minimize') {
     await window.api.window.minimize()
   } else if (choice === 'taskbar') {
     await window.api.window.minimizeToTaskbar()
   } else if (choice === 'quit') {
-    if (ongoing) {
-      await window.api.window.cancelAndQuit()
-    } else {
-      await window.api.window.quit()
-    }
+    await window.api.window.cancelAndQuit()
   }
   // cancel → 什么都不做
 }

@@ -34,6 +34,7 @@ export function setIsQuitting(v: boolean): void {
 /** 最小化到任务栏（不隐藏到系统托盘） */
 export function minimizeToTaskbar(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) return
     isMinimizingToTaskbar = true
     mainWindow.minimize()
   }
