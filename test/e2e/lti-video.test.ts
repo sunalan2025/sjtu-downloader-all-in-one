@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   FIXTURES_LTI
 } from '../mocks/fixtures'
+import {
+  isJwtToken,
+  fetchVodVideoList,
+  getVodVideoInfos
+} from '../../src/main/canvas/video-tokens'
 
 // ─── LTI Tab Matcher ───
 const LTI_TAB_KEYWORDS = ['课堂视频', '课堂录像', '在线课堂', 'class video']
@@ -340,6 +345,147 @@ describe('LTI 1.3 Classroom Video & PPT Slices E2E Suite (R2-F5, R2-F6, R2-F7, R
       const pptResult = processPptSlices(FIXTURES_LTI.pptSlices.data, { saveImages: true })
       expect(pptResult.totalVisible).toBe(3)
       expect(pptResult.willSaveImages).toBe(true)
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────
+  // Tier 5: New jy-application-resourcemanage API & Token Guarding
+  // ─────────────────────────────────────────────────────────────
+  describe('Tier 5: New jy-application-resourcemanage API & Token Guarding', () => {
+    it('isJwtToken correctly identifies LTI 1.3 JWT tokens vs legacy/mock tokens', () => {
+      const validJwt = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.sig'
+      expect(isJwtToken(validJwt)).toBe(true)
+      expect(isJwtToken('fake_token')).toBe(false)
+      expect(isJwtToken('4b6cc46b9e48d6d6cd82ffa96a79920067a869f8')).toBe(false)
+      expect(isJwtToken('')).toBe(false)
+      expect(isJwtToken(null as any)).toBe(false)
+    })
+
+    it('fetchVodVideoList gracefully returns empty array when course has no recording (LMS_TEACHING_CLASS_NOT_FOUND)', async () => {
+      const jwtToken = 'eyJhbGciOiJSUzI1NiJ9.eyJhdXRoVXNlciI6eyJjb2RlIjoiMTIzNDUifX0.signature'
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          code: 'LMS_TEACHING_CLASS_NOT_FOUND',
+          data: null,
+          dataOk: false,
+          message: '当前课程暂未安排直录播',
+          ok: false,
+          status: 500
+        })
+      })
+
+      const origFetch = global.fetch
+      global.fetch = mockFetch
+      try {
+        const records = await fetchVodVideoList(
+          { fetch: mockFetch } as any,
+          jwtToken,
+          '89673'
+        )
+        expect(records).toEqual([])
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+      } finally {
+        global.fetch = origFetch
+      }
+    })
+
+    it('fetchVodVideoList fetches records via subject_vod_list_new when teachingClassId exists', async () => {
+      const jwtToken = 'eyJhbGciOiJSUzI1NiJ9.eyJhdXRoVXNlciI6eyJjb2RlIjoiMTIzNDUifX0.signature'
+      const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes('launch-context')) {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              data: {
+                canvasRecord: { teachingClassId: 10681 }
+              }
+            })
+          }
+        }
+        if (url.includes('subject_vod_list_new')) {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              data: {
+                records: [
+                  {
+                    id: 172477,
+                    courBeginTime: '2026-10-10 16:50:20',
+                    clroName: '东中院3-204',
+                    teacNames: ['刘越'],
+                    subjName: '程序设计思想与方法（C）',
+                    weekNumber: 4
+                  }
+                ]
+              }
+            })
+          }
+        }
+        throw new Error(`Unexpected URL: ${url}`)
+      })
+
+      const origFetch = global.fetch
+      global.fetch = mockFetch
+      try {
+        const records = await fetchVodVideoList(
+          { fetch: mockFetch } as any,
+          jwtToken,
+          '93272'
+        )
+        expect(records.length).toBe(1)
+        expect(records[0].videoId).toBe('172477')
+        expect(records[0].teacher).toBe('刘越')
+        expect(records[0].classroom).toBe('东中院3-204')
+        expect(records[0].videoName).toContain('程序设计思想与方法（C）')
+      } finally {
+        global.fetch = origFetch
+      }
+    })
+
+    it('getVodVideoInfos resolves direct MP4 stream URLs from course_vod_urls_new', async () => {
+      const jwtToken = 'eyJhbGciOiJSUzI1NiJ9.eyJhdXRoVXNlciI6eyJjb2RlIjoiMTIzNDUifX0.signature'
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          data: {
+            courseVodViewList: [
+              {
+                courId: 172477,
+                viewNum: 5,
+                url: 'https://live.sjtu.edu.cn/mnt/record5/.../165017.mp4?key=secret5'
+              },
+              {
+                courId: 172477,
+                viewNum: 1,
+                url: 'https://live.sjtu.edu.cn/mnt/record7/.../165017.mp4?key=secret1'
+              }
+            ]
+          }
+        })
+      })
+
+      const origFetch = global.fetch
+      global.fetch = mockFetch
+      try {
+        const streams = await getVodVideoInfos(
+          { fetch: mockFetch } as any,
+          jwtToken,
+          '172477'
+        )
+        expect(streams.length).toBe(2)
+        // 教师 should be sorted first (viewNum 1)
+        expect(streams[0].label).toBe('教师')
+        expect(streams[0].url).toContain('secret1')
+        // PPT should be sorted second (viewNum 5)
+        expect(streams[1].label).toBe('PPT')
+        expect(streams[1].url).toContain('secret5')
+      } finally {
+        global.fetch = origFetch
+      }
     })
   })
 })
