@@ -31,6 +31,7 @@ export function TitleBar({
   const lastCourseTab = useAppStore(s => s.lastCourseTab)
   const setActiveTab = useAppStore(s => s.setActiveTab)
   const cloudConnStatus = useAppStore(s => s.cloudConnStatus)
+  const hasCompletedInitialSetup = useAppStore(s => s.hasCompletedInitialSetup)
   const progress = useAppStore(s => s.progress)
 
   const [speed, setSpeed] = useState<{ down: number; up: number }>({ down: 0, up: 0 })
@@ -89,20 +90,26 @@ export function TitleBar({
       {stage === 'browser' && (
         isDetailView ? (
           <div className="no-drag flex items-center gap-2.5 ml-4">
-            <button
-              type="button"
-              onClick={() => setActiveTab(lastCourseTab || 'canvas')}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
-              title="返回课程列表"
-            >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M19 12H5m7 7l-7-7 7-7" />
-              </svg>
-              <span>返回课程</span>
-            </button>
+            {!hasCompletedInitialSetup ? (
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-accent/10 border border-accent/20 px-3 py-1.5 text-xs font-semibold text-accent shadow-2xs">
+                <span>🚀 新手初始配置向导</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setActiveTab(lastCourseTab || 'canvas')}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
+                title="返回课程列表"
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M19 12H5m7 7l-7-7 7-7" />
+                </svg>
+                <span>返回课程</span>
+              </button>
+            )}
             <span className="text-text-4 font-mono text-xs">/</span>
             <span className="text-xs font-semibold text-text-1">
-              {activeTab === 'transfer' ? '📥 传输中心' : '⚙️ 全局设置'}
+              {activeTab === 'transfer' ? '📥 传输中心' : (!hasCompletedInitialSetup ? '请先配置核心选项' : '⚙️ 全局设置')}
             </span>
           </div>
         ) : (
@@ -110,7 +117,13 @@ export function TitleBar({
             <Segmented 
               options={tabOptions} 
               value={activeTab} 
-              onChange={(v) => setActiveTab(v as any)} 
+              onChange={(v) => {
+                if (!hasCompletedInitialSetup) {
+                  setActiveTab('settings')
+                  return
+                }
+                setActiveTab(v as any)
+              }} 
               size="lg" 
               className="mb-2"
             />

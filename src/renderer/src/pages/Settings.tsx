@@ -36,7 +36,12 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
   const setExitWhenDownloading = useAppStore(s => s.setExitWhenDownloading)
   const autoDownloadUpdate = useAppStore(s => s.autoDownloadUpdate)
   const setAutoDownloadUpdate = useAppStore(s => s.setAutoDownloadUpdate)
+  const hasCompletedInitialSetup = useAppStore(s => s.hasCompletedInitialSetup)
+  const setHasCompletedInitialSetup = useAppStore(s => s.setHasCompletedInitialSetup)
+  const setActiveTab = useAppStore(s => s.setActiveTab)
+  const lastCourseTab = useAppStore(s => s.lastCourseTab)
 
+  const [wizardMode, setWizardMode] = useState(!hasCompletedInitialSetup)
   const [activeNav, setActiveNav] = useState('storage')
 
   const handleSelectFolder = async (): Promise<void> => {
@@ -74,6 +79,146 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
     return 45
   })()
 
+  if (wizardMode) {
+    return (
+      <div className="flex h-full w-full flex-col bg-surface-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl px-6 py-10 space-y-8">
+          {/* 顶栏欢迎横幅 */}
+          <div className="space-y-2 text-center sm:text-left">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-3 py-1 text-xs font-semibold text-accent border border-accent/20">
+              <span>✨ 首次使用引导</span>
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold text-text-1">欢迎使用交大课程下载器！请完成初始偏好设置</h1>
+            <p className="text-xs sm:text-sm text-text-3 leading-relaxed">
+              为了确保下载流程顺畅并符合您的使用习惯，请确认以下 4 项核心设置。配置完成后即可进入主界面开启下载。
+            </p>
+          </div>
+
+          {/* 四步精简向导卡片 */}
+          <div className="grid grid-cols-1 gap-5">
+            {/* 卡片 1：本地保存位置 */}
+            <div className="rounded-2xl border border-bd/80 bg-surface-2/60 p-5 shadow-xs transition-all hover:border-bd-strong space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/10 text-xs font-bold text-accent">1</span>
+                  <span className="text-sm font-bold text-text-1">📦 本地文件保存目录</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSelectFolder}
+                  className="rounded-xl border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-1 hover:border-accent hover:text-accent transition-all cursor-pointer shadow-2xs"
+                >
+                  浏览并选择目录…
+                </button>
+              </div>
+              <p className="text-xs text-text-3">所有课程课件、讲义及音视频文件落盘存储的主目录：</p>
+              <div className="flex items-center gap-2 rounded-xl border border-bd/60 bg-surface-1 px-3.5 py-2.5 font-mono text-xs text-text-2">
+                <span className="text-text-4 select-none">📁</span>
+                <span className="truncate flex-1">{localDestRoot || '未自定义（将默认使用系统的「下载」文件夹）'}</span>
+              </div>
+            </div>
+
+            {/* 卡片 2：存储目标模式 */}
+            <div className="rounded-2xl border border-bd/80 bg-surface-2/60 p-5 shadow-xs transition-all hover:border-bd-strong space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/10 text-xs font-bold text-accent">2</span>
+                  <span className="text-sm font-bold text-text-1">🎯 存储目标模式</span>
+                </div>
+                <Segmented
+                  size="md"
+                  value={downloadMode}
+                  onChange={(v) => setDownloadMode(v as DownloadMode)}
+                  options={[
+                    { key: 'local', label: '本地下载 (推荐)' },
+                    { key: 'cloud', label: '直传交大云盘' },
+                    { key: 'both', label: '本地+云盘双备份' }
+                  ]}
+                />
+              </div>
+              <div className="text-xs text-text-3 leading-relaxed">
+                {downloadMode === 'local' && '💡 仅保存在本地磁盘指定目录中，最稳定且随时离线阅读。'}
+                {downloadMode === 'cloud' && '💡 直接分片上传至交大云盘，不占用本地硬盘空间（需在云盘设置中完成授权）。'}
+                {downloadMode === 'both' && '💡 本地与云端各存一份，自动双向备份，兼顾本地查阅与云端同步。'}
+              </div>
+            </div>
+
+            {/* 卡片 3：视频清晰度与提取偏好 */}
+            <div className="rounded-2xl border border-bd/80 bg-surface-2/60 p-5 shadow-xs transition-all hover:border-bd-strong space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/10 text-xs font-bold text-accent">3</span>
+                  <span className="text-sm font-bold text-text-1">🎬 视频清晰度与仅提取音频偏好</span>
+                </div>
+                <Segmented
+                  size="md"
+                  value={videoQualityOption}
+                  onChange={(v) => setVideoQualityOption(v as VideoQualityOption)}
+                  options={[
+                    { key: 'origin', label: '原画高清 (推荐)' },
+                    { key: '1080p', label: '1080P' },
+                    { key: '720p', label: '720P' },
+                    { key: 'audio_only', label: '🎵 仅提取音频 (.m4a)' }
+                  ]}
+                />
+              </div>
+              <div className="text-xs text-text-3 leading-relaxed">
+                {videoQualityOption === 'audio_only'
+                  ? '🎵 已启用「仅提取音频」：课堂视频与在线慕课将自动抽取出高保真 AAC 纯音频 (.m4a)，跳过无声的 PPT 录像，体积缩小 90% 以上，适合随身听或导入音频播放器！'
+                  : '💡 下载视频时的画质偏好；后续在设置或下载栏中可随时无缝切换。'}
+              </div>
+            </div>
+
+            {/* 卡片 4：窗口退出与关闭行为 */}
+            <div className="rounded-2xl border border-bd/80 bg-surface-2/60 p-5 shadow-xs transition-all hover:border-bd-strong space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-accent/10 text-xs font-bold text-accent">4</span>
+                  <span className="text-sm font-bold text-text-1">🚪 窗口退出与后台运行行为</span>
+                </div>
+                <Segmented
+                  size="md"
+                  value={windowCloseAction}
+                  onChange={(v) => setWindowCloseAction(v as WindowCloseAction)}
+                  options={[
+                    { key: 'tray', label: '最小化到系统托盘 (推荐)' },
+                    { key: 'taskbar', label: '最小化到任务栏' },
+                    { key: 'quit', label: '彻底退出应用' }
+                  ]}
+                />
+              </div>
+              <div className="text-xs text-text-3 leading-relaxed">
+                点击窗口右上角关闭按钮时的默认响应动作，可在下载大文件时保证后台平稳进行。
+              </div>
+            </div>
+          </div>
+
+          {/* 底部操作与流转 */}
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-bd/60">
+            <button
+              type="button"
+              onClick={() => setWizardMode(false)}
+              className="text-xs text-text-3 hover:text-text-1 transition-colors cursor-pointer"
+            >
+              切换到完整专业设置面板 (高级选项) →
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setHasCompletedInitialSetup(true)
+                setWizardMode(false)
+                setActiveTab(lastCourseTab || 'canvas')
+              }}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-6 py-3 text-sm font-semibold text-white shadow-glow-sm hover:bg-accent-light active:scale-98 transition-all cursor-pointer"
+            >
+              <span>完成配置，开始使用 🚀</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full w-full flex-col bg-surface-1">
       <div className="flex flex-1 overflow-hidden">
@@ -99,11 +244,37 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
               {item.label}
             </button>
           ))}
+
+          <div className="mt-auto pt-3 border-t border-bd/50">
+            <button
+              type="button"
+              onClick={() => setWizardMode(true)}
+              className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-bd/80 bg-surface-2 px-2.5 py-1.5 text-2xs font-medium text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-3 transition-all cursor-pointer"
+              title="重新打开首次配置四步向导"
+            >
+              <span>🚀 重新运行初始化向导</span>
+            </button>
+          </div>
         </aside>
 
         {/* 右栏内容 */}
         <main className="flex-1 overflow-y-auto px-10 py-8">
           <div className="mx-auto max-w-2xl">
+            {!hasCompletedInitialSetup && (
+              <div className="mb-6 flex items-center justify-between rounded-xl bg-accent/10 border border-accent/20 px-4 py-3 text-xs text-accent">
+                <span className="font-medium">您正在专业设置面板中，完成后请点击右侧确认以进入课程主页。</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHasCompletedInitialSetup(true)
+                    setActiveTab(lastCourseTab || 'canvas')
+                  }}
+                  className="rounded-lg bg-accent px-3 py-1 font-semibold text-white shadow-xs hover:bg-accent-light transition-all cursor-pointer"
+                >
+                  完成配置并进入课程
+                </button>
+              </div>
+            )}
             
             {/* 1. 存储与下载 */}
             {activeNav === 'storage' && (

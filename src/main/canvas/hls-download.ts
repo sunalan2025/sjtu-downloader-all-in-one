@@ -566,16 +566,31 @@ export async function downloadHlsVideo(
   m3u8Url: string,
   destMp4Path: string,
   options?: HlsOptions
-): Promise<{ path: string; format: 'mp4' | 'ts' }> {
+): Promise<{ path: string; format: 'mp4' | 'ts' | 'm4a' }> {
   const ses = options?.session ?? (session && session.defaultSession ? session.defaultSession : ({} as Electron.Session))
-  const tsPath = destMp4Path.endsWith('.mp4')
-    ? destMp4Path.slice(0, -4) + '.ts'
-    : destMp4Path + '.ts'
+  const isAudioOnly = options?.isAudioOnly || destMp4Path.endsWith('.m4a')
+  const tsPath = destMp4Path.replace(/\.(mp4|m4a)$/, '') + '.ts'
 
   // 1. 下载 HLS 切片
   await downloadHls(ses, m3u8Url, tsPath, options?.onProgress, options?.maxWorkers)
 
-  // 2. remux TS 到 MP4
+  // 2. 纯音频提取
+  if (isAudioOnly) {
+    const m4aPath = destMp4Path.endsWith('.m4a') ? destMp4Path : destMp4Path.replace(/\.mp4$/, '.m4a')
+    options?.onProgress?.({
+      phase: 'remuxing',
+      segmentsDone: 0,
+      segmentsTotal: 0,
+      bytesWritten: 0,
+      message: '正在提取纯音频 (AAC .m4a)…'
+    })
+    const audioOk = await extractAudioFromVideo(tsPath, m4aPath, options?.onProgress)
+    if (audioOk) {
+      return { path: m4aPath, format: 'm4a' }
+    }
+  }
+
+  // 3. remux TS 到 MP4
   options?.onProgress?.({
     phase: 'remuxing',
     segmentsDone: 0,

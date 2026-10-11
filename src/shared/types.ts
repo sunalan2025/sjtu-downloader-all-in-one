@@ -264,6 +264,8 @@ export interface DownloadTaskSpec {
   angle?: number
   /** 是否为 HLS 视频流（.m3u8） */
   isHls?: boolean
+  /** 是否需要抽取为纯音频 (.m4a) */
+  extractAudio?: boolean
 }
 
 /** 下载/上传任务状态机 */

@@ -139,3 +139,28 @@ describe('courseViewMode preferences', () => {
   })
 })
 
+describe('initial setup and audio-only preferences', () => {
+  it('has correct default hasCompletedInitialSetup (false)', () => {
+    const store = useAppStore.getState()
+    expect(store.hasCompletedInitialSetup).toBe(false)
+  })
+
+  it('updates hasCompletedInitialSetup via setter', () => {
+    const store = useAppStore.getState()
+    store.setHasCompletedInitialSetup(true)
+    expect(useAppStore.getState().hasCompletedInitialSetup).toBe(true)
+
+    store.setHasCompletedInitialSetup(false)
+    expect(useAppStore.getState().hasCompletedInitialSetup).toBe(false)
+  })
+
+  it('supports videoQualityOption audio_only mode', () => {
+    const store = useAppStore.getState()
+    store.setVideoQualityOption('audio_only')
+    expect(useAppStore.getState().videoQualityOption).toBe('audio_only')
+
+    store.setVideoQualityOption('origin')
+    expect(useAppStore.getState().videoQualityOption).toBe('origin')
+  })
+})
+

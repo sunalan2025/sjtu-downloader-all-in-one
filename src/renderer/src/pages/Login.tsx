@@ -579,9 +579,14 @@ export function Login() {
   const [statusMsg, setStatusMsg] = useState('正在加载交大统一身份认证…')
 
   const navigateToBrowser = useCallback(() => {
-    const currentTab = useAppStore.getState().activeTab
-    if (currentTab === 'settings' || currentTab === 'transfer') {
-      useAppStore.getState().setActiveTab(useAppStore.getState().lastCourseTab || 'canvas')
+    const hasCompleted = useAppStore.getState().hasCompletedInitialSetup
+    if (!hasCompleted) {
+      useAppStore.getState().setActiveTab('settings')
+    } else {
+      const currentTab = useAppStore.getState().activeTab
+      if (currentTab === 'settings' || currentTab === 'transfer') {
+        useAppStore.getState().setActiveTab(useAppStore.getState().lastCourseTab || 'canvas')
+      }
     }
     setStage('browser')
   }, [setStage])

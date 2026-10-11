@@ -85,6 +85,9 @@ export default function App() {
         if (cancelled) return
         setAuth(a)
         if (a.loggedIn) {
+          if (!useAppStore.getState().hasCompletedInitialSetup) {
+            useAppStore.getState().setActiveTab('settings')
+          }
           setStage('browser')
           const cloudToken = await window.api.cloudpan.getCachedToken()
           if (cloudToken) {

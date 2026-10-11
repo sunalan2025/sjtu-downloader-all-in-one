@@ -19,7 +19,8 @@ import {
   type CanvasModule,
   type CanvasTeacherSelection,
   type CanvasVideoSession,
-  type CourseResourceSummary
+  type CourseResourceSummary,
+  type VideoQualityOption
 } from '../../shared/types'
 import {
   listCourses,
@@ -565,7 +566,8 @@ export function registerCanvasHandlers(): void {
       token: string,
       destRoot: string,
       conflictStrategy?: 'skip' | 'overwrite',
-      term?: string
+      term?: string,
+      qualityOption?: VideoQualityOption
     ) => {
       try {
         const cPath = canvasCoursePath(courseName, term)
@@ -573,6 +575,7 @@ export function registerCanvasHandlers(): void {
         if (videosDir) mkdirSync(videosDir, { recursive: true })
 
         const overwrite = conflictStrategy === 'overwrite'
+        const isAudioOnly = qualityOption === 'audio_only'
         const specs: CanvasDownloadTaskSpec[] = []
         for (const item of lectureItems) {
           // teacher/ppt 指向同一 videoId；按用户实际勾选的角色产 spec，
@@ -582,10 +585,11 @@ export function registerCanvasHandlers(): void {
           // 角色意图由 item.teacher / item.ppt 是否存在决定：可只产一路或两路
           const roles: Array<{ role: 'teacher' | 'ppt'; idx: number }> = []
           if (item.teacher) roles.push({ role: 'teacher', idx: 0 })
-          if (item.ppt) roles.push({ role: 'ppt', idx: 1 })
+          if (item.ppt && !isAudioOnly) roles.push({ role: 'ppt', idx: 1 })
           for (const { role: chRole, idx: chIdx } of roles) {
             const taskId = `canvas_lecture_${courseId}_${item.lectureNum}_${chRole}`
-            const fileName = buildClassVideoFileName(courseName, session, chIdx)
+            const rawFileName = buildClassVideoFileName(courseName, session, chIdx)
+            const fileName = isAudioOnly ? rawFileName.replace(/\.mp4$/, '.m4a') : rawFileName
             const destPath = videosDir ? join(videosDir, fileName) : ''
             // overwrite 模式不预跳过：交由 runTask 删旧文件后重下
             if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
@@ -604,7 +608,8 @@ export function registerCanvasHandlers(): void {
               canvasVideoId: session.videoId,
               canvasVideoToken: token,
               canvasStreamIdx: chIdx,
-              isHls: true
+              isHls: true,
+              extractAudio: isAudioOnly
             })
           }
         }
