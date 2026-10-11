@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, memo, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
@@ -8,19 +8,12 @@ import type {
   AuditCourseItem,
   AuditCourseVideo,
   Course,
-  DownloadMode,
   DownloadTaskSpec,
   VideoTask
 } from '@shared/types'
 import {
-  Chevron,
-  CourseProgressSummary,
   GlobalCtrlButton,
   ProgressBar,
-  SmallCheck,
-  ItemCheckbox,
-  FileTypeBadge,
-  FolderIcon,
   NetdiskViewModeSwitch,
   TaskCtrlButtons,
   TriCheckbox,
@@ -73,9 +66,9 @@ export function AuditedCourses() {
   // PERF: batch related primitive selectors with useShallow to reduce selector calls per render
   const {
     setAuth, setStage, scanState, scanMessage, courses, tasksByCourse, selected,
-    expandedCourses, cloudUserToken, downloadMode, localDestRoot,
+    cloudUserToken, downloadMode, localDestRoot,
     cloudLinkedIds, downloading, setScan, setCourses, setTasksForCourse,
-    resetScanResults, setSelected, toggleSelect, toggleSelectMany, toggleExpand,
+    resetScanResults, setSelected, toggleSelect, toggleSelectMany,
     setCloudLinkedIds, setDownloading, applyProgress,
     courseViewMode, setCourseViewMode
   } = useAppStore(useShallow(s => ({
@@ -86,7 +79,6 @@ export function AuditedCourses() {
     courses: s.courses,
     tasksByCourse: s.tasksByCourse,
     selected: s.selected,
-    expandedCourses: s.expandedCourses,
     cloudUserToken: s.cloudUserToken,
     downloadMode: s.downloadMode,
     localDestRoot: s.localDestRoot,
@@ -99,7 +91,6 @@ export function AuditedCourses() {
     setSelected: s.setSelected,
     toggleSelect: s.toggleSelect,
     toggleSelectMany: s.toggleSelectMany,
-    toggleExpand: s.toggleExpand,
     setCloudLinkedIds: s.setCloudLinkedIds,
     setDownloading: s.setDownloading,
     applyProgress: s.applyProgress,
@@ -413,7 +404,7 @@ export function AuditedCourses() {
         type: 'MP4',
         date: t.lectureDate,
         selected: selected.has(t.taskId),
-        onToggle: () => toggleSelect(t.taskId),
+        onToggle: () => onToggle(t.taskId),
         renderExtra: (
           <AuditedItemProgress
             tid={t.taskId}
@@ -430,7 +421,7 @@ export function AuditedCourses() {
         type: 'PPT',
         date: t.lectureDate,
         selected: selected.has(t.taskId),
-        onToggle: () => toggleSelect(t.taskId),
+        onToggle: () => onToggle(t.taskId),
         renderExtra: (
           <AuditedItemProgress
             tid={t.taskId}
@@ -521,7 +512,7 @@ export function AuditedCourses() {
     })
   }, [
     filteredCourses, tasksByCourse, selected, progressMap, isBothMode,
-    cloudLinkedIds, onToggleMany, toggleSelect, onPauseTask, onCancelTask, onResumeTask
+    cloudLinkedIds, onToggleMany, onToggle, toggleSelectMany, onPauseTask, onCancelTask, onResumeTask
   ])
 
   return (
@@ -627,534 +618,7 @@ export function AuditedCourses() {
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// 顶栏
-// ─────────────────────────────────────────────────────────────
 
-// PERF: memoize TopBar — receives only primitive props, avoids re-render when course list changes
-const TopBar = memo(function TopBar({
-  scanState,
-  scanMessage,
-  courseCount,
-  total,
-  onRefresh
-}: {
-  scanState: 'idle' | 'scanning' | 'done' | 'error'
-  scanMessage: string
-  courseCount: number
-  total: number
-  onRefresh: () => void
-}) {
-  return (
-    <div className="no-drag flex items-center gap-4 border-b border-bd px-6 py-3">
-      <div className="min-w-0 flex-1 truncate text-sm text-text-2">
-        {scanState === 'scanning' && (
-          <span className="inline-flex items-center gap-2">
-            <Spinner size={14} /> {scanMessage}
-          </span>
-        )}
-        {scanState === 'done' && courseCount > 0 && (
-          <span>
-            扫描完成 · {courseCount} 门课 · 共 {total} 节视频流（含教师 / PPT 两路）
-          </span>
-        )}
-        {scanState === 'error' && <span className="text-warning">{scanMessage}</span>}
-      </div>
-      {scanState === 'done' && courseCount > 0 && (
-        <button
-          type="button"
-          onClick={onRefresh}
-          title="重新校验登录态并完整重载课程列表"
-          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs text-text-3 transition-colors duration-150 hover:bg-surface-2 hover:text-text-1"
-        >
-          刷新 ↻
-        </button>
-      )}
-    </div>
-  )
-})
-
-// ─────────────────────────────────────────────────────────────
-// 操作条 — 双行布局，第一行选择/云盘/目录，第二行模式/并发/控制/下载
-// ─────────────────────────────────────────────────────────────
-
-function ActionBar({
-  selectedCount,
-  total,
-  cloudUserToken,
-  downloadMode,
-  localDestRoot,
-  downloading,
-  onToggleAll,
-  onDownload,
-  onPauseAll,
-  onResumeAll,
-  onCancelAll
-}: {
-  selectedCount: number
-  total: number
-  cloudUserToken: string | null
-  downloadMode: DownloadMode
-  localDestRoot: string
-  downloading: boolean
-  onToggleAll: () => void
-  onDownload: () => void
-  onPauseAll: () => void
-  onResumeAll: () => void
-  onCancelAll: () => void
-}) {
-  const triState = triStateFromCount(selectedCount, total)
-
-  const needsCloud = downloadMode === 'cloud' || downloadMode === 'both'
-  const needsLocal = downloadMode === 'local' || downloadMode === 'both'
-  const canStart = selectedCount > 0
-    && !downloading
-    && (!needsCloud || !!cloudUserToken)
-    && (!needsLocal || !!localDestRoot)
-
-  return (
-    <div className="sticky top-0 z-10 no-drag flex items-center justify-between border-b border-bd bg-surface-1/95 backdrop-blur px-6 py-3 shadow-sm">
-      <div className="flex items-center gap-4">
-        <button
-          type="button"
-          onClick={onToggleAll}
-          className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-text-1 transition-colors duration-150 hover:bg-surface-2"
-        >
-          <TriCheckbox state={triState} size="lg" />
-          <span>全选</span>
-        </button>
-        
-        <div className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
-          已选 {selectedCount} / {total} 节视频
-        </div>
-        
-        <div className="h-4 w-px bg-bd-strong mx-2" />
-      </div>
-
-      <div className="flex items-center gap-3">
-        {downloading && (
-          <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1 mr-2">
-            <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
-            <GlobalCtrlButton kind="resume" onClick={onResumeAll} title="继续全部下载任务" />
-            <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={onDownload}
-          disabled={!canStart}
-          className="inline-flex h-9 items-center gap-2 rounded-xl bg-accent px-6 text-sm font-semibold text-white shadow-glow-sm transition-all duration-200 hover:scale-[1.02] hover:bg-accent-light hover:shadow-glow active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60"
-        >
-          {downloading ? '进行中…' : `立即下载 (${selectedCount})`}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// 课程卡片（可折叠） + 一讲一行（教师+PPT 合并）
-// ─────────────────────────────────────────────────────────────
-
-interface Lecture {
-  videoId: number
-  lectureLabel: string
-  lectureDate?: string
-  sort: number
-  teacher?: VideoTask
-  ppt?: VideoTask
-}
-
-function groupByLecture(tasks: VideoTask[]): Lecture[] {
-  const map = new Map<number, Lecture>()
-  for (const t of tasks) {
-    let lec = map.get(t.videoId)
-    if (!lec) {
-      lec = {
-        videoId: t.videoId,
-        lectureLabel: t.lectureLabel,
-        lectureDate: t.lectureDate,
-        sort: t.sort
-      }
-      map.set(t.videoId, lec)
-    }
-    if (t.angle === 0) lec.teacher = t
-    else if (t.angle === 3) lec.ppt = t
-  }
-  return [...map.values()].sort((a, b) => a.sort - b.sort)
-}
-
-const CourseSection = memo(function CourseSection({
-  course,
-  tasks,
-  selected,
-  expanded,
-  onToggle,
-  onToggleMany,
-  onToggleExpand,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  course: Course
-  tasks: VideoTask[]
-  selected: Set<string>
-  expanded: boolean
-  onToggle: (id: string) => void
-  onToggleMany: (ids: string[], on: boolean) => void
-  onToggleExpand: (id: number) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  const ids = tasks.map(t => t.taskId)
-  const selCount = tasks.reduce((n, t) => n + (selected.has(t.taskId) ? 1 : 0), 0)
-  const triState = triStateFromCount(selCount, ids.length)
-  const [videosSectionOpen, setVideosSectionOpen] = useState(true)
-
-  const courseStats = useAppStore(
-    useShallow(s => {
-      const isBoth = s.downloadMode === 'both'
-      let done = 0, downloading = 0, errors = 0, inflight = 0
-      for (const t of tasks) {
-        const prog = s.progress[t.taskId]
-        const st = prog?.state
-        const localDone = st === 'done' || st === 'skipped'
-        if (isBoth) {
-          const cloudId = s.cloudLinkedIds[t.taskId]
-          const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
-          const cloudDone = cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
-          const isLocalFinal = localDone || st === 'error' || st === 'cancelled'
-          const isCloudFinal = !cloudId || cloudDone || cloudSt === 'error'
-          if (localDone && (cloudDone || !cloudId)) done++
-          else if (!isLocalFinal || !isCloudFinal) {
-            if (st === 'error' || cloudSt === 'error') errors++
-            else {
-              downloading++
-              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-              else if (localDone) inflight += 1
-            }
-          }
-        } else {
-          if (localDone) done++
-          else if (st !== 'cancelled') {
-            if (st === 'error') errors++
-            else {
-              downloading++
-              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-            }
-          }
-        }
-      }
-      return { done, downloading, errors, inflight }
-    })
-  )
-  const { done: doneCount, downloading: downloadingCount, errors: errorCount, inflight: inflightCount } = courseStats
-  const lectures = useMemo(() => groupByLecture(tasks), [tasks])
-
-  return (
-    <section className="overflow-hidden rounded-2xl border border-bd bg-surface-1 shadow-card transition-shadow hover:shadow-card-hover flex flex-col">
-      {/* 卡片头部 */}
-      <header
-        className="flex cursor-pointer select-none items-center gap-2.5 px-4 py-3 bg-surface-2/40 hover:bg-surface-2 transition-colors border-b border-bd/40"
-        onClick={() => onToggleExpand(course.id)}
-      >
-        <FolderIcon className="h-4 w-4 shrink-0 text-amber-500" />
-        <span className="min-w-0 flex-1 truncate font-semibold text-text-1 text-sm" title={course.name}>
-          {course.name}
-        </span>
-        <Chevron open={expanded} />
-      </header>
-
-      {/* 进度条 */}
-      <CourseProgressSummary done={doneCount} downloading={downloadingCount} errors={errorCount} inflight={inflightCount} total={ids.length} />
-
-      {expanded && (
-        <div className="flex flex-col animate-fadeIn">
-          {/* 子区：课程视频 */}
-          <div
-            className="flex items-center justify-between px-4 py-2 bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer select-none transition-colors border-b border-bd/30"
-            onClick={() => setVideosSectionOpen(o => !o)}
-          >
-            <div className="flex items-center gap-2.5">
-              <ItemCheckbox
-                checked={triState === 'all'}
-                onChange={() => onToggleMany(ids, triState !== 'all')}
-              />
-              <span className="text-xs font-semibold text-text-1">课程视频</span>
-              {tasks.length > 0 && <span className="text-[11px] text-text-3 font-mono">({tasks.length})</span>}
-            </div>
-            <Chevron open={videosSectionOpen} />
-          </div>
-
-          {videosSectionOpen && (
-            <div>
-              {lectures.length === 0 ? (
-                <div className="py-4 text-center text-xs text-text-4">暂无可下载视频</div>
-              ) : (
-                <ul className="divide-y divide-bd/20 max-h-72 overflow-y-auto">
-                  {lectures.map(lec => (
-                    <div key={lec.videoId}>
-                      {lec.teacher && (
-                        <AuditedVideoItemRow
-                          task={lec.teacher}
-                          selected={selected}
-                          onToggle={onToggle}
-                          badgeType="MP4"
-                          label={`第${lec.sort}讲 教师 (MP4)`}
-                          onPause={onPauseTask}
-                          onCancel={onCancelTask}
-                          onResume={onResumeTask}
-                        />
-                      )}
-                      {lec.ppt && (
-                        <AuditedVideoItemRow
-                          task={lec.ppt}
-                          selected={selected}
-                          onToggle={onToggle}
-                          badgeType="PPT"
-                          label={`第${lec.sort}讲 PPT (MP4)`}
-                          onPause={onPauseTask}
-                          onCancel={onCancelTask}
-                          onResume={onResumeTask}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </section>
-  )
-})
-
-const AuditedVideoItemRow = memo(function AuditedVideoItemRow({
-  task,
-  selected,
-  onToggle,
-  badgeType,
-  label,
-  onPause,
-  onCancel,
-  onResume
-}: {
-  task: VideoTask
-  selected: Set<string>
-  onToggle: (id: string) => void
-  badgeType: string
-  label: string
-  onPause: (id: string) => void
-  onCancel: (id: string) => void
-  onResume: (id: string) => void
-}) {
-  const isOn = selected.has(task.taskId)
-  const p = useEffectiveProgress(task.taskId)
-  return (
-    <li className="flex flex-col px-4 py-1.5 hover:bg-surface-2/50 transition-colors">
-      <div className="flex items-center gap-2.5">
-        <ItemCheckbox checked={isOn} onChange={() => onToggle(task.taskId)} />
-        <FileTypeBadge type={badgeType} />
-        <span className="min-w-0 flex-1 truncate text-xs text-text-1" title={label}>
-          {label}
-        </span>
-        {task.lectureDate && (
-          <span className="shrink-0 font-mono text-[11px] text-text-3 tabular-nums">
-            {task.lectureDate.slice(5)}
-          </span>
-        )}
-        {p && (
-          <TaskCtrlButtons
-            state={p.state}
-            onPause={() => onPause(task.taskId)}
-            onCancel={() => onCancel(task.taskId)}
-            onResume={() => onResume(task.taskId)}
-          />
-        )}
-      </div>
-      {p && (p.state === 'downloading' || p.state === 'pending' || p.state === 'error' || p.state === 'paused') && (
-        <div className="pl-6.5 pr-1 pt-1 pb-0.5">
-          <ProgressBar p={p} />
-        </div>
-      )}
-    </li>
-  )
-})
-
-const LectureRow = memo(function LectureRow({
-  lecture,
-  selected,
-  onToggle,
-  onToggleMany,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  lecture: Lecture
-  selected: Set<string>
-  onToggle: (id: string) => void
-  onToggleMany: (ids: string[], on: boolean) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  const { teacher, ppt, lectureLabel, lectureDate } = lecture
-  const ids = [teacher?.taskId, ppt?.taskId].filter(Boolean) as string[]
-  const selCount = ids.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
-  const triState = triStateFromCount(selCount, ids.length)
-
-  return (
-    <li className="flex items-center gap-4 px-5 py-3 transition-colors duration-100 hover:bg-surface-2">
-      <span
-        role="checkbox"
-        aria-checked={triState === 'some' ? 'mixed' : triState === 'all'}
-        onClick={() => onToggleMany(ids, triState !== 'all')}
-        className="shrink-0 cursor-pointer"
-      >
-        <TriCheckbox state={triState} size="lg" />
-      </span>
-      <div className="flex w-44 shrink-0 items-baseline gap-2">
-        <span className="text-sm font-medium text-text-1">{lectureLabel}</span>
-        {lectureDate && (
-          <span className="font-mono text-xs text-text-4">{lectureDate}</span>
-        )}
-      </div>
-
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <AngleCell
-          task={teacher}
-          selected={selected}
-          onToggle={onToggle}
-          onPauseTask={onPauseTask}
-          onCancelTask={onCancelTask}
-          onResumeTask={onResumeTask}
-        />
-        <div className="h-6 w-px shrink-0 bg-surface-2" />
-        <AngleCell
-          task={ppt}
-          selected={selected}
-          onToggle={onToggle}
-          onPauseTask={onPauseTask}
-          onCancelTask={onCancelTask}
-          onResumeTask={onResumeTask}
-        />
-      </div>
-    </li>
-  )
-})
-
-const AngleCell = memo(function AngleCell({
-  task,
-  selected,
-  onToggle,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  task?: VideoTask
-  selected: Set<string>
-  onToggle: (id: string) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  // 订阅本任务的进度（both 模式下自动聚合本地+云端状态）
-  const p = useEffectiveProgress(task?.taskId ?? '')
-  if (!task) {
-    return (
-      <div className="flex min-w-0 flex-1 items-center gap-2 text-xs text-text-4">
-        无视频
-      </div>
-    )
-  }
-  const isOn = selected.has(task.taskId)
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5">
-      <button
-        type="button"
-        onClick={() => onToggle(task.taskId)}
-        title={task.angle === 0 ? '教师视角：录制教师讲课画面的视频' : 'PPT视角：录制投影/课件画面的视频'}
-        className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium ring-1 transition-all duration-150 hover:scale-[1.03] ${
-          isOn
-            ? task.angle === 0
-              ? 'bg-info-bg text-info ring-info-ring'
-              : 'bg-warning-bg text-warning ring-warning-ring'
-            : task.angle === 0
-              ? 'bg-info-bg/50 text-info/70 ring-info-ring/50 hover:bg-info-bg'
-              : 'bg-warning-bg/50 text-warning/70 ring-warning-ring/50 hover:bg-warning-bg'
-        }`}
-      >
-        <SmallCheck on={isOn} />
-        {task.viewLabel}
-      </button>
-      <div className="min-w-0 flex-1">
-        {p ? <ProgressBar p={p} /> : <div className="h-2 rounded-full bg-surface-3" />}
-      </div>
-      {p && (
-        <TaskCtrlButtons
-          state={p.state}
-          onPause={() => onPauseTask(task.taskId)}
-          onCancel={() => onCancelTask(task.taskId)}
-          onResume={() => onResumeTask(task.taskId)}
-        />
-      )}
-    </div>
-  )
-})
-
-// PERF: memoize BatchAngleButton — receives only primitives + stable callback, avoids re-render on unrelated state changes
-const BatchAngleButton = memo(function BatchAngleButton({
-  label,
-  state,
-  selCount,
-  total,
-  onClick,
-  accent
-}: {
-  label: string
-  state: TriState
-  selCount: number
-  total: number
-  onClick: (e: MouseEvent) => void
-  accent: 'sky' | 'amber'
-}) {
-  const ring =
-    accent === 'sky'
-      ? state === 'none'
-        ? 'ring-info-ring hover:ring-info text-info/70 hover:text-info'
-        : 'ring-info text-info bg-info-bg'
-      : state === 'none'
-        ? 'ring-warning-ring hover:ring-warning text-warning/70 hover:text-warning'
-        : 'ring-warning text-warning bg-warning-bg'
-  const dot = accent === 'sky' ? 'bg-info' : 'bg-warning'
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium ring-1 transition-all duration-150 hover:scale-[1.03] ${ring}`}
-      title={accent === 'sky' ? '批量选择/取消教师视角视频' : '批量选择/取消PPT视角视频'}
-    >
-      <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-current/40">
-        {state === 'all' && (
-          <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="3">
-            <path d="M3 8l3.5 3.5L13 5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-        {state === 'some' && <span className="h-[2px] w-2 rounded-full bg-current" />}
-      </span>
-      <span>{label}</span>
-      <span className="ml-0.5 inline-flex items-center gap-1 text-current/60">
-        <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
-        <span className="font-mono text-xs">
-          {selCount}/{total}
-        </span>
-      </span>
-    </button>
-  )
-})
 
 // ─────────────────────────────────────────────────────────────
 // Hero 占位

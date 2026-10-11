@@ -6,12 +6,7 @@ import {
 } from '../hooks/useSharedBrowserHooks'
 import { prefetchCnmoocCourses } from '../services/prefetch'
 import {
-  Chevron,
-  CourseProgressSummary,
-  FileTypeBadge,
-  FolderIcon,
   GlobalCtrlButton,
-  ItemCheckbox,
   NetdiskViewModeSwitch,
   ProgressBar,
   ResourceTypeSegmented,
@@ -77,14 +72,12 @@ export function CnmoocBrowser() {
     scanState,
     scanMessage,
     courseData,
-    expanded,
     selected,
     cloudUserToken,
     downloadMode,
     localDestRoot,
     resourceFilter,
     downloading,
-    toggleExpand,
     setSelected,
     toggleSelect,
     toggleSelectMany,
@@ -100,14 +93,12 @@ export function CnmoocBrowser() {
       scanState: s.cnmoocScanState,
       scanMessage: s.cnmoocScanMessage,
       courseData: s.cnmoocCourseData,
-      expanded: s.cnmoocExpandedCourses,
       selected: s.selected,
       cloudUserToken: s.cloudUserToken,
       downloadMode: s.downloadMode,
       localDestRoot: s.localDestRoot,
       resourceFilter: s.cnmoocResourceFilter,
       downloading: s.downloading,
-      toggleExpand: s.toggleCnmoocExpand,
       setSelected: s.setSelected,
       toggleSelect: s.toggleSelect,
       toggleSelectMany: s.toggleSelectMany,
@@ -486,262 +477,7 @@ export function CnmoocBrowser() {
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// 课程卡片（Deck 样式，对齐设计图：文件夹图标 + 章节/资源分组）
-// ─────────────────────────────────────────────────────────────
 
-const CnmoocCourseCard = memo(function CnmoocCourseCard({
-  course,
-  chapters,
-  expanded,
-  selected,
-  onToggle,
-  onToggleMany,
-  onToggleExpand,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  course: CnmoocCourse
-  chapters: CnmoocChapter[]
-  expanded: boolean
-  selected: Set<string>
-  onToggle: (id: string) => void
-  onToggleMany: (ids: string[], on: boolean) => void
-  onToggleExpand: (courseId: string) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  const ids = useMemo(() => {
-    const out: string[] = []
-    for (const ch of chapters) for (const it of ch.items) out.push(makeTid(course.courseId, it.itemId))
-    return out
-  }, [chapters, course.courseId])
-  const selCount = ids.filter(id => selected.has(id)).length
-  const triState = triStateFromCount(selCount, ids.length)
-
-  // 课程级聚合进度
-  const courseStats = useAppStore(
-    useShallow(s => {
-      let done = 0, downloading = 0, errors = 0, inflight = 0
-      for (const id of ids) {
-        const prog = s.progress[id]
-        const st = prog?.state
-        const cloudId = s.cloudLinkedIds[id]
-        const cloudProg = cloudId ? s.progress[cloudId] : undefined
-        const cloudSt = cloudProg?.state
-        if (st === 'error' || cloudSt === 'error') errors++
-        const localDone = st === 'done' || st === 'skipped'
-        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
-        if (localDone && cloudDone) done++
-        else if (st === 'downloading' || st === 'pending' || cloudSt === 'downloading' || cloudSt === 'pending') {
-          downloading++
-          if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          else if (localDone) inflight += 1
-        }
-      }
-      return { done, downloading, errors, inflight }
-    })
-  )
-  const { done: doneCount, downloading: downloadingCount, errors: errorCount, inflight: inflightCount } = courseStats
-
-  return (
-    <section className="overflow-hidden rounded-2xl border border-bd bg-surface-1 shadow-card transition-shadow duration-200 hover:shadow-card-hover flex flex-col">
-      <header
-        className="flex cursor-pointer select-none items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-surface-2/60 border-b border-bd/60"
-        onClick={() => onToggleExpand(course.courseId)}
-      >
-        <FolderIcon className="h-5 w-5 text-amber-500 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-bold text-text-1" title={course.name}>{course.name}</div>
-          <div className="flex items-center gap-2 text-[11px] text-text-3">
-            <span className="font-mono text-text-2">{course.courseId}</span>
-            <span>·</span>
-            <span>{chapters.length} 章节 · {ids.length} 资源</span>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <span
-            role="checkbox"
-            aria-checked={triState === 'some' ? 'mixed' : triState === 'all'}
-            tabIndex={0}
-            onClick={e => { e.stopPropagation(); onToggleMany(ids, triState !== 'all') }}
-            onKeyDown={e => {
-              if (e.key === ' ' || e.key === 'Enter') {
-                e.preventDefault(); e.stopPropagation(); onToggleMany(ids, triState !== 'all')
-              }
-            }}
-            className="shrink-0"
-          >
-            <TriCheckbox state={triState} size="sm" />
-          </span>
-          <Chevron open={expanded} />
-        </div>
-      </header>
-
-      <CourseProgressSummary done={doneCount} downloading={downloadingCount} errors={errorCount} inflight={inflightCount} total={ids.length} />
-
-      {expanded && (
-        <div className="animate-fadeIn origin-top divide-y divide-bd/60">
-          {chapters.length === 0 ? (
-            <div className="px-4 py-4 text-center text-xs text-text-3">该课程暂无可下载资源</div>
-          ) : (
-            chapters.map((ch, chi) => (
-              <CnmoocChapterBlock
-                key={`${course.courseId}-${chi}-${ch.chapter}`}
-                courseId={course.courseId}
-                chapter={ch}
-                selected={selected}
-                onToggle={onToggle}
-                onToggleMany={onToggleMany}
-                onPauseTask={onPauseTask}
-                onCancelTask={onCancelTask}
-                onResumeTask={onResumeTask}
-              />
-            ))
-          )}
-        </div>
-      )}
-    </section>
-  )
-})
-
-// ─────────────────────────────────────────────────────────────
-// 章节块（带三态勾选的子标题 + 条目列表）
-// ─────────────────────────────────────────────────────────────
-
-const CnmoocChapterBlock = memo(function CnmoocChapterBlock({
-  courseId,
-  chapter,
-  selected,
-  onToggle,
-  onToggleMany,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  courseId: string
-  chapter: CnmoocChapter
-  selected: Set<string>
-  onToggle: (id: string) => void
-  onToggleMany: (ids: string[], on: boolean) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  const [open, setOpen] = useState(true)
-  const ids = useMemo(() => chapter.items.map(it => makeTid(courseId, it.itemId)), [chapter, courseId])
-  const selCount = ids.filter(id => selected.has(id)).length
-  const tri: TriState = triStateFromCount(selCount, ids.length)
-
-  return (
-    <div className="bg-surface-2/20">
-      <div
-        className="flex cursor-pointer select-none items-center gap-2.5 px-4 py-2 hover:bg-surface-2/50 transition-colors"
-        onClick={() => setOpen(prev => !prev)}
-      >
-        <span
-          role="checkbox"
-          aria-checked={tri === 'some' ? 'mixed' : tri === 'all'}
-          tabIndex={0}
-          onClick={e => {
-            e.stopPropagation()
-            onToggleMany(ids, tri !== 'all')
-          }}
-          onKeyDown={e => {
-            if (e.key === ' ' || e.key === 'Enter') {
-              e.preventDefault()
-              e.stopPropagation()
-              onToggleMany(ids, tri !== 'all')
-            }
-          }}
-          className="shrink-0"
-        >
-          <TriCheckbox state={tri} size="sm" />
-        </span>
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-2" title={chapter.chapter}>
-          {chapter.chapter}
-        </span>
-        <span className="shrink-0 text-[11px] font-mono text-text-4">
-          {selCount} / {ids.length}
-        </span>
-        <Chevron open={open} />
-      </div>
-      {open && (
-        <ul className="divide-y divide-bd/40 border-t border-bd/40 bg-surface-1">
-          {chapter.items.map(it => (
-            <CnmoocItemRow
-              key={`${courseId}-${it.itemId}`}
-              courseId={courseId}
-              item={it}
-              isOn={selected.has(makeTid(courseId, it.itemId))}
-              onToggle={onToggle}
-              onPauseTask={onPauseTask}
-              onCancelTask={onCancelTask}
-              onResumeTask={onResumeTask}
-            />
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-})
-
-// ─────────────────────────────────────────────────────────────
-// 单个条目行（彩色徽标 + 标题 + 进度/控制）
-// ─────────────────────────────────────────────────────────────
-
-const CnmoocItemRow = memo(function CnmoocItemRow({
-  courseId,
-  item,
-  isOn,
-  onToggle,
-  onPauseTask,
-  onCancelTask,
-  onResumeTask
-}: {
-  courseId: string
-  item: CnmoocItem
-  isOn: boolean
-  onToggle: (id: string) => void
-  onPauseTask: (id: string) => void
-  onCancelTask: (id: string) => void
-  onResumeTask: (id: string) => void
-}) {
-  const tid = makeTid(courseId, item.itemId)
-  const p = useEffectiveProgress(tid)
-
-  return (
-    <li className="flex items-center gap-2.5 px-4 py-2 transition-colors duration-100 hover:bg-surface-2/40">
-      <ItemCheckbox
-        checked={isOn}
-        onChange={() => onToggle(tid)}
-      />
-      <FileTypeBadge
-        filename={item.title}
-        type={item.itemType === '10' ? 'MP4' : undefined}
-      />
-      <span className="min-w-0 flex-1 truncate text-xs text-text-1" title={item.title}>
-        {item.title}
-      </span>
-      {p && (
-        <div className="w-24 shrink-0">
-          <ProgressBar p={p} />
-        </div>
-      )}
-      {p && (
-        <TaskCtrlButtons
-          state={p.state}
-          onPause={() => onPauseTask(tid)}
-          onCancel={() => onCancelTask(tid)}
-          onResume={() => onResumeTask(tid)}
-        />
-      )}
-    </li>
-  )
-})
 
 // ─────────────────────────────────────────────────────────────
 // Hero 占位
