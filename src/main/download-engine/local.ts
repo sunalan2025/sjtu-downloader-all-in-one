@@ -9,7 +9,7 @@ import type { IncomingMessage } from 'node:http'
 import { createWriteStream, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState } from '../../shared/types'
-import { isAllowedSjtuUrl, interceptDownloadRedirect } from './domain-guard'
+import { interceptDownloadRedirect } from './domain-guard'
 import {
   assertDownloadIntegrity,
   verifyDownloadIntegrity,

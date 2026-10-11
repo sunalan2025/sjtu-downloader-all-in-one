@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAppStore } from '../store/app'
 import { formatBytes } from '../components/DownloadUI'
-import type { DownloadHistoryItem, TransferSpeed } from '@shared/types'
+import type { TransferSpeed } from '@shared/types'
 
-export function TransferCenter() {
+export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}) {
   const history = useAppStore(s => s.downloadHistory)
   const removeHistoryItem = useAppStore(s => s.removeDownloadHistoryItem)
   const clearHistory = useAppStore(s => s.clearDownloadHistory)

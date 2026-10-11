@@ -2,9 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useAppStore, useEffectiveProgress, type LectureGroup } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
-import { useCloudConnection } from '../hooks/useSharedBrowserHooks'
 import { prefetchCanvasCourses } from '../services/prefetch'
-import { Chevron, TriCheckbox, ProgressBar, SmallCheck, GlobalCtrlButton, ModeSegmented, ConflictStrategySegmented, HlsTranscodeSegmented, TaskCtrlButtons, CourseProgressSummary, OverallProgressBar, formatBytes, type TriState } from '../components/DownloadUI'
+import {
+  Chevron,
+  TriCheckbox,
+  ProgressBar,
+  SmallCheck,
+  ItemCheckbox,
+  FileTypeBadge,
+  FolderIcon,
+  DropdownSelect,
+  LayoutModeSwitch,
+  GlobalCtrlButton,
+  TaskCtrlButtons,
+  CourseProgressSummary,
+  formatBytes,
+  type TriState
+} from '../components/DownloadUI'
 import type {
   CanvasCourse,
   CanvasDownloadTaskSpec,
@@ -141,18 +155,15 @@ export function CanvasBrowser() {
   // PERF [split]: 3 separate subscriptions to minimize re-render scope
   // Group 1: rarely-changing state (courses, scan results, config)
   const {
-    localDestRoot, cloudUserToken, cloudSpaceInfo,
-    downloadMode, fileConflictStrategy, videoQualityOption, setVideoQualityOption, canvasCourses, canvasScanState, canvasScanMessage,
+    localDestRoot, cloudUserToken,
+    downloadMode, canvasCourses, canvasScanState, canvasScanMessage,
     canvasExpandedCourses, canvasCourseData, canvasTeachers, canvasSelectedTeachers,
-    canvasLectures, canvasModuleVideos, canvasCourseCategorySelections
+    canvasLectures, canvasModuleVideos, canvasCourseCategorySelections,
+    courseLayoutMode
   } = useAppStore(useShallow(s => ({
     localDestRoot: s.localDestRoot,
     cloudUserToken: s.cloudUserToken,
-    cloudSpaceInfo: s.cloudSpaceInfo,
     downloadMode: s.downloadMode,
-    fileConflictStrategy: s.fileConflictStrategy,
-    videoQualityOption: s.videoQualityOption,
-    setVideoQualityOption: s.setVideoQualityOption,
     canvasCourses: s.canvasCourses,
     canvasScanState: s.canvasScanState,
     canvasScanMessage: s.canvasScanMessage,
@@ -162,8 +173,10 @@ export function CanvasBrowser() {
     canvasSelectedTeachers: s.canvasSelectedTeachers,
     canvasLectures: s.canvasLectures,
     canvasModuleVideos: s.canvasModuleVideos,
-    canvasCourseCategorySelections: s.canvasCourseCategorySelections
+    canvasCourseCategorySelections: s.canvasCourseCategorySelections,
+    courseLayoutMode: s.courseLayoutMode
   })))
+  const setCourseLayoutMode = useAppStore(s => s.setCourseLayoutMode)
   // Group 2: frequently-changing (downloading flag — derived from progress)
   const downloading = useAppStore(s => s.downloading)
   // Group 3: stable action references (setters are stable, but grouped for clarity)
@@ -172,8 +185,8 @@ export function CanvasBrowser() {
     setCanvasSelectedTeachers, setCanvasLtiToken, setCanvasLectures, setCanvasModuleVideos,
     setCanvasCourseCategorySelection, setAllCanvasCourseCategorySelections,
     resetCanvasScanResults, toggleCanvasExpand,
-    setLocalDestRoot, setDownloading, resetProgress, applyProgress,
-    setDownloadMode, setFileConflictStrategy, setCloudLinkedIds
+    setDownloading, resetProgress, applyProgress,
+    setCloudLinkedIds
   } = useAppStore(useShallow(s => ({
     setCanvasCourseData: s.setCanvasCourseData,
     setCanvasTeachers: s.setCanvasTeachers,
@@ -197,8 +210,10 @@ export function CanvasBrowser() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selectedTerm, setSelectedTerm] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState<string>('')
 
   const scanStartedRef = useRef(false)
+  const autoExpandedRef = useRef(false)
 
   // ── 学期列表 ──
   const terms = useMemo(() => {
@@ -206,11 +221,75 @@ export function CanvasBrowser() {
     return [...set].sort().reverse()
   }, [canvasCourses])
 
-  // ── 按学期筛选课程 ──
+  const termOptions = useMemo(() => {
+    return [
+      { value: 'all', label: '全部学期', count: canvasCourses.length },
+      ...terms.map(t => ({
+        value: t,
+        label: t,
+        count: canvasCourses.filter(c => (c.term || '(无学期)') === t).length
+      }))
+    ]
+  }, [terms, canvasCourses])
+
+  // ── 按学期与搜索关键词筛选课程 ──
   const filteredCourses = useMemo(() => {
-    if (selectedTerm === 'all') return canvasCourses
-    return canvasCourses.filter(c => (c.term || '(无学期)') === selectedTerm)
-  }, [canvasCourses, selectedTerm])
+    let list = canvasCourses
+    if (selectedTerm !== 'all') {
+      list = list.filter(c => (c.term || '(无学期)') === selectedTerm)
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      list = list.filter(c =>
+        c.name.toLowerCase().includes(q) ||
+        (c.courseCode && c.courseCode.toLowerCase().includes(q))
+      )
+    }
+    return list
+  }, [canvasCourses, selectedTerm, searchQuery])
+
+  // 首次拉取课程后，默认将课程卡片全部展开以多列卡片流平铺展示
+  useEffect(() => {
+    if (!autoExpandedRef.current && canvasCourses.length > 0) {
+      autoExpandedRef.current = true
+      for (const c of canvasCourses) {
+        if (!canvasExpandedCourses.has(c.courseId)) {
+          toggleCanvasExpand(c.courseId)
+        }
+      }
+    }
+  }, [canvasCourses, canvasExpandedCourses, toggleCanvasExpand])
+
+  // 计算已选任务条数与总预估大小
+  const selectedStats = useMemo(() => {
+    let count = 0
+    let totalBytes = 0
+    for (const c of canvasCourses) {
+      const cd = canvasCourseData[c.courseId]
+      if (cd) {
+        for (const f of cd.files) {
+          if (selected.has(fileTaskId(c.courseId, f.fileId))) {
+            count++
+            totalBytes += (f.size || 0)
+          }
+        }
+        for (const f of cd.moduleFiles) {
+          if (selected.has(fileTaskId(c.courseId, f.fileId))) {
+            count++
+            totalBytes += (f.size || 0)
+          }
+        }
+        for (const f of cd.syllabusFiles) {
+          if (selected.has(fileTaskId(c.courseId, f.fileId))) {
+            count++
+            totalBytes += (f.size || 0)
+          }
+        }
+      }
+    }
+    const totalCount = Math.max(count, selected.size)
+    return { totalCount, totalBytes }
+  }, [canvasCourses, canvasCourseData, selected])
 
   // ── 拉取课程列表（刷新时保留下载进度和已有扫描数据） ──
   // 逻辑提取到 services/prefetch.ts，登录后 App.tsx 也会调它预加载。
@@ -247,7 +326,6 @@ export function CanvasBrowser() {
   // [2.15] useDownloadProgressSubscription moved to App level — removed here
   // useCachedCloudTokenValidation 已移除：云盘 token 不再持久化，登录后由
   // App.tsx 的 prefetchCloudConnection 自动重新连接，无需启动恢复路径。
-  const { cloudConn, onConnectCloud, onDisconnectCloud } = useCloudConnection()
 
   // ── HLS 模块视频进度订阅：把 canvas:hls-progress 落到 store.progress ──
   // 模块视频不走 download:start 队列，进度由 main 端 downloadModuleVideo 通过
@@ -447,11 +525,6 @@ export function CanvasBrowser() {
       return next
     })
   }, [filteredCourses, courseStates, courseTaskIds, canvasCourseCategorySelections, setAllCanvasCourseCategorySelections])
-
-  const onSelectFolder = useCallback(async () => {
-    const p = await window.api.selectFolder()
-    if (p) setLocalDestRoot(p)
-  }, [setLocalDestRoot])
 
   // ── 下载（按课程分批提交，解析一门立即开始下载） ──
   // PERF: read volatile store values via useAppStore.getState() inside the function body
@@ -967,77 +1040,92 @@ export function CanvasBrowser() {
 
   return (
     <div className="flex h-full w-full flex-col">
-      {/* 顶栏 */}
-      <div className="no-drag flex items-center gap-4 border-b border-bd px-6 py-3">
-        {canvasScanState === 'scanning' && (
-          <span className="inline-flex items-center gap-2 text-sm text-text-2"><Spinner size={14} /> {canvasScanMessage}</span>
-        )}
-        {canvasScanState === 'done' && (
-          <span className="text-sm text-text-2">{canvasCourses.length} 门 Canvas 课程{selectedTerm !== 'all' && <span className="text-text-3"> · {selectedTerm}</span>}</span>
-        )}
-        {canvasScanState === 'error' && <span className="text-sm text-warning">{canvasScanMessage}</span>}
-        <div className="flex-1" />
-        {canvasScanState === 'done' && canvasCourses.length > 0 && (
-          <button type="button" onClick={() => void onRefresh()} className="rounded-lg px-3 py-1.5 text-xs text-text-3 hover:bg-surface-2 hover:text-text-1">刷新</button>
-        )}
+      {/* 顶部粘性操作栏 (对齐设计图：学期下拉 + 搜索框 + 已选统计 + 全选 + 立即下载) */}
+      <div className="sticky top-0 z-10 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 px-6 py-2.5 shadow-xs">
+        {/* 左侧：学期选择胶囊 + 搜索框 */}
+        <div className="flex items-center gap-3">
+          <DropdownSelect
+            value={selectedTerm}
+            options={termOptions}
+            onChange={setSelectedTerm}
+            icon="📅"
+          />
+
+          <div className="relative flex items-center">
+            <svg className="pointer-events-none absolute left-3 h-4 w-4 text-text-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="搜索课程/代码..."
+              className="h-10 w-44 rounded-xl border border-bd bg-surface-2 pl-9 pr-3 text-xs text-text-1 placeholder:text-text-4 shadow-2xs hover:border-bd-strong focus:w-56 focus:border-accent focus:bg-surface-1 focus:outline-none transition-all duration-200"
+            />
+          </div>
+
+          <LayoutModeSwitch
+            mode={courseLayoutMode}
+            onChange={setCourseLayoutMode}
+          />
+
+          {canvasScanState === 'scanning' && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-text-2">
+              <Spinner size={12} /> {canvasScanMessage}
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void onRefresh()}
+            title="刷新课程列表"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-bd bg-surface-2 text-text-3 hover:border-bd-strong hover:bg-surface-1 hover:text-text-1 transition-all shadow-2xs cursor-pointer text-sm"
+          >
+            ↻
+          </button>
+        </div>
+
+        {/* 右侧：已选统计 + 已选全部 + 立即下载 */}
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 text-xs font-medium text-text-2 shadow-2xs">
+            <span className="text-accent font-bold">☑</span>
+            <span>已选 {selectedStats.totalCount} 项{selectedStats.totalBytes > 0 ? ` (${formatBytes(selectedStats.totalBytes)})` : ''}</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onToggleAll}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
+          >
+            <TriCheckbox state={courseTriState} size="sm" />
+            <span>已选全部</span>
+          </button>
+
+          {downloading && (
+            <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
+              <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部" />
+              <GlobalCtrlButton kind="resume" onClick={onResumeAll} title="继续全部" />
+              <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部" />
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void onDownload()}
+            disabled={!canStart}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-5 text-xs font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:bg-accent-light active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60 cursor-pointer"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+            </svg>
+            <span>{downloading ? '进行中…' : (selectedStats.totalCount > 0 ? `立即下载 ${selectedStats.totalCount} 项` : `立即下载 (${pendingCourseCount})`)}</span>
+          </button>
+        </div>
       </div>
 
-      {/* 学期筛选 */}
-      {canvasScanState === 'done' && terms.length > 1 && (
-        <div className="no-drag flex items-center gap-2 border-b border-bd bg-surface-3 px-6 py-2">
-          <span className="text-xs text-text-3">学期：</span>
-          <TermPill label="全部" active={selectedTerm === 'all'} count={canvasCourses.length} onClick={() => setSelectedTerm('all')} />
-          {terms.map(t => {
-            const count = canvasCourses.filter(c => (c.term || '(无学期)') === t).length
-            return <TermPill key={t} label={t} active={selectedTerm === t} count={count} onClick={() => setSelectedTerm(t)} />
-          })}
-        </div>
-      )}
-
-      {/* 操作栏 Sticky Header */}
-      {canvasScanState === 'done' && canvasCourses.length > 0 && (
-        <div className="sticky top-0 z-10 no-drag flex items-center justify-between border-b border-bd bg-surface-1/95 backdrop-blur px-6 py-3 shadow-sm">
-          <div className="flex items-center gap-4">
-            <button type="button" onClick={onToggleAll} className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-text-1 transition-colors hover:bg-surface-2">
-              <TriCheckbox state={courseTriState} size="lg" />
-              <span>全选</span>
-            </button>
-            
-            <div className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
-              已选 {pendingCourseCount} / {filteredCourses.length} 门课程
-            </div>
-            
-            <div className="h-4 w-px bg-bd-strong mx-2" />
-            
-            <div className="flex items-center gap-2">
-              <TopCategoryBtn label="课件" icon="file" state={categoryTriState('files')} color="violet" onClick={() => toggleAllCategory('files')} />
-              <TopCategoryBtn label="视频-教师" icon="user" state={categoryTriState('teacher')} color="blue" onClick={() => toggleAllCategory('teacher')} />
-              <TopCategoryBtn label="视频-PPT" icon="screen" state={categoryTriState('ppt')} color="green" onClick={() => toggleAllCategory('ppt')} />
-              <TopCategoryBtn label="PPT课件" icon="file" state={categoryTriState('pptPdf')} color="green" onClick={() => toggleAllCategory('pptPdf')} />
-              <TopCategoryBtn label="单元视频" icon="screen" state={categoryTriState('moduleVideo')} color="violet" onClick={() => toggleAllCategory('moduleVideo')} />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {downloading && (
-              <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1 mr-2">
-                <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部" />
-                <GlobalCtrlButton kind="resume" onClick={onResumeAll} title="继续全部" />
-                <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部" />
-              </div>
-            )}
-            
-            <button type="button" onClick={() => void onDownload()} disabled={!canStart}
-              className="inline-flex h-9 items-center gap-2 rounded-xl bg-accent px-6 text-sm font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:bg-accent-light active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60">
-              {downloading ? '进行中…' : `立即下载 (${pendingCourseCount})`}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 课程列表 */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        {canvasScanState === 'scanning' && (
+      {/* 课程列表：多列网格流 (Deck) 或 紧凑列表流 (List) */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {canvasScanState === 'scanning' && canvasCourses.length === 0 && (
           <div className="relative mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
             <div className="pointer-events-none absolute inset-0 -z-10 bg-hero-radial opacity-70 blur-2xl" />
             <Spinner size={32} />
@@ -1056,40 +1144,40 @@ export function CanvasBrowser() {
         )}
         {canvasScanState === 'done' && canvasCourses.length > 0 && filteredCourses.length === 0 && (
           <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
-            <div className="text-base font-medium text-text-1">该学期没有课程</div>
-            <div className="mt-2 text-sm text-text-3">请选择其他学期或"全部"</div>
+            <div className="text-base font-medium text-text-1">没有匹配的课程</div>
+            <div className="mt-2 text-sm text-text-3">请尝试更改搜索关键词或学期</div>
           </div>
         )}
-        {canvasScanState === 'done' && filteredCourses.length > 0 && (
-          <div className="flex flex-col gap-4">
+        {filteredCourses.length > 0 && (
+          <div className={courseLayoutMode === 'deck' ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start" : "flex flex-col gap-4 max-w-5xl mx-auto w-full"}>
             {filteredCourses.map((c, idx) => (
               <div
                 key={c.courseId}
                 className="animate-fadeInUp"
                 style={{ animationDelay: `${Math.min(idx, 8) * 40}ms`, animationFillMode: 'backwards' }}
               >
-              <CanvasCourseCard
-                course={c}
-                expanded={canvasExpandedCourses.has(c.courseId)}
-                courseData={canvasCourseData[c.courseId]}
-                lectures={canvasLectures[c.courseId]}
-                teachers={canvasTeachers[c.courseId]}
-                selectedTeachers={canvasSelectedTeachers[c.courseId]}
-                moduleVideos={canvasModuleVideos[c.courseId]}
-                categorySelections={canvasCourseCategorySelections[c.courseId]}
-                selected={selected}
-                onToggleExpand={() => toggleCanvasExpand(c.courseId)}
-                onSetCourseData={data => setCanvasCourseData(c.courseId, data)}
-                onSetLectures={l => setCanvasLectures(c.courseId, l)}
-                onSetTeachers={t => setCanvasTeachers(c.courseId, t)}
-                onSetSelectedTeachers={t => setCanvasSelectedTeachers(c.courseId, t)}
-                onSetLtiToken={d => setCanvasLtiToken(c.courseId, d)}
-                onSetModuleVideos={v => setCanvasModuleVideos(c.courseId, v)}
-                onSetCategorySelection={sel => setCanvasCourseCategorySelection(c.courseId, sel)}
-                toggleSelect={toggleSelect}
-                toggleSelectMany={toggleSelectMany}
-                onToggleCourseSelect={() => toggleCourse(c.courseId)}
-              />
+                <CanvasCourseCard
+                  course={c}
+                  expanded={canvasExpandedCourses.has(c.courseId)}
+                  courseData={canvasCourseData[c.courseId]}
+                  lectures={canvasLectures[c.courseId]}
+                  teachers={canvasTeachers[c.courseId]}
+                  selectedTeachers={canvasSelectedTeachers[c.courseId]}
+                  moduleVideos={canvasModuleVideos[c.courseId]}
+                  categorySelections={canvasCourseCategorySelections[c.courseId]}
+                  selected={selected}
+                  onToggleExpand={() => toggleCanvasExpand(c.courseId)}
+                  onSetCourseData={data => setCanvasCourseData(c.courseId, data)}
+                  onSetLectures={l => setCanvasLectures(c.courseId, l)}
+                  onSetTeachers={t => setCanvasTeachers(c.courseId, t)}
+                  onSetSelectedTeachers={t => setCanvasSelectedTeachers(c.courseId, t)}
+                  onSetLtiToken={d => setCanvasLtiToken(c.courseId, d)}
+                  onSetModuleVideos={v => setCanvasModuleVideos(c.courseId, v)}
+                  onSetCategorySelection={sel => setCanvasCourseCategorySelection(c.courseId, sel)}
+                  toggleSelect={toggleSelect}
+                  toggleSelectMany={toggleSelectMany}
+                  onToggleCourseSelect={() => toggleCourse(c.courseId)}
+                />
               </div>
             ))}
           </div>
@@ -1146,6 +1234,8 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   const [scanning, setScanning] = useState(false)
   const [scanPhase, setScanPhase] = useState('')
   const [scanningVideo, setScanningVideo] = useState(false)
+  const [filesSectionOpen, setFilesSectionOpen] = useState(true)
+  const [videosSectionOpen, setVideosSectionOpen] = useState(true)
 
   // 共享订阅课堂视频扫描进度
   // [Bug Fix] 之前只在 phase==='class-video' 时置 true，从不复位 → PPT 下载等自动触发
@@ -1329,11 +1419,23 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
     onSetCategorySelection({ ppt: newOn })
     if (pptIds.length > 0) toggleSelectMany(pptIds, newOn)
   }, [pptIds, pptTriState, onSetCategorySelection, toggleSelectMany])
-  const onToggleModuleVideo = useCallback(() => {
-    const newOn = moduleVideoTriState !== 'all'
-    onSetCategorySelection({ moduleVideo: newOn })
-    if (moduleVideoIds.length > 0) toggleSelectMany(moduleVideoIds, newOn)
-  }, [moduleVideoIds, moduleVideoTriState, onSetCategorySelection, toggleSelectMany])
+  const videoIds = useMemo(() => {
+    return [...teacherIds, ...pptIds, ...moduleVideoIds]
+  }, [teacherIds, pptIds, moduleVideoIds])
+
+  const videosTriState: TriState = useMemo(() => {
+    if (videoIds.length === 0) {
+      return (catSel?.teacher || catSel?.ppt || catSel?.moduleVideo) ? 'all' : 'none'
+    }
+    const sel = videoIds.reduce((n, id) => n + (selected.has(id) ? 1 : 0), 0)
+    return sel === videoIds.length ? 'all' : sel > 0 ? 'some' : 'none'
+  }, [videoIds, selected, catSel])
+
+  const onToggleVideos = useCallback(() => {
+    const newOn = videosTriState !== 'all'
+    onSetCategorySelection({ teacher: newOn, ppt: newOn, moduleVideo: newOn })
+    if (videoIds.length > 0) toggleSelectMany(videoIds, newOn)
+  }, [videosTriState, onSetCategorySelection, videoIds, toggleSelectMany])
 
   // PERF: subscribe to progress stats from store with encoding trick,
   // avoiding the entire progress map as a prop (which defeats memo every 2s tick).
@@ -1375,158 +1477,179 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   const { done: doneCount, dl: dlCount, err: errCount, inflight: inflightCount } = progressStats
 
   const totalFiles = courseData ? courseData.files.length + courseData.moduleFiles.length + courseData.syllabusFiles.length : 0
+  const videoItemsCount = (lectures ? lectures.filter(l => l.teacher).length * 2 : 0) + (moduleVideos ? moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length : 0)
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-bd bg-surface-3 shadow-card transition-shadow hover:shadow-card-hover">
-      <header className="flex cursor-pointer select-none items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-2" onClick={onToggleExpand}>
-        <Chevron open={expanded} />
-        <span role="checkbox" aria-checked={courseTriState === 'some' ? 'mixed' : courseTriState === 'all'} tabIndex={0}
-          onClick={e => { e.stopPropagation(); onToggleCourseSelect() }}
-          onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); onToggleCourseSelect() } }}
-          className="shrink-0">
-          <TriCheckbox state={courseTriState} size="lg" />
+    <section className="overflow-hidden rounded-2xl border border-bd bg-surface-1 shadow-card transition-shadow hover:shadow-card-hover flex flex-col">
+      {/* 卡片头部：文件夹图标 + 课程名称 + 折叠展开 */}
+      <header
+        className="flex cursor-pointer select-none items-center gap-2.5 px-4 py-3 bg-surface-2/40 hover:bg-surface-2 transition-colors border-b border-bd/40"
+        onClick={onToggleExpand}
+      >
+        <FolderIcon className="h-4 w-4 shrink-0 text-amber-500" />
+        <span className="min-w-0 flex-1 truncate font-semibold text-text-1 text-sm" title={course.name}>
+          {course.name}
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="line-clamp-1 text-base font-semibold text-text-1">{course.name}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-3">
-            {course.courseCode && <span className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-xs text-text-2">{course.courseCode}</span>}
-            <span>{course.term || '(无学期)'}</span>
-            <span className="rounded bg-info-bg px-1.5 py-0.5 text-info">{course.enrollmentState}</span>
-          </div>
-        </div>
-        {scanning && (
-          <span className="inline-flex items-center gap-2 text-xs text-text-3">
-            <Spinner size={12} /> {scanPhase === 'files' ? '扫描文件…' : scanPhase === 'modules' ? '扫描模块…' : scanPhase === 'syllabus' ? '扫描大纲…' : '扫描中…'}
-          </span>
-        )}
-        {/* 分类复选框：课件 | 视频-教师 | 视频-PPT | PPT课件PDF | 单元视频 */}
-        <div className="flex shrink-0 items-center gap-2" onClick={e => e.stopPropagation()}>
-          <CategoryCheckBtn label="课件" state={filesTriState} color="violet" onClick={onToggleFiles} />
-          <CategoryCheckBtn label="视频-教师" state={teacherTriState} color="blue" onClick={onToggleTeacher} />
-          <CategoryCheckBtn label="视频-PPT" state={pptTriState} color="green" onClick={onTogglePpt} />
-          <CategoryCheckBtn label="PPT课件PDF" state={catSel?.pptPdf ? 'all' : 'none'} color="green" onClick={() => onSetCategorySelection({ pptPdf: !catSel?.pptPdf })} />
-          <CategoryCheckBtn label="单元视频" state={moduleVideoTriState} color="violet" onClick={onToggleModuleVideo} />
-        </div>
-        <div className="flex shrink-0 items-center gap-2 text-xs text-text-3">
-          {/* 扫描数据在时显示讲次/已选；被清（下载完成释放内存）但有已提交任务时回退显示完成统计 */}
-          <span>{courseIds.length > 0
-            ? <>{lectures?.length ?? 0} 讲 · 已选 <span className="font-medium text-text-1">{selCount}</span> / {courseIds.length}</>
-            : courseData ? `${totalFiles} 个文件`
-            : committedTaskIds.length > 0 ? <>已完成 <span className="font-medium text-success">{doneCount}</span> / {committedTaskIds.length}</> : ''}</span>
-        </div>
+        <Chevron open={expanded} />
       </header>
 
       {/* 进度条 */}
       <CourseProgressSummary done={doneCount} downloading={dlCount} errors={errCount} inflight={inflightCount} total={progressIds.length} />
 
       {expanded && (
-        <div className="animate-fadeIn origin-top border-t border-bd">
-          {scanning && !courseData && (
-            <div className="flex items-center justify-center gap-3 px-5 py-8"><Spinner size={20} /><span className="text-sm text-text-3">正在扫描课程内容…</span></div>
-          )}
-
-          {/* 课件文件 */}
-          {courseData && totalFiles > 0 && (
-            <div className="px-5 py-4">
-              <div className="mb-2 text-sm font-medium text-text-1">
-                课件文件 ({courseData.files.length}
-                {courseData.moduleFiles.length > 0 && <span className="text-text-3"> + {courseData.moduleFiles.length} 模块</span>}
-                {courseData.syllabusFiles.length > 0 && <span className="text-text-3"> + {courseData.syllabusFiles.length} 大纲</span>})
-              </div>
-              <ul className="divide-y divide-bd">
-                {courseData.files.map(f => (
-                  <FileRow key={f.fileId} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
-                ))}
-                {courseData.moduleFiles.length > 0 && (
-                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">模块文件</li>
-                )}
-                {courseData.moduleFiles.map(f => (
-                  <FileRow key={`m_${f.fileId}`} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
-                ))}
-                {courseData.syllabusFiles.length > 0 && (
-                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">大纲嵌入</li>
-                )}
-                {courseData.syllabusFiles.map(f => (
-                  <FileRow key={`s_${f.fileId}`} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
-                ))}
-                {totalFiles > 20 && (
-                  <li className="py-1.5 text-center text-xs text-accent">共 {totalFiles} 个文件</li>
-                )}
-              </ul>
-            </div>
-          )}
-
-          {/* 课堂视频 */}
-          <div className="border-t border-bd px-5 py-4">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-medium text-text-1">
-                课堂视频{lectures && <span className="ml-2 text-text-3">({lectures.length} 讲)</span>}
+        <div className="flex flex-col divide-y divide-bd/40 animate-fadeIn">
+          {/* 子区 1：课程文件 */}
+          <div>
+            <div
+              className="flex items-center justify-between px-4 py-2 bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer select-none transition-colors"
+              onClick={() => setFilesSectionOpen(o => !o)}
+            >
+              <div className="flex items-center gap-2.5">
+                <ItemCheckbox
+                  checked={filesTriState === 'all'}
+                  onChange={onToggleFiles}
+                />
+                <span className="text-xs font-semibold text-text-1">课程文件</span>
+                {totalFiles > 0 && <span className="text-[11px] text-text-3 font-mono">({totalFiles})</span>}
               </div>
               <div className="flex items-center gap-2">
-                {!lectures && !scanningVideo && (
-                  <button type="button" onClick={() => void doClassVideoScan()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-bd-strong bg-surface-3 px-3 text-xs text-text-2 transition-all hover:border-info-ring hover:text-info">扫描课堂视频</button>
-                )}
-                {scanningVideo && <Spinner size={12} />}
+                {scanning && scanPhase === 'files' && <Spinner size={12} />}
+                <Chevron open={filesSectionOpen} />
               </div>
             </div>
-            {lectures && lectures.length > 0 && (
-              <ul className="divide-y divide-bd">
-                {lectures.map(l => (
-                  <LectureRow key={l.lectureNum} courseId={course.courseId} lecture={l} selected={selected} onToggle={toggleSelect} />
-                ))}
-              </ul>
-            )}
-            {lectures && lectures.length === 0 && !scanningVideo && (
-              <div className="py-3 text-center text-xs text-text-4">该课程未发现课堂视频</div>
+
+            {filesSectionOpen && (
+              <div>
+                {scanning && !courseData && (
+                  <div className="flex items-center justify-center gap-2 py-4 text-xs text-text-3">
+                    <Spinner size={14} /> 正在扫描课程文件…
+                  </div>
+                )}
+                {courseData && totalFiles === 0 && (
+                  <div className="py-3 text-center text-xs text-text-4">该课程无课件文件</div>
+                )}
+                {courseData && totalFiles > 0 && (
+                  <ul className="divide-y divide-bd/20 max-h-72 overflow-y-auto">
+                    {courseData.files.map(f => (
+                      <FileRow key={f.fileId} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
+                    ))}
+                    {courseData.moduleFiles.map(f => (
+                      <FileRow key={`m_${f.fileId}`} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
+                    ))}
+                    {courseData.syllabusFiles.map(f => (
+                      <FileRow key={`s_${f.fileId}`} courseId={course.courseId} file={f} folderMap={courseData.folderMap} selected={selected} onToggle={toggleSelect} />
+                    ))}
+                  </ul>
+                )}
+                {!courseData && !scanning && (
+                  <div className="py-2.5 text-center">
+                    <button type="button" onClick={() => void doScan()} className="text-xs text-accent hover:underline">点击扫描课程文件</button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
-          {/* PPT 课件（PDF）—— 选了 pptPdf 分类时显示，进度条由 canvas:ppt-progress 驱动 */}
-          {catSel?.pptPdf && (
-            <div className="border-t border-bd px-5 py-4">
-              <div className="mb-2 text-sm font-medium text-text-1">
-                PPT课件（PDF）
-                {lectures && <span className="ml-2 text-text-3">({lectures.filter(l => l.teacher).length} 讲)</span>}
+          {/* 子区 2：课程视频 */}
+          <div>
+            <div
+              className="flex items-center justify-between px-4 py-2 bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer select-none transition-colors"
+              onClick={() => setVideosSectionOpen(o => !o)}
+            >
+              <div className="flex items-center gap-2.5">
+                <ItemCheckbox
+                  checked={videosTriState === 'all'}
+                  onChange={onToggleVideos}
+                />
+                <span className="text-xs font-semibold text-text-1">课程视频</span>
+                {videoItemsCount > 0 && <span className="text-[11px] text-text-3 font-mono">({videoItemsCount})</span>}
               </div>
-              <PptPdfProgressRow courseId={course.courseId} />
+              <div className="flex items-center gap-2">
+                {scanningVideo && <Spinner size={12} />}
+                <Chevron open={videosSectionOpen} />
+              </div>
             </div>
-          )}
 
-          {/* 单元视频（来自浏览器「单元」tab，三类来源：Page iframe HLS / ExternalTool 直接MP4 / ExternalUrl 直接MP4） */}
-          <div className="border-t border-bd px-5 py-4">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-medium text-text-1">
-                单元视频{moduleVideos && <span className="ml-2 text-text-3">({moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length} 个)</span>}
+            {videosSectionOpen && (
+              <div>
+                {scanningVideo && (
+                  <div className="flex items-center justify-center gap-2 py-4 text-xs text-text-3">
+                    <Spinner size={14} /> 正在扫描课堂视频…
+                  </div>
+                )}
+                {lectures && lectures.length > 0 && (
+                  <ul className="divide-y divide-bd/20 max-h-72 overflow-y-auto">
+                    {lectures.map(l => (
+                      <div key={l.lectureNum}>
+                        {l.teacher && (
+                          <VideoItemRow
+                            title={`${course.name} - 第${l.lectureNum}讲 教师 (MP4)`}
+                            date={l.date}
+                            taskId={lectureStreamTaskId(course.courseId, l.lectureNum, 'teacher')}
+                            selected={selected}
+                            onToggle={toggleSelect}
+                            badgeType="MP4"
+                          />
+                        )}
+                        {l.teacher && (
+                          <VideoItemRow
+                            title={`${course.name} - 第${l.lectureNum}讲 PPT (MP4)`}
+                            date={l.date}
+                            taskId={lectureStreamTaskId(course.courseId, l.lectureNum, 'ppt')}
+                            selected={selected}
+                            onToggle={toggleSelect}
+                            badgeType="PPT"
+                          />
+                        )}
+                      </div>
+                    ))}
+                    {moduleVideos?.iframes.map(t => (
+                      <VideoItemRow
+                        key={`if_${t.iframeUrl}`}
+                        title={`${t.pageTitle} (MP4)`}
+                        taskId={iframeVideoTaskId(course.courseId, t.pageTitle)}
+                        selected={selected}
+                        onToggle={toggleSelect}
+                        badgeType="MP4"
+                      />
+                    ))}
+                    {moduleVideos?.extTools.map(t => (
+                      <VideoItemRow
+                        key={`et_${t.fileId}`}
+                        title={`${t.title} (MP4)`}
+                        taskId={extToolVideoTaskId(course.courseId, t.fileId)}
+                        selected={selected}
+                        onToggle={toggleSelect}
+                        badgeType="MP4"
+                      />
+                    ))}
+                    {moduleVideos?.extUrls.map(t => (
+                      <VideoItemRow
+                        key={`eu_${t.uuid}`}
+                        title={`${t.title} (MP4)`}
+                        taskId={extUrlVideoTaskId(course.courseId, t.uuid)}
+                        selected={selected}
+                        onToggle={toggleSelect}
+                        badgeType="MP4"
+                      />
+                    ))}
+                  </ul>
+                )}
+                {lectures && lectures.length === 0 && !scanningVideo && (!moduleVideos || (moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length === 0)) && (
+                  <div className="py-3 text-center text-xs text-text-4">该课程未发现课堂视频</div>
+                )}
+                {!lectures && !scanningVideo && (
+                  <div className="py-2.5 text-center">
+                    <button type="button" onClick={() => void doClassVideoScan()} className="text-xs text-accent hover:underline">点击扫描课堂视频</button>
+                  </div>
+                )}
+                {catSel?.pptPdf && (
+                  <div className="px-4 py-2 border-t border-bd/30">
+                    <div className="text-xs font-medium text-text-1 mb-1">PPT课件 (PDF)</div>
+                    <PptPdfProgressRow courseId={course.courseId} />
+                  </div>
+                )}
               </div>
-              {!moduleVideos && !scanningModuleVideo && (
-                <button type="button" onClick={() => void doModuleVideoScan()} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-bd-strong bg-surface-3 px-3 text-xs text-text-2 transition-all hover:border-info-ring hover:text-info">扫描单元视频</button>
-              )}
-              {scanningModuleVideo && <Spinner size={12} />}
-            </div>
-            {moduleVideos && (moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length) > 0 && (
-              <ul className="divide-y divide-bd">
-                {moduleVideos.iframes.length > 0 && (
-                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">网页嵌入视频（HLS）</li>
-                )}
-                {moduleVideos.iframes.map(t => (
-                  <ModuleVideoRow key={`if_${t.iframeUrl}`} title={t.pageTitle} subTitle={t.moduleName} taskId={iframeVideoTaskId(course.courseId, t.pageTitle)} selected={selected} onToggle={toggleSelect} />
-                ))}
-                {moduleVideos.extTools.length > 0 && (
-                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">v.sjtu 嵌入视频</li>
-                )}
-                {moduleVideos.extTools.map(t => (
-                  <ModuleVideoRow key={`et_${t.fileId}`} title={t.title} taskId={extToolVideoTaskId(course.courseId, t.fileId)} selected={selected} onToggle={toggleSelect} />
-                ))}
-                {moduleVideos.extUrls.length > 0 && (
-                  <li className="bg-surface-2/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-text-4">vshare 嵌入视频</li>
-                )}
-                {moduleVideos.extUrls.map(t => (
-                  <ModuleVideoRow key={`eu_${t.uuid}`} title={t.title} taskId={extUrlVideoTaskId(course.courseId, t.uuid)} selected={selected} onToggle={toggleSelect} />
-                ))}
-              </ul>
-            )}
-            {moduleVideos && (moduleVideos.iframes.length + moduleVideos.extTools.length + moduleVideos.extUrls.length) === 0 && !scanningModuleVideo && (
-              <div className="py-3 text-center text-xs text-text-4">该课程未发现单元视频</div>
             )}
           </div>
         </div>
@@ -1535,115 +1658,73 @@ const CanvasCourseCard = memo(function CanvasCourseCard({
   )
 })
 
-// ─── 文件行（使用 useEffectiveProgress 支持 both 模式） ────────
+// ─── 文件行 ──────────────────────────────────────────────────
 
-const FileRow = memo(function FileRow({ courseId, file, folderMap, selected, onToggle }: {
+const FileRow = memo(function FileRow({ courseId, file, folderMap: _folderMap, selected, onToggle }: {
   courseId: number; file: CanvasFileItem; folderMap: Record<number, string>; selected: Set<string>; onToggle: (id: string) => void
 }) {
   const tid = fileTaskId(courseId, file.fileId)
   const isOn = selected.has(tid)
   const p = useEffectiveProgress(tid)
-  const relDir = folderMap[file.folderId ?? -1] || ''
   return (
-    <li className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-2">
-      <button type="button" onClick={() => onToggle(tid)} className="shrink-0">
-        <SmallCheck on={isOn} />
-      </button>
-      <svg className="h-3.5 w-3.5 shrink-0 text-text-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6" /></svg>
-      <span className="min-w-0 flex-1 truncate text-xs text-text-2">
-        {relDir && <span className="text-text-4">{relDir}/</span>}
-        {file.displayName}
-      </span>
-      <span className="shrink-0 text-xs text-text-4">{formatBytes(file.size)}</span>
-      <div className="min-w-[5rem] flex-1 shrink-0">
-        {p ? <ProgressBar p={p} /> : <div className="h-2 rounded-full bg-surface-3" />}
+    <li className="flex flex-col px-4 py-1.5 hover:bg-surface-2/50 transition-colors">
+      <div className="flex items-center gap-2.5">
+        <ItemCheckbox checked={isOn} onChange={() => onToggle(tid)} />
+        <FileTypeBadge filename={file.displayName} />
+        <span className="min-w-0 flex-1 truncate text-xs text-text-1" title={file.displayName}>
+          {file.displayName}
+        </span>
+        <span className="shrink-0 font-mono text-[11px] text-text-3 tabular-nums">
+          {formatBytes(file.size)}
+        </span>
       </div>
+      {p && (p.state === 'downloading' || p.state === 'pending' || p.state === 'error' || p.state === 'paused') && (
+        <div className="pl-6.5 pr-1 pt-1 pb-0.5">
+          <ProgressBar p={p} />
+        </div>
+      )}
     </li>
   )
 })
 
-// ─── 讲次行（教师 + PPT 两路） ──────────────────────────────
+// ─── 视频条目行 ──────────────────────────────────────────────
 
-const ModuleVideoRow = memo(function ModuleVideoRow({ title, subTitle, taskId, selected, onToggle }: {
-  title: string; subTitle?: string; taskId: string; selected: Set<string>; onToggle: (id: string) => void
+const VideoItemRow = memo(function VideoItemRow({
+  title, date, taskId, selected, onToggle, badgeType = 'MP4'
+}: {
+  title: string; date?: string; taskId: string; selected: Set<string>; onToggle: (id: string) => void; badgeType?: string
 }) {
   const isOn = selected.has(taskId)
   const p = useEffectiveProgress(taskId)
-  // iframe HLS（canvas_mvid_）不可中断/暂停，不显示控制按钮；exttool/exturl 走主队列可控
   const controllable = !taskId.startsWith('canvas_mvid_')
   return (
-    <li className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-surface-2">
-      <button type="button" onClick={() => onToggle(taskId)} className="shrink-0">
-        <SmallCheck on={isOn} />
-      </button>
-      <svg className="h-3.5 w-3.5 shrink-0 text-text-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>
-      <span className="min-w-0 flex-1 truncate text-xs text-text-2">
-        {subTitle && <span className="text-text-4">{subTitle}/</span>}
-        {title}
-      </span>
-      <div className="min-w-[5rem] flex-1 shrink-0">
-        {p ? <ProgressBar p={p} /> : <div className="h-2 rounded-full bg-surface-3" />}
+    <li className="flex flex-col px-4 py-1.5 hover:bg-surface-2/50 transition-colors">
+      <div className="flex items-center gap-2.5">
+        <ItemCheckbox checked={isOn} onChange={() => onToggle(taskId)} />
+        <FileTypeBadge type={badgeType} />
+        <span className="min-w-0 flex-1 truncate text-xs text-text-1" title={title}>
+          {title}
+        </span>
+        {date && (
+          <span className="shrink-0 font-mono text-[11px] text-text-3 tabular-nums">
+            {date.slice(5)}
+          </span>
+        )}
+        {controllable && p && (
+          <TaskCtrlButtons
+            state={p.state}
+            onPause={() => window.api.download.pause(taskId).catch(() => undefined)}
+            onCancel={() => window.api.download.cancel(taskId).catch(() => undefined)}
+            onResume={() => window.api.download.resume(taskId).catch(() => undefined)}
+          />
+        )}
       </div>
-      {controllable && p && (
-        <TaskCtrlButtons
-          state={p.state}
-          onPause={() => window.api.download.pause(taskId).catch(() => undefined)}
-          onCancel={() => window.api.download.cancel(taskId).catch(() => undefined)}
-          onResume={() => window.api.download.resume(taskId).catch(() => undefined)}
-        />
+      {p && (p.state === 'downloading' || p.state === 'pending' || p.state === 'error' || p.state === 'paused') && (
+        <div className="pl-6.5 pr-1 pt-1 pb-0.5">
+          <ProgressBar p={p} />
+        </div>
       )}
     </li>
-  )
-})
-
-const LectureRow = memo(function LectureRow({ courseId, lecture, selected, onToggle }: {
-  courseId: number; lecture: LectureGroup; selected: Set<string>; onToggle: (id: string) => void
-}) {
-  const { lectureNum, date, teacher } = lecture
-  if (!teacher) return null
-  return (
-    <li className="flex items-center gap-4 px-3 py-3 transition-colors hover:bg-surface-2">
-      <div className="flex w-24 shrink-0 items-baseline gap-2">
-        <span className="text-sm font-medium text-text-1">第{lectureNum}讲</span>
-        <span className="font-mono text-xs text-text-4">{date.slice(5)}</span>
-      </div>
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <VideoStreamCell label="教师" taskId={lectureStreamTaskId(courseId, lectureNum, 'teacher')} session={teacher} selected={selected} onToggle={onToggle} color="blue" />
-        <div className="h-6 w-px shrink-0 bg-surface-2" />
-        <VideoStreamCell label="PPT" taskId={lectureStreamTaskId(courseId, lectureNum, 'ppt')} session={teacher} selected={selected} onToggle={onToggle} color="green" />
-      </div>
-    </li>
-  )
-})
-
-// PERF: memoize VideoStreamCell — each cell subscribes to its own progress via useEffectiveProgress;
-// memo prevents sibling cell re-renders when only one task's progress changes
-const VideoStreamCell = memo(function VideoStreamCell({ label, taskId, session, selected, onToggle, color }: {
-  label: string; taskId: string; session?: CanvasVideoSession; selected: Set<string>; onToggle: (id: string) => void; color: 'blue' | 'green'
-}) {
-  const p = useEffectiveProgress(taskId)
-  if (!session) {
-    return <div className="flex min-w-0 flex-1 items-center gap-2 text-xs text-text-4">无{label}</div>
-  }
-  const isOn = selected.has(taskId)
-  const colorClasses = color === 'blue'
-    ? (isOn ? 'bg-info-bg text-info ring-info-ring' : 'bg-info-bg/50 text-info/70 ring-info-ring/50 hover:bg-info-bg')
-    : (isOn ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20' : 'bg-emerald-500/5 text-emerald-400/70 ring-emerald-500/10 hover:bg-emerald-500/10')
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5">
-      <button type="button" onClick={() => onToggle(taskId)} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium ring-1 transition-all hover:scale-[1.03] ${colorClasses}`}>
-        <SmallCheck on={isOn} />{label}
-      </button>
-      <div className="min-w-[5rem] flex-1 shrink-0">{p ? <ProgressBar p={p} /> : <div className="h-2 rounded-full bg-surface-3" />}</div>
-      {p && (
-        <TaskCtrlButtons
-          state={p.state}
-          onPause={() => window.api.download.pause(taskId).catch(() => undefined)}
-          onCancel={() => window.api.download.cancel(taskId).catch(() => undefined)}
-          onResume={() => window.api.download.resume(taskId).catch(() => undefined)}
-        />
-      )}
-    </div>
   )
 })
 

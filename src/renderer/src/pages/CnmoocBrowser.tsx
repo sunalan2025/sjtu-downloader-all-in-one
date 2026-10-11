@@ -1,21 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, memo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useShallow } from 'zustand/shallow'
 import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/app'
 import {
-  useCloudConnection,
   useDownloadCompletion
 } from '../hooks/useSharedBrowserHooks'
 import { prefetchCnmoocCourses } from '../services/prefetch'
 import {
   Chevron,
-  ConflictStrategySegmented,
   CourseProgressSummary,
+  FileTypeBadge,
+  FolderIcon,
   GlobalCtrlButton,
-  ModeSegmented,
-  OverallProgressBar,
+  ItemCheckbox,
+  LayoutModeSwitch,
   ProgressBar,
   ResourceTypeSegmented,
-  SmallCheck,
   TaskCtrlButtons,
   TriCheckbox,
   triStateFromCount,
@@ -26,11 +25,8 @@ import type {
   CnmoocChapter,
   CnmoocCourse,
   CnmoocItem,
-  CnmoocResourceFilter,
   CnmoocSelectedItem,
-  DownloadMode,
-  DownloadTaskSpec,
-  FileConflictStrategy
+  DownloadTaskSpec
 } from '@shared/types'
 
 // cnmooc 任务 taskId 模板：`cnmooc_{courseId}_{itemId}`（courseId/itemId 均为字符串）
@@ -39,8 +35,6 @@ const makeTid = (courseId: string, itemId: string): string => `cnmooc_${courseId
 const EMPTY_CHAPTERS: CnmoocChapter[] = []
 
 export function CnmoocBrowser() {
-  const { onConnectCloud, onDisconnectCloud } = useCloudConnection()
-
   const {
     courses,
     scanState,
@@ -49,11 +43,7 @@ export function CnmoocBrowser() {
     expanded,
     selected,
     cloudUserToken,
-    cloudSpaceInfo,
-    cloudConnStatus,
-    cloudConnMessage,
     downloadMode,
-    fileConflictStrategy,
     localDestRoot,
     resourceFilter,
     downloading,
@@ -61,13 +51,12 @@ export function CnmoocBrowser() {
     setSelected,
     toggleSelect,
     toggleSelectMany,
-    setDownloadMode,
-    setFileConflictStrategy,
     setResourceFilter,
-    setLocalDestRoot,
     setDownloading,
     setCloudLinkedIds,
-    resetCnmoocScanResults
+    resetCnmoocScanResults,
+    courseLayoutMode,
+    setCourseLayoutMode
   } = useAppStore(
     useShallow(s => ({
       courses: s.cnmoocCourses,
@@ -77,11 +66,7 @@ export function CnmoocBrowser() {
       expanded: s.cnmoocExpandedCourses,
       selected: s.selected,
       cloudUserToken: s.cloudUserToken,
-      cloudSpaceInfo: s.cloudSpaceInfo,
-      cloudConnStatus: s.cloudConnStatus,
-      cloudConnMessage: s.cloudConnMessage,
       downloadMode: s.downloadMode,
-      fileConflictStrategy: s.fileConflictStrategy,
       localDestRoot: s.localDestRoot,
       resourceFilter: s.cnmoocResourceFilter,
       downloading: s.downloading,
@@ -89,15 +74,16 @@ export function CnmoocBrowser() {
       setSelected: s.setSelected,
       toggleSelect: s.toggleSelect,
       toggleSelectMany: s.toggleSelectMany,
-      setDownloadMode: s.setDownloadMode,
-      setFileConflictStrategy: s.setFileConflictStrategy,
       setResourceFilter: s.setCnmoocResourceFilter,
-      setLocalDestRoot: s.setLocalDestRoot,
       setDownloading: s.setDownloading,
       setCloudLinkedIds: s.setCloudLinkedIds,
-      resetCnmoocScanResults: s.resetCnmoocScanResults
+      resetCnmoocScanResults: s.resetCnmoocScanResults,
+      courseLayoutMode: s.courseLayoutMode,
+      setCourseLayoutMode: s.setCourseLayoutMode
     }))
   )
+
+  const [searchQuery, setSearchQuery] = useState('')
 
   // 摊平所有条目的 taskId（用于全选 / 计数 / 统计）。依赖 courses + courseData 引用。
   const dataKey = useMemo(
@@ -125,9 +111,6 @@ export function CnmoocBrowser() {
   const applyProgress = useAppStore(s => s.applyProgress)
 
   // ─── 扫描：课程列表 + 并行拉取每门课章节（仅 HTML，不预探直链） ───
-  // 逻辑提取到 services/prefetch.ts，登录后 App.tsx 也会调它预加载。
-  // [B8 Fix] 刷新只清 cnmooc 扫描数据，不动 progress（含其他 tab 正在跑的下载）。
-  // 对齐 Browser.tsx 的 resetScanResults 语义；prefetch 内部本就不调 resetProgress。
   const scanStartedRef = useRef(false)
   const runScan = useCallback(async (): Promise<void> => {
     resetCnmoocScanResults()
@@ -150,10 +133,37 @@ export function CnmoocBrowser() {
     }
   }, [scanState, total, allTaskIds, setSelected])
 
+  // 默认平铺展开所有课程卡片
+  const autoExpandedRef = useRef(false)
+  useEffect(() => {
+    if (!autoExpandedRef.current && courses.length > 0 && scanState === 'done') {
+      autoExpandedRef.current = true
+      for (const c of courses) {
+        if (!expanded.has(c.courseId)) {
+          toggleExpand(c.courseId)
+        }
+      }
+    }
+  }, [courses, scanState, expanded, toggleExpand])
+
+  // 搜索过滤课程
+  const filteredCourses = useMemo(() => {
+    if (!searchQuery.trim()) return courses
+    const q = searchQuery.trim().toLowerCase()
+    return courses.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.courseId.toLowerCase().includes(q) ||
+      (courseData[c.courseId]?.chapters ?? []).some(ch =>
+        ch.chapter.toLowerCase().includes(q) ||
+        ch.items.some(it => it.title.toLowerCase().includes(q))
+      )
+    )
+  }, [courses, searchQuery, courseData])
+
   // 全部任务到终态时收尾（单源扁平列表，复用 hook 形式）
   useDownloadCompletion(selectedTaskIds, stats.active, true, stats.done, stats.failed)
 
-  // 下载进行中锁定选择（同 Browser：避免取消勾选导致 completion 误判）
+  // 下载进行中锁定选择
   const onToggle = useCallback((id: string) => {
     if (useAppStore.getState().downloading) return
     toggleSelect(id)
@@ -174,7 +184,7 @@ export function CnmoocBrowser() {
     const curProgress = useAppStore.getState().progress
     const curLinked = useAppStore.getState().cloudLinkedIds
 
-    // 按课程分组选中条目（build-specs 按课程产 spec，落盘子目录含课程名/章节）
+    // 按课程分组选中条目
     const byCourse = new Map<string, { course: CnmoocCourse; items: CnmoocSelectedItem[] }>()
     for (const c of courses) {
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
@@ -198,8 +208,6 @@ export function CnmoocBrowser() {
 
     if (byCourse.size === 0) return
 
-    // 清空上一轮 batchTaskIds（不动 progress——progress 的 done 态用于跳过已完成），
-    // 防 OverallProgressBar total 跨批次累积。
     useAppStore.getState().resetBatchTaskIds()
 
     const specs: DownloadTaskSpec[] = []
@@ -215,7 +223,6 @@ export function CnmoocBrowser() {
     if (specs.length === 0) return
 
     setDownloading(true)
-    // 记入本轮提交集，供 OverallProgressBar 精准统计 total/active
     useAppStore.getState().addBatchTaskIds(specs.map(s => s.taskId))
     if (downloadMode === 'both') {
       const mapping: Record<string, string> = { ...curLinked }
@@ -229,7 +236,7 @@ export function CnmoocBrowser() {
     try {
       result = await window.api.download.start('', specs, {
         mode: downloadMode,
-        conflictStrategy: fileConflictStrategy,
+        conflictStrategy: useAppStore.getState().fileConflictStrategy,
         localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined
       })
     } catch (err) {
@@ -242,7 +249,7 @@ export function CnmoocBrowser() {
         applyProgress({ taskId: spec.taskId, state: 'error', received: 0, total: 0, message: result.error || '下载启动失败' })
       }
     }
-  }, [selectedCount, downloading, courses, courseData, selected, resourceFilter, downloadMode, fileConflictStrategy, localDestRoot, setDownloading, setCloudLinkedIds, applyProgress])
+  }, [selectedCount, downloading, courses, courseData, selected, resourceFilter, downloadMode, localDestRoot, setDownloading, setCloudLinkedIds, applyProgress])
 
   // 单任务 / 全局 控制
   const onPauseTask = useCallback((id: string) => { window.api.download.pause(id).catch(() => undefined) }, [])
@@ -252,60 +259,114 @@ export function CnmoocBrowser() {
   const onResumeAll = useCallback(() => { window.api.download.resumeAll().catch(() => undefined) }, [])
   const onCancelAll = useCallback(() => {
     window.api.download.cancelAll().catch(() => undefined)
-    // 幽灵兜底：cancelAll 后立即把本轮提交的非终态任务标 cancelled，兜底主进程漏发终态，
-    // 让 useDownloadCompletion 的 activeCount 归零、downloading 解除。
     useAppStore.getState().markBatchPendingCancelled()
   }, [])
 
-  const onSelectLocalFolder = useCallback(async (): Promise<void> => {
-    const p = await window.api.selectFolder()
-    if (p) setLocalDestRoot(p)
-  }, [setLocalDestRoot])
+  const needsCloud = downloadMode === 'cloud' || downloadMode === 'both'
+  const needsLocal = downloadMode === 'local' || downloadMode === 'both'
+  const canStart = selectedCount > 0
+    && !downloading
+    && (!needsCloud || !!cloudUserToken)
+    && (!needsLocal || !!localDestRoot)
 
   return (
     <div className="flex h-full w-full flex-col">
-      <CnmoocTopBar
-        scanState={scanState}
-        scanMessage={scanMessage}
-        courseCount={courses.length}
-        total={total}
-        onRefresh={() => void runScan()}
-      />
+      {/* 顶部单行置顶操作栏 (对齐设计图：搜索框 + 资源类型筛选 + 统计 + 全选 + 立即下载) */}
+      <div className="sticky top-0 z-10 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 px-6 py-2.5 shadow-xs">
+        {/* 左侧：搜索框 + 资源类型筛选胶囊 + 刷新 */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex items-center">
+            <svg className="pointer-events-none absolute left-3 h-4 w-4 text-text-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="搜索课程/章节/课件..."
+              className="h-10 w-48 rounded-xl border border-bd bg-surface-2 pl-9 pr-3 text-xs text-text-1 placeholder:text-text-4 shadow-2xs hover:border-bd-strong focus:w-60 focus:border-accent focus:outline-none transition-all duration-200"
+            />
+          </div>
 
-      {scanState === 'done' && total > 0 && (
-        <CnmoocActionBar
-          selectedCount={selectedCount}
-          total={total}
-          cloudUserToken={cloudUserToken}
-          cloudSpaceInfo={cloudSpaceInfo}
-          cloudConnecting={cloudConnStatus === 'connecting'}
-          cloudError={cloudConnStatus === 'error' ? cloudConnMessage : null}
-          downloadMode={downloadMode}
-          fileConflictStrategy={fileConflictStrategy}
-          resourceFilter={resourceFilter}
-          localDestRoot={localDestRoot}
-          downloading={downloading}
-          onToggleAll={onToggleAll}
-          onConnectCloud={onConnectCloud}
-          onDisconnectCloud={onDisconnectCloud}
-          onDownload={onDownload}
-          onSelectLocalFolder={onSelectLocalFolder}
-          onModeChange={setDownloadMode}
-          onConflictStrategyChange={setFileConflictStrategy}
-          onResourceFilterChange={setResourceFilter}
-          onPauseAll={onPauseAll}
-          onResumeAll={onResumeAll}
-          onCancelAll={onCancelAll}
-        />
-      )}
+          <div className="flex items-center gap-2">
+            <ResourceTypeSegmented value={resourceFilter} onChange={setResourceFilter} />
+          </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        {scanState === 'scanning' && <ScanningHero msg={scanMessage} />}
+          <LayoutModeSwitch
+            mode={courseLayoutMode}
+            onChange={setCourseLayoutMode}
+          />
+
+          {scanState === 'scanning' && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-text-2">
+              <Spinner size={12} /> {scanMessage}
+            </span>
+          )}
+
+          {scanState === 'done' && courses.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void runScan()}
+              title="重新扫描好大学在线课程"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-bd bg-surface-2 text-text-3 hover:border-bd-strong hover:bg-surface-1 hover:text-text-1 transition-all shadow-2xs cursor-pointer text-sm"
+            >
+              ↻
+            </button>
+          )}
+        </div>
+
+        {/* 右侧：已选统计 + 已选全部 + 全局下载控制 + 立即下载 */}
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 text-xs font-medium text-text-2 shadow-2xs">
+            <span className="text-accent font-bold">☑</span>
+            <span>已选 {selectedCount} / {total} 项</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onToggleAll}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
+          >
+            <TriCheckbox state={triStateFromCount(selectedCount, total)} size="sm" />
+            <span>已选全部</span>
+          </button>
+
+          {downloading && (
+            <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
+              <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
+              <GlobalCtrlButton kind="resume" onClick={onResumeAll} title="继续全部下载任务" />
+              <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void onDownload()}
+            disabled={!canStart}
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-5 text-xs font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:bg-accent-light active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60 cursor-pointer"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+            </svg>
+            <span>{downloading ? '进行中…' : `立即下载 (${selectedCount})`}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 课程列表：多列网格流 (Deck) 或 紧凑列表流 (List) */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {scanState === 'scanning' && courses.length === 0 && <ScanningHero msg={scanMessage} />}
         {scanState === 'error' && <ErrorHero msg={scanMessage} onRetry={() => void runScan()} />}
         {scanState === 'done' && courses.length === 0 && <EmptyHero />}
-        {scanState === 'done' && courses.length > 0 && (
-          <div className="flex flex-col gap-4">
-            {courses.map((c, idx) => (
+        {scanState === 'done' && courses.length > 0 && filteredCourses.length === 0 && (
+          <div className="mx-auto flex h-full max-w-md flex-col items-center justify-center text-center">
+            <div className="text-base font-medium text-text-1">没有匹配的好大学课程</div>
+            <div className="mt-2 text-sm text-text-3">请尝试更改搜索关键词</div>
+          </div>
+        )}
+        {filteredCourses.length > 0 && (
+          <div className={courseLayoutMode === 'deck' ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 items-start" : "flex flex-col gap-4 max-w-5xl mx-auto w-full"}>
+            {filteredCourses.map((c, idx) => (
               <div
                 key={c.courseId}
                 className="animate-fadeInUp"
@@ -333,161 +394,7 @@ export function CnmoocBrowser() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 顶栏
-// ─────────────────────────────────────────────────────────────
-
-const CnmoocTopBar = memo(function CnmoocTopBar({
-  scanState,
-  scanMessage,
-  courseCount,
-  total,
-  onRefresh
-}: {
-  scanState: 'idle' | 'scanning' | 'done' | 'error'
-  scanMessage: string
-  courseCount: number
-  total: number
-  onRefresh: () => void
-}) {
-  return (
-    <div className="no-drag flex items-center gap-4 border-b border-bd px-6 py-3">
-      <div className="min-w-0 flex-1 truncate text-sm text-text-2">
-        {scanState === 'scanning' && (
-          <span className="inline-flex items-center gap-2">
-            <Spinner size={14} /> {scanMessage}
-          </span>
-        )}
-        {scanState === 'done' && courseCount > 0 && (
-          <span>扫描完成 · {courseCount} 门课 · 共 {total} 个资源条目</span>
-        )}
-        {scanState === 'error' && <span className="text-warning">{scanMessage}</span>}
-      </div>
-      {scanState === 'done' && courseCount > 0 && (
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs text-text-3 transition-colors duration-150 hover:bg-surface-2 hover:text-text-1"
-        >
-          刷新 ↻
-        </button>
-      )}
-    </div>
-  )
-})
-
-// ─────────────────────────────────────────────────────────────
-// 操作条 — 资源类型 + 模式 + 冲突策略 + 云盘/目录 + 下载
-// ─────────────────────────────────────────────────────────────
-
-function CnmoocActionBar({
-  selectedCount,
-  total,
-  cloudUserToken,
-  cloudSpaceInfo,
-  cloudConnecting,
-  cloudError,
-  downloadMode,
-  fileConflictStrategy,
-  resourceFilter,
-  localDestRoot,
-  downloading,
-  onToggleAll,
-  onConnectCloud,
-  onDisconnectCloud,
-  onDownload,
-  onSelectLocalFolder,
-  onModeChange,
-  onConflictStrategyChange,
-  onResourceFilterChange,
-  onPauseAll,
-  onResumeAll,
-  onCancelAll
-}: {
-  selectedCount: number
-  total: number
-  cloudUserToken: string | null
-  cloudSpaceInfo: import('@shared/types').CloudPanSpaceInfo | null
-  cloudConnecting: boolean
-  cloudError: string | null
-  downloadMode: DownloadMode
-  fileConflictStrategy: FileConflictStrategy
-  resourceFilter: CnmoocResourceFilter
-  localDestRoot: string
-  downloading: boolean
-  onToggleAll: () => void
-  onConnectCloud: () => void
-  onDisconnectCloud: () => void
-  onDownload: () => void
-  onSelectLocalFolder: () => void
-  onModeChange: (m: DownloadMode) => void
-  onConflictStrategyChange: (s: FileConflictStrategy) => void
-  onResourceFilterChange: (f: CnmoocResourceFilter) => void
-  onPauseAll: () => void
-  onResumeAll: () => void
-  onCancelAll: () => void
-}) {
-  const triState = triStateFromCount(selectedCount, total)
-  const needsCloud = downloadMode === 'cloud' || downloadMode === 'both'
-  const needsLocal = downloadMode === 'local' || downloadMode === 'both'
-  const canStart = selectedCount > 0
-    && !downloading
-    && (!needsCloud || !!cloudUserToken)
-    && (!needsLocal || !!localDestRoot)
-
-  const btnLabel = downloading
-    ? '进行中…'
-    : downloadMode === 'local'
-      ? `开始下载 ${selectedCount} 项`
-      : downloadMode === 'cloud'
-        ? `开始上传 ${selectedCount} 项`
-        : `开始下载+上传 ${selectedCount} 项`
-
-  return (
-    <div className="sticky top-0 z-10 no-drag flex items-center justify-between border-b border-bd bg-surface-1/95 backdrop-blur px-6 py-3 shadow-sm">
-      <div className="flex items-center gap-4">
-        <button
-          type="button"
-          onClick={onToggleAll}
-          className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-text-1 transition-colors duration-150 hover:bg-surface-2"
-        >
-          <TriCheckbox state={triState} size="lg" />
-          <span>全选</span>
-        </button>
-
-        <div className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
-          已选 {selectedCount} / {total} 项
-        </div>
-
-        <div className="h-4 w-px bg-bd-strong mx-2" />
-
-        <div className="flex items-center gap-2">
-          <ResourceTypeSegmented value={resourceFilter} onChange={onResourceFilterChange} />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        {downloading && (
-          <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1 mr-2">
-            <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
-            <GlobalCtrlButton kind="resume" onClick={onResumeAll} title="继续全部下载任务" />
-            <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={onDownload}
-          disabled={!canStart}
-          className="inline-flex h-9 items-center gap-2 rounded-xl bg-accent px-6 text-sm font-semibold text-white shadow-glow-sm transition-all duration-200 hover:scale-[1.02] hover:bg-accent-light hover:shadow-glow active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60"
-        >
-          {downloading ? '进行中…' : `立即下载 (${selectedCount})`}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────
-// 课程卡片（可折叠） — 内含章节块，每章节块为带三态勾选的标题 + 条目列表
+// 课程卡片（Deck 样式，对齐设计图：文件夹图标 + 章节/资源分组）
 // ─────────────────────────────────────────────────────────────
 
 const CnmoocCourseCard = memo(function CnmoocCourseCard({
@@ -513,7 +420,6 @@ const CnmoocCourseCard = memo(function CnmoocCourseCard({
   onCancelTask: (id: string) => void
   onResumeTask: (id: string) => void
 }) {
-  // 该课程所有条目 taskId
   const ids = useMemo(() => {
     const out: string[] = []
     for (const ch of chapters) for (const it of ch.items) out.push(makeTid(course.courseId, it.itemId))
@@ -522,14 +428,13 @@ const CnmoocCourseCard = memo(function CnmoocCourseCard({
   const selCount = ids.filter(id => selected.has(id)).length
   const triState = triStateFromCount(selCount, ids.length)
 
-  // 课程级聚合进度（useShallow 返回对象，inactive 课程不重渲，仅活跃课程卡每 tick 重渲）
+  // 课程级聚合进度
   const courseStats = useAppStore(
     useShallow(s => {
       let done = 0, downloading = 0, errors = 0, inflight = 0
       for (const id of ids) {
         const prog = s.progress[id]
         const st = prog?.state
-        // both 模式计云端镜像
         const cloudId = s.cloudLinkedIds[id]
         const cloudProg = cloudId ? s.progress[cloudId] : undefined
         const cloudSt = cloudProg?.state
@@ -540,7 +445,7 @@ const CnmoocCourseCard = memo(function CnmoocCourseCard({
         else if (st === 'downloading' || st === 'pending' || cloudSt === 'downloading' || cloudSt === 'pending') {
           downloading++
           if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          else if (localDone) inflight += 1   // 本地完成·云端上传中
+          else if (localDone) inflight += 1
         }
       }
       return { done, downloading, errors, inflight }
@@ -549,46 +454,46 @@ const CnmoocCourseCard = memo(function CnmoocCourseCard({
   const { done: doneCount, downloading: downloadingCount, errors: errorCount, inflight: inflightCount } = courseStats
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-bd bg-surface-3 shadow-card transition-shadow duration-200 hover:shadow-card-hover">
+    <section className="overflow-hidden rounded-2xl border border-bd bg-surface-1 shadow-card transition-shadow duration-200 hover:shadow-card-hover flex flex-col">
       <header
-        className="flex cursor-pointer select-none items-center gap-4 px-5 py-4 transition-colors duration-150 hover:bg-surface-2"
+        className="flex cursor-pointer select-none items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-surface-2/60 border-b border-bd/60"
         onClick={() => onToggleExpand(course.courseId)}
       >
-        <Chevron open={expanded} />
-        <span
-          role="checkbox"
-          aria-checked={triState === 'some' ? 'mixed' : triState === 'all'}
-          tabIndex={0}
-          onClick={e => { e.stopPropagation(); onToggleMany(ids, triState !== 'all') }}
-          onKeyDown={e => {
-            if (e.key === ' ' || e.key === 'Enter') {
-              e.preventDefault(); e.stopPropagation(); onToggleMany(ids, triState !== 'all')
-            }
-          }}
-          className="shrink-0"
-        >
-          <TriCheckbox state={triState} size="lg" />
-        </span>
-
+        <FolderIcon className="h-5 w-5 text-amber-500 shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="line-clamp-1 text-base font-semibold text-text-1">{course.name}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-3">
-            <span className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-xs text-text-2">{course.courseId}</span>
-            <span>{chapters.length} 章 · {ids.length} 个资源</span>
+          <div className="truncate text-sm font-bold text-text-1" title={course.name}>{course.name}</div>
+          <div className="flex items-center gap-2 text-[11px] text-text-3">
+            <span className="font-mono text-text-2">{course.courseId}</span>
+            <span>·</span>
+            <span>{chapters.length} 章节 · {ids.length} 资源</span>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 text-xs text-text-3">
-          <span>已选 <span className="font-medium text-text-1">{selCount}</span> / {ids.length}</span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            role="checkbox"
+            aria-checked={triState === 'some' ? 'mixed' : triState === 'all'}
+            tabIndex={0}
+            onClick={e => { e.stopPropagation(); onToggleMany(ids, triState !== 'all') }}
+            onKeyDown={e => {
+              if (e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault(); e.stopPropagation(); onToggleMany(ids, triState !== 'all')
+              }
+            }}
+            className="shrink-0"
+          >
+            <TriCheckbox state={triState} size="sm" />
+          </span>
+          <Chevron open={expanded} />
         </div>
       </header>
 
       <CourseProgressSummary done={doneCount} downloading={downloadingCount} errors={errorCount} inflight={inflightCount} total={ids.length} />
 
       {expanded && (
-        <div className="animate-fadeIn origin-top border-t border-bd">
+        <div className="animate-fadeIn origin-top divide-y divide-bd/60">
           {chapters.length === 0 ? (
-            <div className="px-5 py-5 text-center text-sm text-text-3">该课程暂无可下载资源</div>
+            <div className="px-4 py-4 text-center text-xs text-text-3">该课程暂无可下载资源</div>
           ) : (
             chapters.map((ch, chi) => (
               <CnmoocChapterBlock
@@ -633,48 +538,66 @@ const CnmoocChapterBlock = memo(function CnmoocChapterBlock({
   onCancelTask: (id: string) => void
   onResumeTask: (id: string) => void
 }) {
+  const [open, setOpen] = useState(true)
   const ids = useMemo(() => chapter.items.map(it => makeTid(courseId, it.itemId)), [chapter, courseId])
   const selCount = ids.filter(id => selected.has(id)).length
   const tri: TriState = triStateFromCount(selCount, ids.length)
 
   return (
-    <div className="border-b border-bd last:border-b-0">
-      <div className="flex items-center gap-3 bg-surface-2/40 px-5 py-2.5">
+    <div className="bg-surface-2/20">
+      <div
+        className="flex cursor-pointer select-none items-center gap-2.5 px-4 py-2 hover:bg-surface-2/50 transition-colors"
+        onClick={() => setOpen(prev => !prev)}
+      >
         <span
           role="checkbox"
           aria-checked={tri === 'some' ? 'mixed' : tri === 'all'}
           tabIndex={0}
-          onClick={() => onToggleMany(ids, tri !== 'all')}
-          onKeyDown={e => {
-            if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onToggleMany(ids, tri !== 'all') }
+          onClick={e => {
+            e.stopPropagation()
+            onToggleMany(ids, tri !== 'all')
           }}
-          className="shrink-0 cursor-pointer"
+          onKeyDown={e => {
+            if (e.key === ' ' || e.key === 'Enter') {
+              e.preventDefault()
+              e.stopPropagation()
+              onToggleMany(ids, tri !== 'all')
+            }
+          }}
+          className="shrink-0"
         >
           <TriCheckbox state={tri} size="sm" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-1">{chapter.chapter}</span>
-        <span className="shrink-0 text-xs text-text-3">{selCount} / {ids.length}</span>
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-text-2" title={chapter.chapter}>
+          {chapter.chapter}
+        </span>
+        <span className="shrink-0 text-[11px] font-mono text-text-4">
+          {selCount} / {ids.length}
+        </span>
+        <Chevron open={open} />
       </div>
-      <ul className="divide-y divide-bd">
-        {chapter.items.map(it => (
-          <CnmoocItemRow
-            key={`${courseId}-${it.itemId}`}
-            courseId={courseId}
-            item={it}
-            isOn={selected.has(makeTid(courseId, it.itemId))}
-            onToggle={onToggle}
-            onPauseTask={onPauseTask}
-            onCancelTask={onCancelTask}
-            onResumeTask={onResumeTask}
-          />
-        ))}
-      </ul>
+      {open && (
+        <ul className="divide-y divide-bd/40 border-t border-bd/40 bg-surface-1">
+          {chapter.items.map(it => (
+            <CnmoocItemRow
+              key={`${courseId}-${it.itemId}`}
+              courseId={courseId}
+              item={it}
+              isOn={selected.has(makeTid(courseId, it.itemId))}
+              onToggle={onToggle}
+              onPauseTask={onPauseTask}
+              onCancelTask={onCancelTask}
+              onResumeTask={onResumeTask}
+            />
+          ))}
+        </ul>
+      )}
     </div>
   )
 })
 
 // ─────────────────────────────────────────────────────────────
-// 单个条目行
+// 单个条目行（彩色徽标 + 标题 + 进度/控制）
 // ─────────────────────────────────────────────────────────────
 
 const CnmoocItemRow = memo(function CnmoocItemRow({
@@ -698,19 +621,23 @@ const CnmoocItemRow = memo(function CnmoocItemRow({
   const p = useEffectiveProgress(tid)
 
   return (
-    <li className="flex items-center gap-3 px-5 py-2.5 transition-colors duration-100 hover:bg-surface-2">
-      <button
-        type="button"
-        onClick={() => onToggle(tid)}
-        title={item.title}
-        className="shrink-0 text-text-3 hover:text-accent"
-      >
-        <SmallCheck on={isOn} />
-      </button>
-      <span className="min-w-0 flex-1 truncate text-sm text-text-2" title={item.title}>{item.title}</span>
-      <div className="w-64 shrink-0">
-        {p ? <ProgressBar p={p} /> : <div className="h-2 rounded-full bg-surface-2" />}
-      </div>
+    <li className="flex items-center gap-2.5 px-4 py-2 transition-colors duration-100 hover:bg-surface-2/40">
+      <ItemCheckbox
+        checked={isOn}
+        onChange={() => onToggle(tid)}
+      />
+      <FileTypeBadge
+        filename={item.title}
+        type={item.itemType === '10' ? 'MP4' : undefined}
+      />
+      <span className="min-w-0 flex-1 truncate text-xs text-text-1" title={item.title}>
+        {item.title}
+      </span>
+      {p && (
+        <div className="w-24 shrink-0">
+          <ProgressBar p={p} />
+        </div>
+      )}
       {p && (
         <TaskCtrlButtons
           state={p.state}

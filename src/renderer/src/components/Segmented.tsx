@@ -25,17 +25,19 @@ export interface SegmentedOption<T extends string> {
   title?: string
 }
 
-type SegmentedSize = 'sm' | 'md' | 'lg'
+type SegmentedSize = 'sm' | 'md' | 'lg' | 'xl'
 
 const SIZE_WRAP: Record<SegmentedSize, string> = {
   sm: 'h-7 text-xs',
   md: 'h-8 text-xs',
-  lg: 'h-9 text-sm'
+  lg: 'h-9 text-sm',
+  xl: 'h-10 text-xs'
 }
 const SIZE_BTN: Record<SegmentedSize, string> = {
   sm: 'px-2',
   md: 'px-3',
-  lg: 'px-4'
+  lg: 'px-4',
+  xl: 'px-3.5'
 }
 
 function SegmentedImpl<T extends string>({

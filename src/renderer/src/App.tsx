@@ -4,7 +4,7 @@ import { TitleBar, applyTheme } from './components/TitleBar'
 import { WindowConfirmModal } from './components/WindowConfirmModal'
 import { Welcome } from './pages/Welcome'
 import { Login } from './pages/Login'
-import { Browser } from './pages/Browser'
+import { AuditedCourses } from './pages/AuditedCourses'
 import { CanvasBrowser } from './pages/CanvasBrowser'
 import { CnmoocBrowser } from './pages/CnmoocBrowser'
 import { TransferCenter } from './pages/TransferCenter'
@@ -27,18 +27,33 @@ export default function App() {
 
   const resetScanResults = useAppStore(s => s.resetScanResults)
 
-  // Navigation state for returning from settings
-  const [previousTab, setPreviousTab] = useState<ActiveTab>('canvas')
+  // 记忆上一次所浏览的课程 Tab，供传输中心与设置页一键返回
+  const [previousCourseTab, setPreviousCourseTab] = useState<ActiveTab>('canvas')
+
+  useEffect(() => {
+    if (activeTab === 'canvas' || activeTab === 'audited' || activeTab === 'cnmooc') {
+      setPreviousCourseTab(activeTab)
+    }
+  }, [activeTab])
 
   const handleSettingsClick = () => {
-    if (activeTab !== 'settings') {
-      setPreviousTab(activeTab)
+    if (activeTab === 'settings') {
+      setActiveTab(previousCourseTab)
+    } else {
       setActiveTab('settings')
     }
   }
 
-  const handleBackFromSettings = () => {
-    setActiveTab(previousTab)
+  const handleTransferClick = () => {
+    if (activeTab === 'transfer') {
+      setActiveTab(previousCourseTab)
+    } else {
+      setActiveTab('transfer')
+    }
+  }
+
+  const handleBackToCourses = () => {
+    setActiveTab(previousCourseTab)
   }
 
   // Subscribe to download progress once at App level
@@ -114,7 +129,11 @@ export default function App() {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <TitleBar onLogout={() => void handleLogout()} onOpenSettings={handleSettingsClick} />
+      <TitleBar
+        onLogout={() => void handleLogout()}
+        onOpenSettings={handleSettingsClick}
+        onOpenTransfer={handleTransferClick}
+      />
       <main className="relative flex flex-1 flex-col overflow-hidden">
         {stage === 'welcome' && (
           <StagePane stage="welcome">
@@ -129,11 +148,11 @@ export default function App() {
         {stage === 'browser' && (
           <StagePane stage="browser">
             <div key={activeTab} className="animate-fadeIn flex-1 overflow-hidden">
-              {activeTab === 'audited' && <Browser />}
+              {activeTab === 'audited' && <AuditedCourses />}
               {activeTab === 'canvas' && <CanvasBrowser />}
               {activeTab === 'cnmooc' && <CnmoocBrowser />}
-              {activeTab === 'transfer' && <TransferCenter />}
-              {activeTab === 'settings' && <Settings onBack={handleBackFromSettings} />}
+              {activeTab === 'transfer' && <TransferCenter onBack={handleBackToCourses} />}
+              {activeTab === 'settings' && <Settings onBack={handleBackToCourses} />}
             </div>
           </StagePane>
         )}

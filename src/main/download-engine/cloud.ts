@@ -7,7 +7,7 @@
 import { request as httpsRequest } from 'node:https'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState, type DownloadTaskSpec } from '../../shared/types'
-import { isAllowedSjtuUrl, interceptDownloadRedirect } from './domain-guard'
+import { interceptDownloadRedirect } from './domain-guard'
 import {
   type CloudTaskRuntime,
   cloudTasks,

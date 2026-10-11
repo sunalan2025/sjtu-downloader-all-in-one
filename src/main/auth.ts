@@ -423,11 +423,7 @@ export async function vsjtuFetch(
       console.log(`[auth] vsjtuFetch ${path} 返回 401，尝试自动刷新 JWT…`)
       const refreshed = await refreshJwtToken()
       if (refreshed) {
-        try {
-          resp = await doRequest()
-        } catch (retryErr) {
-          throw retryErr
-        }
+        resp = await doRequest()
       } else {
         _isSessionExpired = true
       }

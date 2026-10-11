@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import type { DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, CnmoocResourceFilter, VideoQualityOption } from '@shared/types'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { Spinner } from './Spinner'
@@ -448,7 +448,7 @@ export function ResourceTypeSegmented({
       options={RESOURCE_TYPE_OPTIONS}
       value={value}
       onChange={k => onChange(k as CnmoocResourceFilter)}
-      size="md"
+      size="xl"
     />
   )
 }
@@ -616,3 +616,293 @@ export function OverallProgressBar() {
     </div>
   )
 }
+
+// ─────────────────────────────────────────────────────────────
+// 设计图对齐视觉徽标与图标
+// ─────────────────────────────────────────────────────────────
+
+export function ItemCheckbox({ checked, onChange }: { checked: boolean; onChange?: () => void }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      onClick={(e) => {
+        e.stopPropagation()
+        onChange?.()
+      }}
+      className={`inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded border transition-all duration-150 ${
+        checked
+          ? 'border-accent bg-accent text-white shadow-2xs'
+          : 'border-bd-strong bg-surface-1 hover:border-text-3'
+      }`}
+    >
+      {checked && (
+        <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="3">
+          <path d="M3 8l3.5 3.5L13 5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
+export function FileTypeBadge({
+  filename,
+  type,
+  className = 'h-[22px] w-[18px] shrink-0 drop-shadow-2xs'
+}: {
+  filename?: string
+  type?: string
+  className?: string
+}) {
+  let ext = type?.toUpperCase()
+  if (!ext && filename) {
+    const parts = filename.split('.')
+    if (parts.length > 1) {
+      ext = parts[parts.length - 1].toUpperCase()
+    }
+  }
+  ext = ext || 'FILE'
+
+  const badgeClass = className || 'h-[22px] w-[18px] shrink-0 drop-shadow-2xs'
+
+  if (ext === 'PDF') {
+    return (
+      <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>PDF 文档</title>
+        <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#DC2626"/>
+        <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#FCA5A5"/>
+        <rect x="3.5" y="11" width="13" height="7.5" rx="1.5" fill="#991B1B" />
+        <text x="10" y="16.5" fill="#FFFFFF" fontSize="5" fontWeight="bold" textAnchor="middle" fontFamily="system-ui, sans-serif">PDF</text>
+      </svg>
+    )
+  }
+  if (ext === 'PPT' || ext === 'PPTX') {
+    return (
+      <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>PowerPoint 幻灯片</title>
+        <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#EA580C"/>
+        <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#FDBA74"/>
+        <rect x="3.5" y="11" width="13" height="7.5" rx="1.5" fill="#9A3412" />
+        <text x="10" y="16.5" fill="#FFFFFF" fontSize="5" fontWeight="bold" textAnchor="middle" fontFamily="system-ui, sans-serif">PPT</text>
+      </svg>
+    )
+  }
+  if (ext === 'MP4' || ext === 'M3U8' || ext === 'VIDEO' || ext === 'FLV' || ext === 'AVI' || ext === 'MKV') {
+    return (
+      <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>MP4 视频</title>
+        <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#2563EB"/>
+        <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#93C5FD"/>
+        <polygon points="8,10.5 13.5,13.5 8,16.5" fill="#FFFFFF"/>
+        <text x="10" y="20.5" fill="#DBEAFE" fontSize="3.8" fontWeight="bold" textAnchor="middle" fontFamily="system-ui, sans-serif">MP4</text>
+      </svg>
+    )
+  }
+  if (ext === 'DOC' || ext === 'DOCX') {
+    return (
+      <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>Word 文档</title>
+        <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#0284C7"/>
+        <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#7DD3FC"/>
+        <rect x="3.5" y="11" width="13" height="7.5" rx="1.5" fill="#0369A1" />
+        <text x="10" y="16.5" fill="#FFFFFF" fontSize="5" fontWeight="bold" textAnchor="middle" fontFamily="system-ui, sans-serif">DOC</text>
+      </svg>
+    )
+  }
+  if (ext === 'ZIP' || ext === 'RAR' || ext === '7Z' || ext === 'TAR' || ext === 'GZ') {
+    return (
+      <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>压缩包</title>
+        <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#9333EA"/>
+        <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#D8B4FE"/>
+        <rect x="8.5" y="9" width="3" height="9" rx="0.5" fill="#581C87" />
+        <rect x="9" y="10" width="2" height="1.5" fill="#FFFFFF" />
+        <rect x="9" y="13" width="2" height="1.5" fill="#FFFFFF" />
+        <rect x="9" y="16" width="2" height="1.5" fill="#FFFFFF" />
+      </svg>
+    )
+  }
+  return (
+    <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <title>文件</title>
+      <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#64748B"/>
+      <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#CBD5E1"/>
+      <line x1="5" y1="12" x2="15" y2="12" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="5" y1="15" x2="13" y2="15" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="5" y1="18" x2="10" y2="18" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export function FolderIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+    </svg>
+  )
+}
+
+export interface DropdownOption<T extends string = string> {
+  value: T
+  label: string
+  count?: number
+  icon?: string
+}
+
+/** 现代圆角自定义下拉组件（彻底告别系统原生粗糙 select 弹窗） */
+export function DropdownSelect<T extends string = string>({
+  value,
+  options,
+  onChange,
+  icon,
+  className = ''
+}: {
+  value: T
+  options: DropdownOption<T>[]
+  onChange: (val: T) => void
+  icon?: string
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  const selectedOpt = options.find(o => o.value === value) || options[0]
+
+  return (
+    <div ref={containerRef} className={`relative inline-block text-left ${className}`}>
+      <button
+        type="button"
+        onClick={() => setOpen(prev => !prev)}
+        className={`h-10 inline-flex items-center justify-between gap-2 rounded-xl border bg-surface-2 px-3.5 text-xs font-medium text-text-1 shadow-2xs transition-all hover:bg-surface-1 cursor-pointer select-none ${
+          open ? 'border-accent ring-2 ring-accent/15 bg-surface-1' : 'border-bd hover:border-bd-strong'
+        }`}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          {icon && <span className="text-xs">{icon}</span>}
+          <span className="truncate max-w-[150px]">{selectedOpt?.label ?? value}</span>
+          {typeof selectedOpt?.count === 'number' && (
+            <span className="text-text-4 font-normal">({selectedOpt.count})</span>
+          )}
+        </div>
+        <svg
+          className={`h-3.5 w-3.5 text-text-3 transition-transform duration-200 ${open ? 'rotate-180 text-accent' : ''}`}
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path
+            fillRule="evenodd"
+            d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+            clipRule="evenodd"
+          />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="animate-fadeIn absolute left-0 top-[calc(100%+6px)] z-50 min-w-full w-max max-w-[280px] max-h-64 overflow-y-auto rounded-xl border border-bd bg-surface-1 p-1.5 shadow-2xl">
+          {options.map(opt => {
+            const isSelected = opt.value === value
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  onChange(opt.value)
+                  setOpen(false)
+                }}
+                className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+                  isSelected
+                    ? 'bg-accent/10 font-semibold text-accent'
+                    : 'text-text-2 hover:bg-surface-2 hover:text-text-1'
+                }`}
+              >
+                <span className="truncate">
+                  {opt.label}
+                  {typeof opt.count === 'number' ? ` (${opt.count})` : ''}
+                </span>
+                {isSelected && (
+                  <svg className="h-3.5 w-3.5 text-accent shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 课程卡片网格流 / 传统紧凑列表流 切换器 */
+export function LayoutModeSwitch({
+  mode,
+  onChange
+}: {
+  mode: 'deck' | 'list'
+  onChange: (m: 'deck' | 'list') => void
+}) {
+  return (
+    <div className="flex h-10 items-center rounded-xl border border-bd bg-surface-2 p-1 shadow-2xs">
+      <button
+        type="button"
+        onClick={() => onChange('deck')}
+        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+          mode === 'deck' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
+        }`}
+        title="网格卡片流 (Deck)"
+      >
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('list')}
+        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+          mode === 'list' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
+        }`}
+        title="紧凑列表流 (List)"
+      >
+        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <line x1="3" y1="6" x2="3.01" y2="6" strokeWidth="3" />
+          <line x1="3" y1="12" x2="3.01" y2="12" strokeWidth="3" />
+          <line x1="3" y1="18" x2="3.01" y2="18" strokeWidth="3" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
