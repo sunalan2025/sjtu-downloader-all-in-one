@@ -9,6 +9,7 @@ import { CanvasBrowser } from './pages/CanvasBrowser'
 import { CnmoocBrowser } from './pages/CnmoocBrowser'
 import { TransferCenter } from './pages/TransferCenter'
 import { Settings } from './pages/Settings'
+import { CloudPanExplorer } from './pages/CloudPanExplorer'
 import { useDownloadProgressSubscription } from './hooks/useSharedBrowserHooks'
 import { prefetchCanvasCourses, prefetchCnmoocCourses, prefetchCloudConnection } from './services/prefetch'
 import type { ActiveTab } from '@shared/types'
@@ -156,6 +157,7 @@ export default function App() {
               {activeTab === 'cnmooc' && <CnmoocBrowser />}
               {activeTab === 'transfer' && <TransferCenter onBack={handleBackToCourses} />}
               {activeTab === 'settings' && <Settings onBack={handleBackToCourses} />}
+              {activeTab === 'cloudpan' && <CloudPanExplorer onBack={handleBackToCourses} />}
             </div>
           </StagePane>
         )}

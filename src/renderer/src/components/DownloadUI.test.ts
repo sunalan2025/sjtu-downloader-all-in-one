@@ -186,3 +186,45 @@ describe('FileTypeBadge and ItemCheckbox', () => {
   })
 })
 
+describe('cloudpan activeTab navigation and state machine', () => {
+  it('switches to cloudpan tab while preserving lastCourseTab', () => {
+    const store = useAppStore.getState()
+    // Start on canvas
+    store.setActiveTab('canvas')
+    expect(useAppStore.getState().activeTab).toBe('canvas')
+    expect(useAppStore.getState().lastCourseTab).toBe('canvas')
+
+    // Switch to cloudpan
+    store.setActiveTab('cloudpan')
+    expect(useAppStore.getState().activeTab).toBe('cloudpan')
+    // lastCourseTab should still be canvas
+    expect(useAppStore.getState().lastCourseTab).toBe('canvas')
+
+    // Switch back to lastCourseTab
+    store.setActiveTab(useAppStore.getState().lastCourseTab)
+    expect(useAppStore.getState().activeTab).toBe('canvas')
+  })
+
+  it('correctly remembers cnmooc and audited as lastCourseTab when switching to cloudpan', () => {
+    const store = useAppStore.getState()
+
+    // cnmooc
+    store.setActiveTab('cnmooc')
+    expect(useAppStore.getState().lastCourseTab).toBe('cnmooc')
+    store.setActiveTab('cloudpan')
+    expect(useAppStore.getState().activeTab).toBe('cloudpan')
+    expect(useAppStore.getState().lastCourseTab).toBe('cnmooc')
+
+    // audited
+    store.setActiveTab('audited')
+    expect(useAppStore.getState().lastCourseTab).toBe('audited')
+    store.setActiveTab('cloudpan')
+    expect(useAppStore.getState().activeTab).toBe('cloudpan')
+    expect(useAppStore.getState().lastCourseTab).toBe('audited')
+
+    // Return back to audited
+    store.setActiveTab(useAppStore.getState().lastCourseTab)
+    expect(useAppStore.getState().activeTab).toBe('audited')
+  })
+})
+

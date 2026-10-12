@@ -726,7 +726,7 @@ export const useAppStore = create<AppState>()(
         if (version < 3 && state) {
           state.theme = 'system'
         }
-        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer')) {
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')) {
           state.activeTab = (state.lastCourseTab as string) || 'canvas'
         }
         return state
@@ -734,7 +734,7 @@ export const useAppStore = create<AppState>()(
       merge: (persistedState: unknown, currentState: AppState) => {
         const persisted = (persistedState ?? {}) as Partial<AppState>
         const activeTab =
-          persisted.activeTab === 'settings' || persisted.activeTab === 'transfer'
+          persisted.activeTab === 'settings' || persisted.activeTab === 'transfer' || persisted.activeTab === 'cloudpan'
             ? persisted.lastCourseTab || currentState.lastCourseTab || 'canvas'
             : (persisted.activeTab ?? currentState.activeTab)
         return {
@@ -744,7 +744,7 @@ export const useAppStore = create<AppState>()(
         }
       },
       onRehydrateStorage: () => state => {
-        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer')) {
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')) {
           state.activeTab = state.lastCourseTab || 'canvas'
         }
       },
@@ -769,7 +769,7 @@ export const useAppStore = create<AppState>()(
       // prefetchCloudConnection 自动隐式 SSO 重新连接。
       partialize: state => ({
         theme: state.theme,
-        activeTab: (state.activeTab === 'settings' || state.activeTab === 'transfer')
+        activeTab: (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')
           ? (state.lastCourseTab || 'canvas')
           : state.activeTab,
         concurrency: state.concurrency,
