@@ -99,9 +99,7 @@ function getFileIcon(item: CloudPanItem, isLarge = false) {
   )
 }
 
-export function CloudPanExplorer({ onBack }: CloudPanExplorerProps) {
-  const lastCourseTab = useAppStore(s => s.lastCourseTab)
-  const setActiveTab = useAppStore(s => s.setActiveTab)
+export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}) {
   const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
   const setCloudSpaceInfo = useAppStore(s => s.setCloudSpaceInfo)
   const localDestRoot = useAppStore(s => s.localDestRoot)
@@ -207,14 +205,6 @@ export function CloudPanExplorer({ onBack }: CloudPanExplorerProps) {
   }, [contents, searchQuery])
 
   // 导航操作
-  const handleBack = () => {
-    if (onBack) {
-      onBack()
-    } else {
-      setActiveTab(lastCourseTab || 'canvas')
-    }
-  }
-
   const handleBreadcrumbNavigate = (id: string) => {
     if (!id) {
       setCurrentPath([])
@@ -434,37 +424,23 @@ export function CloudPanExplorer({ onBack }: CloudPanExplorerProps) {
       {/* 顶部横幅栏 */}
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-2 px-6 py-3.5 shadow-2xs">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-bd bg-surface-1 px-3 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-2 transition-all shadow-2xs cursor-pointer"
-            title="返回前序课程列表"
-          >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5m7 7l-7-7 7-7" />
-            </svg>
-            <span>返回课程列表</span>
-          </button>
-
-          <div className="flex items-center gap-2">
-            <span className="text-base font-bold text-text-1">☁️ 交大云盘资源管理器</span>
-            {quota && (
-              <div
-                className="hidden md:flex items-center gap-2 rounded-xl border border-bd/80 bg-surface-1 px-2.5 py-1 text-2xs text-text-2 shadow-2xs"
-                title={`容量已用: ${quota.usedStr}，总容量: ${quota.totalStr}`}
-              >
-                <span>已用 {quota.usedStr} / {quota.totalStr} ({quota.pct}%)</span>
-                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-3">
-                  <div
-                    className={`h-full rounded-full transition-all duration-300 ${
-                      quota.pct > 90 ? 'bg-warning' : 'bg-accent'
-                    }`}
-                    style={{ width: `${quota.pct}%` }}
-                  />
-                </div>
+          <span className="text-base font-bold text-text-1">☁️ 交大云盘资源管理器</span>
+          {quota && (
+            <div
+              className="hidden md:flex items-center gap-2 rounded-xl border border-bd/80 bg-surface-1 px-2.5 py-1 text-2xs text-text-2 shadow-2xs"
+              title={`容量已用: ${quota.usedStr}，总容量: ${quota.totalStr}`}
+            >
+              <span>已用 {quota.usedStr} / {quota.totalStr} ({quota.pct}%)</span>
+              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-3">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    quota.pct > 90 ? 'bg-warning' : 'bg-accent'
+                  }`}
+                  style={{ width: `${quota.pct}%` }}
+                />
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* 右侧动作工具栏 */}

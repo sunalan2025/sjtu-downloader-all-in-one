@@ -668,12 +668,25 @@ export function FileTypeBadge({
   className?: string
 }) {
   let ext = type?.toUpperCase()
-  if (!ext && filename) {
-    const parts = filename.split('.')
-    if (parts.length > 1) {
-      ext = parts[parts.length - 1].toUpperCase()
+
+  // 关键防错：如果文件名包含明确的文件后缀，优先采用真实文件后缀（避免上游误传通用类型覆盖了真实的 pptx/pdf）
+  if (ext !== 'M4A' && ext !== 'DISABLED' && filename) {
+    const cleanFn = filename.replace(/\s*\([^)]*\)\s*$/, '').trim()
+    const m = cleanFn.match(/\.([a-zA-Z0-9]{2,5})$/)
+    if (m) {
+      const fnExt = m[1].toUpperCase()
+      const recognizedExts = [
+        'PDF', 'PPT', 'PPTX', 'DOC', 'DOCX', 'XLS', 'XLSX', 'ZIP', 'RAR', '7Z', 'TXT',
+        'MP4', 'MP3', 'FLV', 'MKV', 'AVI', 'MOV', 'WAV', 'AAC'
+      ]
+      if (recognizedExts.includes(fnExt)) {
+        ext = fnExt
+      } else if (!ext) {
+        ext = fnExt
+      }
     }
   }
+
   ext = ext || 'FILE'
 
   const badgeClass = className || 'h-[22px] w-[18px] shrink-0 drop-shadow-2xs'

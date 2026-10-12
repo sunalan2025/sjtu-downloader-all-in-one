@@ -246,10 +246,20 @@ export function parseNestedChapterHtml(html: string): CnmoocChapterNode[] {
 
     const itemId = $el.attr('itemid') || $el.attr('data-itemid') || $el.attr('id')?.match(/item[_-]?(\d+)/i)?.[1]
     if (!itemId) return
-    const itemType = $el.attr('itemtype') || $el.attr('data-itemtype') || '10'
-    if (QUIZ_TYPES.has(itemType)) return
 
     const rawTitle = $el.attr('title') || $el.attr('data-title') || $el.text().trim() || `item_${itemId}`
+    let itemType = $el.attr('itemtype') || $el.attr('data-itemtype')
+    const isDocTitle = /\.(pdf|ppt|pptx|doc|docx|xls|xlsx|txt|zip|rar)($|\s)/i.test(rawTitle)
+      || /\((课件|文档|资料|PPT|PDF)\)/i.test(rawTitle)
+
+    if (!itemType) {
+      itemType = isDocTitle ? '20' : '10'
+    } else if (itemType === '10' && isDocTitle) {
+      // 容错：即使上游 DOM 标记为 10，但文件名明确为 PPT/PDF/DOC，修正为课件文档类型 20
+      itemType = '20'
+    }
+
+    if (QUIZ_TYPES.has(itemType)) return
 
     if (!currentChapter) {
       currentChapter = { chapterTitle: '未分章节', sections: [] }

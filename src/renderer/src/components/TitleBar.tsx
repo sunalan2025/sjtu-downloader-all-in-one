@@ -109,7 +109,7 @@ export function TitleBar({
             )}
             <span className="text-text-4 font-mono text-xs">/</span>
             <span className="text-xs font-semibold text-text-1">
-              {activeTab === 'transfer' ? '📥 传输中心' : activeTab === 'cloudpan' ? '☁️ 云盘资源' : (!hasCompletedInitialSetup ? '请先配置核心选项' : '⚙️ 全局设置')}
+              {activeTab === 'transfer' ? '📥 传输中心' : activeTab === 'cloudpan' ? '☁️ 交大云盘' : (!hasCompletedInitialSetup ? '请先配置核心选项' : '⚙️ 全局设置')}
             </span>
           </div>
         ) : (

@@ -64,6 +64,58 @@ const CnmoocItemProgress = memo(function CnmoocItemProgress({
   )
 })
 
+export function classifyCnmoocItem(it: { title: string; itemType: string }, isAudioOnly = false): {
+  isVideo: boolean
+  type: string
+  displayName: string
+} {
+  const rawTitle = it.title.trim()
+  // 去除历史上或错误拼接的尾部 (MP4) / (M4A) / (音频 M4A) 标记
+  const cleanTitle = rawTitle.replace(/\s*\((MP4|M4A|音频 M4A)\)\s*$/i, '').trim()
+  const m = cleanTitle.match(/\.([a-zA-Z0-9]{2,5})$/)
+  const ext = m ? m[1].toLowerCase() : ''
+
+  const isDocExt = ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'zip', 'rar', '7z'].includes(ext)
+  const isVideoExt = ['mp4', 'flv', 'webm', 'mkv', 'avi', 'mov', 'wmv', 'm4v', 'ts'].includes(ext)
+
+  let isVideo = false
+  if (isVideoExt) {
+    isVideo = true
+  } else if (isDocExt) {
+    isVideo = false
+  } else if (it.itemType === '10') {
+    if (/\((课件|文档|资料|PPT|PDF)\)/i.test(cleanTitle) || /课件|讲义|大纲/i.test(cleanTitle)) {
+      isVideo = false
+    } else {
+      isVideo = true
+    }
+  } else {
+    isVideo = false
+  }
+
+  let type: string
+  if (isDocExt) {
+    type = ext.toUpperCase()
+  } else if (isVideo) {
+    type = isAudioOnly ? 'M4A' : (ext ? ext.toUpperCase() : 'MP4')
+  } else {
+    if (/pdf/i.test(cleanTitle)) type = 'PDF'
+    else if (/ppt/i.test(cleanTitle) || /课件/i.test(cleanTitle)) type = 'PPT'
+    else type = 'DOC'
+  }
+
+  let displayName = cleanTitle
+  if (isVideo && isAudioOnly) {
+    if (cleanTitle.toLowerCase().endsWith('.mp4')) {
+      displayName = cleanTitle.replace(/\.mp4$/i, '.m4a')
+    } else if (!cleanTitle.includes('音频') && !cleanTitle.includes('M4A')) {
+      displayName = `${cleanTitle} (音频 M4A)`
+    }
+  }
+
+  return { isVideo, type, displayName }
+}
+
 export function CnmoocBrowser() {
   const {
     courses,
@@ -114,20 +166,25 @@ export function CnmoocBrowser() {
   const [searchQuery, setSearchQuery] = useState('')
   const [navState, setNavState] = useState<NetdiskNavState>({ level: 'root' })
 
-  // 摊平所有条目的 taskId（用于全选 / 计数 / 统计）。依赖 courses + courseData 引用。
-  const dataKey = useMemo(
-    () => courses.map(c => `${c.courseId}:${courseData[c.courseId]?.chapters.length ?? 0}`).join(','),
-    [courses, courseData]
-  )
+  // 摊平所有条目的 taskId（用于全选 / 计数 / 统计）。
   const allTaskIds = useMemo(() => {
     const out: string[] = []
+    const isAudioOnly = videoQualityOption === 'audio_only'
     for (const c of courses) {
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
-      for (const ch of chapters) for (const it of ch.items) out.push(makeTid(c.courseId, it.itemId))
+      for (const ch of chapters) {
+        for (const it of ch.items) {
+          if (resourceFilter !== 'all') {
+            const meta = classifyCnmoocItem(it, isAudioOnly)
+            if (resourceFilter === 'video' && !meta.isVideo) continue
+            if (resourceFilter === 'document' && meta.isVideo) continue
+          }
+          out.push(makeTid(c.courseId, it.itemId))
+        }
+      }
     }
     return out
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataKey])
+  }, [courses, courseData, resourceFilter, videoQualityOption])
   const total = allTaskIds.length
   const selectedCount = selected.size
 
@@ -297,25 +354,32 @@ export function CnmoocBrowser() {
     return filteredCourses.map(c => {
       const isAudioOnly = videoQualityOption === 'audio_only'
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
-      const ids: string[] = []
-      for (const ch of chapters) for (const it of ch.items) ids.push(makeTid(c.courseId, it.itemId))
+      const allChapterItems = chapters.flatMap(ch => ch.items).filter(it => {
+        if (resourceFilter === 'all') return true
+        const meta = classifyCnmoocItem(it, isAudioOnly)
+        return resourceFilter === 'video' ? meta.isVideo : !meta.isVideo
+      })
+      const ids: string[] = allChapterItems.map(it => makeTid(c.courseId, it.itemId))
       const selCount = ids.filter(id => selected.has(id)).length
       const triState = triStateFromCount(selCount, ids.length)
 
       const categories: NetdiskCategoryItem[] = chapters.map(ch => {
-        const chIds = ch.items.map(it => makeTid(c.courseId, it.itemId))
+        const filteredChapterItems = ch.items.filter(it => {
+          if (resourceFilter === 'all') return true
+          const meta = classifyCnmoocItem(it, isAudioOnly)
+          return resourceFilter === 'video' ? meta.isVideo : !meta.isVideo
+        })
+        const chIds = filteredChapterItems.map(it => makeTid(c.courseId, it.itemId))
         const chSelCount = chIds.filter(id => selected.has(id)).length
         const chTri = triStateFromCount(chSelCount, chIds.length)
 
-        const items: NetdiskFileItem[] = ch.items.map(it => {
+        const items: NetdiskFileItem[] = filteredChapterItems.map(it => {
           const tid = makeTid(c.courseId, it.itemId)
-          const isVideo = it.itemType === '10'
+          const meta = classifyCnmoocItem(it, isAudioOnly)
           return {
             id: tid,
-            name: isVideo
-              ? (isAudioOnly ? `${it.title} (音频 M4A)` : `${it.title} (MP4)`)
-              : it.title,
-            type: isVideo ? (isAudioOnly ? 'M4A' : 'MP4') : 'DOC',
+            name: meta.displayName,
+            type: meta.type,
             selected: selected.has(tid),
             onToggle: () => onToggle(tid),
             renderExtra: (
@@ -376,7 +440,7 @@ export function CnmoocBrowser() {
   }, [
     filteredCourses, courseData, selected, progressMap, cloudLinkedIds,
     onToggleMany, onToggle, onPauseTask, onCancelTask, onResumeTask,
-    videoQualityOption
+    videoQualityOption, resourceFilter
   ])
 
   return (
