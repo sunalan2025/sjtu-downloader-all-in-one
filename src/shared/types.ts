@@ -456,7 +456,7 @@ export interface CourseResourceSummary {
   error?: string
 }
 
-/** "课堂视频new" 一次录课会话 */
+/** 课堂录播会话（支持新版 v.sjtu 与旧版 courses.sjtu） */
 export interface CanvasVideoSession {
   videoId: string
   courId: number
@@ -464,6 +464,9 @@ export interface CanvasVideoSession {
   classroom: string
   beginTime: string
   videoName: string
+  endTime?: string
+  legacyCourseId?: string
+  source?: 'new' | 'legacy'
 }
 
 /** 课堂视频的一路流（教师 / PPT） */
