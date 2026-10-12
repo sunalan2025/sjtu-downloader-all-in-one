@@ -23,6 +23,11 @@ import {
   getFileDownloadUrl
 } from './cloudpan'
 import {
+  downloadCloudFile,
+  uploadCloudFiles,
+  openCloudInBrowser
+} from './cloudpan-transfer'
+import {
   setCanvasSession,
   setCanvasEmitter,
   setConcurrencyProvider,
@@ -884,6 +889,27 @@ app.whenReady().then(async () => {
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : '获取下载链接失败' }
       }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:download-file',
+    async (_e, remotePath: string[], targetDir?: string) => {
+      return downloadCloudFile(remotePath, targetDir)
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:upload-files',
+    async (_e, targetDirPath: string[] = []) => {
+      return uploadCloudFiles(targetDirPath)
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:open-web',
+    async (_e, remotePath: string[] = []) => {
+      return openCloudInBrowser(remotePath)
     }
   )
 

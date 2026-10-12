@@ -266,6 +266,8 @@ export interface DownloadTaskSpec {
   isHls?: boolean
   /** 是否需要抽取为纯音频 (.m4a) */
   extractAudio?: boolean
+  /** 资源分类（如 'files' | 'videos'） */
+  category?: string
 }
 
 /** 下载/上传任务状态机 */
@@ -686,6 +688,9 @@ export interface CloudPanApi {
   deleteItem: (targetPath: string[], isDir: boolean) => Promise<{ ok: boolean; error?: string }>
   renameItem: (oldPath: string[], newName: string, isDir: boolean) => Promise<{ ok: boolean; error?: string }>
   getDownloadUrl: (filePath: string[]) => Promise<{ ok: boolean; url?: string; error?: string }>
+  downloadFile: (remotePath: string[], targetDir?: string) => Promise<{ ok: boolean; taskId?: string; error?: string }>
+  uploadFiles: (targetDirPath: string[]) => Promise<{ ok: boolean; count?: number; error?: string }>
+  openInBrowser: (remotePath?: string[]) => Promise<{ ok: boolean; error?: string }>
 }
 
 export interface WindowApi {
