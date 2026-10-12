@@ -626,10 +626,16 @@ export function getAutofillScript(
 
       document.addEventListener('click', function(e) {
         const target = e.target;
-        if (target && typeof target.closest === 'function') {
-          const btn = target.closest('#submit-password-button, #submit-sms-button, input[type="submit"], button[type="submit"], .form-submit, .btn-primary');
+        const el = target && target.nodeType === 1 ? target : (target && target.parentElement);
+        if (el && typeof el.closest === 'function') {
+          const btn = el.closest('#submit-password-button, #submit-sms-button, input[type="submit"], button[type="submit"], .form-submit, .btn-primary');
           if (btn) {
             captureCredentials();
+          }
+
+          const qrEl = el.closest('#switch-to-qr, .qr-login, .login-qr, #qr-mask, #qr-img, .qr-tips, .qr-box, #qrcode, .qrcode, [data-type="qr"], [data-tab="qr"], a[href*="qr"], .qr-btn, .switch-qr');
+          if (qrEl) {
+            console.log('__SJTU_CRED_CLEAR__');
           }
         }
       }, true);
@@ -910,15 +916,34 @@ export function getAutofillScript(
         openMenu();
       };
 
-      document.addEventListener('click', function(e) {
-        if (!dropdown.contains(e.target) && e.target !== userEl && !toggle.contains(e.target)) {
-          closeMenu();
-        }
-      });
+      if (!window.__sjtuDropdownGlobalBound) {
+        window.__sjtuDropdownGlobalBound = true;
 
-      document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') closeMenu();
-      });
+        document.addEventListener('click', function(e) {
+          const curDropdown = document.getElementById('__sjtu_cred_dropdown');
+          const curToggle = document.getElementById('__sjtu_cred_toggle');
+          const curUserEl = findUserEl();
+          if (curDropdown && curDropdown.style.display !== 'none') {
+            const target = e.target;
+            if (
+              !curDropdown.contains(target) &&
+              target !== curUserEl &&
+              (!curToggle || !curToggle.contains(target))
+            ) {
+              curDropdown.style.display = 'none';
+            }
+          }
+        });
+
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            const curDropdown = document.getElementById('__sjtu_cred_dropdown');
+            if (curDropdown) {
+              curDropdown.style.display = 'none';
+            }
+          }
+        });
+      }
     }
 
     renderDropdown(accounts);
@@ -1079,7 +1104,9 @@ export function Login() {
   const onConsoleMsg = useCallback(
     (e: any): void => {
       const msg = (e && typeof e.message === 'string' ? e.message : '') as string
-      if (msg.startsWith('__SJTU_CRED_CAPTURED__:')) {
+      if (msg === '__SJTU_CRED_CLEAR__' || msg.startsWith('__SJTU_CRED_CLEAR__')) {
+        capturedCredRef.current = null
+      } else if (msg.startsWith('__SJTU_CRED_CAPTURED__:')) {
         try {
           const data = JSON.parse(msg.slice(23))
           if (data && typeof data.user === 'string' && typeof data.pass === 'string') {
@@ -1386,6 +1413,17 @@ export function Login() {
         return
       }
 
+      const lowerUrl = url.toLowerCase()
+      if (
+        lowerUrl.includes('qr') ||
+        lowerUrl.includes('qrcode') ||
+        lowerUrl.includes('refresh') ||
+        lowerUrl.includes('reauth') ||
+        lowerUrl.includes('renew')
+      ) {
+        capturedCredRef.current = null
+      }
+
       if (url.includes('jaccount.sjtu.edu.cn')) {
         setError(null)
         void updateAuthStatus()
@@ -1438,7 +1476,11 @@ export function Login() {
     <div className="relative flex h-full w-full items-center justify-center px-6 py-8">
       <button
         type="button"
-        onClick={() => setStage('welcome')}
+        onClick={() => {
+          capturedCredRef.current = null
+          setPendingSaveCred(null)
+          setStage('welcome')
+        }}
         className="no-drag absolute left-6 top-6 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-text-3 transition-all duration-200 hover:bg-surface-3 hover:text-text-1"
       >
         ← 返回

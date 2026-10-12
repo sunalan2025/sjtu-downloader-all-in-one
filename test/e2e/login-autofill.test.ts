@@ -112,4 +112,19 @@ describe('Login Autofill & Floating Dropdown Injected Script Suite', () => {
     expect(script).toContain('#E5E6EB')
     expect(script).toContain('__SJTU_CRED_SELECT__:')
   })
+
+  it('contains QR code switch and area click detection to clear stale credentials', () => {
+    const script = getAutofillScript([], false, null)
+    expect(script).toContain('__SJTU_CRED_CLEAR__')
+    expect(script).toContain('#switch-to-qr')
+    expect(script).toContain('.qr-login')
+    expect(script).toContain('#qr-mask')
+    expect(script).toContain('#qr-img')
+  })
+
+  it('guards dropdown click/keydown listeners with window.__sjtuDropdownGlobalBound', () => {
+    const script = getAutofillScript([mockAccount1, mockAccount2], false)
+    expect(script).toContain('window.__sjtuDropdownGlobalBound')
+    expect(script).toContain("getElementById('__sjtu_cred_dropdown')")
+  })
 })
