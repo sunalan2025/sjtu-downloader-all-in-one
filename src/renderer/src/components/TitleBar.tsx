@@ -29,6 +29,7 @@ export function TitleBar({
   const activeTab = useAppStore(s => s.activeTab)
   const lastCourseTab = useAppStore(s => s.lastCourseTab)
   const setActiveTab = useAppStore(s => s.setActiveTab)
+  const cloudUserToken = useAppStore(s => s.cloudUserToken)
   const cloudConnStatus = useAppStore(s => s.cloudConnStatus)
   const hasCompletedInitialSetup = useAppStore(s => s.hasCompletedInitialSetup)
   const progress = useAppStore(s => s.progress)
@@ -76,7 +77,7 @@ export function TitleBar({
     { key: 'cnmooc', label: '好大学在线' }
   ]
 
-  const isDetailView = activeTab === 'settings' || activeTab === 'transfer'
+  const isDetailView = activeTab === 'settings' || activeTab === 'transfer' || activeTab === 'cloudpan'
 
   return (
     <div
@@ -108,7 +109,7 @@ export function TitleBar({
             )}
             <span className="text-text-4 font-mono text-xs">/</span>
             <span className="text-xs font-semibold text-text-1">
-              {activeTab === 'transfer' ? '📥 传输中心' : (!hasCompletedInitialSetup ? '请先配置核心选项' : '⚙️ 全局设置')}
+              {activeTab === 'transfer' ? '📥 传输中心' : activeTab === 'cloudpan' ? '☁️ 云盘资源' : (!hasCompletedInitialSetup ? '请先配置核心选项' : '⚙️ 全局设置')}
             </span>
           </div>
         ) : (
@@ -134,8 +135,53 @@ export function TitleBar({
       
       {stage === 'browser' && (
         <div className="no-drag flex items-center gap-3">
-          {cloudConnStatus === 'connecting' && <span className="text-xs text-info">云盘连接中...</span>}
-          {cloudConnStatus === 'idle' && <span className="text-xs text-success">☁️ 云盘已连接</span>}
+          {/* 交大云盘快速入口胶囊 */}
+          <button
+            type="button"
+            onClick={() => {
+              if (!cloudUserToken) {
+                setActiveTab('settings')
+              } else if (activeTab === 'cloudpan') {
+                setActiveTab(lastCourseTab || 'canvas')
+              } else {
+                setActiveTab('cloudpan')
+              }
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all shadow-2xs cursor-pointer ${
+              activeTab === 'cloudpan'
+                ? 'bg-accent text-white border-accent shadow-glow-sm'
+                : cloudUserToken
+                  ? 'border-bd/80 bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
+                  : 'border-bd/80 bg-surface-2 text-text-3 hover:bg-surface-1 hover:border-bd-strong hover:text-text-2'
+            }`}
+            title={
+              !cloudUserToken
+                ? '交大云盘未连接，点击前往设置授权'
+                : activeTab === 'cloudpan'
+                  ? '点击返回课程列表'
+                  : '交大云盘已连接，点击打开云盘资源管理器'
+            }
+          >
+            {cloudConnStatus === 'connecting' ? (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-info opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-info" />
+                </span>
+                <span>云盘连接中...</span>
+              </>
+            ) : cloudUserToken ? (
+              <>
+                <span className="inline-block h-2 w-2 rounded-full bg-success" />
+                <span>☁️ 交大云盘</span>
+              </>
+            ) : (
+              <>
+                <span className="inline-block h-2 w-2 rounded-full bg-surface-4" />
+                <span>☁️ 连接云盘</span>
+              </>
+            )}
+          </button>
 
           {/* 全局传输看板胶囊入口 */}
           <button

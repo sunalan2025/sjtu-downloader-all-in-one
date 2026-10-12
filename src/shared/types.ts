@@ -547,7 +547,7 @@ export interface CanvasLectureDownloadItem {
 }
 
 /** 渲染端顶部 tab */
-export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'transfer' | 'settings'
+export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'transfer' | 'settings' | 'cloudpan'
 
 // ─────────────────────────────────────────────────────────────
 // 好大学在线 (cnmooc.sjtu.cn) 相关
