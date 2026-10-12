@@ -13,6 +13,7 @@ import type {
   CanvasTeacherSelection,
   CanvasVideoSession,
   CloudPanSpaceInfo,
+  CloudPanDirectoryListing,
   CnmoocChapter,
   CnmoocCourse,
   CnmoocResourceFilter,
@@ -175,7 +176,26 @@ const api = {
     directLogin: (): Promise<{ ok: boolean; userToken?: string; error?: string }> =>
       ipcRenderer.invoke('cloudpan:direct-login'),
     /** 清除云盘缓存的 USER_TOKEN */
-    logout: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('cloudpan:logout')
+    logout: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('cloudpan:logout'),
+    /** 列出交大云盘目录内容 */
+    listDirectory: (
+      dirPath?: string[],
+      page?: number,
+      pageSize?: number
+    ): Promise<{ ok: boolean; data?: CloudPanDirectoryListing; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:list-dir', dirPath, page, pageSize),
+    /** 在交大云盘中创建文件夹 */
+    createFolder: (dirPath: string[]): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:create-dir', dirPath),
+    /** 删除交大云盘中的文件或文件夹 */
+    deleteItem: (targetPath: string[], isDir: boolean): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:delete-item', targetPath, isDir),
+    /** 重命名交大云盘中的文件或文件夹 */
+    renameItem: (oldPath: string[], newName: string, isDir: boolean): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:rename-item', oldPath, newName, isDir),
+    /** 获取交大云盘文件的下载直链 */
+    getDownloadUrl: (filePath: string[]): Promise<{ ok: boolean; url?: string; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:get-download-url', filePath)
   },
   // ─── Canvas (oc.sjtu.edu.cn) ───
   canvas: {
