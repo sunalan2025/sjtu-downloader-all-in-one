@@ -1,3 +1,4 @@
+/* eslint-disable */
 const { app, session } = require('electron');
 const path = require('path');
 
