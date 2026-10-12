@@ -693,7 +693,36 @@ export interface CloudPanApi {
   openInBrowser: (remotePath?: string[]) => Promise<{ ok: boolean; error?: string }>
 }
 
+export interface StoredCredential {
+  id: string
+  username: string
+  label?: string
+  encryptedPassword: string
+  createdAt: number
+  lastUsedAt: number
+}
+
+export interface MaskedCredential {
+  id: string
+  username: string
+  label?: string
+  maskedPassword: string
+  createdAt: number
+  lastUsedAt: number
+}
+
+export interface CredentialsApi {
+  list: () => Promise<MaskedCredential[]>
+  save: (username: string, password: string, label?: string) => Promise<{ ok: boolean; id?: string; error?: string }>
+  updateLabel: (id: string, label?: string) => Promise<{ ok: boolean; error?: string }>
+  delete: (id: string) => Promise<{ ok: boolean; error?: string }>
+  clearAll: () => Promise<{ ok: boolean; error?: string }>
+  getFillData: (id?: string) => Promise<{ ok: boolean; username?: string; password?: string; error?: string }>
+}
+
 export interface WindowApi {
+  credentials: CredentialsApi
   cloudpan: CloudPanApi
   [key: string]: unknown
 }
+

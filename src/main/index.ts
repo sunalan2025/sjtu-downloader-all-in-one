@@ -59,6 +59,14 @@ import {
   ensureVsjtuLogin
 } from './auth'
 import {
+  listMaskedCredentials,
+  saveCredential,
+  updateCredentialLabel,
+  deleteCredential,
+  clearAllCredentials,
+  getCredentialForFill
+} from './credentials'
+import {
   getConcurrency,
   setConcurrency,
   getAutoConcurrency,
@@ -542,6 +550,14 @@ app.whenReady().then(async () => {
     const token = await exchangeVsjtuJwtByCode(code)
     return { success: !!token, token }
   })
+
+  // ─── 安全凭据保险库 (Credentials Vault) ─────────────────────────
+  ipcMain.handle('credentials:list', () => listMaskedCredentials())
+  ipcMain.handle('credentials:save', (_e, { username, password, label }) => saveCredential(username, password, label))
+  ipcMain.handle('credentials:update-label', (_e, { id, label }) => updateCredentialLabel(id, label))
+  ipcMain.handle('credentials:delete', (_e, id) => deleteCredential(id))
+  ipcMain.handle('credentials:clear-all', () => clearAllCredentials())
+  ipcMain.handle('credentials:get-fill-data', (_e, id) => getCredentialForFill(id))
 
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
     // 类似于好大学在线的 ensureCnmoocLogin，发起扫描前主动确保持有有效 JWT
