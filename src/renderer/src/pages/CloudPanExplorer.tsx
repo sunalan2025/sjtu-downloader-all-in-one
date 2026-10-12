@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../store/app'
 import { BreadcrumbBar, type BreadcrumbItem } from '../components/BreadcrumbBar'
+import { NetdiskViewModeSwitch } from '../components/DownloadUI'
 import { Spinner } from '../components/Spinner'
 import { formatBytes } from '@shared/utils'
 import type { CloudPanItem } from '@shared/types'
@@ -103,13 +104,15 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
   const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
   const setCloudSpaceInfo = useAppStore(s => s.setCloudSpaceInfo)
   const localDestRoot = useAppStore(s => s.localDestRoot)
+  const courseViewMode = useAppStore(s => s.courseViewMode)
+  const setCourseViewMode = useAppStore(s => s.setCourseViewMode)
 
   const [currentPath, setCurrentPath] = useState<string[]>([])
   const [contents, setContents] = useState<CloudPanItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [activeItemName, setActiveItemName] = useState<string | null>(null)
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set())
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null)
 
@@ -204,6 +207,16 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     })
   }, [contents, searchQuery])
 
+  // 区分文件夹目录与选定活跃项目（用于分栏模式）
+  const dirItems = useMemo(() => {
+    return displayedItems.filter(i => i.type === 'dir')
+  }, [displayedItems])
+
+  const activeItem = useMemo(() => {
+    if (!activeItemName) return displayedItems[0] || null
+    return displayedItems.find(i => i.name === activeItemName) || displayedItems[0] || null
+  }, [displayedItems, activeItemName])
+
   // 导航操作
   const handleBreadcrumbNavigate = (id: string) => {
     if (!id) {
@@ -211,10 +224,12 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     } else {
       setCurrentPath(id.split('/'))
     }
+    setActiveItemName(null)
   }
 
   const handleEnterFolder = (name: string) => {
     setCurrentPath(prev => [...prev, name])
+    setActiveItemName(null)
   }
 
   // 多选逻辑
@@ -493,41 +508,11 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
             <span className={loading ? 'animate-spin' : ''}>↻</span>
           </button>
 
-          {/* 视图模式切换 */}
-          <div className="flex h-9 items-center rounded-xl border border-bd bg-surface-1 p-0.5 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs transition-colors cursor-pointer ${
-                viewMode === 'grid' ? 'bg-surface-2 text-accent font-bold shadow-2xs' : 'text-text-3 hover:text-text-1'
-              }`}
-              title="网格视图"
-            >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="14" width="7" height="7" rx="1" />
-                <rect x="3" y="14" width="7" height="7" rx="1" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('list')}
-              className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs transition-colors cursor-pointer ${
-                viewMode === 'list' ? 'bg-surface-2 text-accent font-bold shadow-2xs' : 'text-text-3 hover:text-text-1'
-              }`}
-              title="列表视图"
-            >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="8" y1="6" x2="21" y2="6" />
-                <line x1="8" y1="12" x2="21" y2="12" />
-                <line x1="8" y1="18" x2="21" y2="18" />
-                <line x1="3" y1="6" x2="3.01" y2="6" />
-                <line x1="3" y1="12" x2="3.01" y2="12" />
-                <line x1="3" y1="18" x2="3.01" y2="18" />
-              </svg>
-            </button>
-          </div>
+          {/* 视图模式切换（三态视图统一：分栏 / 列表 / 网格） */}
+          <NetdiskViewModeSwitch
+            mode={courseViewMode}
+            onChange={setCourseViewMode}
+          />
         </div>
       </header>
 
@@ -567,7 +552,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
       )}
 
       {/* 主视图内容区域 */}
-      <main className="relative flex-1 overflow-y-auto p-6">
+      <main className={`relative flex-1 p-4 md:p-6 ${courseViewMode === 'column' ? 'overflow-hidden flex flex-col pb-20' : 'overflow-y-auto'}`}>
         {loading && contents.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center gap-3 text-text-3">
             <Spinner size={24} />
@@ -596,7 +581,328 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
               可点击上方「📤 上传文件」上传本地资料，或「+ 新建文件夹」组织结构
             </div>
           </div>
-        ) : viewMode === 'grid' ? (
+        ) : courseViewMode === 'column' ? (
+          /* 分栏多级并列视图 (Column / macOS Miller Columns) */
+          <div className="flex h-full w-full divide-x divide-bd rounded-2xl border border-bd bg-surface-1 shadow-card overflow-hidden">
+            {/* 第 1 栏：目录结构与文件夹导航 */}
+            <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1">
+              <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-4 text-xs font-semibold text-text-2 select-none">
+                <span className="flex items-center gap-1.5">
+                  <span>📁 文件夹目录</span>
+                  <span className="font-mono text-2xs text-text-3">({dirItems.length})</span>
+                </span>
+                {currentPath.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPath(prev => prev.slice(0, -1))
+                      setActiveItemName(null)
+                    }}
+                    className="text-2xs text-accent hover:underline flex items-center gap-0.5 cursor-pointer"
+                    title="返回上一级目录"
+                  >
+                    <span>⬆️ 上一级</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto divide-y divide-bd/30">
+                {/* 根目录快捷项 */}
+                <div
+                  onClick={() => {
+                    if (currentPath.length > 0) {
+                      setCurrentPath([])
+                      setActiveItemName(null)
+                    }
+                  }}
+                  className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
+                    currentPath.length === 0
+                      ? 'bg-accent/10 border-l-4 border-accent text-accent font-semibold'
+                      : 'hover:bg-surface-2/60 text-text-1'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className="text-base">☁️</span>
+                    <span className="truncate text-xs font-medium">个人根目录</span>
+                  </div>
+                  {currentPath.length > 0 && <span className="text-2xs text-text-4 font-mono">根</span>}
+                </div>
+
+                {/* 当前层级的文件夹项 */}
+                {dirItems.map(dir => {
+                  const isSelected = selectedNames.has(dir.name)
+                  const isActive = activeItem?.name === dir.name
+                  return (
+                    <div
+                      key={dir.name}
+                      onClick={() => setActiveItemName(dir.name)}
+                      onDoubleClick={() => handleEnterFolder(dir.name)}
+                      className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
+                        isActive
+                          ? 'bg-accent/10 border-l-4 border-accent text-accent font-semibold'
+                          : 'hover:bg-surface-2/60 text-text-1'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span
+                          role="checkbox"
+                          aria-checked={isSelected}
+                          tabIndex={0}
+                          onClick={e => {
+                            e.stopPropagation()
+                            toggleSelect(dir.name)
+                          }}
+                          className="cursor-pointer shrink-0"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="h-3.5 w-3.5 rounded border-bd text-accent focus:ring-accent cursor-pointer"
+                          />
+                        </span>
+                        <span className="text-amber-500 shrink-0">📁</span>
+                        <span className="truncate text-xs" title={dir.name}>
+                          {dir.name}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation()
+                          handleEnterFolder(dir.name)
+                        }}
+                        className="text-text-4 hover:text-accent p-1 -mr-1 rounded hover:bg-surface-3 transition-colors text-xs font-mono cursor-pointer"
+                        title="进入此文件夹"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  )
+                })}
+
+                {dirItems.length === 0 && (
+                  <div className="flex flex-col items-center justify-center p-8 text-center text-text-4 text-xs">
+                    <span className="text-2xl mb-1 opacity-60">📂</span>
+                    <span>当前层级暂无子文件夹</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 第 2 栏：当前目录全部文件与项目列表 */}
+            <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1/50 border-r border-bd">
+              <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-4 text-xs font-semibold text-text-2 select-none">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedNames.size === displayedItems.length && displayedItems.length > 0}
+                    onChange={handleToggleAll}
+                    className="h-3.5 w-3.5 rounded border-bd text-accent focus:ring-accent cursor-pointer"
+                    title="全选当前列表"
+                  />
+                  <span className="truncate max-w-[160px]">
+                    {currentPath.length === 0 ? '根目录项目' : currentPath[currentPath.length - 1]}
+                  </span>
+                  <span className="font-mono text-2xs text-text-3">({displayedItems.length})</span>
+                </div>
+                <span className="text-2xs text-text-4 font-normal">单击选定 · 双击进目录</span>
+              </div>
+
+              <div className="flex-1 overflow-y-auto divide-y divide-bd/30">
+                {displayedItems.map(item => {
+                  const isSelected = selectedNames.has(item.name)
+                  const isActive = activeItem?.name === item.name
+                  return (
+                    <div
+                      key={item.name}
+                      onClick={() => setActiveItemName(item.name)}
+                      onDoubleClick={() => {
+                        if (item.type === 'dir') handleEnterFolder(item.name)
+                      }}
+                      className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
+                        isActive
+                          ? 'bg-accent/15 border-l-4 border-accent text-accent font-semibold'
+                          : 'hover:bg-surface-2/60 text-text-1'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <span
+                          role="checkbox"
+                          aria-checked={isSelected}
+                          tabIndex={0}
+                          onClick={e => {
+                            e.stopPropagation()
+                            toggleSelect(item.name)
+                          }}
+                          className="cursor-pointer shrink-0"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}}
+                            className="h-3.5 w-3.5 rounded border-bd text-accent focus:ring-accent cursor-pointer"
+                          />
+                        </span>
+                        <span className="shrink-0">{getFileIcon(item, false)}</span>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-medium" title={item.name}>
+                            {item.name}
+                          </div>
+                          <div className="flex items-center gap-2 text-2xs font-mono text-text-3 mt-0.5">
+                            <span>{item.type === 'dir' ? '文件夹' : formatBytes(item.size || 0)}</span>
+                            <span>·</span>
+                            <span>{formatDate(item.modificationTime).split(' ')[0]}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {item.type === 'dir' ? (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            handleEnterFolder(item.name)
+                          }}
+                          className="text-text-4 hover:text-accent p-1 text-xs font-mono cursor-pointer"
+                          title="进入文件夹"
+                        >
+                          ›
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            void handleDownloadSingle(item)
+                          }}
+                          className="text-text-3 hover:text-accent p-1 rounded hover:bg-surface-3 transition-colors text-xs cursor-pointer"
+                          title="下载到本地"
+                        >
+                          📥
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {displayedItems.length === 0 && (
+                  <div className="flex flex-col items-center justify-center p-8 text-center text-text-4 text-xs">
+                    <span className="text-2xl mb-1 opacity-60">📂</span>
+                    <span>当前文件夹为空</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 第 3 栏：选定项目详情与操作控制台 */}
+            <div className="flex flex-1 flex-col bg-surface-1 p-6 overflow-y-auto">
+              <div className="flex h-10 items-center justify-between border-b border-bd pb-3 mb-6 select-none">
+                <span className="text-xs font-semibold text-text-2">ℹ️ 资源详情与控制台</span>
+                {selectedNames.size > 0 && (
+                  <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-2xs font-medium text-accent">
+                    已勾选 {selectedNames.size} 项
+                  </span>
+                )}
+              </div>
+
+              {activeItem ? (
+                <div className="flex flex-col items-center text-center max-w-md mx-auto w-full">
+                  {/* 大图标 */}
+                  <div className="my-4 p-4 rounded-2xl bg-surface-2 border border-bd/60 shadow-inner">
+                    {getFileIcon(activeItem, true)}
+                  </div>
+
+                  {/* 名称 */}
+                  <h3 className="text-sm font-bold text-text-1 break-all select-text mb-2 leading-relaxed" title={activeItem.name}>
+                    {activeItem.name}
+                  </h3>
+
+                  {/* 详细元数据 */}
+                  <div className="w-full my-4 rounded-xl border border-bd bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40">
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-text-3">项目类型</span>
+                      <span className="font-medium text-text-1 font-mono uppercase">
+                        {activeItem.type === 'dir' ? '文件夹 (Directory)' : (activeItem.name.split('.').pop() || 'FILE')}
+                      </span>
+                    </div>
+                    {activeItem.type === 'file' && (
+                      <div className="flex justify-between py-1.5">
+                        <span className="text-text-3">文件大小</span>
+                        <span className="font-mono text-text-1 font-semibold">{formatBytes(activeItem.size || 0)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-text-3">修改时间</span>
+                      <span className="font-mono text-text-2">{formatDate(activeItem.modificationTime)}</span>
+                    </div>
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-text-3">云端路径</span>
+                      <span className="font-mono text-2xs text-text-2 truncate max-w-[200px]" title={`/${[...currentPath, activeItem.name].join('/')}`}>
+                        /{[...currentPath, activeItem.name].join('/')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 操作按钮群 */}
+                  <div className="w-full flex flex-col gap-2.5 mt-2">
+                    {activeItem.type === 'file' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDownloadSingle(activeItem)}
+                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:opacity-95 transition-all cursor-pointer"
+                      >
+                        <span>📥 下载此文件到本地</span>
+                      </button>
+                    )}
+                    {activeItem.type === 'dir' && (
+                      <button
+                        type="button"
+                        onClick={() => handleEnterFolder(activeItem.name)}
+                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:opacity-95 transition-all cursor-pointer"
+                      >
+                        <span>📂 进入此文件夹</span>
+                      </button>
+                    )}
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenameTarget(activeItem)
+                          setRenameNewName(activeItem.name)
+                        }}
+                        className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-3 transition-colors cursor-pointer"
+                      >
+                        <span>✏️ 重命名</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTargets([activeItem])}
+                        className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-xs font-medium text-warning hover:border-warning/50 hover:bg-warning/10 transition-colors cursor-pointer"
+                      >
+                        <span>🗑️ 删除</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenBrowserSingle(activeItem)}
+                        className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-xs font-medium text-text-2 hover:border-bd-strong hover:bg-surface-3 hover:text-text-1 transition-colors cursor-pointer"
+                      >
+                        <span>🌐 网页端</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center text-center text-text-4">
+                  <span className="text-4xl mb-2">☁️</span>
+                  <span className="text-xs text-text-2 font-medium">请在左侧或中间列选择项目</span>
+                  <span className="text-2xs text-text-3 mt-1">支持实时查看文件元数据、直链下载与云盘管理</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : courseViewMode === 'grid' ? (
           /* 网格大图标视图 */
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 pb-20">
             {displayedItems.map(item => {

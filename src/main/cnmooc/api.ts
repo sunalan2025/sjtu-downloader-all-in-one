@@ -32,8 +32,34 @@ const PLAY_URL = `${CNMOOC_BASE_URL}/study/play.mooc`
 const DETAIL_URL = `${CNMOOC_BASE_URL}/item/detail.mooc`
 const UNIT_NAV_URL = (courseId: number): string => `${CNMOOC_BASE_URL}/portal/session/unitNavigation/${courseId}.mooc`
 
-/** 测验/作业类 itemType，无可下载资源，扫描时过滤 */
-const QUIZ_TYPES = new Set(['30', '50', '60'])
+/** 测验/作业/讨论类 itemType，无可下载资源，扫描时过滤 */
+const QUIZ_TYPES = new Set(['30', '40', '50', '60', '70'])
+
+/** 判断是否为无下载实体的练习题、测验、测试、作业、考试、问卷、讨论等项 */
+export function isCnmoocQuizOrExercise(title: string, itemType?: string): boolean {
+  if (itemType && QUIZ_TYPES.has(itemType)) return true
+  if (itemType && /^(quiz|exercise|test|exam|discuss|homework|survey)$/i.test(itemType)) return true
+
+  // 清洗尾部括号备注（支持中英文括号及方括号，如“（必做）”、“(选做)”、“[客观题]”）
+  const cleanTitle = title.replace(/\s*[(（[][^)）\]]*[)）\]]\s*$/, '').trim()
+
+  // 若带明确音视频/文档格式扩展名，则是真实文件
+  if (/\.(mp4|flv|webm|mkv|avi|mov|wmv|pdf|ppt|pptx|doc|docx|xls|xlsx|zip|rar|7z|txt)$/i.test(cleanTitle)) {
+    return false
+  }
+
+  // 若包含明确教学录像/讲座关键词（如“习题课/试卷讲评/讲解/答疑”），则是视频课件
+  if (/(?:课|讲|讲解|讲评|答疑|点评|解析|串讲|导学|视频)$/i.test(cleanTitle)) {
+    return false
+  }
+  if (/(?:习题课|复习课|试卷讲评|作业讲解|考试答疑)/i.test(cleanTitle)) {
+    return false
+  }
+
+  // 纯在线练习题、测试题、测验、自测、小测、考试、作业、问卷、讨论
+  const quizPattern = /(?:练习题?|测试题?|测验|自测|随堂测|小测|作业|课后习题|期[中末]考试?|考试|试卷|问卷|调查|互动讨论)$/i
+  return quizPattern.test(cleanTitle)
+}
 
 // ─── 通用重试（指数退避） ──────────────────────────────────────
 
@@ -259,7 +285,7 @@ export function parseNestedChapterHtml(html: string): CnmoocChapterNode[] {
       itemType = '20'
     }
 
-    if (QUIZ_TYPES.has(itemType)) return
+    if (QUIZ_TYPES.has(itemType) || isCnmoocQuizOrExercise(rawTitle, itemType)) return
 
     if (!currentChapter) {
       currentChapter = { chapterTitle: '未分章节', sections: [] }

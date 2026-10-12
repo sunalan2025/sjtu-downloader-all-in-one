@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { useAppStore } from '../store/app'
 import { triStateFromCount, formatBytes, FileTypeBadge, ItemCheckbox } from './DownloadUI'
 import { resolveWindowAction } from './WindowConfirmModal'
-import { classifyCnmoocItem } from '../pages/CnmoocBrowser'
+import { classifyCnmoocItem, isCnmoocQuizOrExercise } from '../pages/CnmoocBrowser'
 
 describe('window exit preferences and resolution', () => {
   it('has correct default window exit preferences', () => {
@@ -279,6 +279,26 @@ describe('FileTypeBadge and Cnmooc item classification', () => {
     expect(mp4Audio.isVideo).toBe(true)
     expect(mp4Audio.type).toBe('M4A')
     expect(mp4Audio.displayName).toBe('1.1 绪论.m4a')
+  })
+
+  it('isCnmoocQuizOrExercise accurately filters out practice exercises and test quizzes without files', () => {
+    // 明确的在线练习题与测试题（即使没有显式 itemType 标记）
+    expect(isCnmoocQuizOrExercise('第五章练习题')).toBe(true)
+    expect(isCnmoocQuizOrExercise('第五章测试题（必做）')).toBe(true)
+    expect(isCnmoocQuizOrExercise('第1节随堂测验')).toBe(true)
+    expect(isCnmoocQuizOrExercise('第一章作业')).toBe(true)
+    expect(isCnmoocQuizOrExercise('期末考试')).toBe(true)
+    expect(isCnmoocQuizOrExercise('单元综合自测')).toBe(true)
+    expect(isCnmoocQuizOrExercise('课程问卷调查')).toBe(true)
+    expect(isCnmoocQuizOrExercise('第一节测验 (过滤)', '30')).toBe(true)
+
+    // 真正的音视频与课件文档，绝不能被误过滤
+    expect(isCnmoocQuizOrExercise('用电设施、设备简介.mp4')).toBe(false)
+    expect(isCnmoocQuizOrExercise('有机化学实验讲义.pdf')).toBe(false)
+    expect(isCnmoocQuizOrExercise('正溴丁烷的制备20231009.pptx')).toBe(false)
+    expect(isCnmoocQuizOrExercise('第五章 习题课')).toBe(false)
+    expect(isCnmoocQuizOrExercise('期末试卷讲评')).toBe(false)
+    expect(isCnmoocQuizOrExercise('作业答疑.mp4')).toBe(false)
   })
 })
 
