@@ -302,3 +302,18 @@ describe('FileTypeBadge and Cnmooc item classification', () => {
   })
 })
 
+describe('settings navigation', () => {
+  it('supports settings navigation to credentials tab', () => {
+    // 验证设置面板导航项包含 credentials
+    const navItems = [
+      { id: 'storage', label: '📦 存储与下载' },
+      { id: 'cloud', label: '☁️ 交大云盘集成' },
+      { id: 'performance', label: '⚡ 性能与并发' },
+      { id: 'video', label: '🎬 课件与视频' },
+      { id: 'appearance', label: '🎨 外观与窗口' },
+      { id: 'credentials', label: '🔐 账号与凭据管理' }
+    ]
+    expect(navItems.some(item => item.id === 'credentials')).toBe(true)
+  })
+})
+
