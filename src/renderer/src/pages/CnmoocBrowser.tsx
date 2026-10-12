@@ -64,6 +64,34 @@ const CnmoocItemProgress = memo(function CnmoocItemProgress({
   )
 })
 
+const QUIZ_TYPES = new Set(['30', '40', '50', '60', '70'])
+
+/** 判断是否为无下载实体的练习题、测验、测试、作业、考试、问卷、讨论等项 */
+export function isCnmoocQuizOrExercise(title: string, itemType?: string): boolean {
+  if (itemType && QUIZ_TYPES.has(itemType)) return true
+  if (itemType && /^(quiz|exercise|test|exam|discuss|homework|survey)$/i.test(itemType)) return true
+
+  // 清洗尾部括号备注（支持中英文括号及方括号，如“（必做）”、“(选做)”、“[客观题]”）
+  const cleanTitle = title.replace(/\s*[(（[][^)）\]]*[)）\]]\s*$/, '').trim()
+
+  // 若带明确音视频/文档格式扩展名，则是真实文件
+  if (/\.(mp4|flv|webm|mkv|avi|mov|wmv|pdf|ppt|pptx|doc|docx|xls|xlsx|zip|rar|7z|txt)$/i.test(cleanTitle)) {
+    return false
+  }
+
+  // 若包含明确教学录像/讲座关键词（如“习题课/试卷讲评/讲解/答疑”），则是视频课件
+  if (/(?:课|讲|讲解|讲评|答疑|点评|解析|串讲|导学|视频)$/i.test(cleanTitle)) {
+    return false
+  }
+  if (/(?:习题课|复习课|试卷讲评|作业讲解|考试答疑)/i.test(cleanTitle)) {
+    return false
+  }
+
+  // 纯在线练习题、测试题、测验、自测、小测、考试、作业、问卷、讨论
+  const quizPattern = /(?:练习题?|测试题?|测验|自测|随堂测|小测|作业|课后习题|期[中末]考试?|考试|试卷|问卷|调查|互动讨论)$/i
+  return quizPattern.test(cleanTitle)
+}
+
 export function classifyCnmoocItem(it: { title: string; itemType: string }, isAudioOnly = false): {
   isVideo: boolean
   type: string
@@ -174,6 +202,7 @@ export function CnmoocBrowser() {
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
       for (const ch of chapters) {
         for (const it of ch.items) {
+          if (isCnmoocQuizOrExercise(it.title, it.itemType)) continue
           if (resourceFilter !== 'all') {
             const meta = classifyCnmoocItem(it, isAudioOnly)
             if (resourceFilter === 'video' && !meta.isVideo) continue
@@ -355,6 +384,7 @@ export function CnmoocBrowser() {
       const isAudioOnly = videoQualityOption === 'audio_only'
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
       const allChapterItems = chapters.flatMap(ch => ch.items).filter(it => {
+        if (isCnmoocQuizOrExercise(it.title, it.itemType)) return false
         if (resourceFilter === 'all') return true
         const meta = classifyCnmoocItem(it, isAudioOnly)
         return resourceFilter === 'video' ? meta.isVideo : !meta.isVideo
@@ -365,6 +395,7 @@ export function CnmoocBrowser() {
 
       const categories: NetdiskCategoryItem[] = chapters.map(ch => {
         const filteredChapterItems = ch.items.filter(it => {
+          if (isCnmoocQuizOrExercise(it.title, it.itemType)) return false
           if (resourceFilter === 'all') return true
           const meta = classifyCnmoocItem(it, isAudioOnly)
           return resourceFilter === 'video' ? meta.isVideo : !meta.isVideo
