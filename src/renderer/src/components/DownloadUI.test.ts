@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { useAppStore } from '../store/app'
 import { triStateFromCount, formatBytes, FileTypeBadge, ItemCheckbox } from './DownloadUI'
 import { resolveWindowAction } from './WindowConfirmModal'
+import { classifyCnmoocItem } from '../pages/CnmoocBrowser'
 
 describe('window exit preferences and resolution', () => {
   it('has correct default window exit preferences', () => {
@@ -225,6 +226,59 @@ describe('cloudpan activeTab navigation and state machine', () => {
     // Return back to audited
     store.setActiveTab(useAppStore.getState().lastCourseTab)
     expect(useAppStore.getState().activeTab).toBe('audited')
+  })
+})
+
+describe('FileTypeBadge and Cnmooc item classification', () => {
+  it('FileTypeBadge prioritizes explicit filename extension over fallback type parameter', () => {
+    // 即使外部传入 type: 'MP4'，若 filename 明确为 pptx，必须展示 PPTX 幻灯片图标，防止将文档错误显示为视频
+    const pptBadge = FileTypeBadge({ filename: '正溴丁烷的制备20231009.pptx', type: 'MP4' })
+    expect(JSON.stringify(pptBadge)).toContain('PowerPoint 幻灯片')
+
+    const pdfBadge = FileTypeBadge({ filename: '大学化学实验操作规范.pdf', type: 'MP4' })
+    expect(JSON.stringify(pdfBadge)).toContain('PDF 文档')
+
+    const videoBadge = FileTypeBadge({ filename: '第一讲 绪论.mp4', type: 'MP4' })
+    expect(JSON.stringify(videoBadge)).toContain('MP4 视频')
+  })
+
+  it('classifyCnmoocItem accurately identifies PPT/PDF courseware without misleading MP4 suffix', () => {
+    // 即使上游 DOM 标记 itemType 为 10，真实扩展名为 PPTX/PDF 的项不能被当作视频处理
+    const pptItem = classifyCnmoocItem({ title: '正溴丁烷的制备20231009.pptx', itemType: '10' })
+    expect(pptItem.isVideo).toBe(false)
+    expect(pptItem.type).toBe('PPTX')
+    expect(pptItem.displayName).toBe('正溴丁烷的制备20231009.pptx')
+
+    const pdfItem = classifyCnmoocItem({ title: '有机化学实验讲义.pdf', itemType: '10' })
+    expect(pdfItem.isVideo).toBe(false)
+    expect(pdfItem.type).toBe('PDF')
+    expect(pdfItem.displayName).toBe('有机化学实验讲义.pdf')
+
+    // 清理历史残留的尾部 (MP4) 误标
+    const dirtyPpt = classifyCnmoocItem({ title: '正溴丁烷的制备20231009.pptx (MP4)', itemType: '10' })
+    expect(dirtyPpt.isVideo).toBe(false)
+    expect(dirtyPpt.type).toBe('PPTX')
+    expect(dirtyPpt.displayName).toBe('正溴丁烷的制备20231009.pptx')
+  })
+
+  it('classifyCnmoocItem handles videos and audio-only extraction mode', () => {
+    // 常规视频
+    const videoItem = classifyCnmoocItem({ title: '1.1 绪论与有机化学发展史', itemType: '10' }, false)
+    expect(videoItem.isVideo).toBe(true)
+    expect(videoItem.type).toBe('MP4')
+    expect(videoItem.displayName).toBe('1.1 绪论与有机化学发展史')
+
+    // 仅提取音频模式：视频项自动变为 M4A，并标明音频
+    const audioItem = classifyCnmoocItem({ title: '1.1 绪论与有机化学发展史', itemType: '10' }, true)
+    expect(audioItem.isVideo).toBe(true)
+    expect(audioItem.type).toBe('M4A')
+    expect(audioItem.displayName).toBe('1.1 绪论与有机化学发展史 (音频 M4A)')
+
+    // 包含 .mp4 后缀的文件在音频模式下转换为 .m4a
+    const mp4Audio = classifyCnmoocItem({ title: '1.1 绪论.mp4', itemType: '10' }, true)
+    expect(mp4Audio.isVideo).toBe(true)
+    expect(mp4Audio.type).toBe('M4A')
+    expect(mp4Audio.displayName).toBe('1.1 绪论.m4a')
   })
 })
 
