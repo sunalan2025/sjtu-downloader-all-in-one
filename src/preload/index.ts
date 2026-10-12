@@ -22,6 +22,7 @@ import type {
   FileConflictStrategy,
   DownloadProgress,
   DownloadTaskSpec,
+  MaskedCredential,
   PageResult,
   TransferSpeed,
   UpdateCheckResult,
@@ -359,6 +360,19 @@ const api = {
     /** 订阅 PPT 下载进度事件（含 taskId，用于映射到 UI 进度条） */
     onProgress: (cb: (p: { taskId?: string; ivsVideoId: number; current: number; total: number; phase: string; lectureName?: string }) => void) =>
       subscribe<{ taskId?: string; ivsVideoId: number; current: number; total: number; phase: string; lectureName?: string }>('canvas:ppt-progress', cb)
+  },
+  credentials: {
+    list: (): Promise<MaskedCredential[]> => ipcRenderer.invoke('credentials:list'),
+    save: (username: string, password: string, label?: string): Promise<{ ok: boolean; id?: string; error?: string }> =>
+      ipcRenderer.invoke('credentials:save', { username, password, label }),
+    updateLabel: (id: string, label?: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('credentials:update-label', { id, label }),
+    delete: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('credentials:delete', id),
+    clearAll: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('credentials:clear-all'),
+    getFillData: (id?: string): Promise<{ ok: boolean; username?: string; password?: string; error?: string }> =>
+      ipcRenderer.invoke('credentials:get-fill-data', id)
   }
 }
 
