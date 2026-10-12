@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   useAppStore,
   type Theme,
@@ -8,8 +8,19 @@ import {
 } from '../store/app'
 import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
-import type { DownloadMode, VideoQualityOption } from '@shared/types'
+import type { DownloadMode, VideoQualityOption, MaskedCredential } from '@shared/types'
 import pkg from '../../../../package.json'
+
+function formatCredentialDate(ts: number): string {
+  if (!ts) return '从未'
+  const d = new Date(ts)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const date = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const min = String(d.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${date} ${h}:${min}`
+}
 
 export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
   const downloadMode = useAppStore(s => s.downloadMode)
@@ -43,6 +54,53 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
 
   const [wizardMode, setWizardMode] = useState(!hasCompletedInitialSetup)
   const [activeNav, setActiveNav] = useState('storage')
+  const [credentials, setCredentials] = useState<MaskedCredential[]>([])
+  const [isLoadingCreds, setIsLoadingCreds] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingLabel, setEditingLabel] = useState('')
+  const [showClearModal, setShowClearModal] = useState(false)
+  const [credToDelete, setCredToDelete] = useState<MaskedCredential | null>(null)
+
+  const loadCredentials = async (): Promise<void> => {
+    if (!window?.api?.credentials?.list) return
+    try {
+      setIsLoadingCreds(true)
+      const list = await window.api.credentials.list()
+      setCredentials(list || [])
+    } catch (err) {
+      console.error('[Settings] failed to load credentials:', err)
+    } finally {
+      setIsLoadingCreds(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeNav === 'credentials') {
+      void loadCredentials()
+    }
+  }, [activeNav])
+
+  const handleSaveLabel = async (id: string): Promise<void> => {
+    if (!window?.api?.credentials?.updateLabel) return
+    const trimmed = editingLabel.trim()
+    await window.api.credentials.updateLabel(id, trimmed || undefined)
+    setEditingId(null)
+    await loadCredentials()
+  }
+
+  const handleDelete = async (): Promise<void> => {
+    if (!credToDelete || !window?.api?.credentials?.delete) return
+    await window.api.credentials.delete(credToDelete.id)
+    setCredToDelete(null)
+    await loadCredentials()
+  }
+
+  const handleClearAll = async (): Promise<void> => {
+    if (!window?.api?.credentials?.clearAll) return
+    await window.api.credentials.clearAll()
+    setShowClearModal(false)
+    await loadCredentials()
+  }
 
   const handleSelectFolder = async (): Promise<void> => {
     const p = await window.api.selectFolder()
@@ -229,7 +287,8 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
             { id: 'cloud', label: '☁️ 交大云盘集成' },
             { id: 'performance', label: '⚡ 性能与并发' },
             { id: 'video', label: '🎬 课件与视频' },
-            { id: 'appearance', label: '🎨 外观与窗口' }
+            { id: 'appearance', label: '🎨 外观与窗口' },
+            { id: 'credentials', label: '🔐 账号与凭据管理' }
           ].map(item => (
             <button
               key={item.id}
@@ -674,6 +733,255 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
               </section>
             )}
 
+            {/* 6. 账号与凭据管理 */}
+            {activeNav === 'credentials' && (
+              <section className="space-y-6">
+                <div>
+                  <h2 className="text-base font-bold text-text-1">账号与凭据管理</h2>
+                  <p className="mt-1 text-xs text-text-3">
+                    基于系统安全保险库（Windows DPAPI / macOS Keychain）保护的 jAccount 统一身份认证账号密码
+                  </p>
+                </div>
+
+                {/* 硬件级加密防护横幅 */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-success/30 bg-success-bg p-4 shadow-2xs">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-success-bg text-lg">
+                      🛡️
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-text-1">系统硬件级加密保护中</span>
+                        <span className="rounded-md bg-success-bg px-2 py-0.5 text-2xs font-semibold text-success ring-1 ring-success-ring">
+                          DPAPI / Keychain
+                        </span>
+                      </div>
+                      <p className="text-xs text-text-3 mt-0.5">
+                        密码密文由操作系统安全芯片与系统凭据管理器隔离存储，渲染端与网络传输杜绝明文暴露
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                    <span className="rounded-xl border border-bd/80 bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 shadow-2xs">
+                      已安全保存 <span className="font-mono font-bold text-accent">{credentials.length}</span> 个账号凭据
+                    </span>
+                  </div>
+                </div>
+
+                {/* 凭据列表与操作区 */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-text-2">已保存凭据列表</span>
+                    {credentials.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowClearModal(true)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-1 text-xs font-medium text-danger hover:brightness-110 transition-all cursor-pointer shadow-2xs"
+                      >
+                        <span>一键清空全部已保存凭据</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {isLoadingCreds ? (
+                    <div className="flex items-center justify-center py-8 text-xs text-text-3">
+                      <span>正在读取凭据...</span>
+                    </div>
+                  ) : credentials.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-bd/80 bg-surface-2/40 py-12 px-6 text-center space-y-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-3 text-2xl">
+                        🔐
+                      </div>
+                      <div className="space-y-1">
+                        <div className="text-sm font-medium text-text-1">暂无已保存的账号凭据</div>
+                        <p className="text-xs text-text-3 max-w-md leading-relaxed">
+                          在登录页面输入账号密码成功登录后，可自动提示一键保存。
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {credentials.map(cred => (
+                        <div
+                          key={cred.id}
+                          className="rounded-2xl border border-bd/80 bg-surface-2/60 p-4 shadow-2xs transition-all hover:border-bd-strong space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-bold text-text-1 font-mono">{cred.username}</span>
+                                {cred.label && (
+                                  <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent border border-accent/20">
+                                    {cred.label}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-text-3">
+                                <span className="select-none text-text-4 font-mono">密码:</span>
+                                <span className="font-mono tracking-widest text-text-2">{cred.maskedPassword || '••••••••'}</span>
+                              </div>
+                            </div>
+
+                            {/* 操作按钮 */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingId(cred.id)
+                                  setEditingLabel(cred.label || '')
+                                }}
+                                className="rounded-lg border border-bd bg-surface-1 px-2.5 py-1 text-xs font-medium text-text-2 hover:border-accent hover:text-accent hover:bg-surface-2 transition-all cursor-pointer shadow-2xs"
+                                title="编辑账号自定义别名"
+                              >
+                                ✏️ 编辑别名
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCredToDelete(cred)}
+                                className="rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-1 text-xs font-medium text-danger hover:brightness-110 transition-all cursor-pointer shadow-2xs"
+                                title="删除此账号的已保存凭据"
+                              >
+                                🗑️ 删除
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* 内联编辑别名表单 */}
+                          {editingId === cred.id && (
+                            <div className="flex items-center gap-2 pt-2 border-t border-bd/40">
+                              <input
+                                type="text"
+                                value={editingLabel}
+                                onChange={e => setEditingLabel(e.target.value)}
+                                placeholder="输入账号备注别名（如：本科主账号，留空则清除）"
+                                className="flex-1 rounded-lg border border-bd bg-surface-1 px-3 py-1.5 text-xs text-text-1 placeholder-text-4 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                                autoFocus
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') void handleSaveLabel(cred.id)
+                                  if (e.key === 'Escape') setEditingId(null)
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void handleSaveLabel(cred.id)}
+                                className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent-light transition-all cursor-pointer"
+                              >
+                                保存
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingId(null)}
+                                className="rounded-lg border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-3 hover:text-text-1 transition-all cursor-pointer"
+                              >
+                                取消
+                              </button>
+                            </div>
+                          )}
+
+                          {/* 时间戳展示 */}
+                          <div className="flex items-center gap-4 text-2xs text-text-4 pt-1 border-t border-bd/30">
+                            <span>创建时间: {formatCredentialDate(cred.createdAt)}</span>
+                            <span>•</span>
+                            <span>
+                              最近使用: {cred.lastUsedAt ? formatCredentialDate(cred.lastUsedAt) : '从未'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 一键清空二次确认弹窗 */}
+                {showClearModal && (
+                  <div
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                    role="dialog"
+                    aria-modal="true"
+                  >
+                    <div
+                      className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+                      onClick={() => setShowClearModal(false)}
+                    />
+                    <div className="relative w-full max-w-sm rounded-2xl border border-bd bg-surface-1 p-5 shadow-2xl space-y-4 animate-fadeIn">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-danger-bg text-danger text-lg font-bold">
+                          ⚠️
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-text-1">清空全部已保存凭据</h3>
+                          <p className="text-xs text-text-3 mt-0.5">此操作不可撤销</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-text-2 leading-relaxed">
+                        确定要清空所有已保存的账号凭据吗？此操作将彻底删除所有保存在系统安全保险库中的 jAccount 账号与加密密码，清空后登录时将不再提供自动填充。
+                      </p>
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd/50">
+                        <button
+                          type="button"
+                          onClick={() => setShowClearModal(false)}
+                          className="rounded-xl border border-bd bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-all cursor-pointer"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleClearAll()}
+                          className="rounded-xl bg-danger px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 active:scale-98 transition-all cursor-pointer shadow-xs"
+                        >
+                          确认清空
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 单项删除二次确认弹窗 */}
+                {credToDelete && (
+                  <div
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                    role="dialog"
+                    aria-modal="true"
+                  >
+                    <div
+                      className="absolute inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+                      onClick={() => setCredToDelete(null)}
+                    />
+                    <div className="relative w-full max-w-sm rounded-2xl border border-bd bg-surface-1 p-5 shadow-2xl space-y-4 animate-fadeIn">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-danger-bg text-danger text-lg font-bold">
+                          🗑️
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-text-1">删除账号凭据</h3>
+                          <p className="text-xs text-text-3 mt-0.5 font-mono">账号: {credToDelete.username}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-text-2 leading-relaxed">
+                        确定要删除账号「<strong className="text-text-1">{credToDelete.username}</strong>」
+                        {credToDelete.label ? `（${credToDelete.label}）` : ''} 的已保存凭据吗？删除后在登录页面将不再自动填充此账号。
+                      </p>
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd/50">
+                        <button
+                          type="button"
+                          onClick={() => setCredToDelete(null)}
+                          className="rounded-xl border border-bd bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-all cursor-pointer"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDelete()}
+                          className="rounded-xl bg-danger px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110 active:scale-98 transition-all cursor-pointer shadow-xs"
+                        >
+                          确认删除
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         </main>
       </div>
