@@ -358,6 +358,27 @@ export interface CloudPanSpaceInfo {
   size: string
 }
 
+/** 云盘文件/目录项 */
+export interface CloudPanItem {
+  name: string
+  type: 'dir' | 'file'
+  size?: number
+  fileType?: string
+  modificationTime: string
+  creationTime?: string
+  crc64?: string
+}
+
+/** 云盘目录浏览列表 */
+export interface CloudPanDirectoryListing {
+  path: string[]
+  currentDirName: string
+  totalNum: number
+  page: number
+  pageSize: number
+  contents: CloudPanItem[]
+}
+
 // ─────────────────────────────────────────────────────────────
 // Canvas (oc.sjtu.edu.cn) 相关
 // ─────────────────────────────────────────────────────────────
@@ -647,4 +668,27 @@ export interface DownloadHistoryItem {
   fileSize?: number
   completedAt: number
   source?: string
+}
+
+// ─────────────────────────────────────────────────────────────
+// Window API 契约（渲染进程与主进程 IPC）
+// ─────────────────────────────────────────────────────────────
+
+export interface CloudPanApi {
+  getCachedToken: () => Promise<string | null>
+  setCachedToken: (token: string | null) => Promise<{ ok: boolean }>
+  validateToken: () => Promise<{ ok: boolean; error?: string }>
+  spaceInfo: () => Promise<{ ok: boolean; info?: CloudPanSpaceInfo; error?: string }>
+  directLogin: () => Promise<{ ok: boolean; userToken?: string; error?: string }>
+  logout: () => Promise<{ ok: boolean }>
+  listDirectory: (dirPath?: string[], page?: number, pageSize?: number) => Promise<{ ok: boolean; data?: CloudPanDirectoryListing; error?: string }>
+  createFolder: (dirPath: string[]) => Promise<{ ok: boolean; error?: string }>
+  deleteItem: (targetPath: string[], isDir: boolean) => Promise<{ ok: boolean; error?: string }>
+  renameItem: (oldPath: string[], newName: string, isDir: boolean) => Promise<{ ok: boolean; error?: string }>
+  getDownloadUrl: (filePath: string[]) => Promise<{ ok: boolean; url?: string; error?: string }>
+}
+
+export interface WindowApi {
+  cloudpan: CloudPanApi
+  [key: string]: unknown
 }

@@ -15,7 +15,12 @@ import {
   clearCachedCredentials,
   validateUserToken,
   getSpaceInfo,
-  setSession
+  setSession,
+  listDirectoryContents,
+  createDirectory,
+  deleteCloudItem,
+  renameCloudItem,
+  getFileDownloadUrl
 } from './cloudpan'
 import {
   setCanvasSession,
@@ -809,6 +814,78 @@ app.whenReady().then(async () => {
     saveSessionStore({ cloudUserToken: undefined })
     return { ok: true }
   })
+
+  // ─── 交大云盘资源管理器与文件操作 ─────────────────────────
+
+  ipcMain.handle(
+    'cloudpan:list-dir',
+    async (_e, dirPath: string[] = [], page = 1, pageSize = 100) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        const data = await listDirectoryContents(userToken, dirPath, page, pageSize)
+        return { ok: true, data }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '获取目录列表失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:create-dir',
+    async (_e, dirPath: string[]) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        await createDirectory(userToken, dirPath)
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '创建目录失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:delete-item',
+    async (_e, targetPath: string[], isDir: boolean) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        await deleteCloudItem(userToken, targetPath, isDir)
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '删除失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:rename-item',
+    async (_e, oldPath: string[], newName: string, isDir: boolean) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        await renameCloudItem(userToken, oldPath, newName, isDir)
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '重命名失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:get-download-url',
+    async (_e, filePath: string[]) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        const url = await getFileDownloadUrl(userToken, filePath)
+        return { ok: true, url }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '获取下载链接失败' }
+      }
+    }
+  )
 
   /** 利用已有的 jAccount session 直接完成 pan SSO 登录。
    *  用隐藏 BrowserWindow 加载 pan → 点击"jAccount登录" → SSO 自动跳转 → 拿 UserToken cookie。 */
