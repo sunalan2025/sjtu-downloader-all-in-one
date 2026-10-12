@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react'
 import { useAppStore, useEffectiveProgress } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
@@ -24,7 +24,8 @@ import type {
   CanvasCourse,
   CanvasDownloadTaskSpec,
   CanvasFileItem,
-  CanvasLectureDownloadItem
+  CanvasLectureDownloadItem,
+  CanvasLectureGroup
 } from '@shared/types'
 import { sanitizeFsName } from '@shared/utils'
 
@@ -43,6 +44,32 @@ function fileTaskId(courseId: number, fileId: number): string {
 
 function lectureStreamTaskId(courseId: number, lectureNum: number, role: 'teacher' | 'ppt'): string {
   return `canvas_lecture_${courseId}_${lectureNum}_${role}`
+}
+
+export function pptPdfTaskId(courseId: number, lectureNum: number): string {
+  return `canvas_ppt_item_${courseId}_${lectureNum}`
+}
+
+export function buildPptPdfItems(
+  courseName: string,
+  courseId: number,
+  lectures: CanvasLectureGroup[] | undefined,
+  isSelected: boolean,
+  onToggle: () => void,
+  renderExtra?: ReactNode
+): NetdiskFileItem[] {
+  if (!lectures) return []
+  return lectures
+    .filter(l => !!l.teacher)
+    .map(l => ({
+      id: pptPdfTaskId(courseId, l.lectureNum),
+      name: `${courseName} - 第${l.lectureNum}讲 PPT课件 (PDF)`,
+      date: l.date,
+      type: 'PDF',
+      selected: isSelected,
+      onToggle,
+      renderExtra
+    }))
 }
 
 // 模块视频 taskId / baseName。sanitize 保证 taskId 稳定、落盘文件名合法。
@@ -1147,8 +1174,8 @@ export function CanvasBrowser() {
             videoItems.push({
               id: tTid,
               name: isAudioOnly
-                ? `${c.name} - 第${l.lectureNum}讲 教师 (音频 M4A)`
-                : `${c.name} - 第${l.lectureNum}讲 教师 (MP4)`,
+                ? `${c.name} - 第${l.lectureNum}讲 教师视角 (音频 M4A)`
+                : `${c.name} - 第${l.lectureNum}讲 教师视角 (MP4)`,
               date: l.date,
               type: isAudioOnly ? 'M4A' : 'MP4',
               selected: selected.has(tTid),
@@ -1159,10 +1186,10 @@ export function CanvasBrowser() {
             videoItems.push({
               id: pTid,
               name: isAudioOnly
-                ? `${c.name} - 第${l.lectureNum}讲 PPT (无独立音频流)`
-                : `${c.name} - 第${l.lectureNum}讲 PPT (MP4)`,
+                ? `${c.name} - 第${l.lectureNum}讲 PPT投影视角 (无独立音频流)`
+                : `${c.name} - 第${l.lectureNum}讲 PPT投影视角 (MP4)`,
               date: l.date,
-              type: isAudioOnly ? 'DISABLED' : 'PPT',
+              type: isAudioOnly ? 'DISABLED' : 'MP4',
               disabled: isAudioOnly,
               disabledReason: isAudioOnly ? '无独立音频流' : undefined,
               selected: isAudioOnly ? false : selected.has(pTid),
@@ -1175,6 +1202,16 @@ export function CanvasBrowser() {
           }
         }
       }
+
+      // PPT 课件 (PDF) 逐讲明细
+      const pptPdfItems = buildPptPdfItems(
+        c.name,
+        c.courseId,
+        lec,
+        !!catSel?.pptPdf,
+        () => setCanvasCourseCategorySelection(c.courseId, { pptPdf: !catSel?.pptPdf }),
+        <PptPdfProgressRow courseId={c.courseId} />
+      )
       if (mv) {
         for (const t of mv.iframes) {
           const tid = iframeVideoTaskId(c.courseId, t.pageTitle)
@@ -1314,7 +1351,7 @@ export function CanvasBrowser() {
           icon: 'presentation',
           state: catSel?.pptPdf ? 'all' : 'none',
           onToggle: () => setCanvasCourseCategorySelection(c.courseId, { pptPdf: !catSel?.pptPdf }),
-          items: [],
+          items: pptPdfItems,
           emptyMessage: !catSel?.pptPdf
             ? '点击勾选本分类，可在下载时自动抓取课堂视频演示切片并合并导出为高清 PDF 讲义'
             : '已勾选：点击「开始下载」将自动抓取视频切片并导出为 PDF 讲义',

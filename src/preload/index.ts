@@ -233,6 +233,7 @@ const api = {
       lectures?: CanvasLectureGroup[]
       token?: string
       canvasCourseId?: string
+      legacyCourseId?: string
       error?: string
     }> =>
       ipcRenderer.invoke('canvas:class-video-scan', courseId),

@@ -317,3 +317,66 @@ describe('settings navigation', () => {
   })
 })
 
+describe('Canvas category badges and PPT PDF lecture items', () => {
+  it('FileTypeBadge renders blue MP4 badge when item name is PPT投影视角 and type is MP4', () => {
+    // 纠偏前：课堂视频中的 PPT 投影视角被赋予 type: 'PPT'，导致 FileTypeBadge 误显示橙色幻灯片图标
+    // 纠偏后：type 修正为 MP4，必须渲染蓝色 MP4 视频图标，绝不能出现橙色 PowerPoint 幻灯片图标
+    const pptVideoStreamBadge = FileTypeBadge({
+      filename: '高等数学 - 第1讲 PPT投影视角 (MP4)',
+      type: 'MP4'
+    })
+    const badgeStr = JSON.stringify(pptVideoStreamBadge)
+    expect(badgeStr).toContain('MP4 视频')
+    expect(badgeStr).toContain('#2563EB')
+    expect(badgeStr).not.toContain('PowerPoint 幻灯片')
+    expect(badgeStr).not.toContain('#EA580C')
+  })
+
+  it('FileTypeBadge renders red PDF badge when item name is PPT课件 and type is PDF', () => {
+    // PPT课件 (PDF) 各讲次项应渲染为红色 PDF 徽标
+    const pptPdfBadge = FileTypeBadge({
+      filename: '高等数学 - 第1讲 PPT课件 (PDF)',
+      type: 'PDF'
+    })
+    const badgeStr = JSON.stringify(pptPdfBadge)
+    expect(badgeStr).toContain('PDF 文档')
+    expect(badgeStr).toContain('#DC2626')
+    expect(badgeStr).not.toContain('PowerPoint 幻灯片')
+  })
+
+  it('buildPptPdfItems populates lecture items with PDF type and correct metadata', async () => {
+    const { buildPptPdfItems, pptPdfTaskId } = await import('../pages/CanvasBrowser')
+    const mockLectures = [
+      { lectureNum: 1, date: '2026-03-01', teacher: { id: 's1' } as any },
+      { lectureNum: 2, date: '2026-03-08', teacher: { id: 's2' } as any }
+    ]
+    const onToggle = vi.fn()
+    const items = buildPptPdfItems('高等数学', 99999, mockLectures, true, onToggle)
+
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatchObject({
+      id: pptPdfTaskId(99999, 1),
+      name: '高等数学 - 第1讲 PPT课件 (PDF)',
+      date: '2026-03-01',
+      type: 'PDF',
+      selected: true
+    })
+    expect(items[1]).toMatchObject({
+      id: pptPdfTaskId(99999, 2),
+      name: '高等数学 - 第2讲 PPT课件 (PDF)',
+      date: '2026-03-08',
+      type: 'PDF',
+      selected: true
+    })
+
+    // 触发单讲 onToggle 联动
+    items[0].onToggle()
+    expect(onToggle).toHaveBeenCalledTimes(1)
+
+    // 验证各讲次项所用徽标为红色 PDF
+    const firstItemBadge = FileTypeBadge({ filename: items[0].name, type: items[0].type })
+    expect(JSON.stringify(firstItemBadge)).toContain('PDF 文档')
+    expect(JSON.stringify(firstItemBadge)).toContain('#DC2626')
+  })
+})
+
