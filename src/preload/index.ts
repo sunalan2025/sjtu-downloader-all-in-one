@@ -195,7 +195,16 @@ const api = {
       ipcRenderer.invoke('cloudpan:rename-item', oldPath, newName, isDir),
     /** 获取交大云盘文件的下载直链 */
     getDownloadUrl: (filePath: string[]): Promise<{ ok: boolean; url?: string; error?: string }> =>
-      ipcRenderer.invoke('cloudpan:get-download-url', filePath)
+      ipcRenderer.invoke('cloudpan:get-download-url', filePath),
+    /** 下载交大云盘文件到本地并加入传输队列 */
+    downloadFile: (remotePath: string[], targetDir?: string): Promise<{ ok: boolean; taskId?: string; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:download-file', remotePath, targetDir),
+    /** 调起本地文件选择框并将选中文件上传到交大云盘 */
+    uploadFiles: (targetDirPath: string[]): Promise<{ ok: boolean; count?: number; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:upload-files', targetDirPath),
+    /** 在系统默认浏览器中打开交大云盘网页版 */
+    openInBrowser: (remotePath?: string[]): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:open-web', remotePath)
   },
   // ─── Canvas (oc.sjtu.edu.cn) ───
   canvas: {

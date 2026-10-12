@@ -690,3 +690,14 @@ export async function uploadLocalFileToCloud(
     throw err
   }
 }
+
+// ─── 云盘网页端 URL 构建 ─────────────────────────────────────
+
+/** 构造网页端目标地址 */
+export function getCloudPanWebUrl(remotePath: string[] = []): string {
+  const clean = Array.isArray(remotePath) ? remotePath.filter(Boolean) : []
+  if (clean.length === 0) return 'https://pan.sjtu.edu.cn/#/files/'
+  return 'https://pan.sjtu.edu.cn/#/files/' + clean.map(encodeURIComponent).join('/')
+}
+
+
