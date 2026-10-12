@@ -480,6 +480,7 @@ export interface CanvasClassVideoInfo {
 export type CanvasTaskSource =
   | 'canvas-files'
   | 'canvas-class-video'
+  | 'canvas-video'            // 旧版录播 (courses.sjtu.edu.cn) 直接 MP4 直链
   | 'canvas-module-video'      // Page iframe 嵌入的 v.sjtu 公开课分享页（HLS，走 downloadModuleVideoNow）
   | 'canvas-exttool-video'    // ExternalTool 模块项 → v.sjtu LTI → /file/{id} → S3 直链 MP4
   | 'canvas-exturl-video'     // ExternalUrl 模块项 → vshare /api/video/play/{uuid} → S3 直链 MP4
