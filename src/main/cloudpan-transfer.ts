@@ -13,7 +13,6 @@ import { getMainWindow } from './window'
 import { emitProgress } from './download-engine/progress'
 import { pendingLocal, pendingLocalIds } from './download-engine/shared'
 import { scheduleNext } from './download-engine/local'
-import { getAutoConcurrency, startAutoConcurrency } from './concurrency'
 
 /** 活跃的后台上传 Promise 集合（供测试与退出等待） */
 export const activeUploadPromises = new Set<Promise<void>>()
@@ -71,7 +70,6 @@ export async function downloadCloudFile(
     const partPath = filePath + '.part'
     pendingLocal.push({ spec, filePath, partPath })
     pendingLocalIds.add(spec.taskId)
-    if (getAutoConcurrency()) startAutoConcurrency()
     emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
     scheduleNext()
     return { ok: true, taskId }

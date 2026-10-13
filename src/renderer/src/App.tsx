@@ -134,7 +134,6 @@ export default function App() {
   return (
     <div className="flex h-full w-full flex-col">
       <TitleBar
-        onLogout={() => void handleLogout()}
         onOpenSettings={handleSettingsClick}
         onOpenTransfer={handleTransferClick}
       />
@@ -156,7 +155,7 @@ export default function App() {
               {activeTab === 'canvas' && <CanvasBrowser />}
               {activeTab === 'cnmooc' && <CnmoocBrowser />}
               {activeTab === 'transfer' && <TransferCenter onBack={handleBackToCourses} />}
-              {activeTab === 'settings' && <Settings onBack={handleBackToCourses} />}
+              {activeTab === 'settings' && <Settings onBack={handleBackToCourses} onLogout={() => void handleLogout()} />}
               {activeTab === 'cloudpan' && <CloudPanExplorer onBack={handleBackToCourses} />}
             </div>
           </StagePane>

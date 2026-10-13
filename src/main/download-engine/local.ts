@@ -42,21 +42,13 @@ import {
 import { downloadHlsVideo, extractAudioFromVideo } from '../canvas/hls-download'
 import { sjtuSession } from '../session'
 import {
-  noteTaskResult,
   noteNetworkRecovery,
   noteNetworkError,
   isDnsError,
   noteDownloadBytes,
-  noteDiskWrite,
-  noteRttSample,
-  noteRateLimited,
-  noteTaskError,
   getConcurrency,
   isNetworkHealthy,
-  ensureNetworkResumeTimer,
-  onTaskCompleted,
-  getAutoConcurrency,
-  startAutoConcurrency
+  ensureNetworkResumeTimer
 } from '../concurrency'
 import { getIsQuitting } from '../window'
 import { emitProgress } from './progress'
@@ -101,13 +93,8 @@ export function scheduleNext(): void {
       t.resp = undefined
       t.ws = undefined
       t.cancel = undefined
-      // 喂入 AIMD 错误率指标：仅计入真正发生传输的尝试（排除 paused/cancelled/skipped）
-      const fs = t.state as DownloadState
-      if (fs === 'done') noteTaskResult(true)
-      else if (fs === 'error') noteTaskResult(false)
       notifyConcurrencySlotAvailable()
       scheduleNext()
-      onTaskCompleted()  // 事件驱动并发探测
     })
   }
 }
@@ -296,7 +283,6 @@ async function runTask(t: TaskRuntime): Promise<void> {
       /* ignore */
     }
     t.state = 'error'
-    noteTaskError()
     const msg = extractErrorMessage(err, '下载失败')
     emitProgress({
       taskId: t.spec.taskId,
@@ -352,7 +338,6 @@ function downloadStream(t: TaskRuntime): Promise<void> {
         fail(new Error(`重定向过多：${depth}`))
         return
       }
-      const reqStart = Date.now()  // RTT 采样：请求发起 → 响应头到达（TTFB 近似）
       let u: URL
       try {
         u = new URL(url)
@@ -420,7 +405,6 @@ function downloadStream(t: TaskRuntime): Promise<void> {
           }
 
           if (status < 200 || status >= 300) {
-            if (status === 429) noteRateLimited()  // 限流信号 → AIMD ×0.6
             // 对任何 SJTU 域名的 429 (Too Many Requests) 进行指数退避重试；
             // 403 仅对 oc.sjtu 限流进行重试（S3 的 403 是签名/权限永久错误，不重试）
             const isRateLimited = status === 429 || (status === 403 && u.hostname === CANVAS_HOST)
@@ -454,9 +438,6 @@ function downloadStream(t: TaskRuntime): Promise<void> {
             resp.on('error', fail)
             return
           }
-
-          // RTT 采样：响应头到达（含重定向/Range 协商后的最终 2xx）
-          noteRttSample(Date.now() - reqStart)
 
           // 计算 total
           const lenHdr = resp.headers['content-length']
@@ -501,7 +482,6 @@ function downloadStream(t: TaskRuntime): Promise<void> {
             t.received += chunk.length
             noteDownloadBytes(chunk.length)
             void globalSpeedLimiter.consume(chunk.length)
-            noteDiskWrite(chunk.length)  // 本地落盘 → 磁盘 IO 指标
             if (!ws.write(chunk)) {
               resp.pause()
               ws.once('drain', () => resp.resume())
@@ -549,7 +529,6 @@ export function reEnqueueLocal(p: PendingSpec): void {
   pendingLocal.push(p)
   pendingLocalIds.add(p.spec.taskId)
   pausedLocalIds.delete(p.spec.taskId)
-  if (getAutoConcurrency()) startAutoConcurrency()
   emitProgress({ taskId: p.spec.taskId, state: 'pending', received: 0, total: 0 })
 }
 

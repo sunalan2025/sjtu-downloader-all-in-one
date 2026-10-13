@@ -43,7 +43,7 @@ describe('window exit preferences and resolution', () => {
       useAppStore.getState().setWindowCloseAction('quit')
       expect(await resolveWindowAction('close')).toBe('quit')
 
-      expect(await resolveWindowAction('minimize')).toBe('minimize')
+      expect(await resolveWindowAction('minimize')).toBe('taskbar')
     } finally {
       useAppStore.getState().setWindowCloseAction('tray')
       ;(globalThis as any).window = originalWindow
@@ -62,18 +62,22 @@ describe('window exit preferences and resolution', () => {
 
     try {
       useAppStore.getState().setExitWhenDownloading('background')
+      useAppStore.getState().setWindowCloseAction('tray')
       expect(await resolveWindowAction('close')).toBe('minimize')
-      expect(await resolveWindowAction('minimize')).toBe('minimize')
+      expect(await resolveWindowAction('minimize')).toBe('taskbar')
+
+      useAppStore.getState().setWindowCloseAction('taskbar')
+      expect(await resolveWindowAction('close')).toBe('taskbar')
 
       useAppStore.getState().setExitWhenDownloading('pause_quit')
       expect(await resolveWindowAction('close')).toBe('quit')
-      // 关键修复验证：进行中任务存在且策略为 pause_quit 时，点击最小化依然保持 minimize
-      expect(await resolveWindowAction('minimize')).toBe('minimize')
+      // 关键修复验证：进行中任务存在且策略为 pause_quit 时，点击最小化依然保持标准最小化到任务栏 taskbar
+      expect(await resolveWindowAction('minimize')).toBe('taskbar')
 
       // prompt with unmounted modal returns cancel
       useAppStore.getState().setExitWhenDownloading('prompt')
       expect(await resolveWindowAction('close')).toBe('cancel')
-      expect(await resolveWindowAction('minimize')).toBe('minimize')
+      expect(await resolveWindowAction('minimize')).toBe('taskbar')
     } finally {
       useAppStore.getState().setExitWhenDownloading('prompt')
       ;(globalThis as any).window = originalWindow

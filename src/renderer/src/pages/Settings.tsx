@@ -22,7 +22,14 @@ function formatCredentialDate(ts: number): string {
   return `${y}-${m}-${date} ${h}:${min}`
 }
 
-export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
+export function Settings({
+  onBack: _onBack,
+  onLogout
+}: {
+  onBack?: () => void
+  onLogout?: () => void
+}) {
+  const auth = useAppStore(s => s.auth)
   const downloadMode = useAppStore(s => s.downloadMode)
   const setDownloadMode = useAppStore(s => s.setDownloadMode)
   const fileConflictStrategy = useAppStore(s => s.fileConflictStrategy)
@@ -742,6 +749,51 @@ export function Settings({ onBack: _onBack }: { onBack?: () => void }) {
                     基于系统安全保险库（Windows DPAPI / macOS Keychain）保护的 jAccount 统一身份认证账号密码
                   </p>
                 </div>
+
+                {/* 当前登录会话状态卡片 */}
+                {auth?.loggedIn && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-bd/80 bg-surface-2/60 p-4 shadow-2xs">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-lg">
+                        👤
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-text-1">
+                            {auth.accountName || auth.studentId || '当前登录账号'}
+                          </span>
+                          {auth.studentId && auth.accountName && (
+                            <span className="rounded-md bg-surface-3 px-2 py-0.5 font-mono text-2xs text-text-3">
+                              {auth.studentId}
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 rounded-md bg-success-bg px-2 py-0.5 text-2xs font-semibold text-success ring-1 ring-success-ring">
+                            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                            在线会话
+                          </span>
+                        </div>
+                        <p className="text-xs text-text-3 mt-0.5">
+                          当前会话有效，已建立 Canvas 与交大在线服务安全授权
+                        </p>
+                      </div>
+                    </div>
+                    {onLogout && (
+                      <button
+                        type="button"
+                        onClick={onLogout}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-danger/30 bg-danger-bg px-3 py-1.5 text-xs font-semibold text-danger hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer shadow-2xs self-start sm:self-auto shrink-0"
+                        title="退出当前账号登录并返回欢迎页"
+                      >
+                        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                          <polyline points="16 17 21 12 16 7" />
+                          <line x1="21" y1="12" x2="9" y2="12" />
+                        </svg>
+                        <span>退出当前登录</span>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* 硬件级加密防护横幅 */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-success/30 bg-success-bg p-4 shadow-2xs">

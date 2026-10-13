@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type Electron from 'electron'
-import type { CanvasVideoSession, CanvasTeacherSelection, CanvasLectureGroup } from '../../src/shared/types'
+import type { CanvasVideoSession } from '../../src/shared/types'
 
 // Mock Electron IPC and BrowserWindow
 const ipcHandlers = new Map<string, (...args: any[]) => any>()

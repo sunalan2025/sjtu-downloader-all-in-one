@@ -26,7 +26,7 @@ import { pendingLocal, pendingLocalIds } from '../../src/main/download-engine/sh
 import * as progressModule from '../../src/main/download-engine/progress'
 import { scheduleNext } from '../../src/main/download-engine/local'
 import { getMainWindow } from '../../src/main/window'
-import type { CloudPanDirectoryListing, CloudPanItem } from '../../src/shared/types'
+import type { CloudPanDirectoryListing } from '../../src/shared/types'
 
 vi.mock('electron', () => ({
   app: {
