@@ -40,21 +40,14 @@ import {
   sharedActiveCount
 } from './shared'
 import {
-  noteTaskResult,
   noteNetworkRecovery,
   noteNetworkError,
   isDnsError,
   noteDownloadBytes,
   noteUploadBytes,
-  noteRttSample,
-  noteRateLimited,
-  noteTaskError,
   getConcurrency,
   isNetworkHealthy,
-  ensureNetworkResumeTimer,
-  onTaskCompleted,
-  getAutoConcurrency,
-  startAutoConcurrency
+  ensureNetworkResumeTimer
 } from '../concurrency'
 import { getIsQuitting } from '../window'
 import { emitProgress } from './progress'
@@ -73,7 +66,6 @@ export function reEnqueueCloud(spec: DownloadTaskSpec): void {
   pendingCloud.push(spec)
   pendingCloudIds.add(spec.taskId)
   pausedCloudIds.delete(spec.taskId)
-  if (getAutoConcurrency()) startAutoConcurrency()
   emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
 }
 
@@ -106,13 +98,8 @@ export function cloudScheduleNext(): void {
       t.req = undefined
       t.resp = undefined
       t.uploader = undefined
-      // 喂入 AIMD 错误率指标：仅计入真正发生传输的尝试（排除 paused/cancelled/skipped）
-      const fs = t.state as DownloadState
-      if (fs === 'done') noteTaskResult(true)
-      else if (fs === 'error') noteTaskResult(false)
       notifyConcurrencySlotAvailable()
       cloudScheduleNext()
-      onTaskCompleted()  // 事件驱动并发探测
     })
   }
 }
@@ -245,7 +232,6 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
     }
 
     t.state = 'error'
-    noteTaskError()
     cloudFullRetries.delete(t.spec.taskId)  // 到此为永久失败，清计数
     if (t.uploader) {
       t.uploaderState = t.uploader.getState()
@@ -336,11 +322,9 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
             chunksLen = remainder.length
           }
           uploading = true
-          const upStart = Date.now()  // 上传 RTT 采样起点
           void uploader.uploadChunk(uploadBuf).then(() => {
-            // 上传字节计入速度指标 + 上传 RTT 样本
+            // 上传字节计入速度指标
             noteUploadBytes(uploadBuf.length)
-            noteRttSample(Date.now() - upStart)
             uploading = false
             // [Bug Fix] 一片上传成功即重置 CDN 拉流重试计数。
             // 原 retryCount 作用于整个 cloudDownloadAndUpload，长任务累计 3 次独立
@@ -353,8 +337,6 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
             }
             tryUploadNext()  // 排空下一片，或进入 confirm
           }).catch((e: Error) => {
-            // COS 429 限流 → 喂入 AIMD 重度拥塞信号
-            if (e?.message?.includes('429')) noteRateLimited()
             fail(e)
           })
         }
@@ -363,7 +345,6 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
 
       const fetchOnce = (url: string, depth: number): void => {
         if (depth > 5) { fail(new Error(`重定向过多：${depth}`)); return }
-        const reqStart = Date.now()  // RTT 采样：请求发起 → 响应头到达
         let u: URL
         try { u = new URL(url) } catch { fail(new Error(`URL 解析失败：${url.slice(0, 120)}`)); return }
 
@@ -415,7 +396,6 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
             }
 
             if (status < 200 || status >= 300) {
-              if (status === 429) noteRateLimited()  // 限流信号 → AIMD ×0.6
               const isRateLimited = status === 429 || (status === 403 && u.hostname === CANVAS_HOST)
               let bodyHead = ''
               resp.on('data', (c: Buffer) => { if (bodyHead.length < 200) bodyHead += c.toString('utf8', 0, 200) })
@@ -442,9 +422,6 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
               resp.on('error', fail)
               return
             }
-
-            // RTT 采样：CDN 响应头到达
-            noteRttSample(Date.now() - reqStart)
 
             // CDN 不支持 Range（返回 200 而非 206）：销毁旧请求，重建 uploader，重新开始
             // [Bug 33 Fix] 先移除旧 resp 上的监听器，防止旧流的 data/end 事件干扰新会话

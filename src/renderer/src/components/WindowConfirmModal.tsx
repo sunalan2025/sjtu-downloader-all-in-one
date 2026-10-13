@@ -17,8 +17,8 @@ let openFn: ((action: WindowAction) => Promise<WindowChoice>) | null = null
  *  - 关闭动作且无进行中任务：按 windowCloseAction 映射（tray → 'minimize', taskbar → 'taskbar', quit → 'quit'）；
  *  - 关闭动作且有进行中任务：按 exitWhenDownloading 映射（background → 'minimize', pause_quit → 'quit', prompt → 弹窗询问）。 */
 export async function resolveWindowAction(action: WindowAction): Promise<WindowChoice> {
-  // 最小化按钮操作始终执行最小化，不受正在下载关闭策略拦截
-  if (action === 'minimize') return 'minimize'
+  // 最小化按钮操作始终执行标准最小化到任务栏，不受正在下载关闭策略拦截
+  if (action === 'minimize') return 'taskbar'
 
   const { ongoing } = await window.api.window.hasOngoingTasks()
   const { windowCloseAction, exitWhenDownloading } = useAppStore.getState()
@@ -30,7 +30,9 @@ export async function resolveWindowAction(action: WindowAction): Promise<WindowC
   }
 
   // 有进行中任务且关闭窗口时：受 exitWhenDownloading 策略控制
-  if (exitWhenDownloading === 'background') return 'minimize'
+  if (exitWhenDownloading === 'background') {
+    return windowCloseAction === 'taskbar' ? 'taskbar' : 'minimize'
+  }
   if (exitWhenDownloading === 'pause_quit') return 'quit'
 
   if (!openFn) return 'cancel' // 弹窗未就绪，安全回退
@@ -54,6 +56,7 @@ export async function handleWindowAction(action: WindowAction): Promise<void> {
 /** Mac 风格确认弹窗。挂载在 App 顶层（单例），监听 close-requested 事件。
  *  弹窗由模块级 openFn 触发，用户点击按钮后 resolve 对应 Promise。 */
 export function WindowConfirmModal() {
+  const windowCloseAction = useAppStore(s => s.windowCloseAction)
   const [state, setState] = useState<{ action: WindowAction; resolve: (c: WindowChoice) => void } | null>(null)
   const stateRef = useRef(state)
   stateRef.current = state
@@ -132,7 +135,9 @@ export function WindowConfirmModal() {
             <p className="mt-1.5 text-xs leading-relaxed text-text-3">
               应用有正在进行的下载/上传任务。
               <br />
-              最小化到托盘可让任务在后台继续，取消下载并退出将中止全部任务。
+              {windowCloseAction === 'taskbar'
+                ? '最小化到任务栏可让任务在后台继续，取消下载并退出将中止全部任务。'
+                : '最小化到托盘可让任务在后台继续，取消下载并退出将中止全部任务。'}
             </p>
           </div>
         </div>
@@ -142,10 +147,10 @@ export function WindowConfirmModal() {
           <button
             type="button"
             autoFocus
-            onClick={() => close('minimize')}
+            onClick={() => close(windowCloseAction === 'taskbar' ? 'taskbar' : 'minimize')}
             className="h-9 rounded-lg bg-accent text-sm font-medium text-white transition-all hover:brightness-110 active:scale-[0.98]"
           >
-            最小化到托盘
+            {windowCloseAction === 'taskbar' ? '最小化到任务栏' : '最小化到托盘'}
           </button>
           <button
             type="button"

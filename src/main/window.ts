@@ -17,7 +17,6 @@ import { formatBytes } from '../shared/utils'
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
 let tray: Tray | null = null
-let isMinimizingToTaskbar = false
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
@@ -35,8 +34,24 @@ export function setIsQuitting(v: boolean): void {
 export function minimizeToTaskbar(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) return
-    isMinimizingToTaskbar = true
     mainWindow.minimize()
+  }
+}
+
+let trayHintShown = false
+
+/** 隐藏窗口到系统托盘（并提示气泡） */
+export function hideToTray(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide()
+    if (!trayHintShown && tray && process.platform === 'win32') {
+      trayHintShown = true
+      tray.displayBalloon({
+        iconType: 'info',
+        title: 'SJTU 课程下载器',
+        content: '已最小化到系统托盘，下载将继续在后台进行。点击托盘图标可恢复窗口。'
+      })
+    }
   }
 }
 
@@ -96,25 +111,8 @@ export function createMainWindow(): void {
   }
 
   // ─── 最小化/关闭到系统托盘 ───────────────────────────────────
-  // 标题栏使用自定义按钮（见 TitleBar CaptionButtons）→ window:minimize/close IPC。
-  // 原生 minimize 事件无法 preventDefault，故仅作为任务栏/Win+Down 的兜底：直接隐藏到托盘。
+  // 标题栏使用自定义按钮（见 TitleBar WindowsCaptionButtons）→ window:minimize/close IPC。
   // close 事件可 preventDefault，统一走 handleCloseAction（含下载中确认弹窗），覆盖 Alt+F4/任务栏关闭。
-  let trayHintShown = false
-  mainWindow.on('minimize', () => {
-    if (isMinimizingToTaskbar) {
-      isMinimizingToTaskbar = false
-      return
-    }
-    mainWindow?.hide()
-    if (!trayHintShown && tray && process.platform === 'win32') {
-      trayHintShown = true
-      tray.displayBalloon({
-        iconType: 'info',
-        title: 'SJTU 课程下载器',
-        content: '已最小化到系统托盘，下载将继续在后台进行。点击托盘图标可恢复窗口。'
-      })
-    }
-  })
   mainWindow.on('close', (e) => {
     // isQuitting 由托盘"退出"/window:quit/window:cancel-and-quit/before-quit 置位；否则拦截，
     // 发事件让 renderer 弹 Mac 风格确认窗，renderer 回调 window:minimize / window:cancel-and-quit / 不动。

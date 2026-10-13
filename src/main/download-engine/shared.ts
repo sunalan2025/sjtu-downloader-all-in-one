@@ -16,7 +16,7 @@ import {
   type DownloadTaskSpec,
   type FileConflictStrategy
 } from '../../shared/types'
-import { getHlsActive, noteTaskError } from '../concurrency'
+import { getHlsActive } from '../concurrency'
 import { emitProgress } from './progress'
 import { getIsQuitting } from '../window'
 import { sjtuSession } from '../session'
@@ -275,7 +275,6 @@ export async function resolveDirectUrl(
     } catch (err) {
       if (t.state === 'cancelled') return false
       t.state = 'error'
-      noteTaskError()
       const msg = err instanceof Error ? err.message : String(err)
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
       scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -345,7 +344,6 @@ export async function resolveDirectUrl(
         } catch (err) {
           if (t.state === 'cancelled') return false
           t.state = 'error'
-          noteTaskError()
           const msg = err instanceof Error ? err.message : String(err)
           emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
           scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -377,7 +375,6 @@ export async function resolveDirectUrl(
       } catch (err) {
         if (t.state === 'cancelled') return false
         t.state = 'error'
-        noteTaskError()
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
         scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -418,7 +415,6 @@ export async function resolveDirectUrl(
         }
         if (!t.spec.url) {
           t.state = 'error'
-          noteTaskError()
           emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
           scheduleCleanupTask(t.spec.taskId, isCloud)
           return false
@@ -444,7 +440,6 @@ export async function resolveDirectUrl(
       } catch (err) {
         if (t.state === 'cancelled') return false
         t.state = 'error'
-        noteTaskError()
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
         scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -469,7 +464,6 @@ export async function resolveDirectUrl(
       } catch (err) {
         if (t.state === 'cancelled') return false
         t.state = 'error'
-        noteTaskError()
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
         scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -496,7 +490,6 @@ export async function resolveDirectUrl(
     } catch (err) {
       if (t.state === 'cancelled') return false
       t.state = 'error'
-      noteTaskError()
       const msg = err instanceof Error ? err.message : String(err)
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
       scheduleCleanupTask(t.spec.taskId, isCloud)

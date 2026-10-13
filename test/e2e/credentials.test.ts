@@ -113,7 +113,7 @@ describe('Credentials Vault Suite', () => {
 
   it('deletes specific credential and clears all', async () => {
     const c1 = await saveCredential('userA', 'pA')
-    const c2 = await saveCredential('userB', 'pB')
+    await saveCredential('userB', 'pB')
     expect((await listMaskedCredentials()).length).toBe(2)
 
     await deleteCredential(c1.id!)

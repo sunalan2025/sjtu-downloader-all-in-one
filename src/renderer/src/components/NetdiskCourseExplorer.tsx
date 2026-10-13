@@ -528,7 +528,7 @@ function GridView({
               </div>
 
               <div className="border-t border-bd/40 pt-2 flex items-center justify-between text-[11px] text-text-3">
-                <span>点击下钻查看文件</span>
+                <span>点击进入查看文件</span>
                 <span className="text-accent font-medium group-hover:translate-x-0.5 transition-transform">
                   进入 ›
                 </span>

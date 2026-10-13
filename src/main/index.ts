@@ -69,18 +69,13 @@ import {
 import {
   getConcurrency,
   setConcurrency,
-  getAutoConcurrency,
-  setAutoConcurrency,
   getHlsActive,
   setHlsActive,
-  startAutoConcurrency,
-  stopAutoConcurrency,
   startSpeedTicker,
   stopSpeedTicker,
   stopNetworkResumeTimer,
   setRendererEmitter,
   setRescheduleCallback,
-  setHasActiveWorkGetter,
   setIsQuittingGetter
 } from './concurrency'
 import {
@@ -88,6 +83,7 @@ import {
   showMainWindow,
   getMainWindow,
   minimizeToTaskbar,
+  hideToTray,
   setIsQuitting,
   getIsQuitting,
   createTray,
@@ -278,9 +274,8 @@ app.whenReady().then(async () => {
     w.webContents.send(channel, data)
   })
   // [concurrency.ts 注入] 打破与 download-engine / window 的循环依赖：
-  // - rendererEmit: 推 transfer:speed / download:concurrency-changed
-  // - reschedule: 并发变化后调 scheduleNext + cloudScheduleNext
-  // - hasActiveWork: 判断是否还有活跃任务（evalAutoConcurrency 用）
+  // - rendererEmit: 推 transfer:speed
+  // - reschedule: 网络恢复后重试调 scheduleNext + cloudScheduleNext
   // - isQuittingGetter: 退出守卫
   setRendererEmitter((channel, data) => {
     getMainWindow()?.webContents.send(channel, data)
@@ -289,7 +284,6 @@ app.whenReady().then(async () => {
     scheduleNext()
     cloudScheduleNext()
   })
-  setHasActiveWorkGetter(() => sharedActiveCount() > 0 || pendingLocal.length > 0 || pendingCloud.length > 0)
   setIsQuittingGetter(() => getIsQuitting())
   // [Bug 37 Fix] 注入并发容量提供者，让 HLS 下载遵守全局并发限制
   setConcurrencyProvider(() => ({ active: sharedActiveCount(), concurrency: getConcurrency() }))
@@ -327,7 +321,7 @@ app.whenReady().then(async () => {
   // 原生 minimize 事件无法 preventDefault，故任务栏/Win+Down 最小化仍直接隐藏到托盘。
   // close 事件可 preventDefault：发 window:close-requested 给 renderer 弹确认窗，
   // renderer 选择后回调 window:minimize / window:cancel-and-quit / 不动。
-  ipcMain.handle('window:minimize', () => { getMainWindow()?.hide(); return { ok: true } })
+  ipcMain.handle('window:minimize', () => { hideToTray(); return { ok: true } })
   ipcMain.handle('window:minimize-to-taskbar', () => { minimizeToTaskbar(); return { ok: true } })
   /** 直接退出（无下载时用）：不取消下载，cleanupOnQuit 统一回收句柄 */
   ipcMain.handle('window:quit', () => { setIsQuitting(true); app.quit(); return { ok: true } })
@@ -714,7 +708,6 @@ app.whenReady().then(async () => {
             pendingLocal.push({ spec: { ...spec, cloudUserToken: undefined }, filePath, partPath })
             pendingLocalIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            if (getAutoConcurrency()) startAutoConcurrency()
             emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
           }
           scheduleNext()
@@ -736,7 +729,6 @@ app.whenReady().then(async () => {
             pendingCloud.push(spec)
             pendingCloudIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            if (getAutoConcurrency()) startAutoConcurrency()
             emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
           }
           cloudScheduleNext()
@@ -779,19 +771,10 @@ app.whenReady().then(async () => {
     return { ok: true }
   })
   ipcMain.handle('download:set-concurrency', (_e, n: number) => {
-    if (n === 0) {
-      // 自动并发模式
-      setAutoConcurrency(true)
-      setConcurrency(3)
-      startAutoConcurrency()
-    } else {
-      setAutoConcurrency(false)
-      stopAutoConcurrency()
-      setConcurrency(Math.max(2, Math.min(16, Math.floor(Number(n)) || 3)))
-    }
+    setConcurrency(Math.max(1, Math.min(16, Math.floor(Number(n)) || 3)))
     scheduleNext()
     cloudScheduleNext()
-    return { ok: true, concurrency: getConcurrency(), auto: getAutoConcurrency() }
+    return { ok: true, concurrency: getConcurrency() }
   })
   ipcMain.handle('download:set-speed-limit', (_e, limitKBps: number) => {
     globalSpeedLimiter.setLimitKBps(limitKBps || 0)
@@ -1073,9 +1056,6 @@ function cleanupOnQuit(): void {
 
   // 清除云盘全量重试计数（释放内存）
   cloudFullRetries.clear()
-
-  // 清除自动并发定时器
-  stopAutoConcurrency()
 
   // 清除速度推送定时器
   stopSpeedTicker()
