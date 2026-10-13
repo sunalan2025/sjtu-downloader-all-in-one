@@ -99,8 +99,8 @@ function CategoryIcon({
     return <>{icon}</>
   }
 
-  const boxSize = size === 'lg' ? 'h-14 w-14 rounded-2xl' : size === 'sm' ? 'h-5 w-5 rounded-md' : 'h-7 w-7 rounded-lg'
-  const svgSize = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
+  const boxSize = size === 'lg' ? 'h-10 w-10 rounded-xl' : size === 'sm' ? 'h-5 w-5 rounded-md' : 'h-7 w-7 rounded-lg'
+  const svgSize = size === 'lg' ? 'h-5 w-5' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
 
   if (icon === 'audio') {
     return (
@@ -147,7 +147,11 @@ function CategoryIcon({
       </div>
     )
   }
-  return <FolderIcon className={`${size === 'lg' ? 'h-14 w-14' : size === 'sm' ? 'h-4 w-4' : 'h-6 w-6'} text-amber-500 shrink-0`} />
+  return (
+    <div className={`flex ${boxSize} shrink-0 items-center justify-center bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-sm ring-1 ring-amber-400/20`}>
+      <FolderIcon className={`${svgSize} text-white`} />
+    </div>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -375,7 +379,7 @@ function GridView({
   // 根目录：展示课程大文件夹网格
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="h-full overflow-y-auto p-1.5 pb-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
           {courses.map(c => (
             <div
@@ -407,15 +411,15 @@ function GridView({
                   <TriCheckbox state={c.state} size="sm" />
                 </span>
                 {c.term && (
-                  <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-mono text-text-3">
+                  <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-mono text-text-3 leading-normal inline-flex items-center">
                     {c.term}
                   </span>
                 )}
               </div>
 
-              <div className="my-3 flex flex-col items-center text-center">
+              <div className="my-2.5 flex flex-col items-center text-center">
                 <div className="relative mb-2 transition-transform duration-200 group-hover:scale-105">
-                  <FolderIcon className="h-16 w-16 drop-shadow-sm" />
+                  <FolderIcon className="h-9 w-9 text-amber-500 group-hover:text-accent transition-colors duration-200" />
                 </div>
                 <h3 className="line-clamp-2 text-sm font-bold text-text-1 group-hover:text-accent transition-colors" title={c.name}>
                   {c.name}
@@ -456,7 +460,7 @@ function GridView({
   // 课程级目录：展示课程下二级分类文件夹网格
   if (navState.level === 'course' || !currentCategory) {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="h-full overflow-y-auto p-1.5 pb-4">
         <div className="mb-4 flex items-center justify-between rounded-xl border border-bd bg-surface-1 p-3">
           <div className="flex items-center gap-3">
             <span
@@ -503,12 +507,12 @@ function GridView({
                 >
                   <TriCheckbox state={cat.state} size="sm" />
                 </span>
-                <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-mono text-text-3">
+                <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-mono text-text-3 leading-normal inline-flex items-center">
                   {cat.items.length} 文件
                 </span>
               </div>
 
-              <div className="my-4 flex flex-col items-center text-center">
+              <div className="my-2.5 flex flex-col items-center text-center">
                 <div className="mb-2 transition-transform duration-200 group-hover:scale-105">
                   <CategoryIcon icon={cat.icon} size="lg" />
                 </div>
