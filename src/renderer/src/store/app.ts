@@ -123,6 +123,8 @@ interface AppState {
   autoConcurrency: boolean
   /** 网盘式课程导航视图模式：grid=网格大图标，list=详细列表，column=分栏多级并列 */
   courseViewMode: CourseViewMode
+  /** Canvas 课程是否按学期分栏展示（默认 true） */
+  canvasGroupByTerm: boolean
   /** 上一次激活的内容课程 tab（canvas / audited / cnmooc） */
   lastCourseTab: 'canvas' | 'audited' | 'cnmooc'
   /** 关闭主窗口时的默认动作（tray=最小化到托盘，taskbar=最小化到任务栏，quit=彻底退出应用） */
@@ -142,6 +144,8 @@ interface AppState {
   setTheme: (t: Theme) => void
   /** 切换网盘式课程导航视图模式 */
   setCourseViewMode: (mode: CourseViewMode) => void
+  /** 切换 Canvas 课程是否按学期分栏展示 */
+  setCanvasGroupByTerm: (groupByTerm: boolean) => void
   /** 记录上一次激活的课程 tab */
   setLastCourseTab: (tab: 'canvas' | 'audited' | 'cnmooc') => void
   /** 切换主界面 stage */
@@ -423,6 +427,7 @@ export const useAppStore = create<AppState>()(
       autoConcurrency: false,
       autoDownloadUpdate: false,
       courseViewMode: 'grid' as CourseViewMode,
+      canvasGroupByTerm: true,
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
       windowCloseAction: 'tray' as WindowCloseAction,
       exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
@@ -432,6 +437,7 @@ export const useAppStore = create<AppState>()(
       setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
       setCourseViewMode: courseViewMode => set({ courseViewMode }),
+      setCanvasGroupByTerm: canvasGroupByTerm => set({ canvasGroupByTerm }),
       setLastCourseTab: lastCourseTab => set({ lastCourseTab }),
       setStage: stage => set({ stage }),
       setActiveTab: activeTab => set(state => {
@@ -784,6 +790,7 @@ export const useAppStore = create<AppState>()(
         videoQualityOption: state.videoQualityOption,
         downloadHistory: state.downloadHistory,
         courseViewMode: state.courseViewMode,
+        canvasGroupByTerm: state.canvasGroupByTerm,
         lastCourseTab: state.lastCourseTab,
         windowCloseAction: state.windowCloseAction,
         exitWhenDownloading: state.exitWhenDownloading,

@@ -1,4 +1,4 @@
-import { memo, useMemo, useEffect, useRef } from 'react'
+import { memo, useMemo, useEffect, useRef, Fragment } from 'react'
 import type React from 'react'
 import { BreadcrumbBar, type BreadcrumbItem } from './BreadcrumbBar'
 import {
@@ -82,6 +82,7 @@ export interface NetdiskCourseExplorerProps {
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
   emptyPlaceholder?: React.ReactNode
+  groupByTerm?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -163,7 +164,8 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   viewMode,
   navState,
   onNavigate,
-  emptyPlaceholder
+  emptyPlaceholder,
+  groupByTerm = true
 }: NetdiskCourseExplorerProps) {
   // 当前处于的课程对象
   const currentCourse = useMemo(() => {
@@ -335,6 +337,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
                   })
                 }
               }}
+              groupByTerm={groupByTerm}
             />
           ) : viewMode === 'list' ? (
             <ListView
@@ -343,6 +346,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               currentCategory={currentCategory}
               navState={navState}
               onNavigate={onNavigate}
+              groupByTerm={groupByTerm}
             />
           ) : (
             <GridView
@@ -351,6 +355,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               currentCategory={currentCategory}
               navState={navState}
               onNavigate={onNavigate}
+              groupByTerm={groupByTerm}
             />
           )}
         </div>
@@ -360,99 +365,179 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
 })
 
 // ─────────────────────────────────────────────────────────────
+// 学期分组辅助函数
+// ─────────────────────────────────────────────────────────────
+
+function groupCoursesByTerm(courses: NetdiskCourseItem[]) {
+  const map = new Map<string, NetdiskCourseItem[]>()
+  for (const c of courses) {
+    const t = c.term?.trim() || '其他 / 未指定学期'
+    if (!map.has(t)) map.set(t, [])
+    map.get(t)!.push(c)
+  }
+  // 降序排列学期：2025-2026-2 排在 2025-2026-1 前面
+  const sortedTerms = Array.from(map.keys()).sort((a, b) => b.localeCompare(a, 'zh-CN'))
+  return sortedTerms.map(term => ({
+    term,
+    items: map.get(term)!
+  }))
+}
+
+// ─────────────────────────────────────────────────────────────
 // 1. GridView (网格大图标视图)
 // ─────────────────────────────────────────────────────────────
+
+function CourseCard({
+  course,
+  onNavigate
+}: {
+  course: NetdiskCourseItem
+  onNavigate: (next: NetdiskNavState) => void
+}) {
+  const c = course
+  return (
+    <div
+      key={c.id}
+      onClick={() => {
+        c.onEnter?.()
+        onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
+      }}
+      className="group relative flex flex-col justify-between rounded-2xl border border-bd bg-surface-1 p-4 shadow-card hover:border-accent hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 cursor-pointer select-none"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span
+          role="checkbox"
+          aria-checked={c.state === 'all'}
+          tabIndex={0}
+          onClick={e => {
+            e.stopPropagation()
+            c.onToggle()
+          }}
+          onKeyDown={e => {
+            if (e.key === ' ' || e.key === 'Enter') {
+              e.preventDefault()
+              e.stopPropagation()
+              c.onToggle()
+            }
+          }}
+          className="p-1 -m-1 rounded-md hover:bg-surface-2 transition-colors cursor-pointer"
+        >
+          <TriCheckbox state={c.state} size="sm" />
+        </span>
+        {c.term && (
+          <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-mono text-text-3 leading-normal inline-flex items-center">
+            {c.term}
+          </span>
+        )}
+      </div>
+
+      <div className="my-2.5 flex flex-col items-center text-center">
+        <div className="relative mb-2 transition-transform duration-200 group-hover:scale-105">
+          <FolderIcon className="h-9 w-9 text-amber-500 group-hover:text-accent transition-colors duration-200" />
+        </div>
+        <h3 className="line-clamp-2 text-sm font-bold text-text-1 group-hover:text-accent transition-colors" title={c.name}>
+          {c.name}
+        </h3>
+        <div className="mt-1 text-xs text-text-3 truncate max-w-full">
+          {c.teacher ? `${c.teacher} · ` : ''}{c.code || ''}
+        </div>
+      </div>
+
+      <div className="border-t border-bd/40 pt-2.5">
+        {c.summary && (
+          <div className="mb-2">
+            <CourseProgressSummary
+              done={c.summary.done}
+              downloading={c.summary.downloading}
+              errors={c.summary.errors}
+              inflight={c.summary.inflight}
+              total={c.summary.total}
+            />
+          </div>
+        )}
+        <div className="flex items-center justify-between text-[11px] text-text-3">
+          <span className="font-mono">
+            {c.itemCount} 资源{c.totalBytes ? ` · ${formatBytes(c.totalBytes)}` : ''}
+          </span>
+          <span className="text-accent font-medium group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
+            进入 ›
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function GridView({
   courses,
   currentCourse,
   currentCategory,
   navState,
-  onNavigate
+  onNavigate,
+  groupByTerm = true
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
   currentCategory?: NetdiskCategoryItem
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
+  groupByTerm?: boolean
 }) {
+  const termGroups = useMemo(() => {
+    if (!groupByTerm) return null
+    return groupCoursesByTerm(courses)
+  }, [courses, groupByTerm])
+
   // 根目录：展示课程大文件夹网格
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className="h-full overflow-y-auto p-1.5 pb-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-          {courses.map(c => (
-            <div
-              key={c.id}
-              onClick={() => {
-                c.onEnter?.()
-                onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
-              }}
-              className="group relative flex flex-col justify-between rounded-2xl border border-bd bg-surface-1 p-4 shadow-card hover:border-accent hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 cursor-pointer select-none"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span
-                  role="checkbox"
-                  aria-checked={c.state === 'all'}
-                  tabIndex={0}
-                  onClick={e => {
-                    e.stopPropagation()
-                    c.onToggle()
-                  }}
-                  onKeyDown={e => {
-                    if (e.key === ' ' || e.key === 'Enter') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      c.onToggle()
-                    }
-                  }}
-                  className="p-1 -m-1 rounded-md hover:bg-surface-2 transition-colors cursor-pointer"
-                >
-                  <TriCheckbox state={c.state} size="sm" />
-                </span>
-                {c.term && (
-                  <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-mono text-text-3 leading-normal inline-flex items-center">
-                    {c.term}
-                  </span>
-                )}
-              </div>
-
-              <div className="my-2.5 flex flex-col items-center text-center">
-                <div className="relative mb-2 transition-transform duration-200 group-hover:scale-105">
-                  <FolderIcon className="h-9 w-9 text-amber-500 group-hover:text-accent transition-colors duration-200" />
-                </div>
-                <h3 className="line-clamp-2 text-sm font-bold text-text-1 group-hover:text-accent transition-colors" title={c.name}>
-                  {c.name}
-                </h3>
-                <div className="mt-1 text-xs text-text-3 truncate max-w-full">
-                  {c.teacher ? `${c.teacher} · ` : ''}{c.code || ''}
-                </div>
-              </div>
-
-              <div className="border-t border-bd/40 pt-2.5">
-                {c.summary && (
-                  <div className="mb-2">
-                    <CourseProgressSummary
-                      done={c.summary.done}
-                      downloading={c.summary.downloading}
-                      errors={c.summary.errors}
-                      inflight={c.summary.inflight}
-                      total={c.summary.total}
-                    />
+      <div className="h-full overflow-y-auto p-1.5 pb-6">
+        {termGroups ? (
+          <div className="space-y-6">
+            {termGroups.map(group => {
+              const allSel = group.items.every(c => c.state === 'all')
+              return (
+                <div key={group.term} className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-bd/60 pb-2 px-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">📅</span>
+                      <h3 className="text-xs font-bold text-text-1">{group.term}</h3>
+                      <span className="rounded-full bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">
+                        {group.items.length} 门课程
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (const c of group.items) {
+                          if (allSel) {
+                            if (c.state !== 'none') c.onToggle()
+                          } else {
+                            if (c.state !== 'all') c.onToggle()
+                          }
+                        }
+                      }}
+                      className="text-2xs text-text-3 hover:text-accent font-medium transition-colors cursor-pointer"
+                    >
+                      {allSel ? '取消本学期全选' : '全选本学期课程'}
+                    </button>
                   </div>
-                )}
-                <div className="flex items-center justify-between text-[11px] text-text-3">
-                  <span className="font-mono">
-                    {c.itemCount} 资源{c.totalBytes ? ` · ${formatBytes(c.totalBytes)}` : ''}
-                  </span>
-                  <span className="text-accent font-medium group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
-                    进入 ›
-                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                    {group.items.map(c => (
+                      <CourseCard key={c.id} course={c} onNavigate={onNavigate} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+            {courses.map(c => (
+              <CourseCard key={c.id} course={c} onNavigate={onNavigate} />
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -650,19 +735,84 @@ function GridView({
 // 2. ListView (详细列表视图)
 // ─────────────────────────────────────────────────────────────
 
+function CourseRow({
+  course,
+  onNavigate
+}: {
+  course: NetdiskCourseItem
+  onNavigate: (next: NetdiskNavState) => void
+}) {
+  const c = course
+  return (
+    <tr
+      key={c.id}
+      onClick={() => {
+        c.onEnter?.()
+        onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
+      }}
+      className="hover:bg-surface-2/60 transition-colors cursor-pointer"
+    >
+      <td className="py-2.5 px-4">
+        <div className="flex items-center gap-2.5">
+          <span
+            role="checkbox"
+            aria-checked={c.state === 'all'}
+            tabIndex={0}
+            onClick={e => {
+              e.stopPropagation()
+              c.onToggle()
+            }}
+            className="cursor-pointer"
+          >
+            <TriCheckbox state={c.state} size="sm" />
+          </span>
+          <FolderIcon className="h-4 w-4 text-accent shrink-0" />
+          <span className="font-semibold text-text-1 truncate max-w-sm" title={c.name}>
+            {c.name}
+          </span>
+        </div>
+      </td>
+      <td className="py-2.5 px-4 text-text-3 font-mono">
+        {c.term || c.teacher || '—'}
+      </td>
+      <td className="py-2.5 px-4 text-text-3 font-mono">
+        {c.itemCount}
+      </td>
+      <td className="py-2.5 px-4 text-text-3 font-mono">
+        {c.totalBytes ? formatBytes(c.totalBytes) : '—'}
+      </td>
+      <td className="py-2.5 px-4 text-right">
+        <button
+          type="button"
+          className="text-accent hover:underline font-medium"
+        >
+          进入 ›
+        </button>
+      </td>
+    </tr>
+  )
+}
+
 function ListView({
   courses,
   currentCourse,
   currentCategory,
   navState,
-  onNavigate
+  onNavigate,
+  groupByTerm = true
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
   currentCategory?: NetdiskCategoryItem
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
+  groupByTerm?: boolean
 }) {
+  const termGroups = useMemo(() => {
+    if (!groupByTerm) return null
+    return groupCoursesByTerm(courses)
+  }, [courses, groupByTerm])
+
   // 根目录列表
   if (navState.level === 'root' || !currentCourse) {
     return (
@@ -678,54 +828,49 @@ function ListView({
             </tr>
           </thead>
           <tbody className="divide-y divide-bd/50">
-            {courses.map(c => (
-              <tr
-                key={c.id}
-                onClick={() => {
-                  c.onEnter?.()
-                  onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
-                }}
-                className="hover:bg-surface-2/60 transition-colors cursor-pointer"
-              >
-                <td className="py-2.5 px-4">
-                  <div className="flex items-center gap-2.5">
-                    <span
-                      role="checkbox"
-                      aria-checked={c.state === 'all'}
-                      tabIndex={0}
-                      onClick={e => {
-                        e.stopPropagation()
-                        c.onToggle()
-                      }}
-                      className="cursor-pointer"
-                    >
-                      <TriCheckbox state={c.state} size="sm" />
-                    </span>
-                    <FolderIcon className="h-4 w-4 text-accent shrink-0" />
-                    <span className="font-semibold text-text-1 truncate max-w-sm" title={c.name}>
-                      {c.name}
-                    </span>
-                  </div>
-                </td>
-                <td className="py-2.5 px-4 text-text-3 font-mono">
-                  {c.term || c.teacher || '—'}
-                </td>
-                <td className="py-2.5 px-4 text-text-3 font-mono">
-                  {c.itemCount}
-                </td>
-                <td className="py-2.5 px-4 text-text-3 font-mono">
-                  {c.totalBytes ? formatBytes(c.totalBytes) : '—'}
-                </td>
-                <td className="py-2.5 px-4 text-right">
-                  <button
-                    type="button"
-                    className="text-accent hover:underline font-medium"
-                  >
-                    进入 ›
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {termGroups ? (
+              termGroups.map(group => {
+                const allSel = group.items.every(c => c.state === 'all')
+                return (
+                  <Fragment key={group.term}>
+                    <tr className="bg-surface-2/70 font-semibold text-text-2">
+                      <td colSpan={5} className="py-2 px-4 border-y border-bd/40">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span>📅</span>
+                            <span>{group.term}</span>
+                            <span className="text-2xs text-text-3 font-normal">({group.items.length} 门课程)</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation()
+                              for (const c of group.items) {
+                                if (allSel) {
+                                  if (c.state !== 'none') c.onToggle()
+                                } else {
+                                  if (c.state !== 'all') c.onToggle()
+                                }
+                              }
+                            }}
+                            className="text-2xs text-accent hover:underline font-normal cursor-pointer"
+                          >
+                            {allSel ? '取消本学期全选' : '全选本学期'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {group.items.map(c => (
+                      <CourseRow key={c.id} course={c} onNavigate={onNavigate} />
+                    ))}
+                  </Fragment>
+                )
+              })
+            ) : (
+              courses.map(c => (
+                <CourseRow key={c.id} course={c} onNavigate={onNavigate} />
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -866,14 +1011,61 @@ function ColumnView({
   activeCourse,
   activeCategory,
   onSelectCourse,
-  onSelectCategory
+  onSelectCategory,
+  groupByTerm = true
 }: {
   courses: NetdiskCourseItem[]
   activeCourse?: NetdiskCourseItem
   activeCategory?: NetdiskCategoryItem
   onSelectCourse: (c: NetdiskCourseItem) => void
   onSelectCategory: (cat: NetdiskCategoryItem) => void
+  groupByTerm?: boolean
 }) {
+  const termGroups = useMemo(() => {
+    if (!groupByTerm) return null
+    return groupCoursesByTerm(courses)
+  }, [courses, groupByTerm])
+
+  const renderColumnCourseItem = (c: NetdiskCourseItem) => {
+    const isSelected = activeCourse?.id === c.id
+    return (
+      <div
+        key={c.id}
+        onClick={() => onSelectCourse(c)}
+        className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
+          isSelected
+            ? 'bg-accent/10 border-l-4 border-accent text-accent font-semibold'
+            : 'hover:bg-surface-2/60 text-text-1'
+        }`}
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span
+            role="checkbox"
+            aria-checked={c.state === 'all'}
+            tabIndex={0}
+            onClick={e => {
+              e.stopPropagation()
+              c.onToggle()
+            }}
+            className="cursor-pointer shrink-0"
+          >
+            <TriCheckbox state={c.state} size="sm" />
+          </span>
+          <FolderIcon className={`h-4 w-4 shrink-0 ${isSelected ? 'text-accent' : 'text-amber-500'}`} />
+          <span className="truncate text-xs" title={c.name}>
+            {c.name}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+          <span className="text-[11px] font-mono opacity-70">
+            {c.itemCount}
+          </span>
+          <span className="text-text-4">›</span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full w-full divide-x divide-bd rounded-2xl border border-bd bg-surface-1 shadow-card overflow-hidden">
       {/* 第 1 栏：课程列表 */}
@@ -882,45 +1074,19 @@ function ColumnView({
           <span>全部课程 ({courses.length})</span>
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-bd/30">
-          {courses.map(c => {
-            const isSelected = activeCourse?.id === c.id
-            return (
-              <div
-                key={c.id}
-                onClick={() => onSelectCourse(c)}
-                className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
-                  isSelected
-                    ? 'bg-accent/10 border-l-4 border-accent text-accent font-semibold'
-                    : 'hover:bg-surface-2/60 text-text-1'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span
-                    role="checkbox"
-                    aria-checked={c.state === 'all'}
-                    tabIndex={0}
-                    onClick={e => {
-                      e.stopPropagation()
-                      c.onToggle()
-                    }}
-                    className="cursor-pointer shrink-0"
-                  >
-                    <TriCheckbox state={c.state} size="sm" />
-                  </span>
-                  <FolderIcon className={`h-4 w-4 shrink-0 ${isSelected ? 'text-accent' : 'text-amber-500'}`} />
-                  <span className="truncate text-xs" title={c.name}>
-                    {c.name}
-                  </span>
+          {termGroups ? (
+            termGroups.map(group => (
+              <div key={group.term}>
+                <div className="sticky top-0 z-10 flex items-center justify-between border-y border-bd/40 bg-surface-2/90 px-3.5 py-1 text-2xs font-semibold text-text-2 backdrop-blur-xs">
+                  <span>📅 {group.term}</span>
+                  <span className="font-mono text-text-4">({group.items.length})</span>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                  <span className="text-[11px] font-mono opacity-70">
-                    {c.itemCount}
-                  </span>
-                  <span className="text-text-4">›</span>
-                </div>
+                {group.items.map(c => renderColumnCourseItem(c))}
               </div>
-            )
-          })}
+            ))
+          ) : (
+            courses.map(c => renderColumnCourseItem(c))
+          )}
         </div>
       </div>
 

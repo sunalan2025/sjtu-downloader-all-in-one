@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../store/app'
 import { BreadcrumbBar, type BreadcrumbItem } from '../components/BreadcrumbBar'
 import { NetdiskViewModeSwitch } from '../components/DownloadUI'
@@ -168,6 +168,10 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     }
   }, [setCloudSpaceInfo])
 
+  // 导航防连击与防误触互斥锁
+  const lastNavTimeRef = useRef<number>(0)
+  const isNavigatingRef = useRef<boolean>(false)
+
   // 拉取目录内容
   const fetchDirectory = useCallback(async (path: string[]) => {
     setLoading(true)
@@ -184,6 +188,10 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
       setError(err instanceof Error ? err.message : '网络或通信异常')
     } finally {
       setLoading(false)
+      // 释放导航跃迁互斥锁
+      setTimeout(() => {
+        isNavigatingRef.current = false
+      }, 120)
     }
   }, [])
 
@@ -217,8 +225,11 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     return displayedItems.find(i => i.name === activeItemName) || displayedItems[0] || null
   }, [displayedItems, activeItemName])
 
-  // 导航操作
+  // 导航操作（防误触与冷却截流）
   const handleBreadcrumbNavigate = (id: string) => {
+    const now = Date.now()
+    if (loading || isNavigatingRef.current || now - lastNavTimeRef.current < 400) return
+    lastNavTimeRef.current = now
     if (!id) {
       setCurrentPath([])
     } else {
@@ -227,10 +238,17 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     setActiveItemName(null)
   }
 
-  const handleEnterFolder = (name: string) => {
+  const handleEnterFolder = useCallback((name: string) => {
+    const now = Date.now()
+    // 防误触与连击节流：若当前处于加载中或距离上一次导航不足 450ms，坚决丢弃请求
+    if (loading || isNavigatingRef.current || now - lastNavTimeRef.current < 450) {
+      return
+    }
+    lastNavTimeRef.current = now
+    isNavigatingRef.current = true
     setCurrentPath(prev => [...prev, name])
     setActiveItemName(null)
-  }
+  }, [loading])
 
   // 多选逻辑
   const toggleSelect = (name: string) => {
@@ -553,6 +571,15 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
 
       {/* 主视图内容区域 */}
       <main className={`relative flex-1 p-4 md:p-6 ${courseViewMode === 'column' ? 'overflow-hidden flex flex-col pb-20' : 'overflow-y-auto'}`}>
+        {/* 加载中轻量蒙层与防误触穿透拦截 */}
+        {loading && contents.length > 0 && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-surface-1/40 backdrop-blur-[1px] pointer-events-auto select-none">
+            <div className="flex items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3.5 py-2 shadow-lg text-xs font-medium text-text-1">
+              <Spinner size={16} />
+              <span>正在加载目录…</span>
+            </div>
+          </div>
+        )}
         {loading && contents.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center gap-3 text-text-3">
             <Spinner size={24} />
@@ -911,6 +938,9 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
                 <div
                   key={item.name}
                   onClick={() => {
+                    setActiveItemName(item.name)
+                  }}
+                  onDoubleClick={() => {
                     if (item.type === 'dir') {
                       handleEnterFolder(item.name)
                     }
@@ -961,12 +991,23 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
                     className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={e => e.stopPropagation()}
                   >
+                    {item.type === 'dir' && (
+                      <button
+                        type="button"
+                        onClick={() => handleEnterFolder(item.name)}
+                        title="进入文件夹"
+                        className="inline-flex items-center gap-0.5 rounded-lg bg-accent/15 px-2 py-0.5 text-2xs font-semibold text-accent hover:bg-accent/25 transition-colors cursor-pointer"
+                      >
+                        <span>进入</span>
+                        <span>›</span>
+                      </button>
+                    )}
                     {item.type === 'file' && (
                       <button
                         type="button"
                         onClick={() => void handleDownloadSingle(item)}
                         title="下载到本地"
-                        className="rounded-lg p-1 text-text-3 hover:bg-accent/15 hover:text-accent transition-colors"
+                        className="rounded-lg p-1 text-text-3 hover:bg-accent/15 hover:text-accent transition-colors cursor-pointer"
                       >
                         📥
                       </button>
@@ -1028,9 +1069,12 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
                   <div
                     key={item.name}
                     onClick={() => {
+                      setActiveItemName(item.name)
+                    }}
+                    onDoubleClick={() => {
                       if (item.type === 'dir') handleEnterFolder(item.name)
                     }}
-                    className={`grid grid-cols-12 items-center px-4 py-2.5 text-xs transition-colors ${
+                    className={`grid grid-cols-12 items-center px-4 py-2.5 text-xs transition-colors select-none ${
                       item.type === 'dir' ? 'cursor-pointer hover:bg-surface-1' : 'hover:bg-surface-1'
                     } ${isSelected ? 'bg-accent/5' : ''}`}
                   >
@@ -1063,12 +1107,23 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
                       className="col-span-2 flex items-center justify-end gap-1"
                       onClick={e => e.stopPropagation()}
                     >
+                      {item.type === 'dir' && (
+                        <button
+                          type="button"
+                          onClick={() => handleEnterFolder(item.name)}
+                          title="进入文件夹"
+                          className="inline-flex items-center gap-1 rounded-lg bg-accent/15 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/25 transition-colors cursor-pointer"
+                        >
+                          <span>进入</span>
+                          <span className="font-bold">›</span>
+                        </button>
+                      )}
                       {item.type === 'file' && (
                         <button
                           type="button"
                           onClick={() => void handleDownloadSingle(item)}
                           title="下载到本地"
-                          className="rounded-lg p-1 text-text-3 hover:bg-accent/15 hover:text-accent transition-colors"
+                          className="rounded-lg p-1 text-text-3 hover:bg-accent/15 hover:text-accent transition-colors cursor-pointer"
                         >
                           📥
                         </button>
