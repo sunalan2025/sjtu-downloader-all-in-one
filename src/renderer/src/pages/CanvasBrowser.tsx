@@ -230,7 +230,7 @@ export function CanvasBrowser() {
     downloadMode, canvasCourses, canvasScanState, canvasScanMessage,
     canvasCourseData,
     canvasLectures, canvasModuleVideos, canvasCourseCategorySelections,
-    courseViewMode, cloudLinkedIds, videoQualityOption
+    courseViewMode, canvasGroupByTerm, cloudLinkedIds, videoQualityOption
   } = useAppStore(useShallow(s => ({
     localDestRoot: s.localDestRoot,
     cloudUserToken: s.cloudUserToken,
@@ -243,10 +243,12 @@ export function CanvasBrowser() {
     canvasModuleVideos: s.canvasModuleVideos,
     canvasCourseCategorySelections: s.canvasCourseCategorySelections,
     courseViewMode: s.courseViewMode,
+    canvasGroupByTerm: s.canvasGroupByTerm,
     cloudLinkedIds: s.cloudLinkedIds,
     videoQualityOption: s.videoQualityOption
   })))
   const setCourseViewMode = useAppStore(s => s.setCourseViewMode)
+  const setCanvasGroupByTerm = useAppStore(s => s.setCanvasGroupByTerm)
   // Group 2: frequently-changing (downloading flag — derived from progress)
   const downloading = useAppStore(s => s.downloading)
   // Group 3: stable action references (setters are stable, but grouped for clarity)
@@ -1421,6 +1423,20 @@ export function CanvasBrowser() {
             onChange={setCourseViewMode}
           />
 
+          {/* 按学期分栏 / 平铺切换按钮 */}
+          <button
+            type="button"
+            onClick={() => setCanvasGroupByTerm(!canvasGroupByTerm)}
+            title={canvasGroupByTerm ? '当前为按学期分栏展示，点击切换为平铺不分栏' : '当前为平铺展示，点击切换为按学期分栏'}
+            className={`inline-flex h-10 items-center gap-1.5 rounded-xl border px-3 text-xs font-medium transition-all shadow-2xs cursor-pointer select-none ${
+              canvasGroupByTerm
+                ? 'border-accent/40 bg-accent/10 text-accent font-semibold'
+                : 'border-bd bg-surface-2 text-text-3 hover:border-bd-strong hover:bg-surface-1 hover:text-text-1'
+            }`}
+          >
+            <span>{canvasGroupByTerm ? '📑 学期分栏' : '📄 平铺展示'}</span>
+          </button>
+
           {canvasScanState === 'scanning' && (
             <span className="inline-flex items-center gap-1.5 text-xs text-text-2">
               <Spinner size={12} /> {canvasScanMessage}
@@ -1506,6 +1522,7 @@ export function CanvasBrowser() {
             viewMode={courseViewMode}
             navState={navState}
             onNavigate={setNavState}
+            groupByTerm={canvasGroupByTerm}
           />
         )}
       </div>

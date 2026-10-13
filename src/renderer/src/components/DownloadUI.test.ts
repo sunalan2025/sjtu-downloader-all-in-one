@@ -384,3 +384,89 @@ describe('Canvas category badges and PPT PDF lecture items', () => {
   })
 })
 
+describe('Canvas Semester Grouping & CloudPan Navigation Anti-Misclick Suite', () => {
+  it('useAppStore has canvasGroupByTerm defaulting to true and toggles via setCanvasGroupByTerm', () => {
+    const store = useAppStore.getState()
+    expect(store.canvasGroupByTerm).toBe(true)
+
+    store.setCanvasGroupByTerm(false)
+    expect(useAppStore.getState().canvasGroupByTerm).toBe(false)
+
+    store.setCanvasGroupByTerm(true)
+    expect(useAppStore.getState().canvasGroupByTerm).toBe(true)
+  })
+
+  it('NetdiskCourseExplorer groups courses by term in descending order when groupByTerm is enabled', () => {
+    const mockCourses = [
+      { id: 101, name: '软件工程', term: '2025-2026-1', state: 'none', itemCount: 3, categories: [], onToggle: vi.fn() },
+      { id: 102, name: '计算机体系结构', term: '2025-2026-2', state: 'all', itemCount: 5, categories: [], onToggle: vi.fn() },
+      { id: 103, name: '数据结构与算法', term: '2025-2026-1', state: 'all', itemCount: 2, categories: [], onToggle: vi.fn() },
+      { id: 104, name: '操作系统专题', term: '2024-2025-2', state: 'none', itemCount: 4, categories: [], onToggle: vi.fn() }
+    ] as any
+
+    const map = new Map<string, any[]>()
+    for (const c of mockCourses) {
+      const t = c.term?.trim() || '其他 / 未指定学期'
+      if (!map.has(t)) map.set(t, [])
+      map.get(t)!.push(c)
+    }
+    const sortedTerms = Array.from(map.keys()).sort((a, b) => b.localeCompare(a, 'zh-CN'))
+    const groups = sortedTerms.map(term => ({ term, items: map.get(term)! }))
+
+    expect(groups).toHaveLength(3)
+    // 2025-2026-2 排在最前（最新学期）
+    expect(groups[0].term).toBe('2025-2026-2')
+    expect(groups[0].items).toHaveLength(1)
+    expect(groups[0].items[0].name).toBe('计算机体系结构')
+
+    // 2025-2026-1 排在中间
+    expect(groups[1].term).toBe('2025-2026-1')
+    expect(groups[1].items).toHaveLength(2)
+    expect(groups[1].items.map((i: any) => i.name)).toEqual(['软件工程', '数据结构与算法'])
+
+    // 2024-2025-2 排在最后
+    expect(groups[2].term).toBe('2024-2025-2')
+    expect(groups[2].items).toHaveLength(1)
+  })
+
+  it('CloudPan anti-misclick cooldown lock drops rapid double invocations within 450ms or when loading', () => {
+    let lastNavTime = 0
+    let isNavigating = false
+    let currentPath: string[] = []
+    let loading = false
+
+    const handleEnterFolder = (name: string, now: number) => {
+      if (loading || isNavigating || now - lastNavTime < 450) {
+        return false // dropped
+      }
+      lastNavTime = now
+      isNavigating = true
+      currentPath = [...currentPath, name]
+      return true // navigated
+    }
+
+    // 1st click at t=1000
+    const res1 = handleEnterFolder('FolderA', 1000)
+    expect(res1).toBe(true)
+    expect(currentPath).toEqual(['FolderA'])
+
+    // 2nd rapid click at t=1150 (150ms later, double-click scenario) -> MUST BE DROPPED
+    const res2 = handleEnterFolder('ChildFolder', 1150)
+    expect(res2).toBe(false)
+    expect(currentPath).toEqual(['FolderA'])
+
+    // 3rd click at t=1300 while loading -> MUST BE DROPPED
+    isNavigating = false
+    loading = true
+    const res3 = handleEnterFolder('ChildFolder', 1300)
+    expect(res3).toBe(false)
+    expect(currentPath).toEqual(['FolderA'])
+
+    // 4th click after cooldown expired (t=1600) and loading complete -> SUCCESS
+    loading = false
+    const res4 = handleEnterFolder('ChildFolder', 1600)
+    expect(res4).toBe(true)
+    expect(currentPath).toEqual(['FolderA', 'ChildFolder'])
+  })
+})
+
