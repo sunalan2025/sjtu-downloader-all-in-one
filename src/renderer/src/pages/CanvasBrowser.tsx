@@ -50,6 +50,11 @@ export function pptPdfTaskId(courseId: number, lectureNum: number): string {
   return `canvas_ppt_item_${courseId}_${lectureNum}`
 }
 
+/**
+ * 构建课程各讲次的 PPT 课件 (PDF) 文件列表项。
+ * 注：每个单讲项的 onToggle 联动整门课的 catSel?.pptPdf 意图，
+ * 因为主进程 PPT 下载引擎是以全课切片合并为 PDF 的聚合批量任务。
+ */
 export function buildPptPdfItems(
   courseName: string,
   courseId: number,
@@ -1209,8 +1214,7 @@ export function CanvasBrowser() {
         c.courseId,
         lec,
         !!catSel?.pptPdf,
-        () => setCanvasCourseCategorySelection(c.courseId, { pptPdf: !catSel?.pptPdf }),
-        <PptPdfProgressRow courseId={c.courseId} />
+        () => setCanvasCourseCategorySelection(c.courseId, { pptPdf: !catSel?.pptPdf })
       )
       if (mv) {
         for (const t of mv.iframes) {
