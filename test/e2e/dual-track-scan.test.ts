@@ -7,6 +7,20 @@ const ipcHandlers = new Map<string, (...args: any[]) => any>()
 
 vi.mock('electron', () => {
   return {
+    app: {
+      getPath: vi.fn(() => 'D:/mock-userData'),
+      whenReady: vi.fn().mockResolvedValue(undefined),
+      isReady: vi.fn().mockReturnValue(true),
+      quit: vi.fn()
+    },
+    session: {
+      fromPartition: vi.fn(() => ({
+        cookies: {
+          get: vi.fn().mockResolvedValue([]),
+          set: vi.fn().mockResolvedValue(undefined)
+        }
+      }))
+    },
     BrowserWindow: class MockBrowserWindow {
       loadURL = vi.fn().mockResolvedValue(undefined)
       webContents = {
@@ -22,9 +36,19 @@ vi.mock('electron', () => {
         ipcHandlers.set(channel, handler)
       }),
       on: vi.fn()
-    }
+    },
+    Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
+    shell: { openExternal: vi.fn() },
+    nativeImage: { createFromPath: vi.fn() },
+    nativeTheme: { shouldUseDarkColors: false },
+    Tray: vi.fn()
   }
 })
+
+vi.mock('../../src/main/window', () => ({
+  getMainWindow: vi.fn(() => null),
+  getIsQuitting: vi.fn(() => false)
+}))
 
 // Mock legacy-video & video-tokens & api modules for orchestrator testing
 vi.mock('../../src/main/canvas/legacy-video', async () => {
@@ -494,6 +518,46 @@ describe('Dual-Track Union Video Scan & Dispatch Engine Suite', () => {
       expect(pptSpec.source).toBe('canvas-video')
       expect(pptSpec.isHls).toBe(false)
       expect(pptSpec.fileName).toContain('PPT投影视角 (MP4).mp4')
+    })
+
+    it('resolveDirectUrl successfully re-resolves legacy canvas-video MP4 streams when url is cleared', async () => {
+      const { resolveDirectUrl } = await import('../../src/main/download-engine/shared')
+      vi.mocked(legacyVideoModule.fetchLegacyVodStreamUrls).mockResolvedValue({
+        teacherUrl: 'https://videos.sjtu.edu.cn/vod/resumed_teacher.mp4',
+        pptUrl: 'https://videos.sjtu.edu.cn/vod/resumed_ppt.mp4'
+      })
+
+      const taskRuntimeTeacher: any = {
+        spec: {
+          taskId: 'canvas_lecture_89673_1_teacher',
+          source: 'canvas-video',
+          url: '', // cleared on pause/resume
+          canvasVideoId: 'video_resume_123',
+          canvasStreamIdx: 0
+        },
+        state: 'pending',
+        total: 0
+      }
+
+      const okTeacher = await resolveDirectUrl(taskRuntimeTeacher, false)
+      expect(okTeacher).toBe(true)
+      expect(taskRuntimeTeacher.spec.url).toBe('https://videos.sjtu.edu.cn/vod/resumed_teacher.mp4')
+
+      const taskRuntimePpt: any = {
+        spec: {
+          taskId: 'canvas_lecture_89673_1_ppt',
+          source: 'canvas-video',
+          url: '', // cleared on pause/resume
+          canvasVideoId: 'video_resume_123',
+          canvasStreamIdx: 1
+        },
+        state: 'pending',
+        total: 0
+      }
+
+      const okPpt = await resolveDirectUrl(taskRuntimePpt, false)
+      expect(okPpt).toBe(true)
+      expect(taskRuntimePpt.spec.url).toBe('https://videos.sjtu.edu.cn/vod/resumed_ppt.mp4')
     })
   })
 })
