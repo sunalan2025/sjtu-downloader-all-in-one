@@ -786,41 +786,27 @@ export function FileTypeBadge({
 export function FolderIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
     <svg
-      className={`${className} shrink-0 drop-shadow-2xs`}
+      className={`${className} shrink-0`}
       viewBox="0 0 24 24"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* 文件夹后盖与标签 (Back Plate & Tab) */}
       <path
-        d="M2.5 5.5C2.5 4.4 3.4 3.5 4.5 3.5H9.2C9.8 3.5 10.4 3.8 10.8 4.3L12.2 6H19.5C20.6 6 21.5 6.9 21.5 8V18.5C21.5 19.6 20.6 20.5 19.5 20.5H4.5C3.4 20.5 2.5 19.6 2.5 18.5V5.5Z"
-        fill="#D97706"
-      />
-      {/* 内部文件露白轻微衬托 (Paper Sheet Reveal) */}
-      <path
-        d="M5 7H19V11H5V7Z"
-        fill="#FEF3C7"
-        opacity="0.9"
-      />
-      {/* 文件夹正面封套 (Front Cover with Gradient) */}
-      <path
-        d="M2.5 9.5C2.5 8.4 3.4 7.5 4.5 7.5H19.5C20.6 7.5 21.5 8.4 21.5 9.5V18.5C21.5 19.6 20.6 20.5 19.5 20.5H4.5C3.4 20.5 2.5 19.6 2.5 18.5V9.5Z"
-        fill="url(#folder_front_gradient)"
-      />
-      {/* 封面顶部微光泽折边 (Subtle Sheen Edge) */}
-      <path
-        d="M3 8.5C3 8 3.5 7.5 4.5 7.5H19.5C20.5 7.5 21 8 21 8.5"
-        stroke="#FDE68A"
-        strokeWidth="0.8"
+        d="M3 7V17C3 18.1 3.9 19 5 19H19C20.1 19 21 18.1 21 17V9C21 7.9 20.1 7 19 7H11L9 5H5C3.9 5 3 5.9 3 7Z"
+        fill="currentColor"
+        fillOpacity="0.18"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinecap="round"
-        opacity="0.6"
+        strokeLinejoin="round"
       />
-      <defs>
-        <linearGradient id="folder_front_gradient" x1="12" y1="7.5" x2="12" y2="20.5" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FBBF24" />
-          <stop offset="1" stopColor="#F59E0B" />
-        </linearGradient>
-      </defs>
+      <path
+        d="M3 10.5H21"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeOpacity="0.28"
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
