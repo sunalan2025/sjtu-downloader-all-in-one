@@ -162,7 +162,7 @@ async function waitForConcurrencySlot(): Promise<void> {
 
 Zustand store，使用 `persist` 中间件持久化用户偏好：
 
-- **持久化字段** — `theme`、`activeTab`、`downloadMode`、`fileConflictStrategy`、`localDestRoot`、`cloudUserToken`、`concurrency`、`autoConcurrency`
+- **持久化字段** — `theme`、`activeTab`、`downloadMode`、`fileConflictStrategy`、`localDestRoot`、`cloudUserToken`、`concurrency`、`courseViewMode`、`canvasGroupByTerm`
 - **运行时状态** — `stage`、`auth`、`scanState`、`courses`、`tasksByCourse`、`selected`、`canvasCourses`、`canvasCourseData`、下载进度 `progress`
 - **性能优化** — `applyProgress` 使用 `queueMicrotask` 批处理；`useDownloadStats` 编码统计为单个 number；`useEffectiveProgress` 聚合 both 模式进度
 - **云盘连接状态** — `cloudConnStatus` / `cloudConnMessage` 存储在 store 中，跨 tab 共享

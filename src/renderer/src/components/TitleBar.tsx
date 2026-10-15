@@ -29,7 +29,6 @@ export function TitleBar({
   const setActiveTab = useAppStore(s => s.setActiveTab)
   const cloudUserToken = useAppStore(s => s.cloudUserToken)
   const cloudConnStatus = useAppStore(s => s.cloudConnStatus)
-  const hasCompletedInitialSetup = useAppStore(s => s.hasCompletedInitialSetup)
   const progress = useAppStore(s => s.progress)
 
   const [speed, setSpeed] = useState<{ down: number; up: number }>({ down: 0, up: 0 })
@@ -68,11 +67,12 @@ export function TitleBar({
 
   const isMac = window.api.platform === 'darwin'
 
-  // 纯净三大课程内容源，与全局系统传输中心/设置严格解耦
+  // 课程与学业日程内容源，与全局系统传输中心/设置严格解耦
   const tabOptions: SegmentedOption<string>[] = [
     { key: 'canvas', label: 'Canvas 课程' },
     { key: 'audited', label: '旁听课程' },
-    { key: 'cnmooc', label: '好大学在线' }
+    { key: 'cnmooc', label: '好大学在线' },
+    { key: 'schedule', label: '课表与日程' }
   ]
 
   const isDetailView = activeTab === 'settings' || activeTab === 'transfer' || activeTab === 'cloudpan'
@@ -86,26 +86,20 @@ export function TitleBar({
       {stage === 'browser' && (
         isDetailView ? (
           <div className="no-drag flex items-center gap-2.5">
-            {!hasCompletedInitialSetup ? (
-              <span className="inline-flex items-center gap-1.5 rounded-xl bg-accent/10 border border-accent/20 px-3 py-1.5 text-xs font-semibold text-accent shadow-2xs">
-                <span>🚀 新手初始配置向导</span>
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setActiveTab(lastCourseTab || 'canvas')}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
-                title="返回课程列表"
-              >
-                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M19 12H5m7 7l-7-7 7-7" />
-                </svg>
-                <span>返回课程</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setActiveTab(lastCourseTab || 'canvas')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
+              title="返回课程列表"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5m7 7l-7-7 7-7" />
+              </svg>
+              <span>返回课程</span>
+            </button>
             <span className="text-text-4 font-mono text-xs">/</span>
             <span className="text-xs font-semibold text-text-1">
-              {activeTab === 'transfer' ? '📥 传输中心' : activeTab === 'cloudpan' ? '☁️ 交大云盘' : (!hasCompletedInitialSetup ? '请先配置核心选项' : '⚙️ 全局设置')}
+              {activeTab === 'transfer' ? '📥 传输中心' : activeTab === 'cloudpan' ? '☁️ 交大云盘' : '⚙️ 全局设置'}
             </span>
           </div>
         ) : (
@@ -114,10 +108,6 @@ export function TitleBar({
               options={tabOptions} 
               value={activeTab} 
               onChange={(v) => {
-                if (!hasCompletedInitialSetup) {
-                  setActiveTab('settings')
-                  return
-                }
                 setActiveTab(v as any)
               }} 
               size="lg" 
@@ -428,7 +418,7 @@ function UpdateBadge() {
                 type="button"
                 onClick={startDownload}
                 disabled={!hasAsset}
-                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {hasAsset ? '立即安装' : '当前平台暂不支持自动更新'}
               </button>
@@ -461,7 +451,7 @@ function UpdateBadge() {
             <button
               type="button"
               onClick={() => { void window.api.cancelUpdate(); setPhase('idle'); setProgress(null) }}
-              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-bd bg-surface-2 px-3 text-xs font-medium text-text-2 transition-all hover:bg-surface-3"
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-3 text-xs font-medium text-text-2 transition-all hover:bg-surface-3"
             >
               取消下载
             </button>
@@ -472,7 +462,7 @@ function UpdateBadge() {
             <button
               type="button"
               onClick={() => { void window.api.installUpdate() }}
-              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98]"
+              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98]"
             >
               立即安装并重启
             </button>
@@ -485,7 +475,7 @@ function UpdateBadge() {
                 type="button"
                 onClick={startDownload}
                 disabled={!hasAsset}
-                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-accent px-3 text-xs font-semibold text-white shadow-glow-sm transition-all hover:bg-accent-light active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 重试下载
               </button>

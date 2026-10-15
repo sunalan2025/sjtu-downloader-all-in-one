@@ -1,8 +1,20 @@
 import { describe, it, expect, vi } from 'vitest'
 import { useAppStore } from '../store/app'
-import { triStateFromCount, formatBytes, FileTypeBadge, ItemCheckbox } from './DownloadUI'
+import {
+  triStateFromCount,
+  formatBytes,
+  FileTypeBadge,
+  ItemCheckbox,
+  CourseProgressSummary,
+  MacOSFolderIcon,
+  MacOSDocumentIcon,
+  MacOSCircleCheckbox,
+  NetdiskViewModeSwitch
+} from './DownloadUI'
+import { buildAncestorPathChain, canAutoPenetrateSingleSubdir } from '@shared/utils'
 import { resolveWindowAction } from './WindowConfirmModal'
 import { classifyCnmoocItem, isCnmoocQuizOrExercise } from '../pages/CnmoocBrowser'
+import { getTermTriState, toggleTermCourses, toggleTermCategory } from './NetdiskCourseExplorer'
 
 describe('window exit preferences and resolution', () => {
   it('has correct default window exit preferences', () => {
@@ -166,6 +178,33 @@ describe('initial setup and audio-only preferences', () => {
 
     store.setVideoQualityOption('origin')
     expect(useAppStore.getState().videoQualityOption).toBe('origin')
+  })
+
+  it('manages lastSetupVersion and showSetupWizardModal for version updates', () => {
+    const store = useAppStore.getState()
+    expect(store.lastSetupVersion).toBeNull()
+    expect(store.showSetupWizardModal).toBe(false)
+
+    store.setLastSetupVersion('2.4.0')
+    expect(useAppStore.getState().lastSetupVersion).toBe('2.4.0')
+
+    store.setShowSetupWizardModal(true)
+    expect(useAppStore.getState().showSetupWizardModal).toBe(true)
+
+    // Version update trigger check
+    const currentVersion = '2.4.1'
+    const lastVersion = useAppStore.getState().lastSetupVersion
+    const needsUpdateModal = !lastVersion || lastVersion !== currentVersion
+    expect(needsUpdateModal).toBe(true)
+
+    // After completing setup for 2.4.1
+    store.setLastSetupVersion(currentVersion)
+    store.setShowSetupWizardModal(false)
+    expect(useAppStore.getState().lastSetupVersion).toBe('2.4.1')
+    expect(useAppStore.getState().showSetupWizardModal).toBe(false)
+
+    const needsUpdateModalAfter = useAppStore.getState().lastSetupVersion !== currentVersion
+    expect(needsUpdateModalAfter).toBe(false)
   })
 })
 
@@ -469,4 +508,280 @@ describe('Canvas Semester Grouping & CloudPan Navigation Anti-Misclick Suite', (
     expect(currentPath).toEqual(['FolderA', 'ChildFolder'])
   })
 })
+
+describe('CourseProgressSummary & Task Progress Invariants', () => {
+  it('returns null when course has no active, completed, or failed progress', () => {
+    const el = CourseProgressSummary({ done: 0, downloading: 0, errors: 0, total: 32 })
+    expect(el).toBeNull()
+  })
+
+  it('renders progress element when tasks are downloading or done', () => {
+    const el = CourseProgressSummary({ done: 5, downloading: 2, errors: 1, total: 10 })
+    expect(el).not.toBeNull()
+    expect(el?.props.className).toContain('flex items-center')
+  })
+
+  it('correctly calculates progress counts and ignores unstarted tasks without ghost downloading count', () => {
+    const progressIds = ['task-1', 'task-2', 'task-3', 'task-4']
+    const progressMap: Record<string, { state: string; total: number; received: number } | undefined> = {
+      'task-1': { state: 'done', total: 100, received: 100 },
+      'task-2': { state: 'downloading', total: 100, received: 50 }
+      // task-3 and task-4 are undefined (not started / un-queued)
+    }
+
+    let done = 0, dl = 0, err = 0, inflight = 0
+    for (const id of progressIds) {
+      const prog = progressMap[id]
+      const st = prog?.state
+      if (!st) continue
+
+      if (st === 'done' || st === 'skipped') done++
+      else if (st === 'error') err++
+      else if (st === 'downloading' || st === 'pending' || st === 'paused') {
+        dl++
+        if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+      }
+    }
+
+    expect(done).toBe(1)
+    expect(dl).toBe(1)
+    expect(err).toBe(0)
+    expect(inflight).toBe(0.5)
+
+    // Unstarted tasks must NOT be counted into dl (would be 3 before the fix)
+    expect(dl).not.toBe(3)
+  })
+})
+
+describe('SpeedLimiter and Network Flow Control', () => {
+  it('correctly reports isLimited and calculates backpressure delay', async () => {
+    const { SpeedLimiter } = await import('../../../shared/utils')
+    const limiter = new SpeedLimiter()
+    expect(limiter.isLimited()).toBe(false)
+    expect(limiter.acquireDelay(1024 * 1024)).toBe(0)
+
+    // Set 1 MB/s limit
+    limiter.setLimitKBps(1024)
+    expect(limiter.isLimited()).toBe(true)
+
+    // First burst up to initial tokens (1.2s capacity = ~1.2MB)
+    const delay1 = limiter.acquireDelay(500 * 1024)
+    expect(delay1).toBe(0)
+
+    // Exceed remaining tokens -> should return a positive backpressure delay
+    const delay2 = limiter.acquireDelay(2000 * 1024)
+    expect(delay2).toBeGreaterThan(0)
+    expect(delay2).toBeLessThanOrEqual(3000)
+
+    // Reset to 0 (unlimited)
+    limiter.setLimitKBps(0)
+    expect(limiter.isLimited()).toBe(false)
+    expect(limiter.acquireDelay(10 * 1024 * 1024)).toBe(0)
+  })
+})
+
+describe('downloadHistory Capacity Protection', () => {
+  it('caps downloadHistory at 300 items to prevent storage exhaustion', () => {
+    const store = useAppStore.getState()
+    store.clearDownloadHistory()
+
+    // Add 350 items
+    for (let i = 0; i < 350; i++) {
+      store.addDownloadHistory({
+        taskId: `test-task-${i}`,
+        fileName: `file-${i}.pdf`,
+        filePath: `/downloads/file-${i}.pdf`,
+        fileSize: 1024,
+        completedAt: Date.now() + i
+      })
+    }
+
+    const history = useAppStore.getState().downloadHistory
+    expect(history.length).toBe(300)
+    expect(history[0].taskId).toBe('test-task-349')
+    expect(history[299].taskId).toBe('test-task-50')
+
+    store.clearDownloadHistory()
+    expect(useAppStore.getState().downloadHistory.length).toBe(0)
+  })
+})
+
+describe('NetdiskCourseExplorer Semester Header Batch Actions Suite', () => {
+  it('correctly calculates term tri-state for all, none, and some courses', () => {
+    const allCourses = [
+      { id: 1, name: '课1', state: 'all' },
+      { id: 2, name: '课2', state: 'all' }
+    ] as any
+    expect(getTermTriState(allCourses)).toBe('all')
+
+    const noneCourses = [
+      { id: 1, name: '课1', state: 'none' },
+      { id: 2, name: '课2', state: 'none' }
+    ] as any
+    expect(getTermTriState(noneCourses)).toBe('none')
+
+    const mixedCourses = [
+      { id: 1, name: '课1', state: 'all' },
+      { id: 2, name: '课2', state: 'none' }
+    ] as any
+    expect(getTermTriState(mixedCourses)).toBe('some')
+
+    expect(getTermTriState([])).toBe('none')
+  })
+
+  it('toggleTermCourses selects all when some/none, and unselects when all', () => {
+    const t1 = vi.fn()
+    const t2 = vi.fn()
+    const courses = [
+      { id: 1, state: 'none', onToggle: t1 },
+      { id: 2, state: 'all', onToggle: t2 }
+    ] as any
+
+    // Currently some -> should select all (only toggle unselected course)
+    toggleTermCourses(courses, 'some')
+    expect(t1).toHaveBeenCalledTimes(1)
+    expect(t2).not.toHaveBeenCalled()
+
+    t1.mockClear()
+    t2.mockClear()
+
+    // Currently all -> should unselect all
+    toggleTermCourses(courses, 'all')
+    expect(t1).not.toHaveBeenCalled()
+    expect(t2).toHaveBeenCalledTimes(1)
+  })
+
+  it('toggleTermCategory delegates to onToggleCategory when defined', () => {
+    const fn1 = vi.fn()
+    const fn2 = vi.fn()
+    const courses = [
+      { id: 1, onToggleCategory: fn1, categories: [] },
+      { id: 2, onToggleCategory: fn2, categories: [] }
+    ] as any
+
+    toggleTermCategory(courses, 'files', true)
+    expect(fn1).toHaveBeenCalledWith('files', true)
+    expect(fn2).toHaveBeenCalledWith('files', true)
+  })
+})
+
+describe('CloudPan Miller Columns Multi-Level Hydration & Auto-Penetration Suite', () => {
+  it('buildAncestorPathChain handles root directory path correctly', () => {
+    const chain = buildAncestorPathChain([])
+    expect(chain).toEqual([
+      { path: [], name: '根目录', selectedName: null }
+    ])
+  })
+
+  it('buildAncestorPathChain constructs complete multi-level ancestor chain', () => {
+    const path = ['2024秋', '软件测试', '课件']
+    const chain = buildAncestorPathChain(path)
+    expect(chain.length).toBe(4)
+    expect(chain[0]).toEqual({ path: [], name: '根目录', selectedName: '2024秋' })
+    expect(chain[1]).toEqual({ path: ['2024秋'], name: '2024秋', selectedName: '软件测试' })
+    expect(chain[2]).toEqual({ path: ['2024秋', '软件测试'], name: '软件测试', selectedName: '课件' })
+    expect(chain[3]).toEqual({ path: ['2024秋', '软件测试', '课件'], name: '课件', selectedName: null })
+  })
+
+  it('canAutoPenetrateSingleSubdir identifies single subfolder with zero files', () => {
+    const itemsWithSingleDir = [
+      { type: 'dir' as const, name: '2024-秋季' }
+    ]
+    const res = canAutoPenetrateSingleSubdir(itemsWithSingleDir)
+    expect(res.canPenetrate).toBe(true)
+    expect(res.singleSubdirName).toBe('2024-秋季')
+  })
+
+  it('canAutoPenetrateSingleSubdir rejects directories containing files or multiple folders', () => {
+    // 带有文件的单子目录不穿透（需要展示文件）
+    const dirWithFiles = [
+      { type: 'dir' as const, name: '课件' },
+      { type: 'file' as const, name: 'syllabus.pdf' }
+    ]
+    expect(canAutoPenetrateSingleSubdir(dirWithFiles).canPenetrate).toBe(false)
+
+    // 多个子目录不自动穿透（留给用户选择分支）
+    const multipleDirs = [
+      { type: 'dir' as const, name: '第1讲' },
+      { type: 'dir' as const, name: '第2讲' }
+    ]
+    expect(canAutoPenetrateSingleSubdir(multipleDirs).canPenetrate).toBe(false)
+
+    // 空目录
+    expect(canAutoPenetrateSingleSubdir([]).canPenetrate).toBe(false)
+  })
+})
+
+describe('macOS Finder Alignment & Vector Icon Suite', () => {
+  it('MacOSFolderIcon renders valid SVG structure with customizable dimensions', () => {
+    const vnode = MacOSFolderIcon({ size: 80, className: 'custom-class' })
+    expect(vnode.type).toBe('svg')
+    expect(vnode.props.width).toBe(80)
+    expect(vnode.props.height).toBe(80)
+    expect(vnode.props.className).toContain('custom-class')
+    expect(vnode.props.viewBox).toBe('0 0 100 80')
+  })
+
+  it('MacOSDocumentIcon correctly categorizes file types and ribbons', () => {
+    // PDF
+    const pdfIcon = MacOSDocumentIcon({ filename: 'lecture1.pdf' })
+    expect(pdfIcon.type).toBe('svg')
+    expect(JSON.stringify(pdfIcon)).toContain('PDF')
+
+    // PPTX
+    const pptIcon = MacOSDocumentIcon({ filename: 'slides.pptx' })
+    expect(JSON.stringify(pptIcon)).toContain('PPT')
+
+    // DOCX
+    const docIcon = MacOSDocumentIcon({ filename: 'report.docx' })
+    expect(JSON.stringify(docIcon)).toContain('DOC')
+
+    // MP4 video
+    const videoIcon = MacOSDocumentIcon({ filename: 'lecture.mp4' })
+    expect(JSON.stringify(videoIcon)).toContain('MP4')
+
+    // ZIP archive
+    const zipIcon = MacOSDocumentIcon({ filename: 'homework.zip' })
+    expect(JSON.stringify(zipIcon)).toContain('ZIP')
+  })
+
+  it('MacOSCircleCheckbox renders properly for checked, unchecked and indeterminate states', () => {
+    const checkedVnode = MacOSCircleCheckbox({ checked: true, size: 'sm' })
+    expect(checkedVnode.props.className).toContain('bg-accent')
+    expect(checkedVnode.props.className).toContain('h-4 w-4')
+
+    const uncheckedVnode = MacOSCircleCheckbox({ checked: false, size: 'md' })
+    expect(uncheckedVnode.props.className).toContain('h-5 w-5')
+
+    const triAllVnode = MacOSCircleCheckbox({ state: 'all' })
+    expect(triAllVnode.props.className).toContain('bg-accent')
+
+    const triSomeVnode = MacOSCircleCheckbox({ state: 'some' })
+    expect(triSomeVnode.props.className).toContain('bg-accent')
+  })
+
+  it('NetdiskViewModeSwitch adheres to macOS Finder standard order [grid, list, column]', () => {
+    let selectedMode = 'grid'
+    const vnode = NetdiskViewModeSwitch({
+      mode: 'grid',
+      onChange: m => { selectedMode = m }
+    })
+    expect(vnode.type).toBe('div')
+    // Children buttons: 1st is grid, 2nd is list, 3rd is column
+    const buttons = vnode.props.children.filter((c: any) => c && c.type === 'button')
+    expect(buttons.length).toBe(3)
+    expect(buttons[0].props.title).toContain('图标视图')
+    expect(buttons[1].props.title).toContain('列表视图')
+    expect(buttons[2].props.title).toContain('分栏视图')
+
+    // Trigger click on column button
+    buttons[2].props.onClick()
+    expect(selectedMode).toBe('column')
+  })
+})
+
+
+
+
+
 

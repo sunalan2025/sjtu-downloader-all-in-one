@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../store/app'
 import { BreadcrumbBar, type BreadcrumbItem } from '../components/BreadcrumbBar'
-import { NetdiskViewModeSwitch } from '../components/DownloadUI'
+import {
+  NetdiskViewModeSwitch,
+  TriCheckbox,
+  type TriState,
+  MacOSFolderIcon,
+  MacOSDocumentIcon,
+  MacOSCircleCheckbox
+} from '../components/DownloadUI'
 import { Spinner } from '../components/Spinner'
-import { formatBytes } from '@shared/utils'
+import { formatBytes, buildAncestorPathChain } from '@shared/utils'
 import type { CloudPanItem } from '@shared/types'
 
 interface CloudPanExplorerProps {
@@ -100,6 +107,531 @@ function getFileIcon(item: CloudPanItem, isLarge = false) {
   )
 }
 
+// ─────────────────────────────────────────────────────────────
+// CloudPanMillerColumns (macOS Miller Columns / 专业网盘分栏视图)
+// ─────────────────────────────────────────────────────────────
+
+interface CloudPanMillerColumnsProps {
+  initialItems: CloudPanItem[]
+  currentPath: string[]
+  onPathChange: (path: string[]) => void
+  selectedNames: Set<string>
+  onToggleSelect: (name: string) => void
+  onDownloadSingle: (item: CloudPanItem) => void
+  onRename: (item: CloudPanItem) => void
+  onDelete: (item: CloudPanItem) => void
+  onOpenWeb: (item: CloudPanItem) => void
+}
+
+interface ColumnData {
+  path: string[]
+  name: string
+  items: CloudPanItem[]
+  selectedName: string | null
+  loading?: boolean
+}
+
+function CloudPanMillerColumns({
+  initialItems,
+  currentPath,
+  onPathChange,
+  selectedNames,
+  onToggleSelect,
+  onDownloadSingle,
+  onRename,
+  onDelete,
+  onOpenWeb
+}: CloudPanMillerColumnsProps) {
+  const [columns, setColumns] = useState<ColumnData[]>([
+    { path: [], name: '根目录', items: initialItems, selectedName: null }
+  ])
+  const [previewFile, setPreviewFile] = useState<{ item: CloudPanItem; dirPath: string[] } | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [isLoadingUrl, setIsLoadingUrl] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dirCacheRef = useRef<Map<string, CloudPanItem[]>>(new Map())
+  const lastNavigatedPathRef = useRef<string | null>(null)
+
+  // 缓存与更新根目录初始项目
+  useEffect(() => {
+    if (initialItems.length > 0) {
+      dirCacheRef.current.set('', initialItems)
+    }
+  }, [initialItems])
+
+  const scrollToRight = useCallback(() => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTo({
+            left: containerRef.current.scrollWidth,
+            behavior: 'smooth'
+          })
+        }
+      }, 60)
+    })
+  }, [])
+
+  const fetchDir = useCallback(async (path: string[], bypassCache = false): Promise<CloudPanItem[]> => {
+    const key = path.join('/')
+    if (!bypassCache && dirCacheRef.current.has(key)) {
+      return dirCacheRef.current.get(key)!
+    }
+    try {
+      const res = await window.api.cloudpan.listDirectory(path)
+      const list = res.ok && res.data ? res.data.contents || [] : []
+      dirCacheRef.current.set(key, list)
+      return list
+    } catch {
+      return []
+    }
+  }, [])
+
+  const resolvePreviewUrl = useCallback(async (dirPath: string[], item: CloudPanItem) => {
+    setPreviewFile({ item, dirPath })
+    setPreviewUrl(null)
+    const ext = item.name.split('.').pop()?.toLowerCase() || ''
+    const isMedia = ['mp4', 'mkv', 'mov', 'flv', 'ts', 'mp3', 'm4a', 'wav', 'aac', 'flac', 'jpg', 'jpeg', 'png', 'webp'].includes(ext)
+    if (isMedia) {
+      setIsLoadingUrl(true)
+      try {
+        const urlRes = await window.api.cloudpan.getDownloadUrl([...dirPath, item.name])
+        if (urlRes.ok && urlRes.url) {
+          setPreviewUrl(urlRes.url)
+        }
+      } catch {
+        // ignore
+      } finally {
+        setIsLoadingUrl(false)
+      }
+    }
+  }, [])
+
+  // 单击条目逻辑（严格单层步进：点击文件夹仅展开其下一层，不自动预选任何子项目）
+  const handleItemClick = useCallback(async (colIndex: number, item: CloudPanItem) => {
+    const col = columns[colIndex]
+    if (!col) return
+
+    if (item.type === 'file') {
+      const truncated = columns.slice(0, colIndex + 1).map((c, idx) =>
+        idx === colIndex ? { ...c, selectedName: item.name } : c
+      )
+      setColumns(truncated)
+      void resolvePreviewUrl(col.path, item)
+      scrollToRight()
+      return
+    }
+
+    // 文件夹：清除右侧已打开的预览与后序多余列，仅加载下一列
+    setPreviewFile(null)
+    setPreviewUrl(null)
+
+    const nextPath = [...col.path, item.name]
+    const truncated = columns.slice(0, colIndex + 1).map((c, idx) =>
+      idx === colIndex ? { ...c, selectedName: item.name } : c
+    )
+
+    setColumns([...truncated, { path: nextPath, name: item.name, items: [], selectedName: null, loading: true }])
+    scrollToRight()
+
+    const list = await fetchDir(nextPath)
+    setColumns([...truncated, {
+      path: nextPath,
+      name: item.name,
+      items: list,
+      selectedName: null,
+      loading: false
+    }])
+    lastNavigatedPathRef.current = nextPath.join('/')
+    onPathChange(nextPath)
+    scrollToRight()
+  }, [columns, fetchDir, onPathChange, resolvePreviewUrl, scrollToRight])
+
+  // 首次打开或外部路径同步（严格单层步进：首次打开根目录绝不自动预展开任何子目录）
+  useEffect(() => {
+    const currentPathStr = currentPath.join('/')
+    if (lastNavigatedPathRef.current === currentPathStr) {
+      return
+    }
+    lastNavigatedPathRef.current = currentPathStr
+
+    let isCancelled = false
+
+    const hydrate = async () => {
+      // 首次打开或回到根目录：仅展示根目录单列，selectedName 为 null
+      if (currentPath.length === 0) {
+        const rootItems = initialItems.length > 0 ? initialItems : await fetchDir([])
+        if (isCancelled) return
+        setColumns([
+          { path: [], name: '根目录', items: rootItems, selectedName: null }
+        ])
+        setPreviewFile(null)
+        setPreviewUrl(null)
+        return
+      }
+
+      // 外部传入已有路径：水合整条路径各祖先列（不自动预选最后一列的任何子项）
+      const ancestorChain = buildAncestorPathChain(currentPath)
+      const newCols: ColumnData[] = []
+      for (const node of ancestorChain) {
+        const items = await fetchDir(node.path)
+        if (isCancelled) return
+        newCols.push({
+          path: node.path,
+          name: node.name,
+          items,
+          selectedName: node.selectedName
+        })
+      }
+
+      setColumns(newCols)
+      setPreviewFile(null)
+      setPreviewUrl(null)
+      scrollToRight()
+    }
+
+    void hydrate()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [currentPath, fetchDir, initialItems, scrollToRight])
+
+  // 刷新所有已展开列
+  const handleRefreshColumns = useCallback(async () => {
+    dirCacheRef.current.clear()
+    const updated = await Promise.all(
+      columns.map(async col => {
+        const items = await fetchDir(col.path, true)
+        return { ...col, items }
+      })
+    )
+    setColumns(updated)
+  }, [columns, fetchDir])
+
+  // 列内文件批量勾选
+  const handleToggleColumnFiles = useCallback((colIdx: number) => {
+    const col = columns[colIdx]
+    if (!col) return
+    const fileItems = col.items.filter(i => i.type === 'file')
+    if (fileItems.length === 0) return
+    const allChecked = fileItems.every(i => selectedNames.has(i.name))
+    fileItems.forEach(i => {
+      if (allChecked && selectedNames.has(i.name)) {
+        onToggleSelect(i.name)
+      } else if (!allChecked && !selectedNames.has(i.name)) {
+        onToggleSelect(i.name)
+      }
+    })
+  }, [columns, onToggleSelect, selectedNames])
+
+  return (
+    <div className="flex h-full w-full flex-col rounded-2xl border border-bd bg-surface-1 shadow-card select-none overflow-hidden">
+      {/* 顶部分栏全局控制栏 (Miller Columns Global Bar) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bd/60 bg-surface-2/60 px-4 py-2 text-xs select-none shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-text-2 flex items-center gap-1.5">
+            <span>📊</span>
+            <span>分栏多级目录</span>
+            <span className="rounded-md bg-surface-3 px-1.5 py-0.5 font-mono text-2xs text-text-3">
+              {columns.length} 级列
+            </span>
+          </span>
+          <div className="h-3 w-px bg-bd/60 hidden sm:block" />
+          <span className="text-2xs text-text-4 font-mono truncate max-w-xs hidden sm:inline" title={`/${columns.map(c => c.name).filter(Boolean).join('/')}`}>
+            /{columns.map(c => c.name).filter(Boolean).join('/')}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* 收起一列 */}
+          {columns.length > 1 && (
+            <button
+              type="button"
+              onClick={() => {
+                setColumns(prev => prev.slice(0, prev.length - 1))
+                setPreviewFile(null)
+              }}
+              className="inline-flex items-center gap-1 rounded-xl border border-bd bg-surface-1 px-2.5 py-1 text-2xs font-medium text-text-3 hover:text-text-1 hover:bg-surface-2 transition-all cursor-pointer"
+              title="收起最右侧的一列分栏"
+            >
+              <span>📁 收起一列</span>
+            </button>
+          )}
+
+          {/* 刷新分栏 */}
+          <button
+            type="button"
+            onClick={() => void handleRefreshColumns()}
+            className="inline-flex items-center gap-1 rounded-xl border border-bd bg-surface-1 px-2.5 py-1 text-2xs font-medium text-text-3 hover:text-text-1 hover:bg-surface-2 transition-all cursor-pointer"
+            title="重新刷新当前已展开的所有分栏内容"
+          >
+            <span>↻ 刷新</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 横向平铺多级分栏主体 */}
+      <div
+        ref={containerRef}
+        className="flex flex-1 w-full flex-row overflow-x-auto divide-x divide-bd/60 scroll-smooth"
+      >
+        {columns.map((col, colIdx) => (
+          <div key={`${col.path.join('/') || 'root'}-${colIdx}`} className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full">
+            {/* 每列顶栏：显示该层名称与项目计数 */}
+            <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/40 px-3.5 text-xs font-semibold text-text-2 select-none shrink-0">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <span>{col.path.length === 0 ? '🏠' : '📁'}</span>
+                <span className="truncate font-semibold" title={col.name}>{col.name}</span>
+                <span className="text-2xs font-mono text-text-4 shrink-0">({col.items.length})</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleToggleColumnFiles(colIdx)
+                }}
+                title="全选/取消本列文件"
+                className="rounded-lg px-1.5 py-0.5 text-2xs text-text-3 hover:bg-surface-3 hover:text-text-1 transition-colors cursor-pointer"
+              >
+                ✓
+              </button>
+            </div>
+
+            {/* 列内容流 */}
+            <div className="flex-1 overflow-y-auto py-2">
+              {col.loading ? (
+                <div className="flex h-32 flex-col items-center justify-center gap-2 text-text-4 text-xs">
+                  <Spinner size={16} />
+                  <span>加载中…</span>
+                </div>
+              ) : col.items.length === 0 ? (
+                <div className="flex h-32 flex-col items-center justify-center text-text-4 text-xs">
+                  <span className="text-xl mb-1 opacity-50">📂</span>
+                  <span>空文件夹</span>
+                </div>
+              ) : (
+                col.items.map(item => {
+                  const isActive = col.selectedName === item.name
+                  const isChecked = selectedNames.has(item.name)
+                  return (
+                    <div
+                      key={item.name}
+                      onClick={() => void handleItemClick(colIdx, item)}
+                      className={`group flex items-center justify-between px-3 py-2 transition-all cursor-pointer mx-2 my-0.5 rounded-xl ${
+                        isActive
+                          ? 'bg-accent/10 text-accent font-semibold shadow-2xs'
+                          : 'text-text-1 hover:bg-surface-2/70'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <span
+                          role="checkbox"
+                          aria-checked={isChecked}
+                          tabIndex={0}
+                          onClick={e => {
+                            e.stopPropagation()
+                            onToggleSelect(item.name)
+                          }}
+                          className="cursor-pointer shrink-0 opacity-80 group-hover:opacity-100 transition-opacity"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}}
+                            className="h-3.5 w-3.5 rounded border-bd text-accent focus:ring-accent cursor-pointer accent-accent"
+                          />
+                        </span>
+                        <span className="shrink-0 text-base flex items-center justify-center w-5">
+                          {item.type === 'dir' ? (
+                            <span className="text-amber-500">📁</span>
+                          ) : (
+                            getFileIcon(item, false)
+                          )}
+                        </span>
+                        <span className="truncate text-xs min-w-0 flex-1" title={item.name}>
+                          {item.name}
+                        </span>
+                      </div>
+                      {item.type === 'dir' ? (
+                        <span className={`shrink-0 ml-1.5 text-xs font-mono transition-transform ${
+                          isActive ? 'text-accent font-bold translate-x-0.5' : 'text-text-4 group-hover:text-text-3'
+                        }`}>
+                          ›
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-2xs text-text-4 font-mono ml-1.5">
+                          {item.size ? formatBytes(item.size) : ''}
+                        </span>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        ))}
+
+        {/* 最右侧：文件大预览与元数据卡片 (Preview Column) */}
+        {previewFile && (
+          <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none">
+            <div className="flex items-center justify-between pb-3 border-b border-bd/60">
+              <span className="text-xs font-bold text-text-2">文件详情与预览</span>
+              <button
+                type="button"
+                onClick={() => { setPreviewFile(null); setPreviewUrl(null); }}
+                className="text-text-4 hover:text-text-1 text-xs p-1 rounded-md hover:bg-surface-3 transition-colors cursor-pointer"
+                title="关闭预览面板"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="my-4">
+              {(() => {
+                const ext = previewFile.item.name.split('.').pop()?.toLowerCase() || ''
+                const isVideo = ['mp4', 'mkv', 'mov', 'flv', 'ts'].includes(ext)
+                const isAudio = ['mp3', 'm4a', 'wav', 'aac', 'flac'].includes(ext)
+                const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
+
+                if (isVideo) {
+                  return (
+                    <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-md">
+                      {previewUrl ? (
+                        <video
+                          key={previewUrl}
+                          controls
+                          playsInline
+                          src={previewUrl}
+                          className="w-full h-full object-contain"
+                        />
+                      ) : isLoadingUrl ? (
+                        <div className="flex flex-col items-center gap-2 text-text-3 text-xs">
+                          <Spinner size={16} />
+                          <span>正在解析播放流…</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center text-white/80 gap-2">
+                          <span className="text-3xl">🎬</span>
+                          <span className="text-2xs text-text-4">视频文件</span>
+                        </div>
+                      )}
+                    </div>
+                  )
+                }
+
+                if (isAudio) {
+                  return (
+                    <div className="w-full rounded-xl bg-surface-2 p-4 flex flex-col items-center border border-bd/60 shadow-xs">
+                      <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-3 shadow-inner">
+                        🎵
+                      </div>
+                      {previewUrl ? (
+                        <audio
+                          key={previewUrl}
+                          controls
+                          src={previewUrl}
+                          className="w-full mt-1"
+                        />
+                      ) : isLoadingUrl ? (
+                        <div className="flex items-center gap-2 text-xs text-text-3 py-2">
+                          <Spinner size={14} />
+                          <span>加载音频中…</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                }
+
+                if (isImage && previewUrl) {
+                  return (
+                    <div className="w-full rounded-xl overflow-hidden bg-surface-2 border border-bd/60 flex items-center justify-center max-h-56">
+                      <img src={previewUrl} alt={previewFile.item.name} className="max-h-56 object-contain" />
+                    </div>
+                  )
+                }
+
+                return (
+                  <div className="flex justify-center py-4">
+                    <div className="p-5 rounded-2xl bg-surface-2 border border-bd/60 shadow-inner">
+                      {getFileIcon(previewFile.item, true)}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
+            <h3 className="text-sm font-bold text-text-1 break-all select-text leading-snug mb-3" title={previewFile.item.name}>
+              {previewFile.item.name}
+            </h3>
+
+            <div className="w-full rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40 space-y-2 mb-4">
+              <div className="flex justify-between py-1">
+                <span className="text-text-3">类型</span>
+                <span className="font-mono text-text-1 uppercase">
+                  {previewFile.item.name.split('.').pop() || '文件'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-text-3">大小</span>
+                <span className="font-mono font-bold text-accent">
+                  {formatBytes(previewFile.item.size || 0)}
+                </span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-text-3">修改时间</span>
+                <span className="font-mono text-text-2 text-2xs">
+                  {formatDate(previewFile.item.modificationTime)}
+                </span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-text-3">云端路径</span>
+                <span className="font-mono text-2xs text-text-3 truncate max-w-[180px]" title={`/${[...previewFile.dirPath, previewFile.item.name].join('/')}`}>
+                  /{[...previewFile.dirPath, previewFile.item.name].join('/')}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2 mt-auto">
+              <button
+                type="button"
+                onClick={() => void onDownloadSingle(previewFile.item)}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98] transition-all cursor-pointer"
+              >
+                <span>📥 立即下载到本地</span>
+              </button>
+
+              <div className="grid grid-cols-3 gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => onRename(previewFile.item)}
+                  className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-colors cursor-pointer"
+                >
+                  <span>✏️ 重命名</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(previewFile.item)}
+                  className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 transition-colors cursor-pointer"
+                >
+                  <span>🗑️ 删除</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onOpenWeb(previewFile.item)}
+                  className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-2.5 py-1.5 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-colors cursor-pointer"
+                >
+                  <span>🌐 网页端</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}) {
   const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
   const setCloudSpaceInfo = useAppStore(s => s.setCloudSpaceInfo)
@@ -112,9 +644,28 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeItemName, setActiveItemName] = useState<string | null>(null)
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set())
+  const [cloudPanBatchMenuOpen, setCloudPanBatchMenuOpen] = useState(false)
+  const cloudPanBatchMenuRef = useRef<HTMLDivElement>(null)
   const [toastMsg, setToastMsg] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null)
+
+  useEffect(() => {
+    if (!cloudPanBatchMenuOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (cloudPanBatchMenuRef.current && !cloudPanBatchMenuRef.current.contains(e.target as Node)) {
+        setCloudPanBatchMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCloudPanBatchMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [cloudPanBatchMenuOpen])
 
   // 模态弹窗状态
   const [newFolderOpen, setNewFolderOpen] = useState(false)
@@ -215,15 +766,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     })
   }, [contents, searchQuery])
 
-  // 区分文件夹目录与选定活跃项目（用于分栏模式）
-  const dirItems = useMemo(() => {
-    return displayedItems.filter(i => i.type === 'dir')
-  }, [displayedItems])
 
-  const activeItem = useMemo(() => {
-    if (!activeItemName) return displayedItems[0] || null
-    return displayedItems.find(i => i.name === activeItemName) || displayedItems[0] || null
-  }, [displayedItems, activeItemName])
 
   // 导航操作（防误触与冷却截流）
   const handleBreadcrumbNavigate = (id: string) => {
@@ -235,7 +778,6 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     } else {
       setCurrentPath(id.split('/'))
     }
-    setActiveItemName(null)
   }
 
   const handleEnterFolder = useCallback((name: string) => {
@@ -247,7 +789,6 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     lastNavTimeRef.current = now
     isNavigatingRef.current = true
     setCurrentPath(prev => [...prev, name])
-    setActiveItemName(null)
   }, [loading])
 
   // 多选逻辑
@@ -260,12 +801,46 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
     })
   }
 
+  // 智能分类多选逻辑
+  const cloudPanTriState = useMemo<TriState>(() => {
+    if (displayedItems.length === 0 || selectedNames.size === 0) return 'none'
+    const selCount = displayedItems.filter(i => selectedNames.has(i.name)).length
+    if (selCount === 0) return 'none'
+    if (selCount === displayedItems.length) return 'all'
+    return 'some'
+  }, [displayedItems, selectedNames])
+
   const handleToggleAll = () => {
-    if (selectedNames.size === displayedItems.length && displayedItems.length > 0) {
+    if (cloudPanTriState === 'all') {
       setSelectedNames(new Set())
     } else {
       setSelectedNames(new Set(displayedItems.map(i => i.name)))
     }
+  }
+
+  const handleSelectFilesOnly = () => {
+    const files = displayedItems.filter(i => i.type === 'file').map(i => i.name)
+    setSelectedNames(new Set(files))
+  }
+
+  const handleSelectVideosOnly = () => {
+    const videoExts = ['mp4', 'mkv', 'mov', 'flv', 'ts', 'webm', 'mp3', 'm4a', 'wav']
+    const media = displayedItems
+      .filter(i => i.type === 'file' && videoExts.includes(i.name.split('.').pop()?.toLowerCase() || ''))
+      .map(i => i.name)
+    setSelectedNames(new Set(media))
+  }
+
+  const handleSelectDocsOnly = () => {
+    const docExts = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'txt', 'zip', 'rar', '7z']
+    const docs = displayedItems
+      .filter(i => i.type === 'file' && docExts.includes(i.name.split('.').pop()?.toLowerCase() || ''))
+      .map(i => i.name)
+    setSelectedNames(new Set(docs))
+  }
+
+  const handleClearSelection = () => {
+    setSelectedNames(new Set())
   }
 
   // 单项操作
@@ -474,6 +1049,12 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
               </div>
             </div>
           )}
+
+          {/* 视图模式切换（三态视图统一：分栏 / 列表 / 网格，移至左侧与课程一致） */}
+          <NetdiskViewModeSwitch
+            mode={courseViewMode}
+            onChange={setCourseViewMode}
+          />
         </div>
 
         {/* 右侧动作工具栏 */}
@@ -525,12 +1106,6 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
           >
             <span className={loading ? 'animate-spin' : ''}>↻</span>
           </button>
-
-          {/* 视图模式切换（三态视图统一：分栏 / 列表 / 网格） */}
-          <NetdiskViewModeSwitch
-            mode={courseViewMode}
-            onChange={setCourseViewMode}
-          />
         </div>
       </header>
 
@@ -539,15 +1114,117 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
         <div className="flex-1 overflow-x-auto pr-4">
           <BreadcrumbBar items={breadcrumbItems} onNavigate={handleBreadcrumbNavigate} />
         </div>
-        <div className="relative shrink-0">
-          <span className="pointer-events-none absolute left-3 top-2.5 text-text-4">🔍</span>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder="搜索当前目录..."
-            className="h-8 w-44 rounded-xl border border-bd bg-surface-2 pl-8 pr-3 text-xs text-text-1 placeholder:text-text-4 shadow-2xs focus:w-56 focus:border-accent focus:bg-surface-1 focus:outline-none transition-all duration-200"
-          />
+        <div className="flex items-center gap-2.5 shrink-0">
+          {/* 快捷批量选择控件 */}
+          <div ref={cloudPanBatchMenuRef} className="relative inline-flex items-center rounded-xl border border-bd bg-surface-2 shadow-2xs hover:border-bd-strong transition-all select-none">
+            <button
+              type="button"
+              onClick={handleToggleAll}
+              className="inline-flex h-8 items-center gap-1.5 px-2.5 text-xs font-medium text-text-1 hover:bg-surface-1 rounded-l-xl transition-all cursor-pointer"
+              title="全选 / 取消当前目录全部项目"
+            >
+              <TriCheckbox state={cloudPanTriState} size="sm" />
+              <span>全选</span>
+            </button>
+            <div className="h-3.5 w-px bg-bd/70" />
+            <button
+              type="button"
+              onClick={() => setCloudPanBatchMenuOpen(prev => !prev)}
+              className="inline-flex h-8 w-7 items-center justify-center text-xs text-text-3 hover:text-text-1 hover:bg-surface-1 rounded-r-xl transition-all cursor-pointer"
+              title="快捷分类选择（仅选文件/仅选视频/仅选文档/清空）"
+            >
+              <svg className={`h-3 w-3 transition-transform duration-200 ${cloudPanBatchMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+              </svg>
+            </button>
+
+            {cloudPanBatchMenuOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-bd bg-surface-1 p-1.5 shadow-xl animate-fadeIn text-xs">
+                <div className="px-2.5 py-1 text-2xs font-semibold text-text-3 border-b border-bd/40 mb-1">
+                  当前目录快捷勾选 ({displayedItems.length} 项)
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectFilesOnly()
+                    setCloudPanBatchMenuOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-text-1 hover:bg-surface-2 transition-colors cursor-pointer"
+                >
+                  <span>📄</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-xs text-accent">仅选所有文件</div>
+                    <div className="text-2xs text-text-3">自动排除文件夹</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectVideosOnly()
+                    setCloudPanBatchMenuOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-text-1 hover:bg-surface-2 transition-colors cursor-pointer"
+                >
+                  <span>🎬</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-xs text-info">仅选音视频文件</div>
+                    <div className="text-2xs text-text-3">MP4 / MKV / MP3 等</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectDocsOnly()
+                    setCloudPanBatchMenuOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-text-1 hover:bg-surface-2 transition-colors cursor-pointer"
+                >
+                  <span>📑</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-xs">仅选文档资料</div>
+                    <div className="text-2xs text-text-3">PDF / Word / PPT 等</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleToggleAll()
+                    setCloudPanBatchMenuOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-text-1 hover:bg-surface-2 transition-colors cursor-pointer"
+                >
+                  <span>📁</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-xs">全选所有项目</div>
+                    <div className="text-2xs text-text-3">包含文件夹与文件</div>
+                  </div>
+                </button>
+                <div className="my-1 border-t border-bd/40" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleClearSelection()
+                    setCloudPanBatchMenuOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-warning hover:bg-warning/10 transition-colors cursor-pointer"
+                >
+                  <span>✕</span>
+                  <span className="font-medium text-xs">清空选择</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="relative shrink-0">
+            <span className="pointer-events-none absolute left-3 top-2 text-text-4">🔍</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="搜索当前目录..."
+              className="h-8 w-44 rounded-xl border border-bd bg-surface-2 pl-8 pr-3 text-xs text-text-1 placeholder:text-text-4 shadow-2xs focus:w-56 focus:border-accent focus:bg-surface-1 focus:outline-none transition-all duration-200"
+            />
+          </div>
         </div>
       </div>
 
@@ -572,7 +1249,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
       {/* 主视图内容区域 */}
       <main className={`relative flex-1 p-4 md:p-6 ${courseViewMode === 'column' ? 'overflow-hidden flex flex-col pb-20' : 'overflow-y-auto'}`}>
         {/* 加载中轻量蒙层与防误触穿透拦截 */}
-        {loading && contents.length > 0 && (
+        {loading && contents.length > 0 && courseViewMode !== 'column' && (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-surface-1/40 backdrop-blur-[1px] pointer-events-auto select-none">
             <div className="flex items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3.5 py-2 shadow-lg text-xs font-medium text-text-1">
               <Spinner size={16} />
@@ -609,407 +1286,81 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
             </div>
           </div>
         ) : courseViewMode === 'column' ? (
-          /* 分栏多级并列视图 (Column / macOS Miller Columns) */
-          <div className="flex h-full w-full divide-x divide-bd rounded-2xl border border-bd bg-surface-1 shadow-card overflow-hidden">
-            {/* 第 1 栏：目录结构与文件夹导航 */}
-            <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1">
-              <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-4 text-xs font-semibold text-text-2 select-none">
-                <span className="flex items-center gap-1.5">
-                  <span>📁 文件夹目录</span>
-                  <span className="font-mono text-2xs text-text-3">({dirItems.length})</span>
-                </span>
-                {currentPath.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentPath(prev => prev.slice(0, -1))
-                      setActiveItemName(null)
-                    }}
-                    className="text-2xs text-accent hover:underline flex items-center gap-0.5 cursor-pointer"
-                    title="返回上一级目录"
-                  >
-                    <span>⬆️ 上一级</span>
-                  </button>
-                )}
-              </div>
-
-              <div className="flex-1 overflow-y-auto divide-y divide-bd/30">
-                {/* 根目录快捷项 */}
-                <div
-                  onClick={() => {
-                    if (currentPath.length > 0) {
-                      setCurrentPath([])
-                      setActiveItemName(null)
-                    }
-                  }}
-                  className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
-                    currentPath.length === 0
-                      ? 'bg-accent/10 border-l-4 border-accent text-accent font-semibold'
-                      : 'hover:bg-surface-2/60 text-text-1'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className="text-base">☁️</span>
-                    <span className="truncate text-xs font-medium">个人根目录</span>
-                  </div>
-                  {currentPath.length > 0 && <span className="text-2xs text-text-4 font-mono">根</span>}
-                </div>
-
-                {/* 当前层级的文件夹项 */}
-                {dirItems.map(dir => {
-                  const isSelected = selectedNames.has(dir.name)
-                  const isActive = activeItem?.name === dir.name
-                  return (
-                    <div
-                      key={dir.name}
-                      onClick={() => setActiveItemName(dir.name)}
-                      onDoubleClick={() => handleEnterFolder(dir.name)}
-                      className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
-                        isActive
-                          ? 'bg-accent/10 border-l-4 border-accent text-accent font-semibold'
-                          : 'hover:bg-surface-2/60 text-text-1'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <span
-                          role="checkbox"
-                          aria-checked={isSelected}
-                          tabIndex={0}
-                          onClick={e => {
-                            e.stopPropagation()
-                            toggleSelect(dir.name)
-                          }}
-                          className="cursor-pointer shrink-0"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {}}
-                            className="h-3.5 w-3.5 rounded border-bd text-accent focus:ring-accent cursor-pointer"
-                          />
-                        </span>
-                        <span className="text-amber-500 shrink-0">📁</span>
-                        <span className="truncate text-xs" title={dir.name}>
-                          {dir.name}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={e => {
-                          e.stopPropagation()
-                          handleEnterFolder(dir.name)
-                        }}
-                        className="text-text-4 hover:text-accent p-1 -mr-1 rounded hover:bg-surface-3 transition-colors text-xs font-mono cursor-pointer"
-                        title="进入此文件夹"
-                      >
-                        ›
-                      </button>
-                    </div>
-                  )
-                })}
-
-                {dirItems.length === 0 && (
-                  <div className="flex flex-col items-center justify-center p-8 text-center text-text-4 text-xs">
-                    <span className="text-2xl mb-1 opacity-60">📂</span>
-                    <span>当前层级暂无子文件夹</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 第 2 栏：当前目录全部文件与项目列表 */}
-            <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1/50 border-r border-bd">
-              <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-4 text-xs font-semibold text-text-2 select-none">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedNames.size === displayedItems.length && displayedItems.length > 0}
-                    onChange={handleToggleAll}
-                    className="h-3.5 w-3.5 rounded border-bd text-accent focus:ring-accent cursor-pointer"
-                    title="全选当前列表"
-                  />
-                  <span className="truncate max-w-[160px]">
-                    {currentPath.length === 0 ? '根目录项目' : currentPath[currentPath.length - 1]}
-                  </span>
-                  <span className="font-mono text-2xs text-text-3">({displayedItems.length})</span>
-                </div>
-                <span className="text-2xs text-text-4 font-normal">单击选定 · 双击进目录</span>
-              </div>
-
-              <div className="flex-1 overflow-y-auto divide-y divide-bd/30">
-                {displayedItems.map(item => {
-                  const isSelected = selectedNames.has(item.name)
-                  const isActive = activeItem?.name === item.name
-                  return (
-                    <div
-                      key={item.name}
-                      onClick={() => setActiveItemName(item.name)}
-                      onDoubleClick={() => {
-                        if (item.type === 'dir') handleEnterFolder(item.name)
-                      }}
-                      className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
-                        isActive
-                          ? 'bg-accent/15 border-l-4 border-accent text-accent font-semibold'
-                          : 'hover:bg-surface-2/60 text-text-1'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <span
-                          role="checkbox"
-                          aria-checked={isSelected}
-                          tabIndex={0}
-                          onClick={e => {
-                            e.stopPropagation()
-                            toggleSelect(item.name)
-                          }}
-                          className="cursor-pointer shrink-0"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {}}
-                            className="h-3.5 w-3.5 rounded border-bd text-accent focus:ring-accent cursor-pointer"
-                          />
-                        </span>
-                        <span className="shrink-0">{getFileIcon(item, false)}</span>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium" title={item.name}>
-                            {item.name}
-                          </div>
-                          <div className="flex items-center gap-2 text-2xs font-mono text-text-3 mt-0.5">
-                            <span>{item.type === 'dir' ? '文件夹' : formatBytes(item.size || 0)}</span>
-                            <span>·</span>
-                            <span>{formatDate(item.modificationTime).split(' ')[0]}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {item.type === 'dir' ? (
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation()
-                            handleEnterFolder(item.name)
-                          }}
-                          className="text-text-4 hover:text-accent p-1 text-xs font-mono cursor-pointer"
-                          title="进入文件夹"
-                        >
-                          ›
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation()
-                            void handleDownloadSingle(item)
-                          }}
-                          className="text-text-3 hover:text-accent p-1 rounded hover:bg-surface-3 transition-colors text-xs cursor-pointer"
-                          title="下载到本地"
-                        >
-                          📥
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
-
-                {displayedItems.length === 0 && (
-                  <div className="flex flex-col items-center justify-center p-8 text-center text-text-4 text-xs">
-                    <span className="text-2xl mb-1 opacity-60">📂</span>
-                    <span>当前文件夹为空</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 第 3 栏：选定项目详情与操作控制台 */}
-            <div className="flex flex-1 flex-col bg-surface-1 p-6 overflow-y-auto">
-              <div className="flex h-10 items-center justify-between border-b border-bd pb-3 mb-6 select-none">
-                <span className="text-xs font-semibold text-text-2">ℹ️ 资源详情与控制台</span>
-                {selectedNames.size > 0 && (
-                  <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-2xs font-medium text-accent">
-                    已勾选 {selectedNames.size} 项
-                  </span>
-                )}
-              </div>
-
-              {activeItem ? (
-                <div className="flex flex-col items-center text-center max-w-md mx-auto w-full">
-                  {/* 大图标 */}
-                  <div className="my-4 p-4 rounded-2xl bg-surface-2 border border-bd/60 shadow-inner">
-                    {getFileIcon(activeItem, true)}
-                  </div>
-
-                  {/* 名称 */}
-                  <h3 className="text-sm font-bold text-text-1 break-all select-text mb-2 leading-relaxed" title={activeItem.name}>
-                    {activeItem.name}
-                  </h3>
-
-                  {/* 详细元数据 */}
-                  <div className="w-full my-4 rounded-xl border border-bd bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40">
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-text-3">项目类型</span>
-                      <span className="font-medium text-text-1 font-mono uppercase">
-                        {activeItem.type === 'dir' ? '文件夹 (Directory)' : (activeItem.name.split('.').pop() || 'FILE')}
-                      </span>
-                    </div>
-                    {activeItem.type === 'file' && (
-                      <div className="flex justify-between py-1.5">
-                        <span className="text-text-3">文件大小</span>
-                        <span className="font-mono text-text-1 font-semibold">{formatBytes(activeItem.size || 0)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-text-3">修改时间</span>
-                      <span className="font-mono text-text-2">{formatDate(activeItem.modificationTime)}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5">
-                      <span className="text-text-3">云端路径</span>
-                      <span className="font-mono text-2xs text-text-2 truncate max-w-[200px]" title={`/${[...currentPath, activeItem.name].join('/')}`}>
-                        /{[...currentPath, activeItem.name].join('/')}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 操作按钮群 */}
-                  <div className="w-full flex flex-col gap-2.5 mt-2">
-                    {activeItem.type === 'file' && (
-                      <button
-                        type="button"
-                        onClick={() => void handleDownloadSingle(activeItem)}
-                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:opacity-95 transition-all cursor-pointer"
-                      >
-                        <span>📥 下载此文件到本地</span>
-                      </button>
-                    )}
-                    {activeItem.type === 'dir' && (
-                      <button
-                        type="button"
-                        onClick={() => handleEnterFolder(activeItem.name)}
-                        className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:opacity-95 transition-all cursor-pointer"
-                      >
-                        <span>📂 进入此文件夹</span>
-                      </button>
-                    )}
-
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRenameTarget(activeItem)
-                          setRenameNewName(activeItem.name)
-                        }}
-                        className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-3 transition-colors cursor-pointer"
-                      >
-                        <span>✏️ 重命名</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTargets([activeItem])}
-                        className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-xs font-medium text-warning hover:border-warning/50 hover:bg-warning/10 transition-colors cursor-pointer"
-                      >
-                        <span>🗑️ 删除</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenBrowserSingle(activeItem)}
-                        className="flex items-center justify-center gap-1 rounded-xl border border-bd bg-surface-2 px-3 py-2 text-xs font-medium text-text-2 hover:border-bd-strong hover:bg-surface-3 hover:text-text-1 transition-colors cursor-pointer"
-                      >
-                        <span>🌐 网页端</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center text-center text-text-4">
-                  <span className="text-4xl mb-2">☁️</span>
-                  <span className="text-xs text-text-2 font-medium">请在左侧或中间列选择项目</span>
-                  <span className="text-2xs text-text-3 mt-1">支持实时查看文件元数据、直链下载与云盘管理</span>
-                </div>
-              )}
-            </div>
-          </div>
+          <CloudPanMillerColumns
+            initialItems={contents}
+            currentPath={currentPath}
+            onPathChange={setCurrentPath}
+            selectedNames={selectedNames}
+            onToggleSelect={toggleSelect}
+            onDownloadSingle={handleDownloadSingle}
+            onRename={item => {
+              setRenameTarget(item)
+              setRenameNewName(item.name)
+            }}
+            onDelete={item => setDeleteTargets([item])}
+            onOpenWeb={handleOpenBrowserSingle}
+          />
         ) : courseViewMode === 'grid' ? (
-          /* 网格大图标视图 */
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3.5 pb-20">
+          /* macOS 风格原生自适应大图标网格视图 */
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3 p-2 pb-24 select-none">
             {displayedItems.map(item => {
               const isSelected = selectedNames.has(item.name)
               return (
                 <div
                   key={item.name}
-                  onClick={() => {
-                    setActiveItemName(item.name)
-                  }}
+                  onClick={() => toggleSelect(item.name)}
                   onDoubleClick={() => {
                     if (item.type === 'dir') {
                       handleEnterFolder(item.name)
+                    } else {
+                      void handleDownloadSingle(item)
                     }
                   }}
-                  className={`group relative flex flex-col justify-between rounded-2xl border p-3.5 transition-all shadow-2xs select-none ${
-                    item.type === 'dir' ? 'cursor-pointer' : 'cursor-default'
-                  } ${
+                  className={`group relative flex flex-col items-center justify-start rounded-xl p-2.5 transition-all duration-150 cursor-pointer ${
                     isSelected
-                      ? 'border-accent bg-accent/5 ring-1 ring-accent'
-                      : 'border-bd bg-surface-2 hover:border-bd-strong hover:bg-surface-1'
+                      ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs'
+                      : 'hover:bg-surface-2/70 active:bg-surface-3/50'
                   }`}
+                  title={`${item.name} (${item.type === 'dir' ? '双击进入' : '双击下载'})`}
                 >
-                  {/* 复选框勾选 */}
+                  {/* macOS 风格圆圈复选框 (左上角) */}
                   <div
-                    className="absolute top-2.5 left-2.5 z-10"
+                    className="absolute top-2 left-2 z-10"
                     onClick={e => {
                       e.stopPropagation()
                       toggleSelect(item.name)
                     }}
                   >
-                    <input
-                      type="checkbox"
+                    <MacOSCircleCheckbox
                       checked={isSelected}
-                      onChange={() => {}}
-                      className="h-4 w-4 rounded border-bd text-accent focus:ring-accent cursor-pointer"
+                      size="sm"
+                      className={isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
                     />
                   </div>
 
-                  {/* 图标 */}
-                  <div className="flex flex-col items-center pt-2 pb-1">
-                    {getFileIcon(item, true)}
-                    <span
-                      className="mt-2.5 text-center text-xs font-medium text-text-1 line-clamp-2 break-all w-full leading-snug"
-                      title={item.name}
-                    >
-                      {item.name}
-                    </span>
-                  </div>
-
-                  {/* 元信息 */}
-                  <div className="mt-2 flex items-center justify-between text-2xs text-text-4 pt-1 border-t border-bd/40">
-                    <span>{item.type === 'dir' ? '文件夹' : formatBytes(item.size || 0)}</span>
-                    <span title={item.modificationTime}>{formatDate(item.modificationTime).split(' ')[0]}</span>
-                  </div>
-
-                  {/* 悬停快捷操作栏 */}
+                  {/* 悬停快捷微操作菜单 (右上角微胶囊) */}
                   <div
-                    className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={e => e.stopPropagation()}
                   >
-                    {item.type === 'dir' && (
+                    {item.type === 'dir' ? (
                       <button
                         type="button"
                         onClick={() => handleEnterFolder(item.name)}
                         title="进入文件夹"
-                        className="inline-flex items-center gap-0.5 rounded-lg bg-accent/15 px-2 py-0.5 text-2xs font-semibold text-accent hover:bg-accent/25 transition-colors cursor-pointer"
+                        className="flex h-5 items-center gap-0.5 rounded-full bg-surface-1/90 px-1.5 text-2xs font-medium text-accent border border-bd shadow-2xs hover:bg-surface-2 cursor-pointer"
                       >
                         <span>进入</span>
                         <span>›</span>
                       </button>
-                    )}
-                    {item.type === 'file' && (
+                    ) : (
                       <button
                         type="button"
                         onClick={() => void handleDownloadSingle(item)}
                         title="下载到本地"
-                        className="rounded-lg p-1 text-text-3 hover:bg-accent/15 hover:text-accent transition-colors cursor-pointer"
+                        className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-1/90 text-text-3 hover:text-accent border border-bd shadow-2xs hover:bg-surface-2 cursor-pointer text-2xs"
                       >
-                        📥
+                        ↓
                       </button>
                     )}
                     <button
@@ -1019,26 +1370,42 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
                         setRenameNewName(item.name)
                       }}
                       title="重命名"
-                      className="rounded-lg p-1 text-text-3 hover:bg-surface-3 hover:text-text-1 transition-colors"
+                      className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-1/90 text-text-3 hover:text-text-1 border border-bd shadow-2xs hover:bg-surface-2 cursor-pointer text-2xs"
                     >
-                      ✏️
+                      ✎
                     </button>
                     <button
                       type="button"
                       onClick={() => setDeleteTargets([item])}
                       title="删除"
-                      className="rounded-lg p-1 text-text-3 hover:bg-warning/20 hover:text-warning transition-colors"
+                      className="flex h-5 w-5 items-center justify-center rounded-full bg-surface-1/90 text-text-3 hover:text-warning border border-bd shadow-2xs hover:bg-surface-2 cursor-pointer text-2xs"
                     >
-                      🗑️
+                      ×
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleOpenBrowserSingle(item)}
-                      title="在网页端打开"
-                      className="rounded-lg p-1 text-text-3 hover:bg-surface-3 hover:text-text-1 transition-colors"
+                  </div>
+
+                  {/* 居中大图标 (60px) */}
+                  <div className="my-1 flex h-16 w-16 items-center justify-center transition-transform duration-150 group-hover:scale-105 shrink-0">
+                    {item.type === 'dir' ? (
+                      <MacOSFolderIcon size={60} />
+                    ) : (
+                      <MacOSDocumentIcon filename={item.name} size={58} />
+                    )}
+                  </div>
+
+                  {/* 居中文件名与副标元信息 (严格顶部对齐与固定基线) */}
+                  <div className="w-full flex flex-col items-center text-center mt-1.5">
+                    <span
+                      className={`text-xs font-medium line-clamp-2 break-all leading-snug w-full px-1 h-9 flex items-start justify-center ${
+                        isSelected ? 'text-accent font-semibold' : 'text-text-1'
+                      }`}
+                      title={item.name}
                     >
-                      🌐
-                    </button>
+                      {item.name}
+                    </span>
+                    <span className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+                      {item.type === 'dir' ? '文件夹' : formatBytes(item.size || 0)}
+                    </span>
                   </div>
                 </div>
               )
@@ -1068,9 +1435,6 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
                 return (
                   <div
                     key={item.name}
-                    onClick={() => {
-                      setActiveItemName(item.name)
-                    }}
                     onDoubleClick={() => {
                       if (item.type === 'dir') handleEnterFolder(item.name)
                     }}

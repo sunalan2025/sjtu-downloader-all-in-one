@@ -12,7 +12,7 @@ import { is } from '@electron-toolkit/utils'
 import { join } from 'node:path'
 import { getAccountName, getStudentId } from './auth'
 import { getSpeedEma } from './concurrency'
-import { formatBytes } from '../shared/utils'
+import { formatBytes, isSafeExternalUrl } from '../shared/utils'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -100,7 +100,9 @@ export function createMainWindow(): void {
     mainWindow?.focus()
   })
   mainWindow.webContents.setWindowOpenHandler(d => {
-    shell.openExternal(d.url)
+    if (isSafeExternalUrl(d.url)) {
+      void shell.openExternal(d.url)
+    }
     return { action: 'deny' }
   })
 

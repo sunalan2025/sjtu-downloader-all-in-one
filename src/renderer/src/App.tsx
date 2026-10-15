@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore, type Stage } from './store/app'
 import { TitleBar, applyTheme } from './components/TitleBar'
 import { WindowConfirmModal } from './components/WindowConfirmModal'
+import { SetupWizardModal } from './components/SetupWizardModal'
+import pkg from '../../../package.json'
 import { Welcome } from './pages/Welcome'
 import { Login } from './pages/Login'
 import { AuditedCourses } from './pages/AuditedCourses'
@@ -10,6 +12,7 @@ import { CnmoocBrowser } from './pages/CnmoocBrowser'
 import { TransferCenter } from './pages/TransferCenter'
 import { Settings } from './pages/Settings'
 import { CloudPanExplorer } from './pages/CloudPanExplorer'
+import { ScheduleBrowser } from './pages/ScheduleBrowser'
 import { useDownloadProgressSubscription } from './hooks/useSharedBrowserHooks'
 import { prefetchCanvasCourses, prefetchCnmoocCourses, prefetchCloudConnection } from './services/prefetch'
 import type { ActiveTab } from '@shared/types'
@@ -32,7 +35,7 @@ export default function App() {
   const [previousCourseTab, setPreviousCourseTab] = useState<ActiveTab>('canvas')
 
   useEffect(() => {
-    if (activeTab === 'canvas' || activeTab === 'audited' || activeTab === 'cnmooc') {
+    if (activeTab === 'canvas' || activeTab === 'audited' || activeTab === 'cnmooc' || activeTab === 'schedule') {
       setPreviousCourseTab(activeTab)
     }
   }, [activeTab])
@@ -86,8 +89,11 @@ export default function App() {
         if (cancelled) return
         setAuth(a)
         if (a.loggedIn) {
-          if (!useAppStore.getState().hasCompletedInitialSetup) {
-            useAppStore.getState().setActiveTab('settings')
+          const currentVersion = window.api?.version || pkg.version
+          const lastVersion = useAppStore.getState().lastSetupVersion
+          const hasCompleted = useAppStore.getState().hasCompletedInitialSetup
+          if (!hasCompleted || !lastVersion || lastVersion !== currentVersion) {
+            useAppStore.getState().setShowSetupWizardModal(true)
           }
           setStage('browser')
           const cloudToken = await window.api.cloudpan.getCachedToken()
@@ -154,6 +160,7 @@ export default function App() {
               {activeTab === 'audited' && <AuditedCourses />}
               {activeTab === 'canvas' && <CanvasBrowser />}
               {activeTab === 'cnmooc' && <CnmoocBrowser />}
+              {activeTab === 'schedule' && <ScheduleBrowser />}
               {activeTab === 'transfer' && <TransferCenter onBack={handleBackToCourses} />}
               {activeTab === 'settings' && <Settings onBack={handleBackToCourses} onLogout={() => void handleLogout()} />}
               {activeTab === 'cloudpan' && <CloudPanExplorer onBack={handleBackToCourses} />}
@@ -162,6 +169,7 @@ export default function App() {
         )}
       </main>
       <WindowConfirmModal />
+      <SetupWizardModal />
     </div>
   )
 }

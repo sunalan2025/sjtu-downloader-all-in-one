@@ -77,15 +77,15 @@ function SegmentedImpl<T extends string>({
   return (
     <div
       ref={wrapRef}
-      className={`relative inline-flex w-fit select-none items-center rounded-lg border border-bd bg-surface-2 p-0.5 ${SIZE_WRAP[size]} ${className}`}
+      className={`relative inline-flex w-fit select-none items-center rounded-xl border border-bd bg-surface-2/80 p-0.5 ${SIZE_WRAP[size]} ${className}`}
     >
       {/* 玻璃滑动指示器：像素级贴合激活按钮 */}
       <span
-        className="pointer-events-none absolute top-0.5 bottom-0.5 rounded-md bg-surface-1 shadow-sm"
+        className="pointer-events-none absolute top-0.5 bottom-0.5 rounded-lg bg-surface-1 shadow-2xs border border-bd/40"
         style={{
           transform: `translateX(${ind.left}px)`,
           width: `${ind.width}px`,
-          transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), width 300ms cubic-bezier(0.4, 0, 0.2, 1)'
+          transition: 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1), width 260ms cubic-bezier(0.16, 1, 0.3, 1)'
         }}
       />
       {options.map((o, i) => {
@@ -97,8 +97,8 @@ function SegmentedImpl<T extends string>({
             type="button"
             onClick={() => onChange(o.key)}
             title={o.title}
-            className={`relative z-10 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md transition-colors duration-200 ${SIZE_BTN[size]} ${
-              active ? 'font-medium text-accent' : 'text-text-3 hover:text-text-1'
+            className={`relative z-10 inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg transition-colors duration-200 cursor-pointer ${SIZE_BTN[size]} ${
+              active ? 'font-semibold text-text-1' : 'text-text-3 hover:text-text-2'
             }`}
           >
             {o.icon}

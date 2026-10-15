@@ -156,7 +156,6 @@ export function CnmoocBrowser() {
     localDestRoot,
     resourceFilter,
     downloading,
-    setSelected,
     toggleSelect,
     toggleSelectMany,
     setResourceFilter,
@@ -178,7 +177,6 @@ export function CnmoocBrowser() {
       localDestRoot: s.localDestRoot,
       resourceFilter: s.cnmoocResourceFilter,
       downloading: s.downloading,
-      setSelected: s.setSelected,
       toggleSelect: s.toggleSelect,
       toggleSelectMany: s.toggleSelectMany,
       setResourceFilter: s.setCnmoocResourceFilter,
@@ -239,14 +237,6 @@ export function CnmoocBrowser() {
     void runScan()
   }, [runScan, scanState])
 
-  // 扫描结束默认全选（只执行一次）
-  const autoSelectedRef = useRef(false)
-  useEffect(() => {
-    if (scanState === 'done' && total > 0 && !autoSelectedRef.current) {
-      autoSelectedRef.current = true
-      setSelected(new Set(allTaskIds))
-    }
-  }, [scanState, total, allTaskIds, setSelected])
 
   // 搜索过滤课程
   const filteredCourses = useMemo(() => {
@@ -344,7 +334,8 @@ export function CnmoocBrowser() {
       result = await window.api.download.start('', specs, {
         mode: downloadMode,
         conflictStrategy: useAppStore.getState().fileConflictStrategy,
-        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined
+        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined,
+        namingTemplate: useAppStore.getState().namingTemplate
       })
     } catch (err) {
       result = { ok: false, error: err instanceof Error ? err.message : 'IPC 通信失败' }
@@ -465,7 +456,9 @@ export function CnmoocBrowser() {
         onToggle: () => {
           onToggleMany(ids, triState !== 'all')
         },
-        summary: ids.length > 0 ? { done, downloading: downloadingCount, errors, inflight, total: ids.length } : undefined
+        summary: (done > 0 || downloadingCount > 0 || errors > 0) && ids.length > 0
+          ? { done, downloading: downloadingCount, errors, inflight, total: ids.length }
+          : undefined
       }
     })
   }, [

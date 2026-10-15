@@ -66,14 +66,14 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
 
           <div className="h-4 w-px bg-bd" />
 
-          <div className="flex items-center gap-1 rounded-xl bg-surface-3 p-1">
+          <div className="flex items-center gap-1 rounded-xl bg-surface-3 p-1 shadow-2xs">
             <button
               type="button"
               onClick={() => setActiveTab('active')}
-              className={`rounded-lg px-3.5 py-1 text-xs font-semibold transition-all ${
+              className={`rounded-lg px-3.5 py-1 text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'active'
-                  ? 'bg-accent text-white shadow-sm'
-                  : 'text-text-2 hover:bg-surface-2 hover:text-text-1'
+                  ? 'bg-surface-1 text-text-1 shadow-2xs'
+                  : 'text-text-3 hover:text-text-2'
               }`}
             >
               正在下载 ({activeTasks.length})
@@ -81,10 +81,10 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
             <button
               type="button"
               onClick={() => setActiveTab('history')}
-              className={`rounded-lg px-3.5 py-1 text-xs font-semibold transition-all ${
+              className={`rounded-lg px-3.5 py-1 text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'history'
-                  ? 'bg-accent text-white shadow-sm'
-                  : 'text-text-2 hover:bg-surface-2 hover:text-text-1'
+                  ? 'bg-surface-1 text-text-1 shadow-2xs'
+                  : 'text-text-3 hover:text-text-2'
               }`}
             >
               已完成历史 ({history.length})
@@ -98,14 +98,14 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
               <button
                 type="button"
                 onClick={() => void window.api.download.pauseAll()}
-                className="rounded-lg border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 transition hover:bg-surface-3 hover:text-text-1"
+                className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
               >
                 全部暂停
               </button>
               <button
                 type="button"
                 onClick={() => void window.api.download.resumeAll()}
-                className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-accent-light"
+                className="rounded-xl bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
               >
                 全部继续
               </button>
@@ -115,14 +115,14 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
               <button
                 type="button"
                 onClick={clearHistory}
-                className="rounded-lg border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 transition hover:bg-surface-3 hover:text-text-1"
+                className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
               >
                 清空已完成
               </button>
               <button
                 type="button"
                 onClick={() => localDestRoot && handleOpenPath(localDestRoot)}
-                className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-accent-light"
+                className="rounded-xl bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
               >
                 打开下载文件夹
               </button>
@@ -137,7 +137,7 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
           <div className="flex h-64 flex-col items-center justify-center text-sm text-text-3">
             <div className="text-3xl mb-2">📥</div>
             <span>暂无正在进行的下载任务</span>
-            <span className="text-xs text-text-muted mt-1">在课程页面勾选课件或视频后点击「立即下载」即可开始传输</span>
+            <span className="text-xs text-text-4 mt-1">在课程页面勾选课件或视频后点击「立即下载」即可开始传输</span>
           </div>
         )}
         
@@ -175,7 +175,7 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
                       <button
                         type="button"
                         onClick={() => void window.api.download.resume(task.taskId)}
-                        className="rounded-lg bg-accent px-3 py-1 text-xs font-medium text-white shadow-sm hover:bg-accent-light"
+                        className="rounded-xl bg-accent px-3 py-1 text-xs font-medium text-white shadow-2xs hover:bg-accent-light transition-all cursor-pointer active:scale-[0.98]"
                       >
                         继续
                       </button>
@@ -183,7 +183,7 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
                       <button
                         type="button"
                         onClick={() => void window.api.download.pause(task.taskId)}
-                        className="rounded-lg border border-bd bg-surface-1 px-3 py-1 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1"
+                        className="rounded-xl border border-bd bg-surface-1 px-3 py-1 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-all cursor-pointer shadow-2xs active:scale-[0.98]"
                       >
                         暂停
                       </button>
@@ -191,7 +191,7 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
                     <button
                       type="button"
                       onClick={() => void window.api.download.cancel(task.taskId)}
-                      className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1 text-xs font-medium text-red-500 hover:bg-red-500/20"
+                      className="rounded-xl border border-rose/30 bg-rose/10 px-3 py-1 text-xs font-medium text-rose hover:bg-rose/20 transition-all cursor-pointer shadow-2xs active:scale-[0.98]"
                     >
                       取消
                     </button>
@@ -229,7 +229,7 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
                     <button
                       type="button"
                       onClick={() => handleShowInFolder(item.filePath!)}
-                      className="rounded-lg border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 transition hover:bg-surface-3 hover:text-text-1"
+                      className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
                     >
                       在文件夹中显示
                     </button>
@@ -237,7 +237,7 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
                   <button
                     type="button"
                     onClick={() => removeHistoryItem(item.taskId)}
-                    className="p-1.5 text-xs text-text-muted hover:text-red-500 transition"
+                    className="p-1.5 text-xs text-text-4 hover:text-rose transition cursor-pointer"
                     title="移除记录"
                   >
                     ✕

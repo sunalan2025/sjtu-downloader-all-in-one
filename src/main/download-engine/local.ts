@@ -4,10 +4,20 @@
 // 调度器与 cloud 调度器通过 concurrency 的 reschedule 回调联动，不互相 import。
 // AIMD note* 在 data 事件 / finally 里调用，喂入 concurrency 模块。
 
-import { request as httpsRequest } from 'node:https'
+import { request as httpsRequest, Agent as HttpsAgent } from 'node:https'
 import type { IncomingMessage } from 'node:http'
 import { createWriteStream, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
+
+/** 全局保活长连接 Agent：复用 TCP/TLS 握手，避免千百个小文件下载时端口耗尽与重复握手延迟 */
+export const sharedDownloadAgent = new HttpsAgent({
+  keepAlive: true,
+  keepAliveMsecs: 15000,
+  maxSockets: 32,
+  maxFreeSockets: 16,
+  timeout: 60000
+})
+
 import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState } from '../../shared/types'
 import { interceptDownloadRedirect } from './domain-guard'
 import {
@@ -375,7 +385,8 @@ function downloadStream(t: TaskRuntime): Promise<void> {
           host: u.hostname,
           port: u.port || 443,
           path: `${u.pathname}${u.search}`,
-          headers
+          headers,
+          agent: sharedDownloadAgent
         },
         (resp: IncomingMessage) => {
           t.resp = resp
@@ -467,6 +478,9 @@ function downloadStream(t: TaskRuntime): Promise<void> {
           ws.on('error', fail)
 
           let lastEmit = 0
+          let isPausedByLimiter = false
+          let isPausedByDrain = false
+
           resp.on('data', (chunk: Buffer) => {
             // 用户已点 pause/cancel：req.destroy 异步生效前，缓冲区里的 data 事件
             // 还会继续触发。这里直接干掉 resp，避免把刚 emit 的 paused 状态覆盖回 downloading。
@@ -481,11 +495,34 @@ function downloadStream(t: TaskRuntime): Promise<void> {
             }
             t.received += chunk.length
             noteDownloadBytes(chunk.length)
-            void globalSpeedLimiter.consume(chunk.length)
-            if (!ws.write(chunk)) {
+
+            // 限速流控：若令牌不足，暂停可读流并在定时器到期后恢复
+            const delay = globalSpeedLimiter.acquireDelay(chunk.length)
+            if (delay > 0) {
+              isPausedByLimiter = true
               resp.pause()
-              ws.once('drain', () => resp.resume())
+              const timer = setTimeout(() => {
+                t.retryTimers.delete(timer)
+                isPausedByLimiter = false
+                if (!isPausedByDrain && !resp.destroyed && t.state === 'downloading') {
+                  resp.resume()
+                }
+              }, delay)
+              t.retryTimers.add(timer)
             }
+
+            // 磁盘写入背压：缓冲区满时暂停流，drain 后恢复
+            if (!ws.write(chunk)) {
+              isPausedByDrain = true
+              resp.pause()
+              ws.once('drain', () => {
+                isPausedByDrain = false
+                if (!isPausedByLimiter && !resp.destroyed && t.state === 'downloading') {
+                  resp.resume()
+                }
+              })
+            }
+
             const now = Date.now()
             if (now - lastEmit > 2000) {
               lastEmit = now

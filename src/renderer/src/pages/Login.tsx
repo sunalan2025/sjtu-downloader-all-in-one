@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../store/app'
 import { SJTU_PARTITION, VSJTU_JWT_LS_KEY, type MaskedCredential } from '@shared/types'
 import { Spinner } from '../components/Spinner'
+import pkg from '../../../../package.json'
 
 /**
  * 直接加载上海交通大学统一身份认证 OAuth2 授权入口
@@ -21,40 +22,40 @@ const JACCOUNT_AUTH_URL =
 function getJAccountEmbedCss(isDark: boolean): string {
   const vars = isDark
     ? `
-      --theme-bg: #1E1E1E;
-      --theme-text: #F5F5F5;
-      --theme-text-sub: #A0A0A0;
-      --theme-text-muted: #737373;
-      --theme-border: #333333;
+      --theme-bg: #161618;
+      --theme-text: #F4F4F5;
+      --theme-text-sub: #A1A1AA;
+      --theme-text-muted: #71717A;
+      --theme-border: rgba(255, 255, 255, 0.08);
       --theme-qr-bg: #FFFFFF;
-      --theme-qr-border: #444444;
-      --theme-input-bg: #272727;
-      --theme-input-border: #383838;
-      --theme-input-text: #F5F5F5;
-      --theme-placeholder: #666666;
-      --theme-accent: #4080FF;
-      --theme-accent-hover: #69B1FF;
-      --theme-accent-ring: rgba(64, 128, 255, 0.25);
-      --theme-accent-shadow: rgba(64, 128, 255, 0.2);
+      --theme-qr-border: rgba(255, 255, 255, 0.12);
+      --theme-input-bg: #232326;
+      --theme-input-border: rgba(255, 255, 255, 0.10);
+      --theme-input-text: #F4F4F5;
+      --theme-placeholder: #71717A;
+      --theme-accent: #0A84FF;
+      --theme-accent-hover: #409CFF;
+      --theme-accent-ring: rgba(10, 132, 255, 0.25);
+      --theme-accent-shadow: rgba(10, 132, 255, 0.2);
       --theme-warn-bg: #2E2316;
-      --theme-warn-text: #FB923C;
+      --theme-warn-text: #FF9F0A;
     `
     : `
       --theme-bg: #FFFFFF;
-      --theme-text: #1D2129;
-      --theme-text-sub: #4E5969;
-      --theme-text-muted: #86909C;
-      --theme-border: #E5E6EB;
+      --theme-text: #1D1D1F;
+      --theme-text-sub: #6E6E73;
+      --theme-text-muted: #86868B;
+      --theme-border: rgba(60, 60, 67, 0.12);
       --theme-qr-bg: #FFFFFF;
-      --theme-qr-border: #E5E6EB;
-      --theme-input-bg: #F7F8FA;
-      --theme-input-border: #E5E6EB;
-      --theme-input-text: #1D2129;
-      --theme-placeholder: #A8ABB2;
-      --theme-accent: #165DFF;
-      --theme-accent-hover: #0E42D2;
-      --theme-accent-ring: rgba(22, 93, 255, 0.20);
-      --theme-accent-shadow: rgba(22, 93, 255, 0.15);
+      --theme-qr-border: rgba(60, 60, 67, 0.16);
+      --theme-input-bg: #F5F5F7;
+      --theme-input-border: rgba(60, 60, 67, 0.12);
+      --theme-input-text: #1D1D1F;
+      --theme-placeholder: #AEAEB2;
+      --theme-accent: #0071E3;
+      --theme-accent-hover: #409CFF;
+      --theme-accent-ring: rgba(0, 113, 227, 0.20);
+      --theme-accent-shadow: rgba(0, 113, 227, 0.15);
       --theme-warn-bg: #FFF7E6;
       --theme-warn-text: #D46B08;
     `
@@ -174,32 +175,50 @@ function getJAccountEmbedCss(isDark: boolean): string {
       line-height: 1.5 !important;
     }
 
-    /* 左侧二维码扫码专区：第二行左侧 */
-    .login-qr {
+    /* 左侧二维码扫码专区：透明无缝融入主题底色 */
+    .login-qr,
+    .login-qr-wrapper,
+    .qr-container,
+    .qr-box,
+    .qr-card {
       display: flex !important;
       flex-direction: column !important;
       align-items: center !important;
       justify-content: center !important;
       order: 2 !important;
       float: none !important;
-      flex: 0 0 210px !important;
-      width: 210px !important;
-      min-width: 210px !important;
+      flex: 0 0 220px !important;
+      width: 220px !important;
+      min-width: 220px !important;
       margin: 0 !important;
-      padding: 4px 20px 4px 0 !important;
+      padding: 4px 24px 4px 0 !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      border: none !important;
       border-right: 1px solid var(--theme-border) !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
       box-sizing: border-box !important;
     }
 
-    .login-qr .qr-title {
+    .login-qr .qr-title,
+    .qr-title {
       font-size: 14px !important;
       font-weight: 600 !important;
-      margin-bottom: 10px !important;
+      margin-bottom: 12px !important;
       color: var(--theme-text) !important;
+      background: transparent !important;
       text-align: center !important;
     }
 
-    .login-qr .bolder-blue {
+    .login-qr .qr-title span,
+    .qr-title span {
+      color: var(--theme-text) !important;
+    }
+
+    .login-qr .bolder-blue,
+    .qr-title .bolder-blue,
+    .qr-tips .bolder-blue {
       color: var(--theme-accent) !important;
       font-weight: 600 !important;
     }
@@ -208,13 +227,13 @@ function getJAccountEmbedCss(isDark: boolean): string {
       display: flex !important;
       align-items: center !important;
       justify-content: center !important;
-      width: 170px !important;
-      height: 170px !important;
-      padding: 5px !important;
-      background: var(--theme-qr-bg) !important;
-      border-radius: 12px !important;
+      width: 172px !important;
+      height: 172px !important;
+      padding: 6px !important;
+      background: #FFFFFF !important;
+      border-radius: 14px !important;
       border: 1px solid var(--theme-qr-border) !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
       box-sizing: border-box !important;
     }
 
@@ -222,20 +241,21 @@ function getJAccountEmbedCss(isDark: boolean): string {
       display: block !important;
       width: 156px !important;
       height: 156px !important;
-      border-radius: 6px !important;
+      border-radius: 8px !important;
       visibility: visible !important;
       opacity: 1 !important;
     }
 
     .qr-tips {
       font-size: 12px !important;
-      color: var(--theme-text-muted) !important;
-      margin-top: 10px !important;
+      color: var(--theme-text-sub) !important;
+      background: transparent !important;
+      margin-top: 12px !important;
       text-align: center !important;
     }
 
-    .qr-tips .bolder-blue {
-      color: var(--theme-accent) !important;
+    .qr-tips span {
+      color: var(--theme-text-sub) !important;
     }
 
     /* 右侧表单专区（账号密码 / 短信 / 二次验证）：第二行右侧 */
@@ -995,14 +1015,15 @@ export function Login() {
   const [isSavingCred, setIsSavingCred] = useState(false)
 
   const navigateToBrowser = useCallback(() => {
+    const currentVersion = window.api?.version || pkg.version
+    const lastVersion = useAppStore.getState().lastSetupVersion
     const hasCompleted = useAppStore.getState().hasCompletedInitialSetup
-    if (!hasCompleted) {
-      useAppStore.getState().setActiveTab('settings')
-    } else {
-      const currentTab = useAppStore.getState().activeTab
-      if (currentTab === 'settings' || currentTab === 'transfer') {
-        useAppStore.getState().setActiveTab(useAppStore.getState().lastCourseTab || 'canvas')
-      }
+    if (!hasCompleted || !lastVersion || lastVersion !== currentVersion) {
+      useAppStore.getState().setShowSetupWizardModal(true)
+    }
+    const currentTab = useAppStore.getState().activeTab
+    if (currentTab === 'settings' || currentTab === 'transfer') {
+      useAppStore.getState().setActiveTab(useAppStore.getState().lastCourseTab || 'canvas')
     }
     setStage('browser')
   }, [setStage])
@@ -1521,7 +1542,7 @@ export function Login() {
               style={{
                 width: '100%',
                 height: '100%',
-                background: isDark ? '#1E1E1E' : '#FFFFFF',
+                background: isDark ? '#161618' : '#FFFFFF',
                 opacity: ready ? 1 : 0,
                 transition: 'opacity 0.2s'
               }}
@@ -1607,7 +1628,7 @@ export function Login() {
                   if (e.key === 'Enter') void handleConfirmSaveCred()
                   if (e.key === 'Escape') handleSkipSaveCred()
                 }}
-                className="w-full rounded-lg border border-bd bg-surface-2 px-3 py-2 text-xs text-text-1 placeholder-text-3 outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20"
+                className="w-full rounded-xl border border-bd bg-surface-2 px-3 py-2 text-xs text-text-1 placeholder:text-text-4 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/15"
               />
             </div>
 

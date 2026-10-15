@@ -21,13 +21,20 @@ Thumbs.db
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# 本地与 AI 助手调试工件
+# 本地与 AI 助手调试工件（强隔离，严防会话与提示词外泄）
 .agents/
 .claude/
 CLAUDE.md
+.superpowers/
+.gemini/
+.antigravity/
+.cursor/
+.cline/
+.windsurf/
 .playwright-mcp/
 .uploads/
 *.network-response
+
 
 # 抓包导出与调试凭据（防止开发者本地 session 凭证泄露）
 test_session_*.json

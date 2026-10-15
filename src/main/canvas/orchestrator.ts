@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   CANVAS_BASE_URL,
+  type CanvasAssignmentItem,
   type CanvasDownloadTaskSpec,
   type CanvasFileItem,
   type CanvasLectureDownloadItem,
@@ -22,6 +23,13 @@ import {
   type CourseResourceSummary,
   type VideoQualityOption
 } from '../../shared/types'
+import {
+  fetchCourseAssignments,
+  downloadAssignmentArchive
+} from './assignment-download'
+import {
+  downloadLectureTranscript
+} from './transcript-download'
 import {
   listCourses,
   fetchFolderMap,
@@ -173,7 +181,7 @@ export function invalidateCanvasLogin(): void {
   _canvasLoginPromise = null
 }
 
-async function ensureCanvasLogin(): Promise<boolean> {
+export async function ensureCanvasLogin(): Promise<boolean> {
   if (_canvasSsoDone) return true
   if (_canvasLoginPromise) return _canvasLoginPromise
   _canvasLoginPromise = (async () => {
@@ -188,15 +196,15 @@ async function ensureCanvasLogin(): Promise<boolean> {
       return false
     }
 
-    // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成
+    // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成（隐藏窗口）
     console.log('[canvas] 触发 OIDC SSO（隐藏窗口）…')
     const ok = await completeOidcSso(session, false)
-    if (ok) { _canvasSsoDone = true; return true }
-    // 隐藏窗口失败 → 弹出可见窗口（首次登录需用户扫码/授权）
-    console.log('[canvas] 隐藏 SSO 失败，弹出可见窗口')
-    const ok2 = await completeOidcSso(session, true)
-    if (ok2) _canvasSsoDone = true
-    return ok2
+    if (ok) {
+      _canvasSsoDone = true
+      return true
+    }
+    console.log('[canvas] 静默 SSO 失败，会话可能已失效')
+    return false
   })()
   try {
     return await _canvasLoginPromise
@@ -205,8 +213,7 @@ async function ensureCanvasLogin(): Promise<boolean> {
   }
 }
 
-/** 通过 BrowserWindow 完成 Canvas OIDC SSO 流程。
- *  show=true 时弹出可见窗口（首次登录），show=false 时用隐藏窗口（复用 jAccount session）。 */
+/** 通过 BrowserWindow 完成 Canvas OIDC SSO 流程（复用 jAccount session，隐藏窗口静默完成）。 */
 async function completeOidcSso(session: Electron.Session, show: boolean): Promise<boolean> {
   const win = new BrowserWindow({
     show,
@@ -227,6 +234,12 @@ async function completeOidcSso(session: Electron.Session, show: boolean): Promis
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 500))
       const url = win.webContents.getURL()
+
+      // 若检测到重定向至 jAccount 登录或扫码页，说明全局会话已过期，立即退出
+      if (url.includes('jaccount.sjtu.edu.cn/jaccount/jalogin') || url.includes('/qrcode')) {
+        console.log('[canvas] SSO 重定向至 jAccount 登录页，会话已过期')
+        return false
+      }
 
       // SSO 成功标志：URL 包含 login_success 或回到 Canvas 主域
       if (isCanvasDashboardUrl(url)) {
@@ -274,11 +287,12 @@ export async function scanCourse(
   try {
     emitScanProgress(courseId, 'files', '正在扫描文件和模块…')
 
-    const [folderMapRes, filesRes, modulesRes, syllabusRes] = await Promise.allSettled([
+    const [folderMapRes, filesRes, modulesRes, syllabusRes, assignmentsRes] = await Promise.allSettled([
       fetchFolderMap(session, courseId),
       fetchCourseFiles(session, courseId),
       fetchCourseModules(session, courseId),
-      fetchSyllabusBody(session, courseId)
+      fetchSyllabusBody(session, courseId),
+      fetchCourseAssignments(session, courseId)
     ])
 
     let filesTabAccessible = true
@@ -330,7 +344,16 @@ export async function scanCourse(
       syllabusHtml = ''
     }
 
-    // 5. 模块与大纲附件提取去重
+    // 5. 处理作业列表 (容错)
+    let assignments: CanvasAssignmentItem[] = []
+    if (assignmentsRes.status === 'fulfilled') {
+      assignments = assignmentsRes.value
+    } else {
+      console.warn(`[canvas] 课程 ${courseId} fetchCourseAssignments 失败:`, assignmentsRes.reason)
+      assignments = []
+    }
+
+    // 6. 模块与大纲附件提取去重
     const knownFileIds = new Set(files.filter(f => f.url).map(f => f.fileId))
     const moduleFileIds: number[] = []
     for (const m of modules) {
@@ -359,6 +382,7 @@ export async function scanCourse(
       folderMap: Object.fromEntries(folderMap),
       moduleFiles,
       syllabusFiles,
+      assignments,
       warning
     }
   } catch (err) {
@@ -369,6 +393,7 @@ export async function scanCourse(
       folderMap: {},
       moduleFiles: [],
       syllabusFiles: [],
+      assignments: [],
       error: err instanceof Error ? err.message : String(err)
     }
   }
@@ -1278,6 +1303,172 @@ export function registerCanvasHandlers(): void {
       if (taskId) {
         emitToRenderer('canvas:ppt-progress', { taskId, ivsVideoId: 0, current: total, total, phase: '完成' })
       }
+      return { ok: true, results }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  /** 批量下载课程作业 (Assignments & Submissions) */
+  ipcMain.handle('canvas:assignment-download-batch', async (_event, opts: {
+    taskId?: string
+    courseId: number
+    courseName: string
+    assignments: CanvasAssignmentItem[]
+    destRoot: string
+    term?: string
+    conflictStrategy?: 'skip' | 'overwrite'
+  }) => {
+    try {
+      const session = getSession()
+      const taskId = opts.taskId
+      const total = opts.assignments.length
+      const results: Array<{ assignmentName: string; ok: boolean; path?: string; error?: string }> = []
+
+      if (taskId) {
+        emitToRenderer('canvas:assignment-progress', { taskId, current: 0, total, phase: '开始归档课程作业…' })
+      }
+
+      for (let i = 0; i < opts.assignments.length; i++) {
+        const assignment = opts.assignments[i]
+        if (taskId) {
+          emitToRenderer('canvas:assignment-progress', {
+            taskId, current: i, total,
+            phase: `正在归档 ${assignment.name}…`,
+            assignmentName: assignment.name
+          })
+        }
+
+        const res = await downloadAssignmentArchive(
+          session,
+          {
+            courseName: opts.courseName,
+            courseId: opts.courseId,
+            assignment,
+            destRoot: opts.destRoot,
+            term: opts.term,
+            conflictStrategy: opts.conflictStrategy
+          },
+          (phase) => {
+            if (!taskId) return
+            emitToRenderer('canvas:assignment-progress', {
+              taskId, current: i, total,
+              phase,
+              assignmentName: assignment.name
+            })
+          }
+        )
+
+        results.push({ assignmentName: assignment.name, ok: res.ok, path: res.path, error: res.error })
+
+        if (taskId) {
+          emitToRenderer('canvas:assignment-progress', {
+            taskId, current: i + 1, total,
+            phase: res.ok ? `${assignment.name} 归档完成` : `${assignment.name} 归档失败`,
+            assignmentName: assignment.name
+          })
+        }
+      }
+
+      if (taskId) {
+        emitToRenderer('canvas:assignment-progress', { taskId, current: total, total, phase: '完成' })
+      }
+
+      return { ok: true, results }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  /** 导出单讲课堂视频 AI 语音逐字稿与字幕 (.srt / .md) */
+  ipcMain.handle('canvas:transcript-download', async (_event, opts: {
+    courseName: string
+    term?: string
+    lectureName: string
+    videoBaseName: string
+    videoSession?: { beginTime: string; teacher: string; classroom: string }
+    destRoot: string
+    courseId: string | number
+    exportSrt?: boolean
+    exportMarkdown?: boolean
+  }) => {
+    try {
+      const session = getSession()
+      const token = getCachedToken()
+      if (!token) return { ok: false, error: '请先扫描课程获取课堂视频凭据' }
+      return await downloadLectureTranscript(session, { ...opts, token })
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  /** 批量导出多讲课堂实录 AI 语音逐字稿与字幕 */
+  ipcMain.handle('canvas:transcript-download-batch', async (_event, opts: {
+    taskId?: string
+    courseName: string
+    term?: string
+    destRoot: string
+    lectures: Array<{
+      lectureName: string
+      videoBaseName: string
+      courseId: string | number
+      videoSession?: { beginTime: string; teacher: string; classroom: string }
+    }>
+    exportSrt?: boolean
+    exportMarkdown?: boolean
+  }) => {
+    try {
+      const session = getSession()
+      const token = getCachedToken()
+      if (!token) return { ok: false, error: '请先扫描课程获取课堂视频凭据' }
+
+      const total = opts.lectures.length
+      const results: Array<{ lectureName: string; ok: boolean; srtPath?: string; mdPath?: string; count?: number; error?: string }> = []
+
+      if (opts.taskId) {
+        emitToRenderer('canvas:transcript-progress', { taskId: opts.taskId, current: 0, total, phase: '开始导出语音逐字稿…' })
+      }
+
+      for (let i = 0; i < total; i++) {
+        const lec = opts.lectures[i]
+        if (opts.taskId) {
+          emitToRenderer('canvas:transcript-progress', {
+            taskId: opts.taskId,
+            current: i,
+            total,
+            phase: `正在处理 ${lec.lectureName}…`
+          })
+        }
+
+        const r = await downloadLectureTranscript(session, {
+          courseName: opts.courseName,
+          term: opts.term,
+          lectureName: lec.lectureName,
+          videoBaseName: lec.videoBaseName,
+          videoSession: lec.videoSession,
+          destRoot: opts.destRoot,
+          courseId: lec.courseId,
+          token,
+          exportSrt: opts.exportSrt ?? true,
+          exportMarkdown: opts.exportMarkdown ?? true
+        })
+
+        results.push({ lectureName: lec.lectureName, ...r })
+
+        if (opts.taskId) {
+          emitToRenderer('canvas:transcript-progress', {
+            taskId: opts.taskId,
+            current: i + 1,
+            total,
+            phase: r.ok ? `${lec.lectureName} 字幕已导出` : `${lec.lectureName} 导出失败`
+          })
+        }
+      }
+
+      if (opts.taskId) {
+        emitToRenderer('canvas:transcript-progress', { taskId: opts.taskId, current: total, total, phase: '完成' })
+      }
+
       return { ok: true, results }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
