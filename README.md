@@ -1,11 +1,11 @@
-# SJTU 课程下载器
+# 上海交通大学 (SJTU) 课程下载器 | 交大旁听视频与 Canvas 课件录播批量下载工具
 
 [![stars](https://img.shields.io/github/stars/sunalan2025/sjtu-downloader-all-in-one?style=social)](https://github.com/sunalan2025/sjtu-downloader-all-in-one)
 [![release](https://img.shields.io/github/v/release/sunalan2025/sjtu-downloader-all-in-one?display_name=tag&include_prereleases)](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases)
 [![license](https://img.shields.io/github/license/sunalan2025/sjtu-downloader-all-in-one)](./LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#-快速获取与安装)
 
-专为上海交通大学师生打造的课程资源批量下载与备份桌面客户端。一站式高速同步 [Canvas (oc.sjtu.edu.cn)](https://oc.sjtu.edu.cn) 课件与课堂视频、[教学视频平台 (v.sjtu.edu.cn)](https://v.sjtu.edu.cn) 旁听录播、以及 [好大学在线 (cnmooc.sjtu.cn)](https://cnmooc.sjtu.cn) 课程资源；深度集成交大云盘（pan.sjtu.edu.cn），支持本地归档与云端秒传双备份。
+专为上海交通大学师生与校友打造的**课程资源批量下载与备份工具**。支持**交大旁听视频下载**（v.sjtu 教学视频平台）、**Canvas 课程课件与录播视频批量下载**（oc.sjtu）、以及**好大学在线**（CNMOOC）全套资源；深度集成**交大云盘**（pan.sjtu.edu.cn），支持本地多线程下载与云端秒传双向备份。
 
 ---
 
@@ -43,10 +43,10 @@
   - 课件资料保留原始文件夹层级；模块补漏文件、大纲嵌入附件自动合并整理；
   - 课堂录播提供「教师视角」与「PPT 视角」双路超清视频流；
   - **📑 PPT 课件自动导出**：支持自动抓取课堂视频中的演讲切片并合并导出为单份高清 PDF 讲义。
-- **🎬 旁听课程 (v.sjtu)**：
-  - 自动同步已获审核的全部旁听课程；
-  - 修正原系统的课次乱序，按真实开课时间轴重新编号；
-  - 支持教师/PPT 视角单选或整课批量勾选。
+- **🎬 交大旁听视频下载 (v.sjtu)**：
+  - 自动同步已获旁听审核的全部课程与讲次；
+  - 修正原教务系统课次乱序问题，按真实开课时间轴重新标号归整；
+  - 支持教师视角 / PPT 投影视角单选或整门课程批量高速下载。
 - **🎓 好大学在线 (CNMOOC)**：
   - 按单元与章节层级整齐树状呈现，支持「全部 / 仅视频 / 仅课件」类型过滤；
   - 自动过滤无下载实体的随堂练习题与测验，杜绝无效空白条目。
@@ -142,6 +142,13 @@
 
 - [**架构设计与内部机制原理 (docs/architecture.md)**](./docs/architecture.md)：动态多线程并发调度、惰性物化流控、COS 分片直传机制、硬件安全保险库原理。
 - [**开发与发布构建指南 (docs/development.md)**](./docs/development.md)：本地开发环境搭建、多平台打包命令、自动化 CI Tag 发布与更新检测规范。
+
+---
+
+## 🔍 适用场景与关键词索引
+
+- **交大教学系统**：上海交通大学、SJTU、Canvas、教学信息服务网、教学视频平台 (v.sjtu.edu.cn)、好大学在线 (cnmooc.sjtu.cn)、交大云盘 (pan.sjtu.edu.cn)、jAccount 统一身份认证。
+- **高频需求场景**：交大旁听视频下载、交大课程下载、Canvas 课件批量下载、交大课堂录播视频下载、PPT 讲义切片导出 PDF、交大网盘文件双向备份。
 
 ---
 
