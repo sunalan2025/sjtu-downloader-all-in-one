@@ -10,28 +10,11 @@ import {
   MacOSCircleCheckbox
 } from '../components/DownloadUI'
 import { Spinner } from '../components/Spinner'
-import { formatBytes, buildAncestorPathChain } from '@shared/utils'
+import { formatBytes, buildAncestorPathChain, formatDate } from '@shared/utils'
 import type { CloudPanItem } from '@shared/types'
 
 interface CloudPanExplorerProps {
   onBack?: () => void
-}
-
-function formatDate(dateStr?: string): string {
-  if (!dateStr) return '-'
-  try {
-    const d = new Date(dateStr)
-    if (isNaN(d.getTime())) return dateStr
-    return d.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-  } catch {
-    return dateStr
-  }
 }
 
 function getFileIcon(item: CloudPanItem, isLarge = false) {

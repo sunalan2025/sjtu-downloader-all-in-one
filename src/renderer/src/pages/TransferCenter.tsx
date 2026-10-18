@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useAppStore } from '../store/app'
 import { formatBytes } from '../components/DownloadUI'
+import { formatDate } from '../../../shared/utils'
 import type { TransferSpeed } from '@shared/types'
 
 export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}) {
@@ -21,17 +22,14 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
     return Object.values(progress).filter(p => p.state === 'downloading' || p.state === 'pending' || p.state === 'paused')
   }, [progress])
 
-  const formatDate = (ts: number): string => {
-    try {
-      const d = new Date(ts)
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-    } catch {
-      return ''
+  const handleOpenDownloadFolder = async (): Promise<void> => {
+    let target = localDestRoot
+    if (!target && window.api?.getDefaultDownloadsDir) {
+      target = await window.api.getDefaultDownloadsDir()
     }
-  }
-
-  const handleOpenPath = (path: string) => {
-    void window.api.openPath(path)
+    if (target) {
+      void window.api.openPath(target)
+    }
   }
 
   const handleShowInFolder = (path: string) => {
@@ -121,7 +119,7 @@ export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}
               </button>
               <button
                 type="button"
-                onClick={() => localDestRoot && handleOpenPath(localDestRoot)}
+                onClick={() => void handleOpenDownloadFolder()}
                 className="rounded-xl bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
               >
                 打开下载文件夹

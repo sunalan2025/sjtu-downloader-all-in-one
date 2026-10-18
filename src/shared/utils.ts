@@ -204,4 +204,36 @@ export function normalizeCanvasUrl(url?: string, defaultBase = 'https://oc.sjtu.
   return `${defaultBase.replace(/\/+$/, '')}/${trimmed}`
 }
 
+/**
+ * 标准时间戳/日期字符串格式化工具
+ * 支持 Date 对象、毫秒时间戳 (number) 及 ISO/标准日期字符串。
+ * 格式化为：YYYY-MM-DD HH:mm（当 includeTime 为 true 时）或 YYYY-MM-DD（当 includeTime 为 false 时）。
+ * 若解析失败或为空，返回 fallback（默认 '-'）。
+ */
+export function formatDate(
+  val?: string | number | Date | null,
+  options?: { includeTime?: boolean; fallback?: string }
+): string {
+  const fallback = options?.fallback ?? '-'
+  if (val === null || val === undefined || val === '' || val === 0) return fallback
+  try {
+    const d = val instanceof Date ? val : new Date(val)
+    if (isNaN(d.getTime())) {
+      return typeof val === 'string' ? val : fallback
+    }
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const date = String(d.getDate()).padStart(2, '0')
+    if (options?.includeTime === false) {
+      return `${y}-${m}-${date}`
+    }
+    const h = String(d.getHours()).padStart(2, '0')
+    const min = String(d.getMinutes()).padStart(2, '0')
+    return `${y}-${m}-${date} ${h}:${min}`
+  } catch {
+    return typeof val === 'string' ? val : fallback
+  }
+}
+
+
 

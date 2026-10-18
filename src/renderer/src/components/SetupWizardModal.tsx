@@ -590,22 +590,14 @@ export function SetupWizardModal() {
 
         {/* 底部 Footer 导航栏 */}
         <div className="flex items-center justify-between border-t border-bd/60 bg-surface-2/40 px-6 sm:px-8 py-4">
-          <div>
-            {wizardStep > 1 ? (
+          <div className="min-w-[100px]">
+            {wizardStep > 1 && (
               <button
                 type="button"
                 onClick={handlePrev}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-2 px-4 py-2 text-xs font-semibold text-text-2 hover:bg-surface-3 hover:text-text-1 active:scale-98 transition-all cursor-pointer shadow-2xs"
               >
                 <span>← 上一步</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleComplete}
-                className="text-xs text-text-4 hover:text-text-2 transition-colors cursor-pointer px-1 py-2"
-              >
-                跳过向导 (进入主界面) →
               </button>
             )}
           </div>
@@ -633,20 +625,11 @@ export function SetupWizardModal() {
             })}
           </div>
 
-          <div className="flex items-center gap-3">
-            {wizardStep > 1 && (
-              <button
-                type="button"
-                onClick={handleComplete}
-                className="text-2xs text-text-4 hover:text-text-2 transition-colors cursor-pointer"
-              >
-                跳过直接使用
-              </button>
-            )}
+          <div className="flex items-center justify-end min-w-[100px]">
             <button
               type="button"
               onClick={handleNext}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-accent-light active:scale-98 transition-all cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-accent-light active:scale-98 transition-all cursor-pointer whitespace-nowrap"
             >
               <span>{wizardStep < TOTAL_STEPS ? '下一步 →' : '完成并开启使用 ✓'}</span>
             </button>

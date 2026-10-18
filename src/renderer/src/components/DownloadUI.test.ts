@@ -11,7 +11,7 @@ import {
   MacOSCircleCheckbox,
   NetdiskViewModeSwitch
 } from './DownloadUI'
-import { buildAncestorPathChain, canAutoPenetrateSingleSubdir } from '@shared/utils'
+import { buildAncestorPathChain, canAutoPenetrateSingleSubdir, formatDate } from '@shared/utils'
 import { resolveWindowAction } from './WindowConfirmModal'
 import { classifyCnmoocItem, isCnmoocQuizOrExercise } from '../pages/CnmoocBrowser'
 import { getTermTriState, toggleTermCourses, toggleTermCategory } from './NetdiskCourseExplorer'
@@ -777,6 +777,38 @@ describe('macOS Finder Alignment & Vector Icon Suite', () => {
     // Trigger click on column button
     buttons[2].props.onClick()
     expect(selectedMode).toBe('column')
+  })
+})
+
+describe('formatDate shared utility and UI unification invariants', () => {
+  it('formats numeric timestamp correctly with and without time', () => {
+    // 2026-10-15 12:30:00 UTC
+    const date = new Date(2026, 9, 15, 12, 30, 0)
+    const ts = date.getTime()
+    const formatted = formatDate(ts)
+    expect(formatted).toMatch(/^2026-10-15 \d{2}:\d{2}$/)
+
+    const dateOnly = formatDate(ts, { includeTime: false })
+    expect(dateOnly).toBe('2026-10-15')
+  })
+
+  it('formats ISO string correctly', () => {
+    const iso = '2026-10-15T08:00:00.000Z'
+    const formatted = formatDate(iso)
+    expect(formatted).toContain('2026-10-15')
+  })
+
+  it('handles null, undefined, empty, and 0 with fallback', () => {
+    expect(formatDate(null)).toBe('-')
+    expect(formatDate(undefined)).toBe('-')
+    expect(formatDate('')).toBe('-')
+    expect(formatDate(0, { fallback: '从未' })).toBe('从未')
+    expect(formatDate(null, { fallback: '从未' })).toBe('从未')
+  })
+
+  it('handles invalid date strings gracefully', () => {
+    expect(formatDate('invalid-date')).toBe('invalid-date')
+    expect(formatDate(NaN, { fallback: '无' })).toBe('无')
   })
 })
 

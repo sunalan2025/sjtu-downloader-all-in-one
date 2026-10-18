@@ -8,20 +8,10 @@ import {
 } from '../store/app'
 import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
+import { prefetchCloudConnection } from '../services/prefetch'
 import type { DownloadMode, VideoQualityOption, MaskedCredential } from '@shared/types'
-import { formatPathFromTemplate } from '../../../shared/utils'
+import { formatPathFromTemplate, formatDate } from '../../../shared/utils'
 import pkg from '../../../../package.json'
-
-function formatCredentialDate(ts: number): string {
-  if (!ts) return '从未'
-  const d = new Date(ts)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const date = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${date} ${h}:${min}`
-}
 
 export function Settings({
   onBack: _onBack,
@@ -80,10 +70,6 @@ export function Settings({
   const setCanvasExportAiTranscript = useAppStore(s => s.setCanvasExportAiTranscript)
   const autoDownloadUpdate = useAppStore(s => s.autoDownloadUpdate)
   const setAutoDownloadUpdate = useAppStore(s => s.setAutoDownloadUpdate)
-  const hasCompletedInitialSetup = useAppStore(s => s.hasCompletedInitialSetup)
-  const setHasCompletedInitialSetup = useAppStore(s => s.setHasCompletedInitialSetup)
-  const setActiveTab = useAppStore(s => s.setActiveTab)
-  const lastCourseTab = useAppStore(s => s.lastCourseTab)
 
   const SPEED_PRESETS = [0, 5120, 10240, 25600, 51200]
   const isPresetSpeed = SPEED_PRESETS.includes(maxDownloadSpeedKBps)
@@ -176,15 +162,9 @@ export function Settings({
       await window.api.cloudpan.logout()
       useAppStore.getState().setCloudUserToken(null)
       useAppStore.getState().setCloudSpaceInfo(null)
+      useAppStore.getState().setCloudConnStatus('idle')
     } else {
-      const res = await window.api.cloudpan.directLogin()
-      if (res.ok && res.userToken) {
-        useAppStore.getState().setCloudUserToken(res.userToken)
-        const infoRes = await window.api.cloudpan.spaceInfo()
-        if (infoRes.ok && infoRes.info) {
-          useAppStore.getState().setCloudSpaceInfo(infoRes.info)
-        }
-      }
+      await prefetchCloudConnection()
     }
   }
 
@@ -229,40 +209,11 @@ export function Settings({
               {item.label}
             </button>
           ))}
-
-          <div className="mt-auto pt-3 border-t border-bd/50">
-            <button
-              type="button"
-              onClick={() => {
-                useAppStore.getState().setShowSetupWizardModal(true)
-              }}
-              className="w-full flex items-center justify-center gap-1.5 rounded-lg border border-bd/80 bg-surface-2 px-2.5 py-1.5 text-2xs font-medium text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-3 transition-all cursor-pointer"
-              title="重新打开偏好设置向导"
-            >
-              <span>🚀 重新运行初始化向导</span>
-            </button>
-          </div>
         </aside>
 
         {/* 右栏内容 */}
         <main className="flex-1 overflow-y-auto px-10 py-8">
           <div className="mx-auto max-w-2xl">
-            {!hasCompletedInitialSetup && (
-              <div className="mb-6 flex items-center justify-between rounded-xl bg-accent/10 border border-accent/20 px-4 py-3 text-xs text-accent">
-                <span className="font-medium">您正在专业设置面板中，完成后请点击右侧确认以进入课程主页。</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHasCompletedInitialSetup(true)
-                    setActiveTab(lastCourseTab || 'canvas')
-                  }}
-                  className="rounded-lg bg-accent px-3 py-1 font-semibold text-white shadow-xs hover:bg-accent-light transition-all cursor-pointer"
-                >
-                  完成配置并进入课程
-                </button>
-              </div>
-            )}
-            
             {/* 1. 常规偏好 */}
             {activeNav === 'general' && (
               <section className="space-y-6">
@@ -1091,10 +1042,10 @@ export function Settings({
 
                           {/* 时间戳展示 */}
                           <div className="flex items-center gap-4 text-2xs text-text-4 pt-1 border-t border-bd/30">
-                            <span>创建时间: {formatCredentialDate(cred.createdAt)}</span>
+                            <span>创建时间: {formatDate(cred.createdAt)}</span>
                             <span>•</span>
                             <span>
-                              最近使用: {cred.lastUsedAt ? formatCredentialDate(cred.lastUsedAt) : '从未'}
+                              最近使用: {formatDate(cred.lastUsedAt, { fallback: '从未' })}
                             </span>
                           </div>
                         </div>
@@ -1256,12 +1207,12 @@ export function Settings({
                     </button>
                   </div>
 
-                  {/* 重新运行初始化向导 */}
+                  {/* 重新运行设置向导 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
-                      <div className="text-sm font-medium text-text-1">重新运行初始化向导</div>
+                      <div className="text-sm font-medium text-text-1">重新运行设置向导</div>
                       <div className="text-xs text-text-3 leading-relaxed">
-                        重新打开初次使用时的交互式偏好配置流程，快速重置常用默认偏好。
+                        重新打开偏好配置向导，快速确认或重置常用默认偏好与存储配置。
                       </div>
                     </div>
                     <button
@@ -1271,7 +1222,7 @@ export function Settings({
                       }}
                       className="rounded-xl border border-bd/80 bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-text-2 hover:text-accent hover:border-accent transition-all cursor-pointer shadow-2xs shrink-0"
                     >
-                      🚀 重新打开设置向导
+                      🚀 重新运行设置向导
                     </button>
                   </div>
 
