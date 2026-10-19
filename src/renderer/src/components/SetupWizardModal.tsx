@@ -4,6 +4,7 @@ import {
   type WindowCloseAction
 } from '../store/app'
 import type { DownloadMode, VideoQualityOption } from '@shared/types'
+import { formatCloudBreadcrumb, CLOUD_DEST_PRESETS } from '@shared/utils'
 import pkg from '../../../../package.json'
 
 export function SetupWizardModal() {
@@ -17,10 +18,14 @@ export function SetupWizardModal() {
   const setDownloadMode = useAppStore(s => s.setDownloadMode)
   const localDestRoot = useAppStore(s => s.localDestRoot)
   const setLocalDestRoot = useAppStore(s => s.setLocalDestRoot)
+  const cloudDestRoot = useAppStore(s => s.cloudDestRoot)
+  const setCloudDestRoot = useAppStore(s => s.setCloudDestRoot)
   const videoQualityOption = useAppStore(s => s.videoQualityOption)
   const setVideoQualityOption = useAppStore(s => s.setVideoQualityOption)
-  const canvasExportAiTranscript = useAppStore(s => s.canvasExportAiTranscript)
-  const setCanvasExportAiTranscript = useAppStore(s => s.setCanvasExportAiTranscript)
+  const canvasExportSrt = useAppStore(s => s.canvasExportSrt)
+  const setCanvasExportSrt = useAppStore(s => s.setCanvasExportSrt)
+  const canvasExportMarkdown = useAppStore(s => s.canvasExportMarkdown)
+  const setCanvasExportMarkdown = useAppStore(s => s.setCanvasExportMarkdown)
   const windowCloseAction = useAppStore(s => s.windowCloseAction)
   const setWindowCloseAction = useAppStore(s => s.setWindowCloseAction)
 
@@ -88,6 +93,75 @@ export function SetupWizardModal() {
   const handleSelectFolder = async (): Promise<void> => {
     const p = await window.api.selectFolder()
     if (p) setLocalDestRoot(p)
+  }
+
+  const renderCloudDestRootCard = (badgeText: string) => {
+    const breadcrumb = formatCloudBreadcrumb(cloudDestRoot)
+    return (
+      <div className="space-y-3 rounded-2xl border border-bd/70 bg-surface-2/60 p-5 shadow-2xs">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-base select-none">☁️</span>
+            <span className="font-semibold text-text-2">交大云盘保存目录</span>
+            <span className="rounded-md bg-accent/10 text-accent px-2 py-0.5 text-2xs font-semibold border border-accent/20">
+              {badgeText}
+            </span>
+          </div>
+          <span className="text-2xs text-text-4">云端自动按学期与课程分类归档</span>
+        </div>
+
+        {/* 3 个快捷预设胶囊按钮 */}
+        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          <span className="text-2xs font-medium text-text-4 select-none">快捷预设:</span>
+          {CLOUD_DEST_PRESETS.map(preset => {
+            const isSelected = cloudDestRoot === preset.value
+            return (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setCloudDestRoot(preset.value)}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                  isSelected
+                    ? 'bg-accent text-white shadow-2xs font-semibold'
+                    : 'bg-surface-1 border border-bd/80 text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-2'
+                }`}
+              >
+                {preset.label}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* 自定义路径输入框 */}
+        <div className="space-y-1.5 pt-1">
+          <div className="flex items-center justify-between text-2xs text-text-3">
+            <span className="font-medium">自定义目标路径</span>
+            <span className="text-3xs text-text-4">以 / 开头，支持自定义多级目录</span>
+          </div>
+          <div className="relative flex items-center">
+            <span className="absolute left-3.5 text-base select-none text-text-4 pointer-events-none">☁️</span>
+            <input
+              type="text"
+              value={cloudDestRoot}
+              onChange={e => setCloudDestRoot(e.target.value)}
+              placeholder="/SJTU课程备份"
+              className="w-full rounded-xl border border-bd/80 bg-surface-1 pl-10 pr-4 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+            />
+          </div>
+        </div>
+
+        {/* 实时面包屑预览 */}
+        <div className="rounded-xl bg-surface-1 border border-bd/60 p-3 text-2xs space-y-1">
+          <div className="flex items-center gap-1.5 text-text-4 font-medium select-none">
+            <span>🧭</span>
+            <span>路径层级实时预览</span>
+          </div>
+          <div className="font-mono text-accent truncate text-xs font-medium pl-5" title={breadcrumb}>
+            {breadcrumb}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -219,10 +293,10 @@ export function SetupWizardModal() {
                         <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-accent/10 text-base">
                           ☁️
                         </span>
-                        <h2 className="text-base sm:text-lg font-bold text-text-1">云端归档与本地缓冲</h2>
+                        <h2 className="text-base sm:text-lg font-bold text-text-1">云端归档与保存目录</h2>
                       </div>
                       <p className="text-xs text-text-3 leading-relaxed">
-                        您已选择「直传交大云盘」，课件与视频将自动在交大云盘根目录下归档至「/Canvas课程」。
+                        您已选择「直传交大云盘」，课件与视频将直接上传归档至您的交大云盘个人空间。
                       </p>
                     </div>
 
@@ -235,6 +309,9 @@ export function SetupWizardModal() {
                         </div>
                       </div>
                     </div>
+
+                    {/* 交大云盘保存目录（主要配置卡片） */}
+                    {renderCloudDestRootCard('主保存路径')}
 
                     <div className="space-y-3 rounded-2xl border border-bd/70 bg-surface-2/60 p-5 shadow-2xs">
                       <div className="flex items-center justify-between text-xs">
@@ -279,20 +356,22 @@ export function SetupWizardModal() {
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
                         <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-accent/10 text-base">
-                          📦
+                          {downloadMode === 'both' ? '🔄' : '📦'}
                         </span>
-                        <h2 className="text-base sm:text-lg font-bold text-text-1">本地文件保存目录</h2>
+                        <h2 className="text-base sm:text-lg font-bold text-text-1">
+                          {downloadMode === 'both' ? '保存目录与双备份路径' : '本地文件保存目录'}
+                        </h2>
                       </div>
                       <p className="text-xs text-text-3 leading-relaxed">
                         {downloadMode === 'both'
-                          ? '双备份模式下，所有教学资源将首先完整落盘在此目录，随后自动上传至交大云盘。'
+                          ? '双备份模式下，所有教学资源将首先完整落盘在本地目录，随后自动上传至交大云盘。'
                           : '所有课件讲义、课堂录像与复习笔记落盘存储的根目录。'}
                       </p>
                     </div>
 
                     <div className="space-y-3 rounded-2xl border border-bd/70 bg-surface-2/60 p-5 shadow-2xs">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-text-2">当前保存路径</span>
+                        <span className="font-semibold text-text-2">本地保存路径</span>
                         <span className="text-2xs text-text-4">自动按学期与课程分类归档</span>
                       </div>
                       <div className="flex items-center gap-3 rounded-xl border border-bd/80 bg-surface-1 px-4 py-3 font-mono text-xs text-text-1">
@@ -327,6 +406,9 @@ export function SetupWizardModal() {
                         </button>
                       </div>
                     </div>
+
+                    {/* 交大云盘保存目录（本地/双备份模式均清晰呈现） */}
+                    {renderCloudDestRootCard(downloadMode === 'both' ? '云端备份路径' : '云端归档预设')}
 
                     <div className="rounded-xl border border-accent/20 bg-accent/5 p-4 text-xs text-text-2 leading-relaxed flex items-start gap-3">
                       <span className="text-base select-none shrink-0">💡</span>
@@ -437,72 +519,119 @@ export function SetupWizardModal() {
                     <h2 className="text-base sm:text-lg font-bold text-text-1">课堂实录 AI 字幕与复习笔记</h2>
                   </div>
                   <p className="text-xs text-text-3 leading-relaxed">
-                    依托交大录播中台 AI 语音识别能力，在下载视频时全自动生成文字辅助材料。
+                    依托交大录播中台 AI 语音识别能力，在下载视频时全自动生成文字辅助材料（支持按需独立勾选）。
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 gap-3">
-                  {[
-                    {
-                      val: true,
-                      icon: '🎙️',
-                      title: '同步导出字幕与笔记 (.srt / .md)',
-                      desc: '自动生成同名 .srt 外挂字幕（主流播放器双击视频自动挂载）与包含时间戳定位的 Markdown 讲义，支持全文检索与快速知识回顾。',
-                      badge: '强烈推荐'
-                    },
-                    {
-                      val: false,
-                      icon: '🎬',
-                      title: '暂不导出（仅下载视频本体）',
-                      desc: '保持下载目录纯净简洁，不额外生成字幕与 Markdown 文件（后续在设置中可随时开启）。',
-                      badge: '纯净'
-                    }
-                  ].map(opt => {
-                    const selected = canvasExportAiTranscript === opt.val
-                    return (
-                      <div
-                        key={String(opt.val)}
-                        onClick={() => setCanvasExportAiTranscript(opt.val)}
-                        className={`flex items-start gap-4 rounded-2xl border p-4 cursor-pointer transition-all ${
-                          selected
-                            ? 'border-accent bg-accent/10 shadow-xs'
-                            : 'border-bd/70 bg-surface-2/60 hover:border-bd-strong hover:bg-surface-2'
-                        }`}
-                      >
-                        <span className="text-2xl select-none shrink-0 mt-0.5">{opt.icon}</span>
-                        <div className="flex-1 space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-sm font-bold ${selected ? 'text-accent' : 'text-text-1'}`}>
-                              {opt.title}
-                            </span>
-                            {opt.badge && (
-                              <span className={`rounded-md px-2 py-0.5 text-2xs font-semibold ${
-                                selected ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
-                              }`}>
-                                {opt.badge}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-text-3 leading-relaxed">{opt.desc}</p>
-                        </div>
-                        <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border mt-0.5 transition-colors ${
-                          selected ? 'border-accent bg-accent text-white' : 'border-bd bg-surface-3'
+                  {/* 卡片 1: 导出外挂字幕 (.srt) */}
+                  <div
+                    role="checkbox"
+                    aria-checked={canvasExportSrt}
+                    tabIndex={0}
+                    onClick={() => setCanvasExportSrt(!canvasExportSrt)}
+                    onKeyDown={e => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault()
+                        setCanvasExportSrt(!canvasExportSrt)
+                      }
+                    }}
+                    className={`flex items-start gap-4 rounded-2xl border p-4 cursor-pointer transition-all select-none ${
+                      canvasExportSrt
+                        ? 'border-accent bg-accent/10 shadow-xs'
+                        : 'border-bd/70 bg-surface-2/60 hover:border-bd-strong hover:bg-surface-2'
+                    }`}
+                  >
+                    <span className="text-2xl select-none shrink-0 mt-0.5">📺</span>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold ${canvasExportSrt ? 'text-accent' : 'text-text-1'}`}>
+                          导出外挂字幕 (.srt)
+                        </span>
+                        <span className={`rounded-md px-2 py-0.5 text-2xs font-semibold ${
+                          canvasExportSrt ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
                         }`}>
-                          {selected && (
-                            <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                          )}
-                        </div>
+                          主流播放器直读
+                        </span>
                       </div>
-                    )
-                  })}
+                      <p className="text-xs text-text-3 leading-relaxed">
+                        生成独立 .srt 外挂字幕文件，主流播放器双击视频自动挂载，方便回看追溯原话。
+                      </p>
+                    </div>
+                    <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg border mt-0.5 transition-colors ${
+                      canvasExportSrt ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-1'
+                    }`}>
+                      {canvasExportSrt && (
+                        <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 卡片 2: 导出复习笔记 (.md) */}
+                  <div
+                    role="checkbox"
+                    aria-checked={canvasExportMarkdown}
+                    tabIndex={0}
+                    onClick={() => setCanvasExportMarkdown(!canvasExportMarkdown)}
+                    onKeyDown={e => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault()
+                        setCanvasExportMarkdown(!canvasExportMarkdown)
+                      }
+                    }}
+                    className={`flex items-start gap-4 rounded-2xl border p-4 cursor-pointer transition-all select-none ${
+                      canvasExportMarkdown
+                        ? 'border-accent bg-accent/10 shadow-xs'
+                        : 'border-bd/70 bg-surface-2/60 hover:border-bd-strong hover:bg-surface-2'
+                    }`}
+                  >
+                    <span className="text-2xl select-none shrink-0 mt-0.5">📝</span>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold ${canvasExportMarkdown ? 'text-accent' : 'text-text-1'}`}>
+                          导出复习笔记 (.md)
+                        </span>
+                        <span className={`rounded-md px-2 py-0.5 text-2xs font-semibold ${
+                          canvasExportMarkdown ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
+                        }`}>
+                          结构化讲义
+                        </span>
+                      </div>
+                      <p className="text-xs text-text-3 leading-relaxed">
+                        生成结构化 Markdown 讲义，带精确时间戳与章节重点，便于快速全文检索与复习背诵。
+                      </p>
+                    </div>
+                    <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg border mt-0.5 transition-colors ${
+                      canvasExportMarkdown ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-1'
+                    }`}>
+                      {canvasExportMarkdown && (
+                        <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
-                <div className="rounded-xl border border-bd/70 bg-surface-2/60 p-3.5 text-xs text-text-3 flex items-center gap-2.5">
-                  <span className="text-accent font-semibold select-none">💡 提示：</span>
-                  <span>此开关为全局设置，开启后无需在各个课程模块内单独勾选。</span>
-                </div>
+                {!canvasExportSrt && !canvasExportMarkdown ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2.5">
+                    <span className="font-semibold select-none">💡 提示：</span>
+                    <span>当前已全部关闭，仅下载视频本体，不生成文本辅助资料（后续可在设置中随时重新开启）。</span>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-bd/70 bg-surface-2/60 p-3.5 text-xs text-text-3 flex items-center gap-2.5">
+                    <span className="text-accent font-semibold select-none">💡 提示：</span>
+                    <span>
+                      {canvasExportSrt && canvasExportMarkdown
+                        ? '已同时开启字幕与讲义笔记导出，提供最完备的课后回顾体验。'
+                        : canvasExportSrt
+                          ? '已开启外挂字幕导出，课件视频与字幕将自动同名配套保存。'
+                          : '已开启复习笔记导出，课后可通过 Markdown 笔记快速检索授课内容。'}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

@@ -235,5 +235,27 @@ export function formatDate(
   }
 }
 
+/** 交大云盘常用根目录预设 */
+export const CLOUD_DEST_PRESETS = [
+  { label: '/SJTU课程备份 (默认)', value: '/SJTU课程备份' },
+  { label: '云盘根目录 (/)', value: '/' },
+  { label: '/我的课程', value: '/我的课程' }
+] as const
 
-
+/**
+ * 格式化交大云盘目标保存路径的面包屑预览。
+ * 格式：交大云盘 > [用户设定目录] > [学期] > [课程] > ...
+ * 当 root 为 '/' 或空时直接省略第一级自定义目录；其他以 '/' 开头的非根目录去除首尾斜杠清晰分段展示。
+ */
+export function formatCloudBreadcrumb(
+  root: string,
+  sampleTerm = '2026-2027学年第1学期',
+  sampleCourse = '软件工程'
+): string {
+  const trimmed = (root || '').trim()
+  if (!trimmed || trimmed === '/') {
+    return `交大云盘 > ${sampleTerm} > ${sampleCourse} > ...`
+  }
+  const cleaned = trimmed.replace(/^\/+/, '').replace(/\/+$/, '')
+  return `交大云盘 > ${cleaned} > ${sampleTerm} > ${sampleCourse} > ...`
+}

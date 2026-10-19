@@ -11,10 +11,11 @@ import {
   MacOSCircleCheckbox,
   NetdiskViewModeSwitch
 } from './DownloadUI'
-import { buildAncestorPathChain, canAutoPenetrateSingleSubdir, formatDate } from '@shared/utils'
+import { buildAncestorPathChain, canAutoPenetrateSingleSubdir, formatDate, formatCloudBreadcrumb, CLOUD_DEST_PRESETS } from '@shared/utils'
 import { resolveWindowAction } from './WindowConfirmModal'
 import { classifyCnmoocItem, isCnmoocQuizOrExercise } from '../pages/CnmoocBrowser'
 import { getTermTriState, toggleTermCourses, toggleTermCategory } from './NetdiskCourseExplorer'
+import { SetupWizardModal } from './SetupWizardModal'
 
 describe('window exit preferences and resolution', () => {
   it('has correct default window exit preferences', () => {
@@ -1075,6 +1076,88 @@ describe('Cloud Destination Root and Decoupled Export Options Store State', () =
       downloadAttachments: true,
       downloadSubmissions: true
     })
+  })
+})
+
+describe('SetupWizardModal and Cloud Destination / Export Decoupling', () => {
+  it('provides CLOUD_DEST_PRESETS with 3 standardized options', () => {
+    expect(CLOUD_DEST_PRESETS).toHaveLength(3)
+    expect(CLOUD_DEST_PRESETS[0]).toEqual({ label: '/SJTU课程备份 (默认)', value: '/SJTU课程备份' })
+    expect(CLOUD_DEST_PRESETS[1]).toEqual({ label: '云盘根目录 (/)', value: '/' })
+    expect(CLOUD_DEST_PRESETS[2]).toEqual({ label: '/我的课程', value: '/我的课程' })
+  })
+
+  it('formats cloud breadcrumbs accurately across root, presets and custom paths', () => {
+    // Default preset
+    expect(formatCloudBreadcrumb('/SJTU课程备份')).toBe(
+      '交大云盘 > SJTU课程备份 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Cloud pan root '/'
+    expect(formatCloudBreadcrumb('/')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Empty or whitespace
+    expect(formatCloudBreadcrumb('')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    expect(formatCloudBreadcrumb('   ')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Custom subpath without leading/trailing slash trimming issues
+    expect(formatCloudBreadcrumb('/我的课程/')).toBe(
+      '交大云盘 > 我的课程 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    expect(formatCloudBreadcrumb('深度学习专题')).toBe(
+      '交大云盘 > 深度学习专题 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Custom term and course arguments
+    expect(formatCloudBreadcrumb('/SJTU课程备份', '2025-2026-2', '计算机系统结构')).toBe(
+      '交大云盘 > SJTU课程备份 > 2025-2026-2 > 计算机系统结构 > ...'
+    )
+  })
+
+  it('supports decoupled toggles for srt and markdown in SetupWizardModal state', () => {
+    const store = useAppStore.getState()
+    // Initial: both true
+    store.setCanvasExportSrt(true)
+    store.setCanvasExportMarkdown(true)
+    expect(useAppStore.getState().canvasExportSrt).toBe(true)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Turn off srt only: markdown remains true
+    store.setCanvasExportSrt(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Turn off markdown as well: both false
+    store.setCanvasExportMarkdown(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(false)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(false)
+
+    // Turn on srt only: srt true, markdown false
+    store.setCanvasExportSrt(true)
+    expect(useAppStore.getState().canvasExportSrt).toBe(true)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(false)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Restore defaults
+    store.setCanvasExportMarkdown(true)
+  })
+
+  it('exports SetupWizardModal component and verifies initial setup store flags', () => {
+    expect(typeof SetupWizardModal).toBe('function')
+    const store = useAppStore.getState()
+    store.setShowSetupWizardModal(false)
+    expect(useAppStore.getState().showSetupWizardModal).toBe(false)
+
+    store.setShowSetupWizardModal(true)
+    expect(useAppStore.getState().showSetupWizardModal).toBe(true)
+
+    // Clean up
+    store.setShowSetupWizardModal(false)
   })
 })
 
