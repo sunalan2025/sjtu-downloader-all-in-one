@@ -594,6 +594,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               perspective={perspective}
               onPerspectiveChange={onPerspectiveChange}
               showToast={showToast}
+              hasSelection={selectedStats.totalItems > 0}
             />
           ) : (
             <GridView
@@ -608,6 +609,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               perspective={perspective}
               onPerspectiveChange={onPerspectiveChange}
               showToast={showToast}
+              hasSelection={selectedStats.totalItems > 0}
             />
           )}
         </div>
@@ -940,7 +942,8 @@ export function GridView({
   onDownloadCourse: _onDownloadCourse,
   perspective,
   onPerspectiveChange,
-  showToast
+  showToast,
+  hasSelection
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
@@ -953,7 +956,15 @@ export function GridView({
   perspective?: VideoPerspective
   onPerspectiveChange?: (perspective: VideoPerspective) => void
   showToast?: (text: string, type?: 'success' | 'info') => void
+  hasSelection?: boolean
 }) {
+  const isSelected =
+    hasSelection ??
+    (courses.some(c => c.state !== 'none') ||
+      currentCourse?.state !== 'none' ||
+      currentCategory?.items.some(i => i.selected) ||
+      false)
+
   const termGroups = useMemo(() => {
     if (!groupByTerm) return null
     return groupCoursesByTerm(courses)
@@ -1034,7 +1045,7 @@ export function GridView({
   // 根目录：展示课程大文件夹网格
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className="h-full overflow-y-auto p-1.5 pb-6">
+      <div className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-24' : 'pb-6'}`}>
         {termGroups ? (
           <div className="space-y-6">
             {termGroups.map(group => {
@@ -1110,7 +1121,7 @@ export function GridView({
   // 课程级目录：展示课程下二级分类文件夹网格（已彻底移除专属操作白板）
   if (navState.level === 'course' || !currentCategory) {
     return (
-      <div className="h-full overflow-y-auto p-1.5 pb-4">
+      <div className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-24' : 'pb-4'}`}>
         <div className="mb-4 flex items-center justify-between rounded-xl border border-bd bg-surface-1 p-3">
           <div className="flex items-center gap-3">
             <span
@@ -1195,7 +1206,7 @@ export function GridView({
 
   // 三级分类目录：展示具体文件/视频流（顶部内嵌视角筛选器，支持单文件悬停极速下载）
   return (
-    <div className="h-full overflow-y-auto">
+    <div className={`h-full overflow-y-auto ${isSelected ? 'pb-24' : 'pb-4'}`}>
       <CategoryLevelHeader
         category={currentCategory}
         displayedCount={displayedItems.length}
@@ -1367,7 +1378,8 @@ export function ListView({
   onDownloadCourse: _onDownloadCourse,
   perspective,
   onPerspectiveChange,
-  showToast
+  showToast,
+  hasSelection
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
@@ -1380,7 +1392,15 @@ export function ListView({
   perspective?: VideoPerspective
   onPerspectiveChange?: (perspective: VideoPerspective) => void
   showToast?: (text: string, type?: 'success' | 'info') => void
+  hasSelection?: boolean
 }) {
+  const isSelected =
+    hasSelection ??
+    (courses.some(c => c.state !== 'none') ||
+      currentCourse?.state !== 'none' ||
+      currentCategory?.items.some(i => i.selected) ||
+      false)
+
   const termGroups = useMemo(() => {
     if (!groupByTerm) return null
     return groupCoursesByTerm(courses)
@@ -1461,7 +1481,7 @@ export function ListView({
   // 根目录列表
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className="h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs">
+      <div className={`h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs ${isSelected ? 'pb-24' : ''}`}>
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 bg-surface-2 text-text-2 border-b border-bd z-10">
             <tr>
@@ -1558,7 +1578,7 @@ export function ListView({
   // 课程分类列表（已彻底移除专属操作白板）
   if (navState.level === 'course' || !currentCategory) {
     return (
-      <div className="h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs">
+      <div className={`h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs ${isSelected ? 'pb-24' : ''}`}>
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 bg-surface-2 text-text-2 border-b border-bd z-10">
             <tr>
@@ -1610,7 +1630,7 @@ export function ListView({
 
   // 具体资源列表（顶部内嵌视角筛选器，支持单文件悬停极速下载）
   return (
-    <div className="h-full overflow-y-auto space-y-3 pb-4">
+    <div className={`h-full overflow-y-auto space-y-3 ${isSelected ? 'pb-24' : 'pb-4'}`}>
       <CategoryLevelHeader
         category={currentCategory}
         displayedCount={displayedItems.length}

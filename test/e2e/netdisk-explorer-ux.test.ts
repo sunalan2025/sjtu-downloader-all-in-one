@@ -520,4 +520,205 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
       expect(course.onDownload).toHaveBeenCalledTimes(2)
     })
   })
+
+  // ─────────────────────────────────────────────────────────────
+  // 5. 底栏动作岛显示时 GridView 与 ListView 动态注入 pb-24 避让内边距 (Task 5)
+  // ─────────────────────────────────────────────────────────────
+  describe('5. 底栏动作岛显示时 GridView 与 ListView 动态注入 pb-24 避让内边距', () => {
+    it('GridView 在有选中项时各层级均注入 pb-24 滚动内边距', () => {
+      const course = createMockCourse({ state: 'some' })
+
+      // 根目录
+      const rootHtml = renderToStaticMarkup(
+        React.createElement(GridView, {
+          courses: [course],
+          navState: { level: 'root' },
+          onNavigate: vi.fn(),
+          hasSelection: true
+        })
+      )
+      expect(rootHtml).toContain('pb-24')
+
+      // 课程层级
+      const courseHtml = renderToStaticMarkup(
+        React.createElement(GridView, {
+          courses: [course],
+          currentCourse: course,
+          navState: { level: 'course', courseId: course.id },
+          onNavigate: vi.fn(),
+          hasSelection: true
+        })
+      )
+      expect(courseHtml).toContain('pb-24')
+
+      // 分类层级
+      const catHtml = renderToStaticMarkup(
+        React.createElement(GridView, {
+          courses: [course],
+          currentCourse: course,
+          currentCategory: course.categories[0],
+          navState: { level: 'category', courseId: course.id, categoryId: course.categories[0].id },
+          onNavigate: vi.fn(),
+          hasSelection: true
+        })
+      )
+      expect(catHtml).toContain('pb-24')
+    })
+
+    it('GridView 在无选中项时使用常规底边距 (无 pb-24)', () => {
+      const emptyCourse = createMockCourse({
+        state: 'none',
+        categories: [
+          {
+            id: 'files',
+            name: '课件',
+            state: 'none',
+            onToggle: vi.fn(),
+            items: [{ id: 'f1', name: 'f1.pdf', selected: false, onToggle: vi.fn() }]
+          }
+        ]
+      })
+
+      const rootHtml = renderToStaticMarkup(
+        React.createElement(GridView, {
+          courses: [emptyCourse],
+          navState: { level: 'root' },
+          onNavigate: vi.fn(),
+          hasSelection: false
+        })
+      )
+      expect(rootHtml).not.toContain('pb-24')
+      expect(rootHtml).toContain('pb-6')
+
+      const courseHtml = renderToStaticMarkup(
+        React.createElement(GridView, {
+          courses: [emptyCourse],
+          currentCourse: emptyCourse,
+          navState: { level: 'course', courseId: emptyCourse.id },
+          onNavigate: vi.fn(),
+          hasSelection: false
+        })
+      )
+      expect(courseHtml).not.toContain('pb-24')
+      expect(courseHtml).toContain('pb-4')
+    })
+
+    it('ListView 在有选中项时各层级均注入 pb-24 滚动内边距', () => {
+      const course = createMockCourse({ state: 'some' })
+
+      // 根目录
+      const rootHtml = renderToStaticMarkup(
+        React.createElement(ListView, {
+          courses: [course],
+          navState: { level: 'root' },
+          onNavigate: vi.fn(),
+          hasSelection: true
+        })
+      )
+      expect(rootHtml).toContain('pb-24')
+
+      // 课程层级
+      const courseHtml = renderToStaticMarkup(
+        React.createElement(ListView, {
+          courses: [course],
+          currentCourse: course,
+          navState: { level: 'course', courseId: course.id },
+          onNavigate: vi.fn(),
+          hasSelection: true
+        })
+      )
+      expect(courseHtml).toContain('pb-24')
+
+      // 分类层级
+      const catHtml = renderToStaticMarkup(
+        React.createElement(ListView, {
+          courses: [course],
+          currentCourse: course,
+          currentCategory: course.categories[0],
+          navState: { level: 'category', courseId: course.id, categoryId: course.categories[0].id },
+          onNavigate: vi.fn(),
+          hasSelection: true
+        })
+      )
+      expect(catHtml).toContain('pb-24')
+    })
+
+    it('ListView 在无选中项时使用常规底边距 (无 pb-24)', () => {
+      const emptyCourse = createMockCourse({
+        state: 'none',
+        categories: [
+          {
+            id: 'files',
+            name: '课件',
+            state: 'none',
+            onToggle: vi.fn(),
+            items: [{ id: 'f1', name: 'f1.pdf', selected: false, onToggle: vi.fn() }]
+          }
+        ]
+      })
+
+      const rootHtml = renderToStaticMarkup(
+        React.createElement(ListView, {
+          courses: [emptyCourse],
+          navState: { level: 'root' },
+          onNavigate: vi.fn(),
+          hasSelection: false
+        })
+      )
+      expect(rootHtml).not.toContain('pb-24')
+
+      const courseHtml = renderToStaticMarkup(
+        React.createElement(ListView, {
+          courses: [emptyCourse],
+          currentCourse: emptyCourse,
+          navState: { level: 'course', courseId: emptyCourse.id },
+          onNavigate: vi.fn(),
+          hasSelection: false
+        })
+      )
+      expect(courseHtml).not.toContain('pb-24')
+
+      const catHtml = renderToStaticMarkup(
+        React.createElement(ListView, {
+          courses: [emptyCourse],
+          currentCourse: emptyCourse,
+          currentCategory: emptyCourse.categories[0],
+          navState: { level: 'category', courseId: emptyCourse.id, categoryId: emptyCourse.categories[0].id },
+          onNavigate: vi.fn(),
+          hasSelection: false
+        })
+      )
+      expect(catHtml).not.toContain('pb-24')
+      expect(catHtml).toContain('pb-4')
+    })
+
+    it('NetdiskCourseExplorer 在完整集成渲染时根据选中态动态切换 pb-24', () => {
+      // 1. 有选中项时：渲染包含 pb-24
+      const { html: selectedHtml } = renderExplorer({
+        viewMode: 'grid',
+        navState: { level: 'root' }
+      })
+      expect(selectedHtml).toContain('pb-24')
+
+      // 2. 无任何选中项时：渲染不包含 pb-24
+      const emptyCourse = createMockCourse({
+        state: 'none',
+        categories: [
+          {
+            id: 'files',
+            name: '课件资料',
+            state: 'none',
+            onToggle: vi.fn(),
+            items: [{ id: 'f-1', name: 'a.pdf', selected: false, onToggle: vi.fn() }]
+          }
+        ]
+      })
+      const { html: emptyHtml } = renderExplorer({
+        courses: [emptyCourse],
+        viewMode: 'grid',
+        navState: { level: 'root' }
+      })
+      expect(emptyHtml).not.toContain('pb-24')
+    })
+  })
 })
