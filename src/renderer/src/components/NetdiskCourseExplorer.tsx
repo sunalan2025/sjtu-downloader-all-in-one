@@ -14,7 +14,13 @@ import {
 } from './DownloadUI'
 import { Spinner } from './Spinner'
 import type { CourseViewMode } from '../store/app'
-import { groupCoursesByTerm as sharedGroupCoursesByTerm, sortAcademicTerms } from '@shared/utils'
+import {
+  groupCoursesByTerm as sharedGroupCoursesByTerm,
+  sortAcademicTerms,
+  estimateResourceSize
+} from '@shared/utils'
+import type { VideoPerspective } from './FloatingCommandIsland'
+export type { VideoPerspective }
 
 // ─────────────────────────────────────────────────────────────
 // Netdisk Navigation Interfaces
@@ -34,6 +40,7 @@ export interface NetdiskFileItem {
   date?: string
   selected: boolean
   onToggle: () => void
+  onDownload?: () => void
   renderExtra?: React.ReactNode
   disabled?: boolean
   disabledReason?: string
@@ -78,6 +85,11 @@ export interface NetdiskCourseItem {
     inflight?: number
     total: number
   }
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  hasPptPdf?: boolean
+  onTogglePptPdf?: (enabled: boolean) => void
+  onDownload?: () => void
 }
 
 export interface NetdiskCourseExplorerProps {
@@ -87,6 +99,12 @@ export interface NetdiskCourseExplorerProps {
   onNavigate: (next: NetdiskNavState) => void
   emptyPlaceholder?: React.ReactNode
   groupByTerm?: boolean
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  hasPptPdf?: boolean
+  onTogglePptPdf?: (enabled: boolean) => void
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -180,7 +198,13 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   navState,
   onNavigate,
   emptyPlaceholder,
-  groupByTerm = true
+  groupByTerm = true,
+  onDownloadSingle,
+  onDownloadCourse,
+  perspective,
+  onPerspectiveChange,
+  hasPptPdf,
+  onTogglePptPdf
 }: NetdiskCourseExplorerProps) {
   // 当前处于的课程对象
   const currentCourse = useMemo(() => {
@@ -349,6 +373,12 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
                 }
               }}
               groupByTerm={groupByTerm}
+              onDownloadSingle={onDownloadSingle}
+              onDownloadCourse={onDownloadCourse}
+              perspective={perspective}
+              onPerspectiveChange={onPerspectiveChange}
+              hasPptPdf={hasPptPdf}
+              onTogglePptPdf={onTogglePptPdf}
             />
           ) : viewMode === 'list' ? (
             <ListView
@@ -1112,23 +1142,599 @@ function ListView({
 // 3. ColumnView (分栏多级并列视图 / macOS Miller Columns)
 // ─────────────────────────────────────────────────────────────
 
-function ColumnView({
-  courses,
-  activeCourse,
-  activeCategory,
-  onSelectCourse,
-  onSelectCategory,
-  groupByTerm = true
-}: {
+export interface CourseResourceBreakdown {
+  filesCount: number
+  fileBytes: number
+  videoCount: number
+  assignmentCount: number
+  hasVideos: boolean
+  hasAssignments: boolean
+  pptPdfAvailable: boolean
+}
+
+export function getCourseResourceBreakdown(course: NetdiskCourseItem): CourseResourceBreakdown {
+  let filesCount = 0
+  let fileBytes = 0
+  let videoCount = 0
+  let assignmentCount = 0
+  let pptPdfAvailable = false
+
+  for (const cat of course.categories) {
+    const isVideoCat = cat.icon === 'video' || cat.icon === 'audio' || cat.id === 'videos' || cat.id === 'teacher'
+    const isAssignCat = cat.icon === 'assignment' || cat.id === 'assignments'
+    const isPptPdfCat = cat.id === 'pptPdf' || cat.id === 'ppt-pdf'
+
+    if (isPptPdfCat) {
+      pptPdfAvailable = true
+      continue
+    }
+
+    if (isAssignCat) {
+      assignmentCount += cat.items.length
+      continue
+    }
+
+    if (isVideoCat) {
+      videoCount = Math.max(videoCount, cat.items.length)
+      continue
+    }
+
+    if (cat.id === 'ppt') {
+      videoCount = Math.max(videoCount, cat.items.length)
+      continue
+    }
+
+    for (const it of cat.items) {
+      const ext = it.name.split('.').pop()?.toLowerCase() || ''
+      const isVideoItem =
+        it.type === 'MP4' ||
+        it.type === 'M4A' ||
+        it.type === 'video' ||
+        ['mp4', 'mkv', 'mov', 'flv', 'ts', 'webm', 'mp3', 'm4a'].includes(ext)
+      if (isVideoItem) {
+        videoCount++
+      } else {
+        filesCount++
+        fileBytes += it.size || 0
+      }
+    }
+  }
+
+  if (fileBytes === 0 && course.totalBytes) {
+    fileBytes = course.totalBytes
+  }
+
+  if (filesCount === 0 && videoCount === 0 && assignmentCount === 0 && course.itemCount > 0) {
+    filesCount = course.itemCount
+  }
+
+  const hasVideos =
+    videoCount > 0 ||
+    course.categories.some(c => c.icon === 'video' || c.icon === 'audio' || c.id === 'videos' || c.id === 'teacher')
+
+  return {
+    filesCount,
+    fileBytes,
+    videoCount,
+    assignmentCount,
+    hasVideos,
+    hasAssignments: assignmentCount > 0,
+    pptPdfAvailable: pptPdfAvailable || hasVideos
+  }
+}
+
+export interface CourseOverviewInspectorProps {
+  course: NetdiskCourseItem
+  category?: NetdiskCategoryItem
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  hasPptPdf?: boolean
+  onTogglePptPdf?: (enabled: boolean) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+}
+
+export function CourseOverviewInspector({
+  course,
+  category,
+  perspective,
+  onPerspectiveChange,
+  hasPptPdf,
+  onTogglePptPdf,
+  onDownloadCourse
+}: CourseOverviewInspectorProps) {
+  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('teacher')
+  const activePerspective: VideoPerspective = perspective ?? course.perspective ?? internalPerspective
+
+  const pptCat = course.categories.find(c => c.id === 'pptPdf' || c.id === 'ppt-pdf')
+  const defaultPptPdf = pptCat ? pptCat.state === 'all' : false
+  const [internalPptPdf, setInternalPptPdf] = useState<boolean>(defaultPptPdf)
+  const isPptPdfOn = hasPptPdf ?? course.hasPptPdf ?? (pptCat ? pptCat.state === 'all' : internalPptPdf)
+
+  const [toast, setToast] = useState<{ text: string; type: 'success' | 'info' } | null>(null)
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showToast = useCallback((text: string, type: 'success' | 'info' = 'success') => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    setToast({ text, type })
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null)
+    }, 2500)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    }
+  }, [])
+
+  const breakdown = useMemo(() => getCourseResourceBreakdown(course), [course])
+
+  const estimated = useMemo(() => {
+    return estimateResourceSize({
+      fileBytes: breakdown.fileBytes,
+      videoCount: breakdown.videoCount,
+      perspective: activePerspective,
+      hasAssignments: breakdown.hasAssignments,
+      assignmentCount: breakdown.assignmentCount,
+      hasPptPdf: isPptPdfOn,
+      pptPdfCount: breakdown.videoCount > 0 ? breakdown.videoCount : 1
+    })
+  }, [breakdown, activePerspective, isPptPdfOn])
+
+  const handlePerspectiveSelect = (p: VideoPerspective) => {
+    setInternalPerspective(p)
+    onPerspectiveChange?.(p)
+    course.onPerspectiveChange?.(p)
+  }
+
+  const handleTogglePptPdf = () => {
+    const nextVal = !isPptPdfOn
+    setInternalPptPdf(nextVal)
+    if (pptCat) {
+      pptCat.onToggle()
+    }
+    onTogglePptPdf?.(nextVal)
+    course.onTogglePptPdf?.(nextVal)
+  }
+
+  const handleDownloadCourse = () => {
+    if (onDownloadCourse) {
+      onDownloadCourse(course)
+    } else if (course.onDownload) {
+      course.onDownload()
+    } else {
+      if (course.state !== 'all') {
+        course.onToggle()
+      }
+    }
+    showToast(`已开始下载课程 "${course.name}" 全部资源`, 'success')
+  }
+
+  const perspectiveOptions: Array<{ key: VideoPerspective; label: string }> = [
+    { key: 'all', label: '双机位' },
+    { key: 'teacher', label: '仅教师' },
+    { key: 'ppt', label: '仅PPT' },
+    { key: 'audio', label: '仅音频' }
+  ]
+
+  return (
+    <div
+      data-testid="course-overview-inspector"
+      className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full relative animate-fadeIn"
+    >
+      {/* 顶部标题区 */}
+      <div className="pb-3 border-b border-bd/60 shrink-0">
+        <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+          <span className="text-2xs font-semibold text-accent bg-accent/10 px-2 py-0.5 rounded-full border border-accent/20">
+            {category ? '分类与课程概览' : '课程概览'}
+          </span>
+          {course.term && (
+            <span className="text-2xs font-mono text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd/40">
+              {course.term}
+            </span>
+          )}
+          {course.code && (
+            <span className="text-2xs font-mono text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd/40">
+              {course.code}
+            </span>
+          )}
+          {course.teacher && (
+            <span className="text-2xs text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd/40">
+              👨‍🏫 {course.teacher}
+            </span>
+          )}
+          {course.badge && (
+            <span className="text-2xs font-semibold text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+              {course.badge}
+            </span>
+          )}
+        </div>
+        <h2 className="text-sm font-bold text-text-1 leading-snug break-words" title={course.name}>
+          {course.name}
+        </h2>
+        {category && (
+          <div className="mt-1 flex items-center gap-1 text-2xs text-text-3">
+            <span>当前浏览分类:</span>
+            <span className="font-semibold text-text-2">{category.name}</span>
+            <span className="font-mono text-text-4">({category.items.length})</span>
+          </div>
+        )}
+      </div>
+
+      {/* 资源结构与容量预估卡片 */}
+      <div className="my-3 rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 space-y-2 shrink-0 shadow-2xs">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-text-3 font-medium">预估总容量</span>
+          <span className="font-mono text-sm font-bold text-accent" data-testid="course-estimated-size">
+            {estimated.formattedSize}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-bd/40 text-xs">
+          <div className="flex flex-col">
+            <span className="text-text-4 text-2xs">课件资料</span>
+            <span className="text-text-1 font-mono font-semibold">
+              {breakdown.filesCount} 项 {breakdown.fileBytes > 0 ? `(${formatBytes(breakdown.fileBytes)})` : ''}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-text-4 text-2xs">课堂录播</span>
+            <span className="text-text-1 font-mono font-semibold">
+              {breakdown.videoCount > 0 ? `${breakdown.videoCount} 讲` : '无录播'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-text-4 text-2xs">课程作业</span>
+            <span className="text-text-1 font-mono font-semibold">
+              {breakdown.assignmentCount > 0 ? `${breakdown.assignmentCount} 项` : '无作业'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-text-4 text-2xs">PPT 讲义 PDF</span>
+            <span className="text-text-1 font-mono font-semibold">
+              {isPptPdfOn ? (breakdown.videoCount > 0 ? `预估 ${breakdown.videoCount} 份` : '已开启') : '未开启'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 录播机位下载偏好单选组（仅当有录播时渲染） */}
+      {breakdown.hasVideos && (
+        <div className="my-2 rounded-xl border border-bd/80 bg-surface-2/40 p-3 shrink-0" data-testid="video-perspective-selector">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-text-2">录播机位偏好</span>
+            <span className="text-2xs text-text-4">已选择: {perspectiveOptions.find(o => o.key === activePerspective)?.label}</span>
+          </div>
+          <div className="grid grid-cols-4 gap-1 p-0.5 rounded-lg bg-surface-3/60 border border-bd/40" role="radiogroup" aria-label="录播机位偏好">
+            {perspectiveOptions.map(opt => {
+              const isSelected = activePerspective === opt.key
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  data-perspective={opt.key}
+                  onClick={() => handlePerspectiveSelect(opt.key)}
+                  className={`py-1.5 px-1 text-center text-xs rounded-md transition-all cursor-pointer font-medium ${
+                    isSelected
+                      ? 'bg-accent text-white shadow-xs font-semibold'
+                      : 'text-text-2 hover:text-text-1 hover:bg-surface-2'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 增值导出快速开关：提取并生成 PPT 讲义 (PDF) */}
+      <div className="my-2 rounded-xl border border-bd/80 bg-surface-2/40 p-3 flex items-center justify-between gap-3 shrink-0">
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="text-xs font-semibold text-text-2 flex items-center gap-1.5">
+            <span>📑</span>
+            <span>提取并生成 PPT 讲义 (PDF)</span>
+          </span>
+          <span className="text-2xs text-text-4 mt-0.5 truncate">
+            从视频画面自动去重合成高清 PDF 讲义
+          </span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={isPptPdfOn}
+          aria-label="提取并生成 PPT 讲义 (PDF)"
+          onClick={handleTogglePptPdf}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+            isPptPdfOn ? 'bg-accent' : 'bg-surface-4'
+          }`}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+              isPptPdfOn ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* 勾选状态指示 */}
+      <div className="mt-2 mb-1 flex items-center justify-between text-xs text-text-3 px-1 shrink-0">
+        <span>课程勾选状态</span>
+        <span className={`font-semibold ${course.state === 'all' ? 'text-accent' : course.state === 'some' ? 'text-warning' : 'text-text-4'}`}>
+          {course.state === 'all' ? '已全选' : course.state === 'some' ? '部分已选' : '未勾选'}
+        </span>
+      </div>
+
+      {/* Toast 提示浮条 */}
+      {toast && (
+        <div
+          role="status"
+          className="absolute bottom-16 left-4 right-4 z-20 flex items-center gap-2 rounded-xl bg-surface-3/95 px-3 py-2 text-xs font-medium text-text-1 shadow-lg ring-1 ring-bd backdrop-blur animate-fadeIn"
+        >
+          <span>{toast.type === 'success' ? '✅' : 'ℹ️'}</span>
+          <span className="truncate flex-1">{toast.text}</span>
+        </div>
+      )}
+
+      {/* 底部主执行按钮 */}
+      <div className="mt-auto pt-3 shrink-0">
+        <button
+          type="button"
+          data-testid="course-download-cta"
+          onClick={handleDownloadCourse}
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98] transition-all cursor-pointer"
+        >
+          <span>⬇ 立即下载本门课程全部资源 ({estimated.formattedSize})</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export interface FileDetailInspectorProps {
+  item: NetdiskFileItem
+  course?: NetdiskCourseItem
+  category?: NetdiskCategoryItem
+  onClose: () => void
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+}
+
+export function FileDetailInspector({
+  item,
+  course,
+  category,
+  onClose,
+  onDownloadSingle
+}: FileDetailInspectorProps) {
+  const [toast, setToast] = useState<{ text: string; type: 'success' | 'info' } | null>(null)
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showToast = useCallback((text: string, type: 'success' | 'info' = 'success') => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    setToast({ text, type })
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null)
+    }, 2500)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    }
+  }, [])
+
+  const handleDownloadSingle = () => {
+    if (item.disabled) return
+    if (onDownloadSingle) {
+      onDownloadSingle(item, course, category)
+    } else if (item.onDownload) {
+      item.onDownload()
+    } else {
+      if (!item.selected) {
+        item.onToggle()
+      }
+    }
+    showToast(`已开始下载 "${item.name}"`, 'success')
+  }
+
+  const ext = item.name.split('.').pop()?.toLowerCase() || ''
+  const isVideo = ['mp4', 'mkv', 'mov', 'flv', 'ts', 'webm'].includes(ext) || item.type === 'MP4'
+  const isAudio = ['mp3', 'm4a', 'wav', 'aac', 'flac'].includes(ext) || item.type === 'M4A'
+
+  return (
+    <div
+      data-testid="file-detail-inspector"
+      className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full relative animate-fadeIn"
+    >
+      {/* 顶部标题区与关闭按钮 */}
+      <div className="flex items-center justify-between pb-3 border-b border-bd/60 shrink-0">
+        <span className="text-xs font-bold text-text-2">课件详情与预览</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-text-4 hover:text-text-1 text-xs p-1 rounded-md hover:bg-surface-3 transition-colors cursor-pointer"
+          title="关闭详情面板"
+          aria-label="关闭详情面板"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* 缩略图与大图标预览 */}
+      <div className="my-4 shrink-0">
+        {isVideo ? (
+          <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-md">
+            <div className="flex flex-col items-center justify-center text-white/90 gap-2 p-4 text-center">
+              <span className="text-4xl">🎬</span>
+              <span className="text-xs font-semibold">课堂视频 / 录播课件</span>
+              <span className="text-2xs text-white/60">可直接点击下方按钮即时单文件下载</span>
+            </div>
+          </div>
+        ) : isAudio ? (
+          <div className="w-full rounded-xl bg-surface-2 p-5 flex flex-col items-center border border-bd/60 shadow-xs">
+            <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-2 shadow-inner">
+              🎵
+            </div>
+            <span className="text-xs font-medium text-text-2">音频课件</span>
+          </div>
+        ) : (
+          <div className="w-full rounded-xl bg-surface-2/60 p-6 flex flex-col items-center justify-center border border-bd/60 shadow-xs">
+            <div className="scale-125 mb-2">
+              <FileTypeBadge filename={item.name} type={item.type} />
+            </div>
+            <span className="text-2xs font-mono font-bold text-text-3 uppercase tracking-wider mt-2">
+              {ext || item.type || 'DOCUMENT'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* 文件名 */}
+      <h3 className="text-sm font-bold text-text-1 break-all select-text leading-snug mb-3 shrink-0" title={item.name}>
+        {item.name}
+      </h3>
+
+      {/* 详细元数据表 */}
+      <div className="w-full rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40 space-y-2 mb-4 shrink-0 shadow-2xs">
+        {course?.name && (
+          <div className="flex justify-between py-1">
+            <span className="text-text-3">所属课程</span>
+            <span className="font-semibold text-text-1 text-2xs truncate max-w-[180px]" title={course.name}>
+              {course.name}
+            </span>
+          </div>
+        )}
+        {category?.name && (
+          <div className="flex justify-between py-1">
+            <span className="text-text-3">所属分类</span>
+            <span className="font-semibold text-text-1 text-2xs">
+              {category.name}
+            </span>
+          </div>
+        )}
+        <div className="flex justify-between py-1">
+          <span className="text-text-3">文件大小</span>
+          <span className="font-mono font-bold text-accent">
+            {item.size ? formatBytes(item.size) : '未知'}
+          </span>
+        </div>
+        {item.date && (
+          <div className="flex justify-between py-1">
+            <span className="text-text-3">讲次/时间</span>
+            <span className="font-mono text-text-2 text-2xs">
+              {item.date}
+            </span>
+          </div>
+        )}
+        <div className="flex justify-between py-1">
+          <span className="text-text-3">状态</span>
+          <span className={`text-2xs font-medium ${item.disabled ? 'text-warning' : item.selected ? 'text-accent' : 'text-text-3'}`}>
+            {item.disabled ? (item.disabledReason || '不可用') : item.selected ? '已加入清单' : '未选择'}
+          </span>
+        </div>
+      </div>
+
+      {item.renderExtra && (
+        <div className="w-full mb-4 p-3 rounded-xl bg-surface-2/50 border border-bd/50 text-xs shrink-0">
+          <div className="text-2xs font-semibold text-text-3 mb-1.5 uppercase tracking-wider">资源属性</div>
+          {item.renderExtra}
+        </div>
+      )}
+
+      {/* Toast 提示浮条 */}
+      {toast && (
+        <div
+          role="status"
+          className="absolute bottom-28 left-4 right-4 z-20 flex items-center gap-2 rounded-xl bg-surface-3/95 px-3 py-2 text-xs font-medium text-text-1 shadow-lg ring-1 ring-bd backdrop-blur animate-fadeIn"
+        >
+          <span>{toast.type === 'success' ? '✅' : 'ℹ️'}</span>
+          <span className="truncate flex-1">{toast.text}</span>
+        </div>
+      )}
+
+      {/* 底部双按钮操作区 */}
+      <div className="flex flex-col gap-2 mt-auto shrink-0 pt-2">
+        <button
+          type="button"
+          data-testid="file-download-btn"
+          disabled={item.disabled}
+          onClick={handleDownloadSingle}
+          className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
+            item.disabled
+              ? 'bg-surface-3 text-text-4 cursor-not-allowed opacity-60'
+              : 'bg-accent text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98]'
+          }`}
+        >
+          <span>⬇ 立即下载此文件</span>
+        </button>
+
+        <button
+          type="button"
+          disabled={item.disabled}
+          onClick={() => {
+            if (item.disabled) return
+            item.onToggle()
+          }}
+          className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-medium border transition-all cursor-pointer ${
+            item.disabled
+              ? 'border-bd/40 bg-surface-2 text-text-4 cursor-not-allowed opacity-60'
+              : item.selected
+              ? 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/20'
+              : 'border-bd bg-surface-2 text-text-2 hover:bg-surface-3 hover:text-text-1'
+          }`}
+        >
+          <span>{item.selected ? '✓ 已加入清单 (点击取消)' : '+ 勾选此文件加入清单'}</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export interface ColumnViewProps {
   courses: NetdiskCourseItem[]
   activeCourse?: NetdiskCourseItem
   activeCategory?: NetdiskCategoryItem
   onSelectCourse: (c: NetdiskCourseItem) => void
   onSelectCategory: (cat: NetdiskCategoryItem) => void
   groupByTerm?: boolean
-}) {
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  hasPptPdf?: boolean
+  onTogglePptPdf?: (enabled: boolean) => void
+  selectedFileItem?: NetdiskFileItem | null
+  onSelectFileItem?: (item: NetdiskFileItem | null) => void
+}
+
+export function ColumnView({
+  courses,
+  activeCourse,
+  activeCategory,
+  onSelectCourse,
+  onSelectCategory,
+  groupByTerm = true,
+  onDownloadSingle,
+  onDownloadCourse,
+  perspective,
+  onPerspectiveChange,
+  hasPptPdf,
+  onTogglePptPdf,
+  selectedFileItem: controlledSelectedFile,
+  onSelectFileItem
+}: ColumnViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [selectedFileItem, setSelectedFileItem] = useState<NetdiskFileItem | null>(null)
+  const [internalSelectedFile, setInternalSelectedFile] = useState<NetdiskFileItem | null>(null)
+
+  const selectedFileItem = controlledSelectedFile !== undefined ? controlledSelectedFile : internalSelectedFile
+  const setSelectedFileItem = useCallback(
+    (item: NetdiskFileItem | null) => {
+      setInternalSelectedFile(item)
+      onSelectFileItem?.(item)
+    },
+    [onSelectFileItem]
+  )
 
   // 当切换课程或分类时，如果已选文件不在新分类中，则自动清空预览状态
   useEffect(() => {
@@ -1137,7 +1743,7 @@ function ColumnView({
     if (!exists) {
       setSelectedFileItem(null)
     }
-  }, [activeCategory, selectedFileItem])
+  }, [activeCategory, selectedFileItem, setSelectedFileItem])
 
   const scrollToRight = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1310,9 +1916,9 @@ function ColumnView({
         </div>
       )}
 
-      {/* 第 3 栏：选定分类内的文件流（严格单层步进：仅在选定分类后滑出展示） */}
+      {/* 第 3 栏：选定分类内的文件流（已彻底移除顶部侵入性 renderExtra） */}
       {activeCourse && activeCategory && (
-        <div className={`flex flex-col bg-surface-1/40 h-full transition-all animate-fadeIn ${selectedFileItem ? 'w-72 md:w-80 shrink-0' : 'flex-1 min-w-[300px]'}`}>
+        <div className="flex w-72 md:w-80 shrink-0 flex-col bg-surface-1/40 h-full transition-all animate-fadeIn">
           <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <span
@@ -1333,12 +1939,6 @@ function ColumnView({
               </div>
             )}
           </div>
-
-          {activeCategory.renderExtra && (
-            <div className="border-b border-bd/60 p-2.5 bg-surface-2/30 shrink-0">
-              {activeCategory.renderExtra}
-            </div>
-          )}
 
           <div className="flex-1 overflow-y-auto py-2">
             {activeCategory.items.map(item => {
@@ -1416,133 +2016,27 @@ function ColumnView({
         </div>
       )}
 
-      {/* 第 4 栏：课件/文件详情与大预览卡片 (Inspector / Preview Column) */}
-      {selectedFileItem && (
-        <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full">
-          <div className="flex items-center justify-between pb-3 border-b border-bd/60 shrink-0">
-            <span className="text-xs font-bold text-text-2">课件详情与预览</span>
-            <button
-              type="button"
-              onClick={() => setSelectedFileItem(null)}
-              className="text-text-4 hover:text-text-1 text-xs p-1 rounded-md hover:bg-surface-3 transition-colors cursor-pointer"
-              title="关闭详情面板"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="my-4">
-            {(() => {
-              const ext = selectedFileItem.name.split('.').pop()?.toLowerCase() || ''
-              const isVideo = ['mp4', 'mkv', 'mov', 'flv', 'ts', 'webm'].includes(ext) || selectedFileItem.type === 'MP4'
-              const isAudio = ['mp3', 'm4a', 'wav', 'aac', 'flac'].includes(ext)
-
-              if (isVideo) {
-                return (
-                  <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-md">
-                    <div className="flex flex-col items-center justify-center text-white/90 gap-2 p-4 text-center">
-                      <span className="text-4xl">🎬</span>
-                      <span className="text-xs font-semibold">课堂视频 / 录播课件</span>
-                      <span className="text-2xs text-white/60">加入下载清单后即可批量高速下载</span>
-                    </div>
-                  </div>
-                )
-              }
-
-              if (isAudio) {
-                return (
-                  <div className="w-full rounded-xl bg-surface-2 p-5 flex flex-col items-center border border-bd/60 shadow-xs">
-                    <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-2 shadow-inner">
-                      🎵
-                    </div>
-                    <span className="text-xs font-medium text-text-2">音频课件</span>
-                  </div>
-                )
-              }
-
-              return (
-                <div className="w-full rounded-xl bg-surface-2/60 p-6 flex flex-col items-center justify-center border border-bd/60 shadow-xs">
-                  <div className="scale-125 mb-2">
-                    <FileTypeBadge filename={selectedFileItem.name} type={selectedFileItem.type} />
-                  </div>
-                  <span className="text-2xs font-mono font-bold text-text-3 uppercase tracking-wider mt-2">
-                    {ext || selectedFileItem.type || 'DOCUMENT'}
-                  </span>
-                </div>
-              )
-            })()}
-          </div>
-
-          <h3 className="text-sm font-bold text-text-1 break-all select-text leading-snug mb-3 shrink-0" title={selectedFileItem.name}>
-            {selectedFileItem.name}
-          </h3>
-
-          <div className="w-full rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40 space-y-2 mb-4 shrink-0">
-            {activeCourse?.name && (
-              <div className="flex justify-between py-1">
-                <span className="text-text-3">所属课程</span>
-                <span className="font-semibold text-text-1 text-2xs truncate max-w-[180px]" title={activeCourse.name}>
-                  {activeCourse.name}
-                </span>
-              </div>
-            )}
-            {activeCategory?.name && (
-              <div className="flex justify-between py-1">
-                <span className="text-text-3">所属分类</span>
-                <span className="font-semibold text-text-1 text-2xs">
-                  {activeCategory.name}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between py-1">
-              <span className="text-text-3">文件大小</span>
-              <span className="font-mono font-bold text-accent">
-                {selectedFileItem.size ? formatBytes(selectedFileItem.size) : '未知'}
-              </span>
-            </div>
-            {selectedFileItem.date && (
-              <div className="flex justify-between py-1">
-                <span className="text-text-3">讲次/时间</span>
-                <span className="font-mono text-text-2 text-2xs">
-                  {selectedFileItem.date}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between py-1">
-              <span className="text-text-3">状态</span>
-              <span className={`text-2xs font-medium ${selectedFileItem.disabled ? 'text-warning' : selectedFileItem.selected ? 'text-accent' : 'text-text-3'}`}>
-                {selectedFileItem.disabled ? (selectedFileItem.disabledReason || '不可用') : selectedFileItem.selected ? '已加入清单' : '未选择'}
-              </span>
-            </div>
-          </div>
-
-          {selectedFileItem.renderExtra && (
-            <div className="w-full mb-4 p-3 rounded-xl bg-surface-2/50 border border-bd/50 text-xs shrink-0">
-              <div className="text-2xs font-semibold text-text-3 mb-1.5 uppercase tracking-wider">资源属性</div>
-              {selectedFileItem.renderExtra}
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2 mt-auto shrink-0 pt-2">
-            <button
-              type="button"
-              disabled={selectedFileItem.disabled}
-              onClick={() => {
-                if (selectedFileItem.disabled) return
-                selectedFileItem.onToggle()
-              }}
-              className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
-                selectedFileItem.disabled
-                  ? 'bg-surface-3 text-text-4 cursor-not-allowed opacity-60'
-                  : selectedFileItem.selected
-                  ? 'bg-accent text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98]'
-                  : 'border border-bd bg-surface-2 text-text-1 hover:bg-surface-3 active:scale-[0.98]'
-              }`}
-            >
-              <span>{selectedFileItem.selected ? '✓ 已加入下载清单 (点击取消)' : '+ 加入下载清单'}</span>
-            </button>
-          </div>
-        </div>
+      {/* 第 4 栏：自适应动态检查器 (Inspector) */}
+      {activeCourse && (
+        selectedFileItem ? (
+          <FileDetailInspector
+            item={selectedFileItem}
+            course={activeCourse}
+            category={activeCategory}
+            onClose={() => setSelectedFileItem(null)}
+            onDownloadSingle={onDownloadSingle}
+          />
+        ) : (
+          <CourseOverviewInspector
+            course={activeCourse}
+            category={activeCategory}
+            perspective={perspective}
+            onPerspectiveChange={onPerspectiveChange}
+            hasPptPdf={hasPptPdf}
+            onTogglePptPdf={onTogglePptPdf}
+            onDownloadCourse={onDownloadCourse}
+          />
+        )
       )}
     </div>
   )
