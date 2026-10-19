@@ -1,20 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   fetchJiaowuSchedule,
-  isJiaowuSessionValid,
   invalidateJiaowuLogin
 } from '../../src/main/schedule/schedule-fetcher'
 import {
   isWeekInZcd,
   getSlotIdFromJc,
-  getSlotIdFromTime,
   getSlotRangeFromJc,
   getSlotRangeFromTime,
   clusterDayEvents,
   getEventDisplayTime,
   parseWeekNumber,
-  formatWeeksRange,
-  SJTU_TIME_SLOTS
+  formatWeeksRange
 } from '../../src/renderer/src/pages/ScheduleBrowser'
 import { isSafeExternalUrl, normalizeCanvasUrl } from '../../src/shared/utils'
 

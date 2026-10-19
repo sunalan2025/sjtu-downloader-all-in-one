@@ -9,7 +9,7 @@ import {
 import type { CanvasAssignmentItem } from '../../src/shared/types'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 
 describe('Canvas Assignment Archive Unit Tests', () => {
   const sampleAssignment: CanvasAssignmentItem = {
@@ -111,7 +111,7 @@ describe('Canvas Assignment Archive Unit Tests', () => {
   })
 
   describe('downloadAssignmentArchive', () => {
-    const testDir = join(tmpdir(), `test_assignment_${Date.now()}`)
+    const testDir = mkdtempSync(join(tmpdir(), 'test_assignment_'))
 
     it('downloads assignment markdown and attachment files', async () => {
       const sampleItem: CanvasAssignmentItem = {

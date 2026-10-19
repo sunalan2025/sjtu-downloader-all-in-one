@@ -7,7 +7,7 @@
  * 4. 产物与课堂视频 MP4 同名同目录保存，主流播放器双击自动挂载同名字幕。
  */
 import type Electron from 'electron'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { safeFetch } from './safe-fetch'
@@ -233,7 +233,7 @@ export async function downloadLectureTranscript(
     }
 
     // 目录路径：Canvas课程/{term}/{courseName}/videos/课堂视频/
-    const base = destRoot || tmpdir()
+    const base = destRoot || mkdtempSync(join(tmpdir(), 'sjtu-transcript-'))
     const parts = [sanitizeFsName(courseName)]
     if (term) parts.unshift(sanitizeFsName(term))
     const outDir = join(base, 'Canvas课程', parts.join('/'), 'videos', '课堂视频')
