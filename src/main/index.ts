@@ -983,7 +983,7 @@ app.whenReady().then(async () => {
 
       const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
       if (jaCookies.length === 0) {
-        return { ok: false, error: 'jAccount 未登录，请先登录 v.sjtu' }
+        return { ok: false, error: 'jAccount 未登录，请先登录' }
       }
 
       const win = new BrowserWindow({

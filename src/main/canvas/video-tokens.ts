@@ -967,7 +967,7 @@ export async function ensureVshareLogin(
     }
     const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
     const jaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
-    console.log(`[vshare] SSO 失败（jaccount 会话${jaSession ? '存在但未落 vshare cookie' : '不存在，请先在应用内登录 v.sjtu'}）`)
+    console.log(`[vshare] SSO 失败（jaccount 会话${jaSession ? '存在但未落 vshare cookie' : '不存在，请先在应用内登录'}）`)
     return false
   })()
   try {

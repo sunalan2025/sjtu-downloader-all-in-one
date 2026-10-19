@@ -159,10 +159,10 @@ async function completeCnmoocSso(session: Electron.Session, show: boolean): Prom
       }
     }
     // 超时排查：jaccount 会话不存在时 SSO 会停在 jaccount 登录页无法自动回跳，
-    // 提示用户先在应用内完成 v.sjtu 的 jAccount 登录。
+    // 提示用户先在应用内完成 jAccount 登录。
     const jaCookies = await session.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
     const jaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
-    console.log(`[cnmooc] SSO 超时（jaccount 会话${jaSession ? '存在' : '不存在，请先在应用内登录 v.sjtu'}）`)
+    console.log(`[cnmooc] SSO 超时（jaccount 会话${jaSession ? '存在' : '不存在，请先在应用内登录'}）`)
     return false
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -214,7 +214,7 @@ export function registerCnmoocHandlers(): void {
   ipcMain.handle('cnmooc:scan', async () => {
     try {
       const loggedIn = await ensureCnmoocLogin()
-      if (!loggedIn) return { ok: false, error: '好大学在线登录失败，请先登录 jAccount（v.sjtu）' }
+      if (!loggedIn) return { ok: false, error: '好大学在线登录失败，请先登录 jAccount' }
       try {
         const courses = await fetchCourses(getSession())
         return { ok: true, courses }

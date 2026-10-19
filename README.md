@@ -1,11 +1,11 @@
-# 上海交通大学 (SJTU) 课程下载器 | 交大旁听视频与 Canvas 课件录播批量下载工具
+# 上海交通大学 (SJTU) 课程下载器
 
 [![stars](https://img.shields.io/github/stars/sunalan2025/sjtu-downloader-all-in-one?style=social)](https://github.com/sunalan2025/sjtu-downloader-all-in-one)
 [![release](https://img.shields.io/github/v/release/sunalan2025/sjtu-downloader-all-in-one?display_name=tag&include_prereleases)](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases)
 [![license](https://img.shields.io/github/license/sunalan2025/sjtu-downloader-all-in-one)](./LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#-快速获取与安装)
 
-专为上海交通大学师生与校友打造的**课程资源批量下载与备份工具**。支持**交大旁听视频下载**（v.sjtu 教学视频平台）、**Canvas 课程课件与录播视频批量下载**（oc.sjtu）、以及**好大学在线**（CNMOOC）全套资源；深度集成**交大云盘**（pan.sjtu.edu.cn），支持本地多线程下载与云端秒传双向备份。
+专为上海交通大学师生打造的**课程资源批量下载与备份工具**。支持**旁听课程视频下载**、**Canvas 课程课件与录播视频批量下载**（oc.sjtu）、以及**好大学在线**（CNMOOC）资源；深度集成**交大云盘**（pan.sjtu.edu.cn），支持本地多线程下载与云端备份。
 
 ---
 
@@ -29,21 +29,21 @@
 
 ### 1. 登录与多账号凭据管理
 - **多种认证方式**：直接内嵌官方 jAccount 认证网关，支持「交我办」/ 微信扫码、账号密码、短信验证码及二次安全验证；
-- **智能记住账号密码**：首次成功登录后，应用主动弹出提示卡片询问是否记住此账号，并支持设置个性化别名（如「本科账号」、「双学位」）；
+- **智能记住账号密码**：首次成功登录后，应用主动弹出提示卡片询问是否记住此账号，并支持设置个性化别名；
 - **原生悬浮多账号切换**：已保存多账号时，输入框右侧提供 Chrome/Edge 风格的原生浮动切换卡片，一键选择自动填入对应账号密码；
 - **安全保障与防误操作**：凭据由操作系统原生硬件保险库（Windows DPAPI / macOS Keychain）加密存储，磁盘绝无明文；**自动填充仅回填输入框，绝不自动提交表单**，给您充分确认时间。
 
 ---
 
 ### 2. 课程资源浏览与批量下载
-顶栏聚合三大核心教学源，全面升级为**网盘式层级探索架构**，默认整齐归类，杜绝冗长瀑布流：
+顶栏聚合三大教学来源，提供清晰的目录层级结构：
 
 - **📚 Canvas 课程**：
   - 自动归集所有活跃与历史课程，支持按学期快速筛选；
   - 课件资料保留原始文件夹层级；模块补漏文件、大纲嵌入附件自动合并整理；
   - 课堂录播提供「教师视角」与「PPT 视角」双路超清视频流；
   - **📑 PPT 课件自动导出**：支持自动抓取课堂视频中的演讲切片并合并导出为单份高清 PDF 讲义。
-- **🎬 交大旁听视频下载 (v.sjtu)**：
+- **🎬 旁听课程视频下载**：
   - 自动同步已获旁听审核的全部课程与讲次；
   - 修正原教务系统课次乱序问题，按真实开课时间轴重新标号归整；
   - 支持教师视角 / PPT 投影视角单选或整门课程批量高速下载。
@@ -55,7 +55,7 @@
 点击右上角视图按钮即可秒级切换浏览形态：
 1. **⊞ 网格大图标 (Grid)**：文件夹卡片整齐排列，直观点击进入课程；
 2. **☰ 详细列表 (List)**：清晰呈现文件名、格式徽标、文件大小与日期；
-3. **◫ 多级分栏 (Miller Columns)**：macOS Finder / 夸克网盘标配三栏并列视图（课程列表 → 目录章节 → 文件流），层级跳转一目了然。
+3. **◫ 多级分栏 (Miller Columns)**：三栏并列视图（课程列表 → 目录章节 → 文件流），层级跳转一目了然。
 
 ---
 
@@ -147,7 +147,7 @@
 
 ## 🔍 适用场景与关键词索引
 
-- **交大教学系统**：上海交通大学、SJTU、Canvas、教学信息服务网、教学视频平台 (v.sjtu.edu.cn)、好大学在线 (cnmooc.sjtu.cn)、交大云盘 (pan.sjtu.edu.cn)、jAccount 统一身份认证。
+- **交大教学系统**：上海交通大学、SJTU、Canvas、教学信息服务网、教学视频平台、好大学在线 (cnmooc.sjtu.cn)、交大云盘 (pan.sjtu.edu.cn)、jAccount 统一身份认证。
 - **高频需求场景**：交大旁听视频下载、交大课程下载、Canvas 课件批量下载、交大课堂录播视频下载、PPT 讲义切片导出 PDF、交大网盘文件双向备份。
 
 ---
