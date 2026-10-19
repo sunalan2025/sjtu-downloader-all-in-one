@@ -19,8 +19,12 @@ import {
   sortAcademicTerms,
   estimateResourceSize
 } from '@shared/utils'
-import type { VideoPerspective } from './FloatingCommandIsland'
-export type { VideoPerspective }
+import {
+  FloatingCommandIsland,
+  type VideoPerspective,
+  type CategorySelectionState
+} from './FloatingCommandIsland'
+export type { VideoPerspective, CategorySelectionState }
 
 // ─────────────────────────────────────────────────────────────
 // Netdisk Navigation Interfaces
@@ -41,10 +45,13 @@ export interface NetdiskFileItem {
   selected: boolean
   onToggle: () => void
   onDownload?: () => void
+  onDownloadSingle?: () => void
   renderExtra?: React.ReactNode
   disabled?: boolean
   disabledReason?: string
 }
+
+export type FileItem = NetdiskFileItem
 
 export interface NetdiskCategoryItem {
   id: string
@@ -310,12 +317,206 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     return ''
   }, [viewMode, columnActiveCourse, columnActiveCategory, courses.length, navState.level, currentCourse, currentCategory])
 
+  // 全局 Toast 提示状态
+  const [toast, setToast] = useState<{ text: string; type: 'success' | 'info' } | null>(null)
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showToast = useCallback((text: string, type: 'success' | 'info' = 'success') => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    setToast({ text, type })
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null)
+    }, 2500)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
+    }
+  }, [])
+
+  const isSingleCourse = navState.level !== 'root' && !!currentCourse
+
+  // 动作岛统计汇总与体积估算
+  const selectedStats = useMemo(() => {
+    let courseCount = 0
+    let categoryCount = 0
+    let totalItems = 0
+    let filesCount = 0
+    let videoCount = 0
+    let assignCount = 0
+    let pptCount = 0
+    let fileBytes = 0
+
+    // 统计选中课程数
+    for (const c of courses) {
+      if (c.state === 'all' || c.state === 'some') {
+        courseCount++
+      }
+    }
+
+    // 统计当前课程内选中的分类数
+    if (currentCourse) {
+      for (const cat of currentCourse.categories) {
+        if (cat.state === 'all' || cat.state === 'some') {
+          categoryCount++
+        }
+      }
+    }
+
+    const relevantCourses = isSingleCourse ? [currentCourse!] : courses
+    for (const c of relevantCourses) {
+      for (const cat of c.categories) {
+        const catId = cat.id.toLowerCase()
+        const isFile = catId.includes('file') || cat.name.includes('课件')
+        const isVideo = catId.includes('video') || cat.name.includes('视频') || cat.name.includes('音频')
+        const isAssign = catId.includes('assign') || cat.name.includes('作业')
+        const isPpt = catId.includes('ppt') || cat.name.includes('ppt') || cat.name.includes('讲义')
+
+        for (const item of cat.items) {
+          if (item.selected) {
+            totalItems++
+            if (isFile) {
+              filesCount++
+              fileBytes += item.size || 0
+            } else if (isVideo) {
+              videoCount++
+            } else if (isAssign) {
+              assignCount++
+            } else if (isPpt) {
+              pptCount++
+            } else {
+              filesCount++
+              fileBytes += item.size || 0
+            }
+          }
+        }
+
+        // 未展开/未扫描分类兜底：若勾选了该分类但尚未拉取具体 items，计入 1 项
+        if (cat.items.length === 0 && (cat.state === 'all' || cat.state === 'some')) {
+          totalItems++
+          if (isFile) filesCount++
+          else if (isVideo) videoCount++
+          else if (isAssign) assignCount++
+          else if (isPpt) pptCount++
+        }
+      }
+
+      // 未扫描课程兜底
+      if (c.categories.length === 0 && (c.state === 'all' || c.state === 'some')) {
+        totalItems += c.itemCount || 1
+        fileBytes += c.totalBytes || 0
+        filesCount += c.itemCount || 1
+      }
+    }
+
+    const estimated = estimateResourceSize({
+      fileBytes,
+      videoCount,
+      perspective: perspective ?? currentCourse?.perspective ?? 'teacher',
+      hasAssignments: assignCount > 0,
+      assignmentCount: assignCount,
+      hasPptPdf: pptCount > 0,
+      pptPdfCount: pptCount
+    })
+
+    return {
+      courseCount,
+      categoryCount,
+      totalItems,
+      formattedSize: estimated.formattedSize,
+      totalBytes: estimated.totalBytes,
+      filesCount,
+      videoCount,
+      assignCount,
+      pptCount,
+      isSingleCourse
+    }
+  }, [courses, isSingleCourse, currentCourse, perspective])
+
+  // 动作岛分类过滤芯片勾选状态
+  const categorySelectionState = useMemo<CategorySelectionState>(() => {
+    const targetCourses = isSingleCourse ? [currentCourse!] : courses
+    let hasFiles = false
+    let hasVideos = false
+    let hasAssignments = false
+    let hasPptPdf = false
+
+    for (const c of targetCourses) {
+      for (const cat of c.categories) {
+        const id = cat.id.toLowerCase()
+        const isSel = cat.state !== 'none'
+        if (id.includes('file') || cat.name.includes('课件')) {
+          if (isSel) hasFiles = true
+        } else if (id.includes('video') || cat.name.includes('视频') || cat.name.includes('音频')) {
+          if (isSel) hasVideos = true
+        } else if (id.includes('assign') || cat.name.includes('作业')) {
+          if (isSel) hasAssignments = true
+        } else if (id.includes('ppt') || cat.name.includes('ppt') || cat.name.includes('讲义')) {
+          if (isSel) hasPptPdf = true
+        }
+      }
+    }
+
+    return {
+      files: hasFiles,
+      videos: hasVideos,
+      assignments: hasAssignments,
+      pptPdf: hasPptPdf
+    }
+  }, [courses, isSingleCourse, currentCourse])
+
+  const handleToggleIslandCategory = useCallback((catKey: 'files' | 'videos' | 'assignments' | 'pptPdf') => {
+    const targetCourses = isSingleCourse ? [currentCourse!] : courses
+    for (const c of targetCourses) {
+      const cat = c.categories.find(k => {
+        const id = k.id.toLowerCase()
+        if (catKey === 'files') return id.includes('file') || k.name.includes('课件')
+        if (catKey === 'videos') return id.includes('video') || k.name.includes('视频') || k.name.includes('音频')
+        if (catKey === 'assignments') return id.includes('assign') || k.name.includes('作业')
+        if (catKey === 'pptPdf') return id.includes('ppt') || k.name.includes('ppt') || k.name.includes('讲义')
+        return false
+      })
+      if (cat) {
+        cat.onToggle()
+      } else if (c.onToggleCategory) {
+        c.onToggleCategory(catKey, true)
+      }
+    }
+  }, [isSingleCourse, currentCourse, courses])
+
+  const handleClearSelection = useCallback(() => {
+    if (isSingleCourse && currentCourse) {
+      if (currentCourse.state !== 'none') currentCourse.onToggle()
+    } else {
+      for (const c of courses) {
+        if (c.state !== 'none') c.onToggle()
+      }
+    }
+  }, [isSingleCourse, currentCourse, courses])
+
+  const handleStartDownload = useCallback(() => {
+    if (isSingleCourse && currentCourse?.onDownload) {
+      currentCourse.onDownload()
+    } else if (onDownloadCourse && currentCourse) {
+      onDownloadCourse(currentCourse)
+    } else {
+      const selCourses = courses.filter(c => c.state !== 'none')
+      if (selCourses.length === 1 && selCourses[0].onDownload) {
+        selCourses[0].onDownload()
+      } else if (onDownloadCourse && selCourses.length > 0) {
+        selCourses.forEach(c => onDownloadCourse(c))
+      } else {
+        courses[0]?.onDownload?.()
+      }
+    }
+  }, [isSingleCourse, currentCourse, onDownloadCourse, courses])
+
   if (courses.length === 0) {
     return <div className="h-full w-full">{emptyPlaceholder}</div>
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-full w-full flex-col relative">
       {/* 顶部面包屑与层级回退条 */}
       <div className="flex items-center justify-between border-b border-bd/70 bg-surface-1/60 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-3">
@@ -388,6 +589,11 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               navState={navState}
               onNavigate={onNavigate}
               groupByTerm={groupByTerm}
+              onDownloadSingle={onDownloadSingle}
+              onDownloadCourse={onDownloadCourse}
+              perspective={perspective}
+              onPerspectiveChange={onPerspectiveChange}
+              showToast={showToast}
             />
           ) : (
             <GridView
@@ -397,10 +603,53 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               navState={navState}
               onNavigate={onNavigate}
               groupByTerm={groupByTerm}
+              onDownloadSingle={onDownloadSingle}
+              onDownloadCourse={onDownloadCourse}
+              perspective={perspective}
+              onPerspectiveChange={onPerspectiveChange}
+              showToast={showToast}
             />
           )}
         </div>
       </div>
+
+      {/* 底部浮动命令动作岛 (非分栏视图下且选中项 > 0 时挂载) */}
+      {viewMode !== 'column' && selectedStats.totalItems > 0 && (
+        <FloatingCommandIsland
+          selectedSummary={{
+            courseCount: selectedStats.courseCount,
+            categoryCount: selectedStats.categoryCount,
+            totalItems: selectedStats.totalItems,
+            formattedSize: selectedStats.formattedSize,
+            filesCount: selectedStats.filesCount,
+            videoCount: selectedStats.videoCount,
+            assignCount: selectedStats.assignCount,
+            pptCount: selectedStats.pptCount
+          }}
+          isSingleCourse={selectedStats.isSingleCourse}
+          categorySelection={categorySelectionState}
+          onToggleCategory={handleToggleIslandCategory}
+          perspective={perspective ?? currentCourse?.perspective}
+          onPerspectiveChange={p => {
+            onPerspectiveChange?.(p)
+            currentCourse?.onPerspectiveChange?.(p)
+          }}
+          onStartDownload={handleStartDownload}
+          onClearSelection={handleClearSelection}
+        />
+      )}
+
+      {/* Toast 提示浮条 */}
+      {toast && (
+        <div
+          role="status"
+          data-testid="toast-notification"
+          className="fixed top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-xl border border-bd bg-surface-1/95 px-4 py-2 text-xs font-medium text-text-1 shadow-lg backdrop-blur animate-in fade-in slide-in-from-top-2 duration-200"
+        >
+          <span>{toast.type === 'success' ? '✅' : 'ℹ️'}</span>
+          <span className="truncate max-w-sm">{toast.text}</span>
+        </div>
+      )}
     </div>
   )
 })
@@ -451,6 +700,161 @@ function groupCoursesByTerm(courses: NetdiskCourseItem[]) {
     term,
     items: grouped[term] || []
   }))
+}
+
+// ─────────────────────────────────────────────────────────────
+// 辅助判断与视频分类视角筛选组件
+// ─────────────────────────────────────────────────────────────
+
+export function isVideoCategory(category?: NetdiskCategoryItem): boolean {
+  if (!category) return false
+  const id = category.id.toLowerCase()
+  const name = category.name.toLowerCase()
+  return (
+    id === 'videos' ||
+    category.icon === 'video' ||
+    category.icon === 'audio' ||
+    name.includes('视频') ||
+    name.includes('音频')
+  )
+}
+
+export function isPptPerspectiveItem(item: NetdiskFileItem): boolean {
+  const id = item.id.toLowerCase()
+  const name = item.name.toLowerCase()
+  return id.includes('_ppt') || name.includes('ppt') || name.includes('投屏') || name.includes('影视角')
+}
+
+export function isTeacherPerspectiveItem(item: NetdiskFileItem): boolean {
+  const id = item.id.toLowerCase()
+  const name = item.name.toLowerCase()
+  if (id.includes('_teacher') || name.includes('教师')) return true
+  if (isPptPerspectiveItem(item)) return false
+  return true
+}
+
+export interface VideoPerspectiveFilterPillsProps {
+  perspective: VideoPerspective
+  totalCount: number
+  teacherCount: number
+  pptCount: number
+  onChange: (perspective: VideoPerspective) => void
+}
+
+export function VideoPerspectiveFilterPills({
+  perspective,
+  totalCount,
+  teacherCount,
+  pptCount,
+  onChange
+}: VideoPerspectiveFilterPillsProps) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="视频视角筛选"
+      data-testid="video-filter-pills"
+      className="inline-flex items-center rounded-lg border border-bd/80 bg-surface-2/60 p-0.5 text-xs select-none shadow-2xs"
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={perspective === 'all'}
+        onClick={() => onChange('all')}
+        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-sans ${
+          perspective === 'all'
+            ? 'bg-accent text-white font-medium shadow-xs'
+            : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
+        }`}
+      >
+        全部视频 ({totalCount})
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={perspective === 'teacher'}
+        onClick={() => onChange('teacher')}
+        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-sans ${
+          perspective === 'teacher'
+            ? 'bg-accent text-white font-medium shadow-xs'
+            : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
+        }`}
+      >
+        仅教师视角 ({teacherCount})
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={perspective === 'ppt'}
+        onClick={() => onChange('ppt')}
+        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-sans ${
+          perspective === 'ppt'
+            ? 'bg-accent text-white font-medium shadow-xs'
+            : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
+        }`}
+      >
+        仅PPT投屏 ({pptCount})
+      </button>
+    </div>
+  )
+}
+
+export interface CategoryLevelHeaderProps {
+  category: NetdiskCategoryItem
+  displayedCount: number
+  isVideoCategory: boolean
+  perspective: VideoPerspective
+  totalCount: number
+  teacherCount: number
+  pptCount: number
+  onPerspectiveChange: (p: VideoPerspective) => void
+}
+
+export function CategoryLevelHeader({
+  category,
+  displayedCount,
+  isVideoCategory: isVideo,
+  perspective,
+  totalCount,
+  teacherCount,
+  pptCount,
+  onPerspectiveChange
+}: CategoryLevelHeaderProps) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-bd bg-surface-1 p-3">
+      <div className="flex items-center gap-3">
+        <span
+          role="checkbox"
+          aria-checked={category.state === 'all'}
+          tabIndex={0}
+          onClick={() => category.onToggle()}
+          className="cursor-pointer"
+        >
+          <TriCheckbox state={category.state} size="sm" />
+        </span>
+        <div>
+          <h2 className="text-sm font-bold text-text-1">{category.name}</h2>
+          <div className="text-xs text-text-3">共 {displayedCount} 个文件</div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        {isVideo && (
+          <VideoPerspectiveFilterPills
+            perspective={perspective}
+            totalCount={totalCount}
+            teacherCount={teacherCount}
+            pptCount={pptCount}
+            onChange={onPerspectiveChange}
+          />
+        )}
+        {category.isLoading && (
+          <div className="flex items-center gap-2 text-xs text-text-2">
+            <Spinner size={14} />
+            <span>{category.loadingMessage || '正在加载文件…'}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -525,13 +929,18 @@ function CourseCard({
   )
 }
 
-function GridView({
+export function GridView({
   courses,
   currentCourse,
   currentCategory,
   navState,
   onNavigate,
-  groupByTerm = true
+  groupByTerm = true,
+  onDownloadSingle,
+  onDownloadCourse: _onDownloadCourse,
+  perspective,
+  onPerspectiveChange,
+  showToast
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
@@ -539,11 +948,88 @@ function GridView({
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
   groupByTerm?: boolean
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  showToast?: (text: string, type?: 'success' | 'info') => void
 }) {
   const termGroups = useMemo(() => {
     if (!groupByTerm) return null
     return groupCoursesByTerm(courses)
   }, [courses, groupByTerm])
+
+  const isVideoCat = isVideoCategory(currentCategory)
+  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('all')
+  const activePerspective = perspective ?? currentCourse?.perspective ?? internalPerspective
+
+  const handleFilterPerspectiveChange = useCallback((nextPerspective: VideoPerspective) => {
+    setInternalPerspective(nextPerspective)
+    onPerspectiveChange?.(nextPerspective)
+    currentCourse?.onPerspectiveChange?.(nextPerspective)
+
+    if (currentCategory) {
+      for (const item of currentCategory.items) {
+        if (item.disabled) continue
+        const isTeacher = isTeacherPerspectiveItem(item)
+        const isPpt = isPptPerspectiveItem(item)
+
+        if (nextPerspective === 'all') {
+          if (!item.selected) item.onToggle()
+        } else if (nextPerspective === 'teacher') {
+          if (isTeacher && !item.selected) item.onToggle()
+          if (!isTeacher && item.selected) item.onToggle()
+        } else if (nextPerspective === 'ppt') {
+          if (isPpt && !item.selected) item.onToggle()
+          if (!isPpt && item.selected) item.onToggle()
+        }
+      }
+    }
+  }, [onPerspectiveChange, currentCourse, currentCategory])
+
+  const { totalCount, teacherCount, pptCount } = useMemo(() => {
+    if (!currentCategory) return { totalCount: 0, teacherCount: 0, pptCount: 0 }
+    let teacher = 0
+    let ppt = 0
+    for (const item of currentCategory.items) {
+      if (isTeacherPerspectiveItem(item)) teacher++
+      if (isPptPerspectiveItem(item)) ppt++
+    }
+    if (teacher === 0 && ppt === 0) {
+      teacher = currentCategory.items.length
+    }
+    return {
+      totalCount: currentCategory.items.length,
+      teacherCount: teacher,
+      pptCount: ppt
+    }
+  }, [currentCategory])
+
+  const displayedItems = useMemo(() => {
+    if (!currentCategory) return []
+    if (!isVideoCat) return currentCategory.items
+    if (activePerspective === 'teacher') {
+      return currentCategory.items.filter(isTeacherPerspectiveItem)
+    }
+    if (activePerspective === 'ppt') {
+      return currentCategory.items.filter(isPptPerspectiveItem)
+    }
+    return currentCategory.items
+  }, [currentCategory, isVideoCat, activePerspective])
+
+  const handleSingleDownload = useCallback((item: NetdiskFileItem) => {
+    if (item.disabled) return
+    if (onDownloadSingle) {
+      onDownloadSingle(item, currentCourse, currentCategory)
+    } else if (item.onDownloadSingle) {
+      item.onDownloadSingle()
+    } else if (item.onDownload) {
+      item.onDownload()
+    } else {
+      if (!item.selected) item.onToggle()
+    }
+    showToast?.(`已开始下载 "${item.name}"`, 'success')
+  }, [onDownloadSingle, currentCourse, currentCategory, showToast])
 
   // 根目录：展示课程大文件夹网格
   if (navState.level === 'root' || !currentCourse) {
@@ -621,7 +1107,7 @@ function GridView({
     )
   }
 
-  // 课程级目录：展示课程下二级分类文件夹网格
+  // 课程级目录：展示课程下二级分类文件夹网格（已彻底移除专属操作白板）
   if (navState.level === 'course' || !currentCategory) {
     return (
       <div className="h-full overflow-y-auto p-1.5 pb-4">
@@ -703,62 +1189,31 @@ function GridView({
             )
           })}
         </div>
-
-        {/* 渲染分类扩展组件，如 PPT PDF 进度行或教师筛选 */}
-        {currentCourse.categories.some(cat => !!cat.renderExtra) && (
-          <div className="mt-6 space-y-3">
-            {currentCourse.categories.map(cat => cat.renderExtra ? (
-              <div key={`extra-${cat.id}`} className="rounded-xl border border-bd bg-surface-1 p-3">
-                <div className="text-xs font-semibold text-text-2 mb-2">{cat.name} 专属操作</div>
-                {cat.renderExtra}
-              </div>
-            ) : null)}
-          </div>
-        )}
       </div>
     )
   }
 
-  // 三级分类目录：展示具体文件/视频流
+  // 三级分类目录：展示具体文件/视频流（顶部内嵌视角筛选器，支持单文件悬停极速下载）
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mb-4 flex items-center justify-between rounded-xl border border-bd bg-surface-1 p-3">
-        <div className="flex items-center gap-3">
-          <span
-            role="checkbox"
-            aria-checked={currentCategory.state === 'all'}
-            tabIndex={0}
-            onClick={() => currentCategory.onToggle()}
-            className="cursor-pointer"
-          >
-            <TriCheckbox state={currentCategory.state} size="sm" />
-          </span>
-          <div>
-            <h2 className="text-sm font-bold text-text-1">{currentCategory.name}</h2>
-            <div className="text-xs text-text-3">共 {currentCategory.items.length} 个文件</div>
-          </div>
-        </div>
-        {currentCategory.isLoading && (
-          <div className="flex items-center gap-2 text-xs text-text-2">
-            <Spinner size={14} />
-            <span>{currentCategory.loadingMessage || '正在加载文件…'}</span>
-          </div>
-        )}
-      </div>
+      <CategoryLevelHeader
+        category={currentCategory}
+        displayedCount={displayedItems.length}
+        isVideoCategory={isVideoCat}
+        perspective={activePerspective}
+        totalCount={totalCount}
+        teacherCount={teacherCount}
+        pptCount={pptCount}
+        onPerspectiveChange={handleFilterPerspectiveChange}
+      />
 
-      {currentCategory.renderExtra && (
-        <div className="mb-4 rounded-xl border border-bd bg-surface-1 p-3">
-          {currentCategory.renderExtra}
-        </div>
-      )}
-
-      {currentCategory.items.length === 0 ? (
+      {displayedItems.length === 0 ? (
         <div className="py-12 text-center text-xs text-text-3">
           {currentCategory.emptyMessage || '该分类下暂无资源'}
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3 pb-6 select-none">
-          {currentCategory.items.map(item => (
+          {displayedItems.map(item => (
             <div
               key={item.id}
               onClick={() => {
@@ -786,6 +1241,25 @@ function GridView({
                   className={item.selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
                 />
               </div>
+
+              {/* 悬停即现极速下载按钮 (右上角) */}
+              {!item.disabled && (
+                <button
+                  type="button"
+                  data-testid="single-download-btn"
+                  title={`立即下载 ${item.name}`}
+                  onClick={e => {
+                    e.stopPropagation()
+                    handleSingleDownload(item)
+                  }}
+                  className="opacity-0 group-hover:opacity-100 transition-all absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent text-white text-[11px] font-medium shadow-sm hover:bg-accent-light active:scale-95 cursor-pointer"
+                >
+                  <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+                  </svg>
+                  <span>下载</span>
+                </button>
+              )}
 
               {/* 居中大文档图标 (58px) */}
               <div className="my-1 flex h-16 w-16 items-center justify-center transition-transform duration-150 group-hover:scale-105 shrink-0">
@@ -882,13 +1356,18 @@ function CourseRow({
   )
 }
 
-function ListView({
+export function ListView({
   courses,
   currentCourse,
   currentCategory,
   navState,
   onNavigate,
-  groupByTerm = true
+  groupByTerm = true,
+  onDownloadSingle,
+  onDownloadCourse: _onDownloadCourse,
+  perspective,
+  onPerspectiveChange,
+  showToast
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
@@ -896,11 +1375,88 @@ function ListView({
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
   groupByTerm?: boolean
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  showToast?: (text: string, type?: 'success' | 'info') => void
 }) {
   const termGroups = useMemo(() => {
     if (!groupByTerm) return null
     return groupCoursesByTerm(courses)
   }, [courses, groupByTerm])
+
+  const isVideoCat = isVideoCategory(currentCategory)
+  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('all')
+  const activePerspective = perspective ?? currentCourse?.perspective ?? internalPerspective
+
+  const handleFilterPerspectiveChange = useCallback((nextPerspective: VideoPerspective) => {
+    setInternalPerspective(nextPerspective)
+    onPerspectiveChange?.(nextPerspective)
+    currentCourse?.onPerspectiveChange?.(nextPerspective)
+
+    if (currentCategory) {
+      for (const item of currentCategory.items) {
+        if (item.disabled) continue
+        const isTeacher = isTeacherPerspectiveItem(item)
+        const isPpt = isPptPerspectiveItem(item)
+
+        if (nextPerspective === 'all') {
+          if (!item.selected) item.onToggle()
+        } else if (nextPerspective === 'teacher') {
+          if (isTeacher && !item.selected) item.onToggle()
+          if (!isTeacher && item.selected) item.onToggle()
+        } else if (nextPerspective === 'ppt') {
+          if (isPpt && !item.selected) item.onToggle()
+          if (!isPpt && item.selected) item.onToggle()
+        }
+      }
+    }
+  }, [onPerspectiveChange, currentCourse, currentCategory])
+
+  const { totalCount, teacherCount, pptCount } = useMemo(() => {
+    if (!currentCategory) return { totalCount: 0, teacherCount: 0, pptCount: 0 }
+    let teacher = 0
+    let ppt = 0
+    for (const item of currentCategory.items) {
+      if (isTeacherPerspectiveItem(item)) teacher++
+      if (isPptPerspectiveItem(item)) ppt++
+    }
+    if (teacher === 0 && ppt === 0) {
+      teacher = currentCategory.items.length
+    }
+    return {
+      totalCount: currentCategory.items.length,
+      teacherCount: teacher,
+      pptCount: ppt
+    }
+  }, [currentCategory])
+
+  const displayedItems = useMemo(() => {
+    if (!currentCategory) return []
+    if (!isVideoCat) return currentCategory.items
+    if (activePerspective === 'teacher') {
+      return currentCategory.items.filter(isTeacherPerspectiveItem)
+    }
+    if (activePerspective === 'ppt') {
+      return currentCategory.items.filter(isPptPerspectiveItem)
+    }
+    return currentCategory.items
+  }, [currentCategory, isVideoCat, activePerspective])
+
+  const handleSingleDownload = useCallback((item: NetdiskFileItem) => {
+    if (item.disabled) return
+    if (onDownloadSingle) {
+      onDownloadSingle(item, currentCourse, currentCategory)
+    } else if (item.onDownloadSingle) {
+      item.onDownloadSingle()
+    } else if (item.onDownload) {
+      item.onDownload()
+    } else {
+      if (!item.selected) item.onToggle()
+    }
+    showToast?.(`已开始下载 "${item.name}"`, 'success')
+  }, [onDownloadSingle, currentCourse, currentCategory, showToast])
 
   // 根目录列表
   if (navState.level === 'root' || !currentCourse) {
@@ -999,7 +1555,7 @@ function ListView({
     )
   }
 
-  // 课程分类列表
+  // 课程分类列表（已彻底移除专属操作白板）
   if (navState.level === 'course' || !currentCategory) {
     return (
       <div className="h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs">
@@ -1052,16 +1608,21 @@ function ListView({
     )
   }
 
-  // 具体资源列表
+  // 具体资源列表（顶部内嵌视角筛选器，支持单文件悬停极速下载）
   return (
     <div className="h-full overflow-y-auto space-y-3 pb-4">
-      {currentCategory.renderExtra && (
-        <div className="rounded-xl border border-bd bg-surface-1 p-3 shadow-2xs">
-          {currentCategory.renderExtra}
-        </div>
-      )}
+      <CategoryLevelHeader
+        category={currentCategory}
+        displayedCount={displayedItems.length}
+        isVideoCategory={isVideoCat}
+        perspective={activePerspective}
+        totalCount={totalCount}
+        teacherCount={teacherCount}
+        pptCount={pptCount}
+        onPerspectiveChange={handleFilterPerspectiveChange}
+      />
 
-      {currentCategory.items.length === 0 ? (
+      {displayedItems.length === 0 ? (
         <div className="py-12 text-center text-xs text-text-3">
           {currentCategory.emptyMessage || '该分类下暂无资源'}
         </div>
@@ -1078,14 +1639,14 @@ function ListView({
               </tr>
             </thead>
             <tbody className="divide-y divide-bd/50">
-              {currentCategory.items.map(item => (
+              {displayedItems.map(item => (
                 <tr
                   key={item.id}
                   onClick={() => {
                     if (item.disabled) return
                     item.onToggle()
                   }}
-                  className={`transition-colors ${
+                  className={`group transition-colors ${
                     item.disabled
                       ? 'opacity-60 bg-surface-2/20 cursor-not-allowed'
                       : 'hover:bg-surface-2/60 cursor-pointer'
@@ -1124,9 +1685,28 @@ function ListView({
                     {item.date || '—'}
                   </td>
                   <td className="py-2.5 px-4 text-right" onClick={e => e.stopPropagation()}>
-                    {item.renderExtra || (
-                      <span className="text-text-4 font-mono">待下载</span>
-                    )}
+                    <div className="flex items-center justify-end gap-2">
+                      {!item.disabled && (
+                        <button
+                          type="button"
+                          data-testid="single-download-btn"
+                          title={`立即下载 ${item.name}`}
+                          onClick={e => {
+                            e.stopPropagation()
+                            handleSingleDownload(item)
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-all inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent text-white text-[11px] font-medium shadow-xs hover:bg-accent-light active:scale-95 cursor-pointer"
+                        >
+                          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+                          </svg>
+                          <span>下载</span>
+                        </button>
+                      )}
+                      {item.renderExtra || (
+                        <span className={`text-text-4 font-mono ${!item.disabled ? 'group-hover:hidden' : ''}`}>待下载</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

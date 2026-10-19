@@ -919,6 +919,158 @@ export function CanvasBrowser() {
     }
   }, [courseStates, courseTaskIds, setCanvasCourseCategorySelection])
 
+  /** 单课件文件直下调度函数 */
+  const handleDownloadSingleFile = useCallback(async (courseId: number, file: CanvasFileItem) => {
+    const st = useAppStore.getState()
+    const c = st.canvasCourses.find(cc => cc.courseId === courseId)
+    if (!c) return
+    const needsLocal = st.downloadMode === 'local' || st.downloadMode === 'both'
+    const localDestRoot = st.localDestRoot || ''
+    if (needsLocal && !localDestRoot) return
+
+    const tid = fileTaskId(courseId, file.fileId)
+    st.applyProgress({ taskId: tid, state: 'pending', received: 0, total: file.size || 0, message: '准备下载…' })
+
+    try {
+      const cd = st.canvasCourseData[courseId]
+      const folderMap = cd?.folderMap ?? {}
+      const selTeachers = st.canvasSelectedTeachers[courseId]
+      const allTeachers = st.canvasTeachers[courseId]?.filter(t => t.selected).map(t => t.teacher)
+      const teachers = selTeachers?.length ? selTeachers : (allTeachers?.length ? allTeachers : c.teachers)
+      const teacherStr = teachers.length > 0 ? teachers.join('/') : ''
+      const courseName = [c.name, teacherStr].filter(Boolean).join('-')
+
+      const r = await window.api?.canvas?.buildDownloadSpecs(
+        courseName,
+        courseId,
+        [file],
+        folderMap,
+        needsLocal ? localDestRoot : '',
+        c.term || ''
+      )
+      const specs = r?.specs ?? []
+      if (specs.length > 0) {
+        specs[0].taskId = tid
+        const downloadOpts = {
+          mode: st.downloadMode,
+          conflictStrategy: st.fileConflictStrategy,
+          localDestRoot: needsLocal ? localDestRoot : undefined,
+          namingTemplate: st.namingTemplate,
+          cloudDestRoot: st.cloudDestRoot
+        }
+        if (st.downloadMode === 'both') {
+          st.setCloudLinkedIds(prev => ({ ...prev, [tid]: tid + '_cloud' }))
+        }
+        await window.api?.download?.start(localDestRoot, specs, downloadOpts)
+      }
+    } catch (err) {
+      st.applyProgress({
+        taskId: tid,
+        state: 'error',
+        received: 0,
+        total: 0,
+        message: err instanceof Error ? err.message : '下载启动失败'
+      })
+    }
+  }, [])
+
+  /** 单录播视频文件直下调度函数 */
+  const handleDownloadSingleVideo = useCallback(async (
+    courseId: number,
+    lectureNum: number,
+    stream: 'teacher' | 'ppt'
+  ) => {
+    const st = useAppStore.getState()
+    const c = st.canvasCourses.find(cc => cc.courseId === courseId)
+    if (!c) return
+    const needsLocal = st.downloadMode === 'local' || st.downloadMode === 'both'
+    const localDestRoot = st.localDestRoot || ''
+    if (needsLocal && !localDestRoot) return
+
+    const tid = lectureStreamTaskId(courseId, lectureNum, stream)
+    st.applyProgress({ taskId: tid, state: 'pending', received: 0, total: 0, message: '准备下载视频…' })
+
+    try {
+      let lti = st.canvasLtiTokens[courseId]
+      if (!lti && window.api?.canvas?.classVideoScan) {
+        const scanRes = await window.api.canvas.classVideoScan(courseId)
+        if (scanRes.ok && scanRes.token && scanRes.canvasCourseId) {
+          lti = { token: scanRes.token, canvasCourseId: scanRes.canvasCourseId }
+          st.setCanvasLtiToken(courseId, lti)
+        }
+      }
+      if (!lti) {
+        st.applyProgress({ taskId: tid, state: 'error', received: 0, total: 0, message: '无法获取视频凭证' })
+        return
+      }
+
+      const selTeachers = st.canvasSelectedTeachers[courseId]
+      const allTeachers = st.canvasTeachers[courseId]?.filter(t => t.selected).map(t => t.teacher)
+      const teachers = selTeachers?.length ? selTeachers : (allTeachers?.length ? allTeachers : c.teachers)
+      const teacherStr = teachers.length > 0 ? teachers.join('/') : ''
+      const courseName = [c.name, teacherStr].filter(Boolean).join('-')
+
+      const lec = st.canvasLectures[courseId]?.find(l => l.lectureNum === lectureNum)
+      const item: CanvasLectureDownloadItem = {
+        lectureNum,
+        teacher: stream === 'teacher' ? lec?.teacher : undefined,
+        ppt: stream === 'ppt' ? lec?.teacher : undefined
+      }
+
+      const r = await window.api?.canvas?.downloadLectures(
+        courseName,
+        courseId,
+        [item],
+        lti.token,
+        needsLocal ? localDestRoot : '',
+        st.fileConflictStrategy,
+        c.term || '',
+        st.videoQualityOption
+      )
+      const specs = r?.specs ?? []
+      if (specs.length > 0) {
+        specs[0].taskId = tid
+        const downloadOpts = {
+          mode: st.downloadMode,
+          conflictStrategy: st.fileConflictStrategy,
+          localDestRoot: needsLocal ? localDestRoot : undefined,
+          namingTemplate: st.namingTemplate,
+          cloudDestRoot: st.cloudDestRoot
+        }
+        if (st.downloadMode === 'both') {
+          st.setCloudLinkedIds(prev => ({ ...prev, [tid]: tid + '_cloud' }))
+        }
+        await window.api?.download?.start(localDestRoot, specs, downloadOpts)
+      }
+    } catch (err) {
+      st.applyProgress({
+        taskId: tid,
+        state: 'error',
+        received: 0,
+        total: 0,
+        message: err instanceof Error ? err.message : '下载启动失败'
+      })
+    }
+  }, [])
+
+  /** 通用单条目下载入口回调 */
+  const handleDownloadSingle = useCallback((
+    item: NetdiskFileItem,
+    _course?: NetdiskCourseItem,
+    _category?: NetdiskCategoryItem
+  ) => {
+    if (item.onDownloadSingle) {
+      item.onDownloadSingle()
+      return
+    }
+    if (item.onDownload) {
+      item.onDownload()
+      return
+    }
+    if (!item.selected) {
+      item.onToggle()
+    }
+  }, [])
 
   // ── 下载（按课程分批提交，解析一门立即开始下载） ──
   // PERF: read volatile store values via useAppStore.getState() inside the function body
@@ -1593,6 +1745,7 @@ export function CanvasBrowser() {
             type: f.displayName.includes('.') ? f.displayName.split('.').pop()?.toUpperCase() : 'FILE',
             selected: selected.has(tid),
             onToggle: () => toggleSelect(tid),
+            onDownloadSingle: () => void handleDownloadSingleFile(c.courseId, f),
             renderExtra: <FileRowProgress tid={tid} />
           })
         }
@@ -1614,6 +1767,7 @@ export function CanvasBrowser() {
               type: isAudioOnly ? 'M4A' : 'MP4',
               selected: selected.has(tTid),
               onToggle: () => toggleSelect(tTid),
+              onDownloadSingle: () => void handleDownloadSingleVideo(c.courseId, l.lectureNum, 'teacher'),
               renderExtra: <VideoRowProgress tid={tTid} controllable={true} />
             })
             const pTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'ppt')
@@ -1631,6 +1785,7 @@ export function CanvasBrowser() {
                 if (isAudioOnly) return
                 toggleSelect(pTid)
               },
+              onDownloadSingle: isAudioOnly ? undefined : () => void handleDownloadSingleVideo(c.courseId, l.lectureNum, 'ppt'),
               renderExtra: <VideoRowProgress tid={pTid} controllable={true} />
             })
           }
@@ -1856,7 +2011,10 @@ export function CanvasBrowser() {
         isLoading: scanningCourseIds[c.courseId] || scanningVideoCourseIds[c.courseId],
         summary: (done > 0 || dl > 0 || err > 0) && progressIds.length > 0
           ? { done, downloading: dl, errors: err, inflight, total: progressIds.length }
-          : undefined
+          : undefined,
+        perspective: catSel?.teacher && !catSel?.ppt ? 'teacher' : (!catSel?.teacher && catSel?.ppt ? 'ppt' : 'all'),
+        onPerspectiveChange: p => handleVideoPerspective(c.courseId, p as any),
+        onDownload: () => void onDownload()
       }
     })
   }, [
@@ -1865,7 +2023,7 @@ export function CanvasBrowser() {
     toggleSelect, toggleSelectMany, setCanvasCourseCategorySelection,
     scanningCourseIds, scanningVideoCourseIds, doScanFiles, doClassVideoScan,
     toggleCourse, toggleCourseCategory, handleVideoPerspective, canvasCourseTaskIds, progressMap, downloadMode, cloudLinkedIds,
-    videoQualityOption
+    videoQualityOption, handleDownloadSingleFile, handleDownloadSingleVideo, onDownload
   ])
 
   return (
@@ -2132,6 +2290,8 @@ export function CanvasBrowser() {
             navState={navState}
             onNavigate={setNavState}
             groupByTerm={canvasGroupByTerm}
+            onDownloadSingle={handleDownloadSingle}
+            onDownloadCourse={() => void onDownload()}
           />
         )}
       </div>
