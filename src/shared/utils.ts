@@ -320,4 +320,77 @@ export function buildCloudRemoteSegments(
   return [...rootSegments, ...cleanSubSegments]
 }
 
+// ─────────────────────────────────────────────────────────────
+// 响应式资源容量预估引擎与单文件直下接口
+// ─────────────────────────────────────────────────────────────
+
+export type { SingleDownloadPayload } from './types'
+
+export interface EstimateSizeParams {
+  fileBytes?: number
+  videoCount?: number
+  perspective?: 'all' | 'teacher' | 'ppt' | 'audio'
+  hasAssignments?: boolean
+  assignmentCount?: number
+  hasPptPdf?: boolean
+  pptPdfCount?: number
+}
+
+export interface EstimatedSizeResult {
+  totalBytes: number
+  formattedSize: string // 如 "约 3.1 GB" 或 "0 B"
+}
+
+/** 视频录播机位基准容量常数（每讲字节数估算基准） */
+const VIDEO_PERSPECTIVE_BENCHMARK_BYTES: Record<'all' | 'teacher' | 'ppt' | 'audio', number> = {
+  all: 650 * 1024 * 1024,
+  teacher: 450 * 1024 * 1024,
+  ppt: 200 * 1024 * 1024,
+  audio: 45 * 1024 * 1024
+}
+
+/** 作业附件与作业描述归档基准容量（每项 2MB） */
+const ASSIGNMENT_BENCHMARK_BYTES = 2 * 1024 * 1024
+
+/** PPT 讲义 PDF 合成基准容量（每讲 15MB） */
+const PPT_PDF_BENCHMARK_BYTES = 15 * 1024 * 1024
+
+/**
+ * 响应式资源容量预估引擎
+ * 根据当前勾选的课件文件、视频机位偏好、作业及 PPT PDF 讲义配置，毫秒级加权计算总字节数并返回友好格式化文本。
+ */
+export function estimateResourceSize(params: EstimateSizeParams): EstimatedSizeResult {
+  const fileBytes = Math.max(0, params.fileBytes || 0)
+
+  let videoBytes = 0
+  if (params.videoCount && params.videoCount > 0) {
+    const perspective = params.perspective || 'all'
+    const benchmark = VIDEO_PERSPECTIVE_BENCHMARK_BYTES[perspective] ?? VIDEO_PERSPECTIVE_BENCHMARK_BYTES.all
+    videoBytes = params.videoCount * benchmark
+  }
+
+  let assignmentBytes = 0
+  if (params.hasAssignments) {
+    const count = params.assignmentCount !== undefined ? Math.max(0, params.assignmentCount) : 1
+    assignmentBytes = count * ASSIGNMENT_BENCHMARK_BYTES
+  }
+
+  let pptPdfBytes = 0
+  if (params.hasPptPdf) {
+    const count = params.pptPdfCount !== undefined
+      ? Math.max(0, params.pptPdfCount)
+      : (params.videoCount !== undefined && params.videoCount > 0 ? params.videoCount : 1)
+    pptPdfBytes = count * PPT_PDF_BENCHMARK_BYTES
+  }
+
+  const totalBytes = fileBytes + videoBytes + assignmentBytes + pptPdfBytes
+  const formattedSize = totalBytes > 0 ? `约 ${formatBytes(totalBytes)}` : '0 B'
+
+  return {
+    totalBytes,
+    formattedSize
+  }
+}
+
+
 

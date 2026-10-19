@@ -600,6 +600,16 @@ export interface CanvasAssignmentExportOptions {
   downloadSubmissions: boolean
 }
 
+/** 单文件/条目即时直下载调度参数结构 */
+export interface SingleDownloadPayload {
+  id: string
+  type: 'file' | 'video' | 'assignment'
+  name: string
+  courseId: number
+  url?: string
+  size?: number
+}
+
 /** 渲染端顶部 tab */
 export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'schedule' | 'transfer' | 'settings' | 'cloudpan'
 
