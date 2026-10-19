@@ -264,8 +264,10 @@ export interface DownloadTaskSpec {
   angle?: number
   /** 是否为 HLS 视频流（.m3u8） */
   isHls?: boolean
-  /** 是否需要抽取为纯音频 (.m4a) */
+  /** 是否需要提取为纯音频 (.m4a) */
   extractAudio?: boolean
+  /** 资源分类（如 'files' | 'videos'） */
+  category?: string
 }
 
 /** 下载/上传任务状态机 */
@@ -358,6 +360,27 @@ export interface CloudPanSpaceInfo {
   size: string
 }
 
+/** 云盘文件/目录项 */
+export interface CloudPanItem {
+  name: string
+  type: 'dir' | 'file'
+  size?: number
+  fileType?: string
+  modificationTime: string
+  creationTime?: string
+  crc64?: string
+}
+
+/** 云盘目录浏览列表 */
+export interface CloudPanDirectoryListing {
+  path: string[]
+  currentDirName: string
+  totalNum: number
+  page: number
+  pageSize: number
+  contents: CloudPanItem[]
+}
+
 // ─────────────────────────────────────────────────────────────
 // Canvas (oc.sjtu.edu.cn) 相关
 // ─────────────────────────────────────────────────────────────
@@ -427,13 +450,47 @@ export interface CourseResourceSummary {
   moduleFiles: CanvasFileItem[]
   /** 从教学大纲正文中提取恢复的课件文件 */
   syllabusFiles: CanvasFileItem[]
+  /** 课程作业列表 (Assignments & Submissions) */
+  assignments?: CanvasAssignmentItem[]
   /** 友好告警提示（例如 403 降级说明） */
   warning?: string
   /** 错误信息（致命失败如未登录/网络中断时提供） */
   error?: string
 }
 
-/** "课堂视频new" 一次录课会话 */
+/** Canvas 作业评论/评语 */
+export interface CanvasAssignmentComment {
+  authorName: string
+  comment: string
+  createdAt: string
+}
+
+/** Canvas 作业关联文件（题目附件或学生提交原件） */
+export interface CanvasAssignmentFile {
+  id: number
+  name: string
+  url: string
+  size?: number
+}
+
+/** Canvas 课程作业及学生提交全量信息 */
+export interface CanvasAssignmentItem {
+  id: number
+  name: string
+  dueAt?: string
+  pointsPossible?: number
+  hasSubmission: boolean
+  submittedAt?: string
+  submissionScore?: number
+  submissionGrade?: string
+  htmlUrl?: string
+  descriptionHtml?: string
+  teacherAttachments: CanvasAssignmentFile[]
+  submissionFiles: CanvasAssignmentFile[]
+  comments: CanvasAssignmentComment[]
+}
+
+/** 课堂录播会话（支持新版 v.sjtu 与旧版 courses.sjtu） */
 export interface CanvasVideoSession {
   videoId: string
   courId: number
@@ -441,6 +498,9 @@ export interface CanvasVideoSession {
   classroom: string
   beginTime: string
   videoName: string
+  endTime?: string
+  legacyCourseId?: string
+  source?: 'new' | 'legacy'
 }
 
 /** 课堂视频的一路流（教师 / PPT） */
@@ -454,9 +514,11 @@ export interface CanvasClassVideoInfo {
 export type CanvasTaskSource =
   | 'canvas-files'
   | 'canvas-class-video'
+  | 'canvas-video'            // 旧版录播 (courses.sjtu.edu.cn) 直接 MP4 直链
   | 'canvas-module-video'      // Page iframe 嵌入的 v.sjtu 公开课分享页（HLS，走 downloadModuleVideoNow）
   | 'canvas-exttool-video'    // ExternalTool 模块项 → v.sjtu LTI → /file/{id} → S3 直链 MP4
   | 'canvas-exturl-video'     // ExternalUrl 模块项 → vshare /api/video/play/{uuid} → S3 直链 MP4
+  | 'canvas-assignment'       // Canvas 课程作业与提交归档 (Assignments & Submissions)
   | 'cnmooc'                  // 好大学在线 (cnmooc.sjtu.cn)：下载时懒解析 play.mooc+detail.mooc 取直链
 
 /** 扩展 DownloadTaskSpec，增加 Canvas 来源标记和路径信息 */
@@ -523,8 +585,14 @@ export interface CanvasLectureDownloadItem {
   ppt?: CanvasVideoSession
 }
 
+/** 课堂实录 AI 语音逐字稿与字幕导出选项 */
+export interface CanvasTranscriptExportOptions {
+  exportSrt?: boolean
+  exportMarkdown?: boolean
+}
+
 /** 渲染端顶部 tab */
-export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'transfer' | 'settings'
+export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'schedule' | 'transfer' | 'settings' | 'cloudpan'
 
 // ─────────────────────────────────────────────────────────────
 // 好大学在线 (cnmooc.sjtu.cn) 相关
@@ -648,3 +716,165 @@ export interface DownloadHistoryItem {
   completedAt: number
   source?: string
 }
+
+// ─────────────────────────────────────────────────────────────
+// Window API 契约（渲染进程与主进程 IPC）
+// ─────────────────────────────────────────────────────────────
+
+export interface CloudPanApi {
+  getCachedToken: () => Promise<string | null>
+  setCachedToken: (token: string | null) => Promise<{ ok: boolean }>
+  validateToken: () => Promise<{ ok: boolean; error?: string }>
+  spaceInfo: () => Promise<{ ok: boolean; info?: CloudPanSpaceInfo; error?: string }>
+  directLogin: () => Promise<{ ok: boolean; userToken?: string; error?: string }>
+  logout: () => Promise<{ ok: boolean }>
+  listDirectory: (dirPath?: string[], page?: number, pageSize?: number) => Promise<{ ok: boolean; data?: CloudPanDirectoryListing; error?: string }>
+  createFolder: (dirPath: string[]) => Promise<{ ok: boolean; error?: string }>
+  deleteItem: (targetPath: string[], isDir: boolean) => Promise<{ ok: boolean; error?: string }>
+  renameItem: (oldPath: string[], newName: string, isDir: boolean) => Promise<{ ok: boolean; error?: string }>
+  getDownloadUrl: (filePath: string[]) => Promise<{ ok: boolean; url?: string; error?: string }>
+  downloadFile: (remotePath: string[], targetDir?: string) => Promise<{ ok: boolean; taskId?: string; error?: string }>
+  uploadFiles: (targetDirPath: string[]) => Promise<{ ok: boolean; count?: number; error?: string }>
+  openInBrowser: (remotePath?: string[]) => Promise<{ ok: boolean; error?: string }>
+}
+
+export interface StoredCredential {
+  id: string
+  username: string
+  label?: string
+  encryptedPassword: string
+  createdAt: number
+  lastUsedAt: number
+}
+
+export interface MaskedCredential {
+  id: string
+  username: string
+  label?: string
+  maskedPassword: string
+  createdAt: number
+  lastUsedAt: number
+}
+
+export interface CredentialsApi {
+  list: () => Promise<MaskedCredential[]>
+  save: (username: string, password: string, label?: string) => Promise<{ ok: boolean; id?: string; error?: string }>
+  updateLabel: (id: string, label?: string) => Promise<{ ok: boolean; error?: string }>
+  delete: (id: string) => Promise<{ ok: boolean; error?: string }>
+  clearAll: () => Promise<{ ok: boolean; error?: string }>
+  getFillData: (id?: string) => Promise<{ ok: boolean; username?: string; password?: string; error?: string }>
+}
+
+// ─────────────────────────────────────────────────────────────
+// 课表与日程管理 (calendar.sjtu.edu.cn / Canvas DDL)
+// ─────────────────────────────────────────────────────────────
+
+/** 课表/日程事件 */
+export interface ScheduleEvent {
+  id: string
+  title: string
+  titleEn?: string
+  location?: string
+  startTime: string // "YYYY-MM-DD HH:mm" 或 ISO
+  endTime: string   // "YYYY-MM-DD HH:mm" 或 ISO
+  type: 'course' | 'activity' | 'assignment_ddl'
+  courseName?: string
+  teacher?: string
+  weekInfo?: string
+  description?: string
+  allDay?: boolean
+  // Canvas 作业专属状态
+  submissionStatus?: 'submitted' | 'unsubmitted' | 'graded' | 'missing'
+  score?: number | null
+  pointsPossible?: number | null
+  htmlUrl?: string
+  // 日历类别（如 "课程", "会议", "私人"）
+  calendarName?: string
+  // 教务排课与大课扩展
+  xf?: string
+  badge?: string
+  jxbmc?: string
+  isLabOrLongSession?: boolean
+  courseType?: string
+}
+
+/** 课表学期周次信息 */
+export interface ScheduleWeek {
+  week: string       // "第五周"
+  weekEn?: string     // "Week 5"
+  title: string      // "秋季学期"
+  titleEn?: string   // "Autumn Term"
+  startTime: string  // "2026-10-12 00:00"
+  endTime: string    // "2026-10-18 23:59"
+}
+
+/** iCalendar (.ics) 导出参数 */
+export interface IcsExportOptions {
+  includeCourses: boolean
+  includeActivities?: boolean
+  includeDdl: boolean
+  alarmMinutesBefore: number // 默认 20
+  alarmDdlHoursBefore: number // 默认 24
+  targetFilePath?: string
+}
+
+export interface ScheduleFetchResult {
+  ok: boolean
+  events: ScheduleEvent[]
+  weeks?: ScheduleWeek[]
+  currentWeek?: string
+  semesterTitle?: string
+  error?: string
+}
+
+/** 交大教学信息服务网 (i.sjtu.edu.cn) 返回的官方排课条目 */
+export interface JiaowuCourseItem {
+  kcmc: string      // 课程名称 (如 "生物化学")
+  jc: string        // 节次 (如 "1-2节", "11-14节")
+  xqj: string       // 星期 (1-7)
+  xqjmc: string     // 星期名称 (如 "星期一")
+  zcd: string       // 上课周次 (如 "1-16周", "1-15周(单)", "第12周")
+  cdmc: string      // 教室地点 (如 "东中院2-203")
+  xm: string        // 任课教师 (如 "冯雁,梁如冰")
+  xf?: string       // 学分 (如 "6", "4.0")
+  jxbmc?: string    // 教学班名称 (如 "(2026-2027-1)-BIO2208-01")
+  kcbj?: string     // 课程标记 (如 "主修")
+  kclbmc?: string   // 课程类别 (如 "专业类教育课程")
+  kch?: string      // 课程代码 (如 "BIO2208")
+}
+
+/** 教务系统课表查询结果 */
+export interface JiaowuScheduleResult {
+  ok: boolean
+  xnm: string       // 学年起始年份 (如 "2026", "2025")
+  xqm: string       // 学期代码 ("3"=第1学期秋季, "12"=第2学期春季, "16"=第3学期夏季小学期)
+  termTitle: string // 友好显示名称 (如 "2026-2027学年 第1学期 (秋季)")
+  courses: JiaowuCourseItem[]
+  studentName?: string
+  studentId?: string
+  studentGrade?: string // 年级代码/入学年份 (如 "2025")
+  error?: string
+}
+
+export interface IcsExportResult {
+  ok: boolean
+  path?: string
+  count?: number
+  error?: string
+  cancelled?: boolean
+}
+
+export interface ScheduleApi {
+  fetchEvents: (options?: { startDate?: string; endDate?: string }) => Promise<ScheduleFetchResult>
+  fetchJiaowu: (xnm?: string, xqm?: string) => Promise<JiaowuScheduleResult>
+  exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]) => Promise<IcsExportResult>
+}
+
+export interface WindowApi {
+  credentials: CredentialsApi
+  cloudpan: CloudPanApi
+  schedule: ScheduleApi
+  [key: string]: unknown
+}
+
+

@@ -11,7 +11,6 @@ import { V_SJTU_API_BASE, V_SJTU_ORIGIN, VSJTU_JWT_LS_KEY } from '../shared/type
 import { sjtuSession } from './session'
 import { setCachedUserToken } from './cloudpan'
 import { calculateBackoffMs } from './download-engine/domain-guard'
-import { noteRateLimited } from './concurrency'
 import { sanitizeForLog } from './canvas/safe-fetch'
 
 export interface PersistedSession {
@@ -356,7 +355,6 @@ export async function getAuthInfo(force = false): Promise<AuthInfo> {
 
       // 429: 限流退避
       if (resp.status === 429) {
-        noteRateLimited()
         try {
           await resp.text()
         } catch {
@@ -510,7 +508,6 @@ export async function vsjtuFetch(
 
     // 429 限流退避重试
     if (resp.status === 429) {
-      noteRateLimited()
       try {
         await resp.text()
       } catch {

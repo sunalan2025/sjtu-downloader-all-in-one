@@ -6,20 +6,21 @@
  * 注册后自定义属性本身可过渡；在 :root 上声明 transition，
  * 切换 data-theme 时变量值平滑插值，所有 var() 引用处自动跟随，
  * 无需给每个组件加 transition。Chromium 原生支持。 */
-@property --bg-base { syntax: '<color>'; inherits: true; initial-value: #121212; }
-@property --bg-surface-1 { syntax: '<color>'; inherits: true; initial-value: #1e1e1e; }
-@property --bg-surface-2 { syntax: '<color>'; inherits: true; initial-value: #272727; }
-@property --bg-surface-3 { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,0.03); }
-@property --bg-body { syntax: '<color>'; inherits: true; initial-value: #121212; }
-@property --bg-body-accent-1 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.04); }
-@property --bg-body-accent-2 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.02); }
-@property --text-primary { syntax: '<color>'; inherits: true; initial-value: #f5f5f5; }
-@property --text-secondary { syntax: '<color>'; inherits: true; initial-value: #a0a0a0; }
-@property --text-tertiary { syntax: '<color>'; inherits: true; initial-value: #737373; }
-@property --text-muted { syntax: '<color>'; inherits: true; initial-value: #525252; }
-@property --border-default { syntax: '<color>'; inherits: true; initial-value: #333333; }
-@property --border-strong { syntax: '<color>'; inherits: true; initial-value: #333333; }
-@property --accent { syntax: '<color>'; inherits: true; initial-value: #4080ff; }
+@property --bg-base { syntax: '<color>'; inherits: true; initial-value: #161618; }
+@property --bg-surface-1 { syntax: '<color>'; inherits: true; initial-value: #1e1e22; }
+@property --bg-surface-2 { syntax: '<color>'; inherits: true; initial-value: #26262a; }
+@property --bg-surface-3 { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,0.04); }
+@property --bg-surface-4 { syntax: '<color>'; inherits: true; initial-value: #3a3a3c; }
+@property --bg-body { syntax: '<color>'; inherits: true; initial-value: #161618; }
+@property --bg-body-accent-1 { syntax: '<color>'; inherits: true; initial-value: rgba(10,132,255,0.04); }
+@property --bg-body-accent-2 { syntax: '<color>'; inherits: true; initial-value: rgba(10,132,255,0.02); }
+@property --text-primary { syntax: '<color>'; inherits: true; initial-value: #f4f4f5; }
+@property --text-secondary { syntax: '<color>'; inherits: true; initial-value: #a1a1aa; }
+@property --text-tertiary { syntax: '<color>'; inherits: true; initial-value: #71717a; }
+@property --text-muted { syntax: '<color>'; inherits: true; initial-value: #52525b; }
+@property --border-default { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,0.065); }
+@property --border-strong { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,0.13); }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #0a84ff; }
 @property --accent-light { syntax: '<color>'; inherits: true; initial-value: #69b1ff; }
 @property --accent-dark { syntax: '<color>'; inherits: true; initial-value: #2563eb; }
 @property --accent-5 { syntax: '<color>'; inherits: true; initial-value: rgba(64,128,255,0.05); }
@@ -70,158 +71,160 @@
 /* ─── Theme Variables ─── */
 :root,
 [data-theme='light'] {
-  /* Surface */
-  --bg-base: #F5F7FA;
-  --bg-surface-1: #FFFFFF;
-  --bg-surface-2: #F2F3F5;
-  --bg-surface-3: rgba(0,0,0,0.03);
-  --bg-body: #F5F7FA;
-  --bg-body-accent-1: rgba(22, 93, 255, 0.03);
-  --bg-body-accent-2: rgba(22, 93, 255, 0.01);
+  /* Surface (Apple iOS / macOS HIG 规范) */
+  --bg-base: #F2F2F7; /* Apple System Grouped Background */
+  --bg-surface-1: #FFFFFF; /* Apple Secondary System Background (Elevated cards) */
+  --bg-surface-2: #EBEBF0; /* Apple Tertiary System Background (Controls / Insets) */
+  --bg-surface-3: rgba(0, 0, 0, 0.04);
+  --bg-surface-4: #D1D1D6; /* Apple Inactive Control / Track Gray */
+  --bg-body: #F2F2F7;
+  --bg-body-accent-1: rgba(0, 113, 227, 0.03);
+  --bg-body-accent-2: rgba(0, 113, 227, 0.01);
 
-  /* Text */
-  --text-primary: #1D2129;
-  --text-secondary: #4E5969;
-  --text-tertiary: #86909C;
-  --text-muted: #C9CDD4;
+  /* Text (Apple Label 层次柔和炭黑与中性灰) */
+  --text-primary: #1D1D1F; /* Apple Label - 温润炭黑 */
+  --text-secondary: #6E6E73; /* Apple Secondary Label */
+  --text-tertiary: #86868B; /* Apple Tertiary Label */
+  --text-muted: #AEAEB2; /* Apple Quaternary Label */
 
-  /* Border */
-  --border-default: #E5E6EB;
-  --border-strong: #C9CDD4;
+  /* Border (Apple 标志性微透浅灰分隔线，杜绝突兀死灰实线) */
+  --border-default: rgba(60, 60, 67, 0.12); /* Apple Separator */
+  --border-strong: rgba(60, 60, 67, 0.24);
 
-  /* Accent (tech blue) */
-  --accent: #165DFF;
-  --accent-light: #4080FF;
-  --accent-dark: #0E42D2;
-  --accent-5: rgba(22,93,255,0.05);
-  --accent-10: rgba(22,93,255,0.10);
-  --accent-15: rgba(22,93,255,0.15);
-  --accent-20: rgba(22,93,255,0.20);
-  --accent-25: rgba(22,93,255,0.25);
-  --accent-30: rgba(22,93,255,0.30);
-  --accent-40: rgba(22,93,255,0.40);
-  --accent-50: rgba(22,93,255,0.50);
-  --accent-60: rgba(22,93,255,0.60);
-  --accent-80: rgba(22,93,255,0.80);
-  --accent-85: rgba(22,93,255,0.85);
+  /* Accent (Apple System Blue #0071E3) */
+  --accent: #0071E3;
+  --accent-light: #409CFF;
+  --accent-dark: #0058B6;
+  --accent-5: rgba(0, 113, 227, 0.05);
+  --accent-10: rgba(0, 113, 227, 0.10);
+  --accent-15: rgba(0, 113, 227, 0.15);
+  --accent-20: rgba(0, 113, 227, 0.20);
+  --accent-25: rgba(0, 113, 227, 0.25);
+  --accent-30: rgba(0, 113, 227, 0.30);
+  --accent-40: rgba(0, 113, 227, 0.40);
+  --accent-50: rgba(0, 113, 227, 0.50);
+  --accent-60: rgba(0, 113, 227, 0.60);
+  --accent-80: rgba(0, 113, 227, 0.80);
+  --accent-85: rgba(0, 113, 227, 0.85);
 
   /* Cloud (secondary blue) */
-  --cloud: #165DFF;
-  --cloud-light: #4080FF;
-  --cloud-dim: rgba(22,93,255,0.07);
-  --cloud-25: rgba(22,93,255,0.15);
-  --cloud-40: rgba(22,93,255,0.25);
+  --cloud: #0071E3;
+  --cloud-light: #5AC8FA;
+  --cloud-dim: rgba(0, 113, 227, 0.07);
+  --cloud-25: rgba(0, 113, 227, 0.15);
+  --cloud-40: rgba(0, 113, 227, 0.25);
 
-  /* Status colors */
-  --emerald: #00B42A;
-  --amber: #FF7D00;
-  --rose: #F53F3F;
-  --sky: #165DFF;
+  /* Status colors (Apple HIG 调和色) */
+  --emerald: #34C759;
+  --amber: #FF9500;
+  --rose: #FF3B30;
+  --sky: #0071E3;
 
-  --success: #00B42A;
-  --success-bg: rgba(0,180,42,0.08);
-  --success-ring: rgba(0,180,42,0.20);
-  --warning: #FF7D00;
-  --warning-bg: rgba(255,125,0,0.08);
-  --warning-ring: rgba(255,125,0,0.20);
-  --info: #165DFF;
-  --info-bg: rgba(22,93,255,0.06);
-  --info-ring: rgba(22,93,255,0.18);
-  --danger: #F53F3F;
-  --danger-bg: rgba(245,63,63,0.08);
-  --danger-ring: rgba(245,63,63,0.20);
+  --success: #34C759;
+  --success-bg: rgba(52, 199, 89, 0.10);
+  --success-ring: rgba(52, 199, 89, 0.22);
+  --warning: #FF9500;
+  --warning-bg: rgba(255, 149, 0, 0.10);
+  --warning-ring: rgba(255, 149, 0, 0.22);
+  --info: #0071E3;
+  --info-bg: rgba(0, 113, 227, 0.08);
+  --info-ring: rgba(0, 113, 227, 0.20);
+  --danger: #FF3B30;
+  --danger-bg: rgba(255, 59, 48, 0.08);
+  --danger-ring: rgba(255, 59, 48, 0.20);
 
   /* Task status background */
-  --task-done-bg: #E6FFED;
-  --task-downloading-bg: #E8F3FF;
-  --task-paused-bg: #FFF7E6;
-  --task-error-bg: #FFF1F0;
-  --queue: #86909C;
+  --task-done-bg: #E8F8EE;
+  --task-downloading-bg: #EBF3FF;
+  --task-paused-bg: #FFF4E5;
+  --task-error-bg: #FEECEB;
+  --queue: #86868B;
 
-  --progress-track: #E8F3FF;
-  --selection-bg: rgba(22, 93, 255, 0.15);
+  --progress-track: #E5E5EA;
+  --selection-bg: rgba(0, 113, 227, 0.15);
 
-  --scrollbar-thumb: rgba(100, 100, 100, 0.2);
-  --scrollbar-thumb-hover: rgba(100, 100, 100, 0.35);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.16);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
 
   color-scheme: light;
 }
 
-/* 深色模式 */
+/* 深色模式 (Apple Human Interface Guidelines 规范) */
 [data-theme='dark'] {
-  /* Surface */
-  --bg-base: #121212;
-  --bg-surface-1: #1E1E1E;
-  --bg-surface-2: #272727;
-  --bg-surface-3: rgba(255,255,255,0.03);
-  --bg-body: #121212;
-  --bg-body-accent-1: rgba(64, 128, 255, 0.04);
-  --bg-body-accent-2: rgba(64, 128, 255, 0.02);
+  /* Surface (深阶温润中性灰) */
+  --bg-base: #161618;
+  --bg-surface-1: #1E1E22;
+  --bg-surface-2: #26262A;
+  --bg-surface-3: rgba(255, 255, 255, 0.04);
+  --bg-surface-4: #3A3A3C; /* Apple Inactive Control / Track Dark Gray */
+  --bg-body: #161618;
+  --bg-body-accent-1: rgba(10, 132, 255, 0.04);
+  --bg-body-accent-2: rgba(10, 132, 255, 0.02);
 
-  /* Text */
-  --text-primary: #F5F5F5;
-  --text-secondary: #A0A0A0;
-  --text-tertiary: #737373;
-  --text-muted: #525252;
+  /* Text (Apple Label 层次柔和白与中性灰) */
+  --text-primary: #F4F4F5;
+  --text-secondary: #A1A1AA;
+  --text-tertiary: #71717A;
+  --text-muted: #52525B;
 
-  /* Border */
-  --border-default: #333333;
-  --border-strong: #333333;
+  /* Border (Apple 标志性微透描边，杜绝粗糙高对比纯灰边线) */
+  --border-default: rgba(255, 255, 255, 0.065);
+  --border-strong: rgba(255, 255, 255, 0.13);
 
-  /* Accent (tech blue) */
-  --accent: #4080FF;
-  --accent-light: #69B1FF;
-  --accent-dark: #2563EB;
-  --accent-5: rgba(64,128,255,0.05);
-  --accent-10: rgba(64,128,255,0.10);
-  --accent-15: rgba(64,128,255,0.15);
-  --accent-20: rgba(64,128,255,0.20);
-  --accent-25: rgba(64,128,255,0.25);
-  --accent-30: rgba(64,128,255,0.30);
-  --accent-40: rgba(64,128,255,0.40);
-  --accent-50: rgba(64,128,255,0.50);
-  --accent-60: rgba(64,128,255,0.60);
-  --accent-80: rgba(64,128,255,0.80);
-  --accent-85: rgba(64,128,255,0.85);
+  /* Accent (Apple System Blue #0A84FF 防眩光系统蓝) */
+  --accent: #0A84FF;
+  --accent-light: #409CFF;
+  --accent-dark: #0064D6;
+  --accent-5: rgba(10, 132, 255, 0.05);
+  --accent-10: rgba(10, 132, 255, 0.10);
+  --accent-15: rgba(10, 132, 255, 0.15);
+  --accent-20: rgba(10, 132, 255, 0.20);
+  --accent-25: rgba(10, 132, 255, 0.25);
+  --accent-30: rgba(10, 132, 255, 0.30);
+  --accent-40: rgba(10, 132, 255, 0.40);
+  --accent-50: rgba(10, 132, 255, 0.50);
+  --accent-60: rgba(10, 132, 255, 0.60);
+  --accent-80: rgba(10, 132, 255, 0.80);
+  --accent-85: rgba(10, 132, 255, 0.85);
 
   /* Cloud (secondary blue) */
-  --cloud: #69B1FF;
-  --cloud-light: #93C5FD;
-  --cloud-dim: rgba(105,177,255,0.10);
-  --cloud-25: rgba(105,177,255,0.25);
-  --cloud-40: rgba(105,177,255,0.40);
+  --cloud: #0A84FF;
+  --cloud-light: #5AC8FA;
+  --cloud-dim: rgba(10, 132, 255, 0.10);
+  --cloud-25: rgba(10, 132, 255, 0.25);
+  --cloud-40: rgba(10, 132, 255, 0.40);
 
-  /* Status colors */
-  --emerald: #36D399;
-  --amber: #FB923C;
-  --rose: #F87171;
-  --sky: #69B1FF;
+  /* Status colors (Apple HIG 调和色) */
+  --emerald: #30D158;
+  --amber: #FF9F0A;
+  --rose: #FF453A;
+  --sky: #0A84FF;
 
-  --success: #36D399;
-  --success-bg: rgba(54,211,153,0.10);
-  --success-ring: rgba(54,211,153,0.20);
-  --warning: #FB923C;
-  --warning-bg: rgba(251,146,60,0.10);
-  --warning-ring: rgba(251,146,60,0.20);
-  --info: #4080FF;
-  --info-bg: rgba(64,128,255,0.08);
-  --info-ring: rgba(64,128,255,0.18);
-  --danger: #F87171;
-  --danger-bg: rgba(248,113,113,0.10);
-  --danger-ring: rgba(248,113,113,0.20);
+  --success: #30D158;
+  --success-bg: rgba(48, 209, 88, 0.12);
+  --success-ring: rgba(48, 209, 88, 0.24);
+  --warning: #FF9F0A;
+  --warning-bg: rgba(255, 159, 10, 0.12);
+  --warning-ring: rgba(255, 159, 10, 0.24);
+  --info: #0A84FF;
+  --info-bg: rgba(10, 132, 255, 0.10);
+  --info-ring: rgba(10, 132, 255, 0.22);
+  --danger: #FF453A;
+  --danger-bg: rgba(255, 69, 58, 0.12);
+  --danger-ring: rgba(255, 69, 58, 0.24);
 
   /* Task status background (for highlighted rows) */
   --task-done-bg: #1A2E28;
   --task-downloading-bg: #1F2937;
   --task-paused-bg: #2E2316;
   --task-error-bg: #2E1F1F;
-  --queue: #737373;
+  --queue: #71717A;
 
-  --progress-track: #1F2937;
-  --selection-bg: rgba(64, 128, 255, 0.3);
+  --progress-track: #26262A;
+  --selection-bg: rgba(10, 132, 255, 0.25);
 
-  --scrollbar-thumb: rgba(160, 160, 160, 0.2);
-  --scrollbar-thumb-hover: rgba(160, 160, 160, 0.35);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
 
   color-scheme: dark;
 }
@@ -242,6 +245,95 @@
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* ─── Apple 现代表单控件规范 (防退化至 Windows 原生丑陋外观) ─── */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--bg-surface-1);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: 0.75rem; /* rounded-xl (12px) */
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236E6E73' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.65rem center;
+    background-repeat: no-repeat;
+    background-size: 1.1em 1.1em;
+    padding-right: 2rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  }
+
+  [data-theme='dark'] select {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23A1A1AA' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+  }
+
+  select:focus {
+    border-color: var(--accent);
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-15);
+  }
+
+  select:hover:not(:disabled) {
+    border-color: var(--border-strong);
+  }
+
+  /* 下拉选项在暗色/亮色下的底色与字色 */
+  select option {
+    background-color: var(--bg-surface-1);
+    color: var(--text-primary);
+  }
+
+  /* 文本输入框统一样式与平滑交互 */
+  input[type='text'],
+  input[type='password'],
+  input[type='search'],
+  input[type='number'] {
+    background-color: var(--bg-surface-1);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: 0.75rem;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  }
+
+  input[type='text']:focus,
+  input[type='password']:focus,
+  input[type='search']:focus,
+  input[type='number']:focus {
+    border-color: var(--accent);
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-15);
+  }
+
+  input[type='text']:hover:not(:disabled),
+  input[type='password']:hover:not(:disabled),
+  input[type='search']:hover:not(:disabled),
+  input[type='number']:hover:not(:disabled) {
+    border-color: var(--border-strong);
+  }
+
+  /* 隐藏数字输入框默认增减箭头 (现代极简风格) */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+
+  /* 按钮现代微交互与触感反馈 */
+  button {
+    font-family: inherit;
+    transition: transform 0.12s cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 0.15s ease,
+                border-color 0.15s ease,
+                opacity 0.15s ease,
+                box-shadow 0.15s ease;
+  }
+
+  button:active:not(:disabled) {
+    transform: scale(0.98);
   }
 }
 
@@ -351,3 +443,35 @@ input[type='range']:focus {
   border-color: rgba(255, 255, 255, 0.8);
   box-shadow: 0 1px 4px rgba(0,0,0,0.15), 0 0 0 1px var(--accent-20);
 }
+
+/* ─── 向导步骤平滑侧滑切换动画 ─── */
+@keyframes slideInFromRight {
+  0% {
+    opacity: 0;
+    transform: translateX(36px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInFromLeft {
+  0% {
+    opacity: 0;
+    transform: translateX(-36px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-right {
+  animation: slideInFromRight 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-slide-in-left {
+  animation: slideInFromLeft 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+

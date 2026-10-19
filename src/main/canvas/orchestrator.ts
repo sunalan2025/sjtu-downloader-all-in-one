@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   CANVAS_BASE_URL,
+  type CanvasAssignmentItem,
   type CanvasDownloadTaskSpec,
   type CanvasFileItem,
   type CanvasLectureDownloadItem,
@@ -22,6 +23,13 @@ import {
   type CourseResourceSummary,
   type VideoQualityOption
 } from '../../shared/types'
+import {
+  fetchCourseAssignments,
+  downloadAssignmentArchive
+} from './assignment-download'
+import {
+  downloadLectureTranscript
+} from './transcript-download'
 import {
   listCourses,
   fetchFolderMap,
@@ -43,8 +51,16 @@ import {
   buildClassVideoFileName,
   extractLectureNum,
   resolveIvsVideoId,
-  isClassVideoTab
+  isClassVideoTab,
+  isLegacyClassVideoTab,
+  isNewClassVideoTab,
+  mergeAndDeduplicateLectures
 } from './video-tokens'
+import {
+  extractLegacyLtiToken,
+  fetchLegacyVodVideoList,
+  fetchLegacyVodStreamUrls
+} from './legacy-video'
 import { downloadModuleVideo } from './hls-download'
 import { cloudFileExists, uploadLocalFileToCloud } from '../cloudpan'
 
@@ -165,7 +181,7 @@ export function invalidateCanvasLogin(): void {
   _canvasLoginPromise = null
 }
 
-async function ensureCanvasLogin(): Promise<boolean> {
+export async function ensureCanvasLogin(): Promise<boolean> {
   if (_canvasSsoDone) return true
   if (_canvasLoginPromise) return _canvasLoginPromise
   _canvasLoginPromise = (async () => {
@@ -180,15 +196,15 @@ async function ensureCanvasLogin(): Promise<boolean> {
       return false
     }
 
-    // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成
+    // 直接走 OIDC SSO：jAccount 有 cookies 时 ~1s 自动完成（隐藏窗口）
     console.log('[canvas] 触发 OIDC SSO（隐藏窗口）…')
     const ok = await completeOidcSso(session, false)
-    if (ok) { _canvasSsoDone = true; return true }
-    // 隐藏窗口失败 → 弹出可见窗口（首次登录需用户扫码/授权）
-    console.log('[canvas] 隐藏 SSO 失败，弹出可见窗口')
-    const ok2 = await completeOidcSso(session, true)
-    if (ok2) _canvasSsoDone = true
-    return ok2
+    if (ok) {
+      _canvasSsoDone = true
+      return true
+    }
+    console.log('[canvas] 静默 SSO 失败，会话可能已失效')
+    return false
   })()
   try {
     return await _canvasLoginPromise
@@ -197,8 +213,7 @@ async function ensureCanvasLogin(): Promise<boolean> {
   }
 }
 
-/** 通过 BrowserWindow 完成 Canvas OIDC SSO 流程。
- *  show=true 时弹出可见窗口（首次登录），show=false 时用隐藏窗口（复用 jAccount session）。 */
+/** 通过 BrowserWindow 完成 Canvas OIDC SSO 流程（复用 jAccount session，隐藏窗口静默完成）。 */
 async function completeOidcSso(session: Electron.Session, show: boolean): Promise<boolean> {
   const win = new BrowserWindow({
     show,
@@ -219,6 +234,12 @@ async function completeOidcSso(session: Electron.Session, show: boolean): Promis
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 500))
       const url = win.webContents.getURL()
+
+      // 若检测到重定向至 jAccount 登录或扫码页，说明全局会话已过期，立即退出
+      if (url.includes('jaccount.sjtu.edu.cn/jaccount/jalogin') || url.includes('/qrcode')) {
+        console.log('[canvas] SSO 重定向至 jAccount 登录页，会话已过期')
+        return false
+      }
 
       // SSO 成功标志：URL 包含 login_success 或回到 Canvas 主域
       if (isCanvasDashboardUrl(url)) {
@@ -266,16 +287,17 @@ export async function scanCourse(
   try {
     emitScanProgress(courseId, 'files', '正在扫描文件和模块…')
 
-    const [folderMapRes, filesRes, modulesRes, syllabusRes] = await Promise.allSettled([
+    const [folderMapRes, filesRes, modulesRes, syllabusRes, assignmentsRes] = await Promise.allSettled([
       fetchFolderMap(session, courseId),
       fetchCourseFiles(session, courseId),
       fetchCourseModules(session, courseId),
-      fetchSyllabusBody(session, courseId)
+      fetchSyllabusBody(session, courseId),
+      fetchCourseAssignments(session, courseId)
     ])
 
     let filesTabAccessible = true
-    let files: CanvasFileItem[] = []
-    let folderMap = new Map<number, string>()
+    let files: CanvasFileItem[]
+    let folderMap: Map<number, string>
     let warning: string | undefined
 
     // 1. 处理文件列表结果 (403 容错)
@@ -322,7 +344,16 @@ export async function scanCourse(
       syllabusHtml = ''
     }
 
-    // 5. 模块与大纲附件提取去重
+    // 5. 处理作业列表 (容错)
+    let assignments: CanvasAssignmentItem[] = []
+    if (assignmentsRes.status === 'fulfilled') {
+      assignments = assignmentsRes.value
+    } else {
+      console.warn(`[canvas] 课程 ${courseId} fetchCourseAssignments 失败:`, assignmentsRes.reason)
+      assignments = []
+    }
+
+    // 6. 模块与大纲附件提取去重
     const knownFileIds = new Set(files.filter(f => f.url).map(f => f.fileId))
     const moduleFileIds: number[] = []
     for (const m of modules) {
@@ -351,6 +382,7 @@ export async function scanCourse(
       folderMap: Object.fromEntries(folderMap),
       moduleFiles,
       syllabusFiles,
+      assignments,
       warning
     }
   } catch (err) {
@@ -361,6 +393,7 @@ export async function scanCourse(
       folderMap: {},
       moduleFiles: [],
       syllabusFiles: [],
+      assignments: [],
       error: err instanceof Error ? err.message : String(err)
     }
   }
@@ -455,39 +488,72 @@ export function registerCanvasHandlers(): void {
       // 1. 找 tab
       emitScanProgress(courseId, 'class-video', '')
       const tabs = await fetchCourseTabs(session, courseId)
-      const tab = tabs.find(t => isClassVideoTab(t.label))
-      if (!tab) return { ok: true, sessions: [], teachers: [] }
+      const matchingTabs = tabs.filter(t => isClassVideoTab(t.label) || isLegacyClassVideoTab(t.label, t.htmlUrl) || isNewClassVideoTab(t.label, t.htmlUrl))
+      if (matchingTabs.length === 0) return { ok: true, sessions: [], teachers: [], lectures: [] }
 
-      // 2. LTI token 提取（最耗时的步骤）
-      const tokenData = await extractLtiToken(session, tab.htmlUrl)
-      if (!tokenData) return { ok: false, error: 'LTI Token 提取失败，请检查课堂视频 tab 是否可访问' }
-      // 缓存 token 供 PPT 下载等模块复用
-      setCachedLtiToken(tokenData.token)
+      const legacyTab = matchingTabs.find(t => isLegacyClassVideoTab(t.label, t.htmlUrl))
+      const newTab = matchingTabs.find(t => isNewClassVideoTab(t.label, t.htmlUrl) && t !== legacyTab)
 
-      // 3. 拉视频列表
-      const sessions = await fetchVodVideoList(session, tokenData.token, tokenData.canvasCourseId)
-      console.log('[canvas] 课堂视频列表:', sessions.length, '条记录')
+      let newSessions: CanvasVideoSession[] = []
+      let tokenData: { token: string; canvasCourseId: string } | null = null
 
-      // 4. 按讲次分组（每条记录 = 1 讲，内含教师+PPT 两路流）
-      const lectures = groupLectures(sessions)
+      // 2. 扫描新版 Tab (Tool 8329 / v.sjtu.edu.cn)
+      if (newTab) {
+        tokenData = await extractLtiToken(session, newTab.htmlUrl)
+        if (tokenData) {
+          setCachedLtiToken(tokenData.token)
+          newSessions = await fetchVodVideoList(session, tokenData.token, tokenData.canvasCourseId)
+          console.log('[canvas] 新版课堂视频列表:', newSessions.length, '条记录')
+        }
+      }
+
+      // 3. 扫描旧版 Tab (Tool 18717 / courses.sjtu.edu.cn)
+      let legacySessions: CanvasVideoSession[] = []
+      let legacyTokenData: { canvasCourseId: string } | null = null
+
+      if (legacyTab) {
+        legacyTokenData = await extractLegacyLtiToken(session, legacyTab.htmlUrl)
+        if (legacyTokenData?.canvasCourseId) {
+          legacySessions = await fetchLegacyVodVideoList(session, legacyTokenData.canvasCourseId)
+          console.log('[canvas] 旧版课堂视频列表:', legacySessions.length, '条记录')
+        }
+      }
+
+      // 若两个 Tab 都尝试但均未能获取 Token 且无视频
+      if (!tokenData && !legacyTokenData && newSessions.length === 0 && legacySessions.length === 0) {
+        return { ok: false, error: 'LTI Token 提取失败，请检查课堂视频 tab 是否可访问' }
+      }
+
+      // 4. 双轨并集去重融合
+      const mergedSessions = mergeAndDeduplicateLectures(newSessions, legacySessions)
+      console.log('[canvas] 双轨融合完成:', mergedSessions.length, '条记录')
+
+      // 5. 按讲次分组（每条记录 = 1 讲，内含教师+PPT 两路流）
+      const lectures = groupLectures(mergedSessions)
       console.log('[canvas] 分组完成:', lectures.length, '讲')
 
       // 6. 统计教师
       const teacherMap = new Map<string, number>()
-      for (const s of sessions) {
-        teacherMap.set(s.teacher, (teacherMap.get(s.teacher) || 0) + 1)
+      for (const s of mergedSessions) {
+        if (s.teacher) {
+          teacherMap.set(s.teacher, (teacherMap.get(s.teacher) || 0) + 1)
+        }
       }
       const teachers: CanvasTeacherSelection[] = [...teacherMap.entries()]
         .map(([teacher, count]) => ({ teacher, count, selected: teacherMap.size <= 1 }))
         .sort((a, b) => b.count - a.count)
 
-      // [Bug Fix] 扫描结束补发 'class-video-done' phase，让渲染端 useCanvasScanProgress
-      // listener 把 scanningVideo 复位为 false。否则 PPT 下载等自动触发 classVideoScan 的路径
-      // 会让课堂视频区块的转圈永远卡在 true（doClassVideoScan 的 finally 不在这些路径上执行）。
-      // 用专属 'class-video-done' 而非 'done'，避免与 scan-course 文件扫描的 'done' phase 互相误复位。
       emitScanProgress(courseId, 'class-video-done', '课堂视频扫描完成')
 
-      return { ok: true, sessions, teachers, lectures, token: tokenData.token, canvasCourseId: tokenData.canvasCourseId }
+      return {
+        ok: true,
+        sessions: mergedSessions,
+        teachers,
+        lectures,
+        token: tokenData?.token || '',
+        canvasCourseId: tokenData?.canvasCourseId || String(courseId),
+        legacyCourseId: legacyTokenData?.canvasCourseId || mergedSessions.find(s => s.legacyCourseId)?.legacyCourseId
+      }
     } catch (err) {
       console.log('[canvas] 课堂视频扫描异常:', err)
       emitScanProgress(courseId, 'class-video-done', '课堂视频扫描失败')
@@ -511,6 +577,7 @@ export function registerCanvasHandlers(): void {
       term?: string
     ) => {
       try {
+        const session = getSession()
         const cPath = canvasCoursePath(courseName, term)
         const videosDir = destRoot ? join(destRoot, 'Canvas课程', ...cPath.split('/'), 'videos', '课堂视频') : ''
         if (videosDir) mkdirSync(videosDir, { recursive: true })
@@ -518,30 +585,86 @@ export function registerCanvasHandlers(): void {
         const overwrite = conflictStrategy === 'overwrite'
         const filtered = sessions.filter(s => selectedTeachers.includes(s.teacher))
         const specs: CanvasDownloadTaskSpec[] = []
-        for (const s of filtered) {
-          // 每讲最多 2 路（教师/PPT），占位 spec，下载前才解析
-          for (let chIdx = 0; chIdx < 2; chIdx++) {
-            const fileName = buildClassVideoFileName(courseName, s, chIdx)
-            const destPath = videosDir ? join(videosDir, fileName) : ''
-            // overwrite 模式不预跳过：交由 runTask 删旧文件后重下
-            if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
-              emitToRenderer('download:progress', {
-                taskId: `canvas_cvid_${courseId}_${s.courId}_${chIdx}`, state: 'skipped', received: 0, total: 0, filePath: destPath, message: '已存在，跳过'
-              })
-              continue
+
+        for (let idx = 0; idx < filtered.length; idx++) {
+          const s = filtered[idx]
+          const isLegacy = s.source === 'legacy' || !!s.legacyCourseId
+          if (isLegacy) {
+            // 旧版录播直接解析直链
+            const streamUrls = await fetchLegacyVodStreamUrls(session, s.videoId)
+            const lecNum = extractLectureNum(s.videoName) || (idx + 1)
+            // 教师视角
+            if (streamUrls.teacherUrl) {
+              const fileName = `${sanitizeFsName(courseName)} - 第${lecNum}讲 教师视角 (MP4).mp4`
+              const destPath = videosDir ? join(videosDir, fileName) : ''
+              const taskId = `canvas_legacy_vid_${courseId}_${s.videoId}_0`
+              if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
+                emitToRenderer('download:progress', {
+                  taskId, state: 'skipped', received: 0, total: 0, filePath: destPath, message: '已存在，跳过'
+                })
+              } else {
+                specs.push({
+                  taskId,
+                  url: streamUrls.teacherUrl,
+                  courseName: `Canvas课程/${cPath}/videos/课堂视频`,
+                  fileName,
+                  source: 'canvas-video',
+                  canvasCourseId: courseId,
+                  canvasVideoId: s.videoId,
+                  canvasStreamIdx: 0,
+                  isHls: false
+                })
+              }
             }
-            specs.push({
-              taskId: `canvas_cvid_${courseId}_${s.courId}_${chIdx}`,
-              url: '', // 懒解析：下载前由 resolveDirectUrl 填入
-              courseName: `Canvas课程/${cPath}/videos/课堂视频`,
-              fileName,
-              source: 'canvas-class-video',
-              canvasCourseId: courseId,
-              canvasVideoId: s.videoId,
-              canvasVideoToken: token,
-              canvasStreamIdx: chIdx,
-              isHls: true
-            })
+            // PPT 投影视角
+            if (streamUrls.pptUrl) {
+              const fileName = `${sanitizeFsName(courseName)} - 第${lecNum}讲 PPT投影视角 (MP4).mp4`
+              const destPath = videosDir ? join(videosDir, fileName) : ''
+              const taskId = `canvas_legacy_vid_${courseId}_${s.videoId}_1`
+              if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
+                emitToRenderer('download:progress', {
+                  taskId, state: 'skipped', received: 0, total: 0, filePath: destPath, message: '已存在，跳过'
+                })
+              } else {
+                specs.push({
+                  taskId,
+                  url: streamUrls.pptUrl,
+                  courseName: `Canvas课程/${cPath}/videos/课堂视频`,
+                  fileName,
+                  source: 'canvas-video',
+                  canvasCourseId: courseId,
+                  canvasVideoId: s.videoId,
+                  canvasStreamIdx: 1,
+                  isHls: false
+                })
+              }
+            }
+          } else {
+            // 每讲最多 2 路（教师/PPT），占位 spec，下载前才解析
+            for (let chIdx = 0; chIdx < 2; chIdx++) {
+              const fileName = buildClassVideoFileName(courseName, s, chIdx)
+              const destPath = videosDir ? join(videosDir, fileName) : ''
+              const taskId = `canvas_cvid_${courseId}_${s.courId}_${chIdx}`
+              // overwrite 模式不预跳过：交由 runTask 删旧文件后重下
+              if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
+                emitToRenderer('download:progress', {
+                  taskId, state: 'skipped', received: 0, total: 0, filePath: destPath, message: '已存在，跳过'
+                })
+                continue
+              }
+              specs.push({
+                taskId,
+                url: '', // 懒解析：下载前由 resolveDirectUrl 填入
+                courseName: `Canvas课程/${cPath}/videos/课堂视频`,
+                fileName,
+                source: 'canvas-class-video',
+                canvasCourseId: courseId,
+                canvasVideoId: s.videoId,
+                canvasVideoToken: token,
+                canvasStreamIdx: chIdx,
+                isHls: true
+              })
+            }
           }
         }
 
@@ -582,35 +705,87 @@ export function registerCanvasHandlers(): void {
           // 避免未勾选的一路被一并下载（修复「选教师/PPT 任一会两个都下」）
           const session = item.teacher ?? item.ppt
           if (!session) continue
-          // 角色意图由 item.teacher / item.ppt 是否存在决定：可只产一路或两路
-          const roles: Array<{ role: 'teacher' | 'ppt'; idx: number }> = []
-          if (item.teacher) roles.push({ role: 'teacher', idx: 0 })
-          if (item.ppt && !isAudioOnly) roles.push({ role: 'ppt', idx: 1 })
-          for (const { role: chRole, idx: chIdx } of roles) {
-            const taskId = `canvas_lecture_${courseId}_${item.lectureNum}_${chRole}`
-            const rawFileName = buildClassVideoFileName(courseName, session, chIdx)
-            const fileName = isAudioOnly ? rawFileName.replace(/\.mp4$/, '.m4a') : rawFileName
-            const destPath = videosDir ? join(videosDir, fileName) : ''
-            // overwrite 模式不预跳过：交由 runTask 删旧文件后重下
-            if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
-              emitToRenderer('download:progress', {
-                taskId, state: 'skipped', received: 0, total: 0, filePath: destPath, message: '已存在，跳过'
-              })
-              continue
+          const isLegacy = session.source === 'legacy' || !!session.legacyCourseId
+
+          if (isLegacy) {
+            const streamUrls = await fetchLegacyVodStreamUrls(getSession(), session.videoId)
+            if (item.teacher && streamUrls.teacherUrl) {
+              const rawFileName = `${sanitizeFsName(courseName)} - 第${item.lectureNum}讲 教师视角 (MP4).mp4`
+              const fileName = isAudioOnly ? rawFileName.replace(/\.mp4$/, '.m4a') : rawFileName
+              const destPath = videosDir ? join(videosDir, fileName) : ''
+              const taskId = `canvas_lecture_${courseId}_${item.lectureNum}_teacher`
+              if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
+                emitToRenderer('download:progress', {
+                  taskId, state: 'skipped', received: 0, total: 0, filePath: destPath, message: '已存在，跳过'
+                })
+              } else {
+                specs.push({
+                  taskId,
+                  url: streamUrls.teacherUrl,
+                  courseName: `Canvas课程/${cPath}/videos/课堂视频`,
+                  fileName,
+                  source: 'canvas-video',
+                  canvasCourseId: courseId,
+                  canvasVideoId: session.videoId,
+                  canvasStreamIdx: 0,
+                  isHls: false,
+                  extractAudio: isAudioOnly
+                })
+              }
             }
-            specs.push({
-              taskId,
-              url: '', // 懒解析：下载前由 resolveDirectUrl 填入
-              courseName: `Canvas课程/${cPath}/videos/课堂视频`,
-              fileName,
-              source: 'canvas-class-video',
-              canvasCourseId: courseId,
-              canvasVideoId: session.videoId,
-              canvasVideoToken: token,
-              canvasStreamIdx: chIdx,
-              isHls: true,
-              extractAudio: isAudioOnly
-            })
+            if (item.ppt && !isAudioOnly && streamUrls.pptUrl) {
+              const fileName = `${sanitizeFsName(courseName)} - 第${item.lectureNum}讲 PPT投影视角 (MP4).mp4`
+              const destPath = videosDir ? join(videosDir, fileName) : ''
+              const taskId = `canvas_lecture_${courseId}_${item.lectureNum}_ppt`
+              if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
+                emitToRenderer('download:progress', {
+                  taskId, state: 'skipped', received: 0, total: 0, filePath: destPath, message: '已存在，跳过'
+                })
+              } else {
+                specs.push({
+                  taskId,
+                  url: streamUrls.pptUrl,
+                  courseName: `Canvas课程/${cPath}/videos/课堂视频`,
+                  fileName,
+                  source: 'canvas-video',
+                  canvasCourseId: courseId,
+                  canvasVideoId: session.videoId,
+                  canvasStreamIdx: 1,
+                  isHls: false
+                })
+              }
+            }
+          } else {
+            // 角色意图由 item.teacher / item.ppt 是否存在决定：可只产一路或两路
+            const roles: Array<{ role: 'teacher' | 'ppt'; idx: number }> = []
+            if (item.teacher) roles.push({ role: 'teacher', idx: 0 })
+            if (item.ppt && !isAudioOnly) roles.push({ role: 'ppt', idx: 1 })
+            for (const { role: chRole, idx: chIdx } of roles) {
+              const taskId = `canvas_lecture_${courseId}_${item.lectureNum}_${chRole}`
+              const rawFileName = buildClassVideoFileName(courseName, session, chIdx)
+              const fileName = isAudioOnly ? rawFileName.replace(/\.mp4$/, '.m4a') : rawFileName
+              const destPath = videosDir ? join(videosDir, fileName) : ''
+              // overwrite 模式不预跳过：交由 runTask 删旧文件后重下
+              if (!overwrite && destPath && existsSync(destPath) && statSync(destPath).size > 0) {
+                emitToRenderer('download:progress', {
+                  taskId, state: 'skipped', received: 0, total: 0, filePath: destPath, message: '已存在，跳过'
+                })
+                continue
+              }
+              specs.push({
+                taskId,
+                url: '', // 懒解析：下载前由 resolveDirectUrl 填入
+                courseName: `Canvas课程/${cPath}/videos/课堂视频`,
+                fileName,
+                source: 'canvas-class-video',
+                canvasCourseId: courseId,
+                canvasVideoId: session.videoId,
+                canvasVideoToken: token,
+                canvasStreamIdx: chIdx,
+                isHls: true,
+                extractAudio: isAudioOnly
+              })
+            }
           }
         }
 
@@ -1128,6 +1303,172 @@ export function registerCanvasHandlers(): void {
       if (taskId) {
         emitToRenderer('canvas:ppt-progress', { taskId, ivsVideoId: 0, current: total, total, phase: '完成' })
       }
+      return { ok: true, results }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  /** 批量下载课程作业 (Assignments & Submissions) */
+  ipcMain.handle('canvas:assignment-download-batch', async (_event, opts: {
+    taskId?: string
+    courseId: number
+    courseName: string
+    assignments: CanvasAssignmentItem[]
+    destRoot: string
+    term?: string
+    conflictStrategy?: 'skip' | 'overwrite'
+  }) => {
+    try {
+      const session = getSession()
+      const taskId = opts.taskId
+      const total = opts.assignments.length
+      const results: Array<{ assignmentName: string; ok: boolean; path?: string; error?: string }> = []
+
+      if (taskId) {
+        emitToRenderer('canvas:assignment-progress', { taskId, current: 0, total, phase: '开始归档课程作业…' })
+      }
+
+      for (let i = 0; i < opts.assignments.length; i++) {
+        const assignment = opts.assignments[i]
+        if (taskId) {
+          emitToRenderer('canvas:assignment-progress', {
+            taskId, current: i, total,
+            phase: `正在归档 ${assignment.name}…`,
+            assignmentName: assignment.name
+          })
+        }
+
+        const res = await downloadAssignmentArchive(
+          session,
+          {
+            courseName: opts.courseName,
+            courseId: opts.courseId,
+            assignment,
+            destRoot: opts.destRoot,
+            term: opts.term,
+            conflictStrategy: opts.conflictStrategy
+          },
+          (phase) => {
+            if (!taskId) return
+            emitToRenderer('canvas:assignment-progress', {
+              taskId, current: i, total,
+              phase,
+              assignmentName: assignment.name
+            })
+          }
+        )
+
+        results.push({ assignmentName: assignment.name, ok: res.ok, path: res.path, error: res.error })
+
+        if (taskId) {
+          emitToRenderer('canvas:assignment-progress', {
+            taskId, current: i + 1, total,
+            phase: res.ok ? `${assignment.name} 归档完成` : `${assignment.name} 归档失败`,
+            assignmentName: assignment.name
+          })
+        }
+      }
+
+      if (taskId) {
+        emitToRenderer('canvas:assignment-progress', { taskId, current: total, total, phase: '完成' })
+      }
+
+      return { ok: true, results }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  /** 导出单讲课堂视频 AI 语音逐字稿与字幕 (.srt / .md) */
+  ipcMain.handle('canvas:transcript-download', async (_event, opts: {
+    courseName: string
+    term?: string
+    lectureName: string
+    videoBaseName: string
+    videoSession?: { beginTime: string; teacher: string; classroom: string }
+    destRoot: string
+    courseId: string | number
+    exportSrt?: boolean
+    exportMarkdown?: boolean
+  }) => {
+    try {
+      const session = getSession()
+      const token = getCachedToken()
+      if (!token) return { ok: false, error: '请先扫描课程获取课堂视频凭据' }
+      return await downloadLectureTranscript(session, { ...opts, token })
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  /** 批量导出多讲课堂实录 AI 语音逐字稿与字幕 */
+  ipcMain.handle('canvas:transcript-download-batch', async (_event, opts: {
+    taskId?: string
+    courseName: string
+    term?: string
+    destRoot: string
+    lectures: Array<{
+      lectureName: string
+      videoBaseName: string
+      courseId: string | number
+      videoSession?: { beginTime: string; teacher: string; classroom: string }
+    }>
+    exportSrt?: boolean
+    exportMarkdown?: boolean
+  }) => {
+    try {
+      const session = getSession()
+      const token = getCachedToken()
+      if (!token) return { ok: false, error: '请先扫描课程获取课堂视频凭据' }
+
+      const total = opts.lectures.length
+      const results: Array<{ lectureName: string; ok: boolean; srtPath?: string; mdPath?: string; count?: number; error?: string }> = []
+
+      if (opts.taskId) {
+        emitToRenderer('canvas:transcript-progress', { taskId: opts.taskId, current: 0, total, phase: '开始导出语音逐字稿…' })
+      }
+
+      for (let i = 0; i < total; i++) {
+        const lec = opts.lectures[i]
+        if (opts.taskId) {
+          emitToRenderer('canvas:transcript-progress', {
+            taskId: opts.taskId,
+            current: i,
+            total,
+            phase: `正在处理 ${lec.lectureName}…`
+          })
+        }
+
+        const r = await downloadLectureTranscript(session, {
+          courseName: opts.courseName,
+          term: opts.term,
+          lectureName: lec.lectureName,
+          videoBaseName: lec.videoBaseName,
+          videoSession: lec.videoSession,
+          destRoot: opts.destRoot,
+          courseId: lec.courseId,
+          token,
+          exportSrt: opts.exportSrt ?? true,
+          exportMarkdown: opts.exportMarkdown ?? true
+        })
+
+        results.push({ lectureName: lec.lectureName, ...r })
+
+        if (opts.taskId) {
+          emitToRenderer('canvas:transcript-progress', {
+            taskId: opts.taskId,
+            current: i + 1,
+            total,
+            phase: r.ok ? `${lec.lectureName} 字幕已导出` : `${lec.lectureName} 导出失败`
+          })
+        }
+      }
+
+      if (opts.taskId) {
+        emitToRenderer('canvas:transcript-progress', { taskId: opts.taskId, current: total, total, phase: '完成' })
+      }
+
       return { ok: true, results }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }

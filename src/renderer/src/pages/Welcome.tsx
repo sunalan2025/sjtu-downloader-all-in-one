@@ -103,7 +103,7 @@ export function Welcome() {
           </div>
 
           <div className="mt-6 md:mt-8 text-xs leading-relaxed text-text-3">
-            基于统一身份认证授权，支持批量拉取课程讲义、双视角旁听课程与慕课视频，提供本地下载与交大云盘双模式。
+            基于统一身份认证授权，支持批量获取课程讲义、双视角旁听课程与慕课视频，提供本地下载与交大云盘双模式。
           </div>
         </div>
 

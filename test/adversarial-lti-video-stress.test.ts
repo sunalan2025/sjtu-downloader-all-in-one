@@ -10,23 +10,12 @@ vi.mock('../src/main/window', () => ({
 import {
   isClassVideoTab as prodIsClassVideoTab,
   extractLectureNum as prodExtractLectureNum,
-  identifyVideoStreams as prodIdentifyVideoStreams,
-  buildClassVideoFileName
+  identifyVideoStreams as prodIdentifyVideoStreams
 } from '../src/main/canvas/video-tokens'
 
 import {
   isHlsStreamTask as prodIsHlsStreamTask
 } from '../src/main/download-engine/shared'
-
-import {
-  resolveBundledFfmpeg as prodResolveBundledFfmpeg
-} from '../src/main/canvas/hls-download'
-
-import {
-  processPptSlices as prodProcessPptSlices,
-  formatSliceFileName as prodFormatSliceFileName,
-  buildPptSliceDirName as prodBuildPptSliceDirName
-} from '../src/main/canvas/ppt-download'
 
 // Import contract reference implementations
 import * as contracts from './helpers/contracts'

@@ -16,7 +16,6 @@ import {
 import {
   processPptSlices as contractProcessPptSlices,
   formatSliceFileName as contractFormatSliceFileName,
-  buildPptSliceDirName as contractBuildPptSliceDirName,
   resolveBundledFfmpeg as contractResolveBundledFfmpeg
 } from '../helpers/contracts'
 

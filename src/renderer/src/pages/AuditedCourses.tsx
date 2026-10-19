@@ -141,11 +141,11 @@ export function AuditedCourses() {
   const scanStartedRef = useRef(false)
   const runScan = useCallback(async (): Promise<void> => {
     resetScanResults()
-    setScan('scanning', '正在拉取课程列表…')
+    setScan('scanning', '正在获取课程列表…')
     try {
       const env = await window.api.vsjtu.scanAudit(1, 100)
       if (!env?.success) {
-        const msg = env?.message || (env as any)?.code || '拉取课程列表失败'
+        const msg = env?.message || (env as any)?.code || '获取课程列表失败'
         const isExpired =
           msg.includes('未登录') ||
           msg.includes('登录已过期') ||
@@ -237,14 +237,6 @@ export function AuditedCourses() {
     void runScan()
   }, [runScan])
 
-  // 扫描结束默认全选（只执行一次，避免用户手动取消全选后又被 effect 重新勾上）
-  const autoSelectedRef = useRef(false)
-  useEffect(() => {
-    if (scanState === 'done' && total > 0 && !autoSelectedRef.current) {
-      autoSelectedRef.current = true
-      setSelected(new Set(allTasks.map(t => t.taskId)))
-    }
-  }, [scanState, total, allTasks, setSelected])
 
   // 全任务都到 final 状态时收尾（使用共享 hook）
   // [Bug 29 Fix] 传入 skipWhenEmpty=true：当 selectedTaskIds 为空时不要立即判定完成，
@@ -343,7 +335,8 @@ export function AuditedCourses() {
       result = await window.api.download.start('', specs, {
         mode: downloadMode,
         conflictStrategy: useAppStore.getState().fileConflictStrategy,
-        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined
+        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined,
+        namingTemplate: useAppStore.getState().namingTemplate
       })
     } catch (err) {
       result = { ok: false, error: err instanceof Error ? err.message : 'IPC 通信失败' }
@@ -485,30 +478,30 @@ export function AuditedCourses() {
       for (const t of tasks) {
         const prog = progressMap[t.taskId]
         const st = prog?.state
+        const cloudId = isBothMode ? cloudLinkedIds[t.taskId] : undefined
+        const cloudSt = cloudId ? progressMap[cloudId]?.state : undefined
+
+        // 未进入下载队列的非活动任务不计入任何进度
+        if (!st && !cloudSt) continue
+
         const localDone = st === 'done' || st === 'skipped'
         if (isBothMode) {
-          const cloudId = cloudLinkedIds[t.taskId]
-          const cloudSt = cloudId ? progressMap[cloudId]?.state : undefined
           const cloudDone = cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
           const isLocalFinal = localDone || st === 'error' || st === 'cancelled'
           const isCloudFinal = !cloudId || cloudDone || cloudSt === 'error'
           if (localDone && (cloudDone || !cloudId)) done++
+          else if (st === 'error' || cloudSt === 'error') errors++
           else if (!isLocalFinal || !isCloudFinal) {
-            if (st === 'error' || cloudSt === 'error') errors++
-            else {
-              downloadingCount++
-              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-              else if (localDone) inflight += 1
-            }
+            downloadingCount++
+            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+            else if (localDone) inflight += 1
           }
         } else {
           if (localDone) done++
-          else if (st !== 'cancelled') {
-            if (st === 'error') errors++
-            else {
-              downloadingCount++
-              if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-            }
+          else if (st === 'error') errors++
+          else if (st === 'downloading' || st === 'pending' || st === 'paused') {
+            downloadingCount++
+            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
           }
         }
       }
@@ -525,7 +518,9 @@ export function AuditedCourses() {
         onToggle: () => {
           onToggleMany(taskIds, triState !== 'all')
         },
-        summary: tasks.length > 0 ? { done, downloading: downloadingCount, errors, inflight, total: tasks.length } : undefined
+        summary: (done > 0 || downloadingCount > 0 || errors > 0) && tasks.length > 0
+          ? { done, downloading: downloadingCount, errors, inflight, total: tasks.length }
+          : undefined
       }
     })
   }, [
@@ -659,7 +654,7 @@ const ScanningHero = memo(function ScanningHero({ msg }: { msg: string }) {
       </div>
       <div className="mt-5 text-base font-medium text-text-1">{msg || '正在扫描…'}</div>
       <div className="mt-2 max-w-xs text-sm leading-relaxed text-text-3">
-        正在拉取你旁听的每门课程的视频列表，稍等几秒
+        正在获取你旁听的每门课程的视频列表，稍等几秒
       </div>
     </div>
   )

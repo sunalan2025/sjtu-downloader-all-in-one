@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'node:fs'
+import { writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -45,8 +45,7 @@ vi.mock('electron', () => {
 import {
   isAllowedSjtuUrl,
   interceptDownloadRedirect,
-  calculateBackoffMs,
-  SecurityViolationError
+  calculateBackoffMs
 } from '../src/main/download-engine/domain-guard'
 
 import {
@@ -62,8 +61,7 @@ import {
 
 import {
   extractLectureNum,
-  identifyVideoStreams,
-  isClassVideoTab
+  identifyVideoStreams
 } from '../src/main/canvas/video-tokens'
 
 import {
@@ -78,11 +76,9 @@ import {
 } from '../src/main/canvas/hls-download'
 
 import {
-  effectiveCourseName,
   isTransientCloudError,
   sharedActiveCount,
   hasOngoingTasks,
-  isHlsStreamTask,
   active,
   cloudActive,
   pendingLocal,
@@ -92,8 +88,7 @@ import {
 } from '../src/main/download-engine/shared'
 
 import {
-  cloudRemotePath,
-  cloudFolderSegments
+  cloudRemotePath
 } from '../src/main/download-engine/cloud'
 
 import {
@@ -102,7 +97,6 @@ import {
 
 import {
   parseNestedChapterHtml,
-  parseChapterHtml,
   resolveCnmoocResourceUrl,
   classifyCnmoocResource,
   inferCnmoocExt
@@ -230,21 +224,16 @@ describe('Tier 5 Adversarial Coverage Hardening Suite', () => {
   // 2. Download File Integrity Guard (R2-F4)
   // ===================================================================
   describe('2. Download File Integrity Guard (R2-F4)', () => {
-    const testDir = join(tmpdir(), `integrity-adversarial-${Date.now()}`)
+    let testDir: string
 
     beforeEach(() => {
-      mkdirSync(testDir, { recursive: true })
+      testDir = mkdtempSync(join(tmpdir(), 'integrity-adv-'))
     })
 
     afterEach(() => {
       try {
         if (existsSync(testDir)) {
-          // clean files
-          const files = ['empty.pdf', 'error.pdf', 'valid.pdf', 'page.html', 'error.html']
-          for (const f of files) {
-            const p = join(testDir, f)
-            if (existsSync(p)) unlinkSync(p)
-          }
+          rmSync(testDir, { recursive: true, force: true })
         }
       } catch { /* ignore */ }
     })

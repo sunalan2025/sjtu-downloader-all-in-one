@@ -8,10 +8,12 @@ module.exports = {
         'surface-1': 'var(--bg-surface-1)',
         'surface-2': 'var(--bg-surface-2)',
         'surface-3': 'var(--bg-surface-3)',
+        'surface-4': 'var(--bg-surface-4)',
         'text-1': 'var(--text-primary)',
         'text-2': 'var(--text-secondary)',
         'text-3': 'var(--text-tertiary)',
         'text-4': 'var(--text-muted)',
+        'text-muted': 'var(--text-muted)',
         'bd': 'var(--border-default)',
         'bd-strong': 'var(--border-strong)',
         accent: {
@@ -67,9 +69,13 @@ module.exports = {
       },
       fontFamily: {
         sans: [
-          'system-ui',
-          '"Segoe UI"',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"SF Pro Text"',
+          '"SF Pro Display"',
           '"PingFang SC"',
+          'Inter',
+          '"Segoe UI"',
           '"Microsoft YaHei"',
           '"Noto Sans SC"',
           'sans-serif'

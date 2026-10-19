@@ -27,7 +27,7 @@
 │  主进程 (Node.js)                                                   │
 │  src/main/index.ts          ← 窗口管理 + IPC 通道路由 + 生命周期     │
 │  src/main/download-engine/  ← 本地/云盘流式下载与并发调度引擎        │
-│  src/main/concurrency.ts    ← AIMD 自适应并发控制与平滑流速监控      │
+│  src/main/concurrency.ts    ← 并发限制管理、网络健康监测与 EMA 平滑流速监控 │
 │  src/main/cloudpan.ts       ← 交大云盘 REST / COS API               │
 │  src/main/canvas/api.ts     ← Canvas REST API                       │
 │  src/main/canvas/orchestrator.ts ← Canvas IPC handler + 编排        │
@@ -68,8 +68,8 @@
 | `src/main/download-engine/cloud.ts` | 交大云盘直传：CDN→COS 边下载边分片上传、凭证自动 renew、断点续传会话、overwrite 远端清理、abort 熔断 |
 | `src/main/download-engine/shared.ts` | 任务队列管理（pending/paused/active）、O(1) 去重索引、惰性任务物化、直链懒解析路由 |
 | `src/main/download-engine/progress.ts`| IPC 进度批处理与防抖合并（`setImmediate` 轮次合并），保障渲染端流畅度 |
-| `src/main/concurrency.ts` | AIMD 双模式自适应并发控制（加性增乘性减）、实时吞吐增益反馈与平滑下行/上行流速监控（EMA） |
-| `src/main/window.ts` | 主窗口创建、CSP 安全策略注入、自定义标题栏拖拽适配、系统托盘常驻管理 |
+| `src/main/concurrency.ts` | 并发限制管理、网络健康监测（DNS 失败/连续错误识别与 30s 自动恢复定时器）与平滑流速监控（EMA） |
+| `src/main/window.ts` | 主窗口生命周期管理、跨平台标题栏适配（Win/Linux 原生三键与 macOS 交通灯）、任务栏/托盘最小化策略与关闭拦截 |
 | `src/main/auth.ts` | jAccount 会话持久化与恢复、登录态缓存校验、v.sjtu 请求代理 |
 | `src/main/updater.ts` | 轻量化应用内静默更新机制：版本比对、断点续传下载安装包、三平台自适应安装与锁释放 |
 
@@ -78,7 +78,8 @@
 - **惰性任务物化** — `download:start` 将 spec 存入 `pendingLocal` / `pendingCloud` 队列（`PendingSpec` 比 `TaskRuntime` 轻量），调度器 `scheduleNext()` / `cloudScheduleNext()` 临下载时才创建 `TaskRuntime`
 - **O(1) 去重索引** — `pendingLocalIds` / `pausedLocalIds` 等 `Set<string>` 提供 O(1) 重复检测
 - **IPC 进度批处理** — `emitProgress()` 使用 `setImmediate` 合并同一事件循环轮次内的多条进度，Map 按 taskId 去重仅保留最新值
-- **AIMD 自适应并发** — 加性增（每轮 +1）+ 乘性减（网络错误砍半）+ 吞吐增益反馈（+1 后吞吐下降则冷却）+ 自适应评估周期（1-4s）
+- **并发控制与 EMA 测速** — 用户可在设置面板自由配置 1~16 线程（默认 3），EMA（指数移动平均）算法平滑输出每秒上下行传输速率并推送渲染端展示
+- **网络健康监测与自动恢复** — 监测 DNS 解析异常与连续网络故障；发生断网时自动阻断新任务拉取并启动 30s 退避定时器，网络恢复后无缝重排队列
 - **Canvas cookie 注入** — `canvasCookiesByTask` 存储 Canvas 会话 cookie，`downloadStream` / `cloudDownloadAndUpload` 的 `fetchOnce` 仅在 `oc.sjtu.edu.cn` 这一跳注入 Cookie + Referer，跟随 302 到 S3 后不带 Cookie
 - **Canvas 端点限流重试** — 本地与云盘两条 `fetchOnce` 对 `oc.sjtu.edu.cn` 的 429/403 做指数退避重试（最多 4 次），S3 的 403（签名/权限，永久错误）不重试
 - **COS 上传 abort** — `ChunkedUploader.abort()` 通过 `onReq` 回调暴露 `ClientRequest`，pause/cancel 时 `destroyCloudHandles` 调用 `t.uploader?.abort()` 立即中止在途分片 PUT，否则暂停后后台仍会把整个文件传完
@@ -161,7 +162,7 @@ async function waitForConcurrencySlot(): Promise<void> {
 
 Zustand store，使用 `persist` 中间件持久化用户偏好：
 
-- **持久化字段** — `theme`、`activeTab`、`downloadMode`、`fileConflictStrategy`、`localDestRoot`、`cloudUserToken`、`concurrency`、`autoConcurrency`
+- **持久化字段** — `theme`、`activeTab`、`downloadMode`、`fileConflictStrategy`、`localDestRoot`、`cloudUserToken`、`concurrency`、`courseViewMode`、`canvasGroupByTerm`
 - **运行时状态** — `stage`、`auth`、`scanState`、`courses`、`tasksByCourse`、`selected`、`canvasCourses`、`canvasCourseData`、下载进度 `progress`
 - **性能优化** — `applyProgress` 使用 `queueMicrotask` 批处理；`useDownloadStats` 编码统计为单个 number；`useEffectiveProgress` 聚合 both 模式进度
 - **云盘连接状态** — `cloudConnStatus` / `cloudConnMessage` 存储在 store 中，跨 tab 共享
@@ -309,7 +310,7 @@ CanvasBrowser: 用户选择课程 + 点击下载
 
 - **惰性任务物化** — 内存 O(并发数) 而非 O(任务数)
 - **O(1) 去重** — Set 替代 .some() 扫描
-- **AIMD 自适应并发** — 自动探测最优并发数，无需手动调整
+- **动态并发与槽位管控** — 支持 1~16 线程配置，HLS 视频下载与文件流共用全局并发预算
 - **HTTPS keep-alive** — 复用 TLS 连接减少握手开销
 - **Buffer chunk 收集** — 避免 O(n^2) 拼接
 - **IPC 进度批处理** — 主进程 setImmediate + 渲染端 queueMicrotask 双重合并

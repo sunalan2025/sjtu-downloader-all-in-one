@@ -51,6 +51,7 @@ interface AppState {
     folderMap: Record<number, string>
     moduleFiles: import('@shared/types').CanvasFileItem[]
     syllabusFiles: import('@shared/types').CanvasFileItem[]
+    assignments?: import('@shared/types').CanvasAssignmentItem[]
   }>
   /** Canvas 课堂视频会话 */
   canvasVideoSessions: Record<number, CanvasVideoSession[]>
@@ -67,8 +68,8 @@ interface AppState {
     extTools: Array<{ moduleItemId: number; fileId: string; title: string }>
     extUrls: Array<{ uuid: string; title: string }>
   }>
-  /** 每门课程的分类选择（预设置：课件/教师/PPT/模块视频/PPT课件PDF） */
-  canvasCourseCategorySelections: Record<number, { files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }>
+  /** 每门课程的分类选择（预设置：课件/教师/PPT/模块视频/PPT课件PDF/作业与提交） */
+  canvasCourseCategorySelections: Record<number, { files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean; assignments?: boolean }>
   /** 每门课程已提交下载的 taskIds（processCourse 写入）。
    *  独立于扫描数据，deleteCanvasCourseData 不清空它 → 下载完成后进度条仍能显示 done/total，
    *  直到 resetProgress/刷新整个清空。用于 CourseProgressSummary 在扫描数据被清后的回退统计。 */
@@ -119,21 +120,45 @@ interface AppState {
   downloadHistory: DownloadHistoryItem[]
   /** 并发下载数，2-16，会同步到主进程。0 = 自动 */
   concurrency: number
-  /** 是否处于自动并发模式 */
-  autoConcurrency: boolean
   /** 网盘式课程导航视图模式：grid=网格大图标，list=详细列表，column=分栏多级并列 */
   courseViewMode: CourseViewMode
-  /** 上一次激活的内容课程 tab（canvas / audited / cnmooc） */
-  lastCourseTab: 'canvas' | 'audited' | 'cnmooc'
+  /** Canvas 课程是否按学期分栏展示（默认 true） */
+  canvasGroupByTerm: boolean
+  /** Canvas 当前选中的学期过滤（'all' 或学期名称） */
+  canvasSelectedTerm: string
+  /** 课表当前选中的学期（'current' 或教务系统学期 key） */
+  scheduleSelectedSemesterKey: string
+  /** 课表视图模式：'week' (周视图) | 'semester' (学期总览) */
+  scheduleViewMode: 'week' | 'semester'
+  /** Apple 日历图层开关：排课、讲座/活动、作业 DDL */
+  scheduleLayerFilter: { course: boolean; activity: boolean; ddl: boolean }
+  /** 课表中午时段展开状态 */
+  scheduleExpandNoonSlot: boolean
+  /** 上一次激活的内容课程 tab（canvas / audited / cnmooc / schedule） */
+  lastCourseTab: 'canvas' | 'audited' | 'cnmooc' | 'schedule'
   /** 关闭主窗口时的默认动作（tray=最小化到托盘，taskbar=最小化到任务栏，quit=彻底退出应用） */
   windowCloseAction: WindowCloseAction
   /** 正在下载时关闭窗口的策略（prompt=始终弹窗询问，background=自动转入托盘继续下载，pause_quit=自动暂停任务并退出应用） */
   exitWhenDownloading: ExitWhenDownloadingPolicy
   /** 是否已完成首次登录后的初始化配置向导 */
   hasCompletedInitialSetup: boolean
+  /** 上次完成初始偏好设置/版本确认的应用版本号（例如 '2.4.1'） */
+  lastSetupVersion: string | null
+  /** 是否显示全局初始设置/版本更新确认模态弹窗 */
+  showSetupWizardModal: boolean
+  /** PPT 讲义导出时是否同时保留高清切片图片目录 */
+  pptSaveImages: boolean
+  /** 课堂视频下载时是否同步导出 AI 字幕 (.srt) 与逐字稿笔记 (.md) */
+  canvasExportAiTranscript: boolean
   // setters
+  /** 切换 AI 字幕与逐字稿导出开关 */
+  setCanvasExportAiTranscript: (on: boolean) => void
   /** 标记是否完成首次初始化配置 */
   setHasCompletedInitialSetup: (completed: boolean) => void
+  /** 记录上次完成向导确认的应用版本号 */
+  setLastSetupVersion: (version: string | null) => void
+  /** 控制是否显示全局初始设置/版本更新确认模态弹窗 */
+  setShowSetupWizardModal: (show: boolean) => void
   /** 切换关闭主窗口动作偏好 */
   setWindowCloseAction: (action: WindowCloseAction) => void
   /** 切换正在下载时关闭策略偏好 */
@@ -142,6 +167,18 @@ interface AppState {
   setTheme: (t: Theme) => void
   /** 切换网盘式课程导航视图模式 */
   setCourseViewMode: (mode: CourseViewMode) => void
+  /** 切换 Canvas 课程是否按学期分栏展示 */
+  setCanvasGroupByTerm: (groupByTerm: boolean) => void
+  /** 切换 Canvas 当前选中的学期过滤 */
+  setCanvasSelectedTerm: (term: string) => void
+  /** 切换课表选中的学期 */
+  setScheduleSelectedSemesterKey: (key: string) => void
+  /** 切换课表视图模式 */
+  setScheduleViewMode: (mode: 'week' | 'semester') => void
+  /** 切换课表图层筛选 */
+  setScheduleLayerFilter: (filter: Partial<{ course: boolean; activity: boolean; ddl: boolean }> | ((prev: { course: boolean; activity: boolean; ddl: boolean }) => { course: boolean; activity: boolean; ddl: boolean })) => void
+  /** 切换课表中午时段展开状态 */
+  setScheduleExpandNoonSlot: (expand: boolean) => void
   /** 记录上一次激活的课程 tab */
   setLastCourseTab: (tab: 'canvas' | 'audited' | 'cnmooc') => void
   /** 切换主界面 stage */
@@ -191,10 +228,10 @@ interface AppState {
     extTools: Array<{ moduleItemId: number; fileId: string; title: string }>
     extUrls: Array<{ uuid: string; title: string }>
   }) => void
-  /** 更新指定 Canvas 课程的分类选择（课件/教师/PPT/模块视频） */
-  setCanvasCourseCategorySelection: (id: number, sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }>) => void
+  /** 更新指定 Canvas 课程的分类选择（课件/教师/PPT/模块视频/作业） */
+  setCanvasCourseCategorySelection: (id: number, sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean; assignments: boolean }>) => void
   /** 批量更新多个 Canvas 课程的分类选择 */
-  setAllCanvasCourseCategorySelections: (ids: number[], sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean }>) => void
+  setAllCanvasCourseCategorySelections: (ids: number[], sel: Partial<{ files: boolean; teacher: boolean; ppt: boolean; moduleVideo: boolean; pptPdf: boolean; assignments: boolean }>) => void
   /** 清空所有 Canvas 课程扫描数据和选中态 */
   resetCanvasScanResults: () => void
   /** 删除单门课程的扫描数据，释放内存 */
@@ -267,8 +304,8 @@ interface AppState {
   clearDownloadHistory: () => void
   /** 设置下载并发数（0 = 自动） */
   setConcurrency: (n: number) => void
-  /** 切换自动并发模式开关 */
-  setAutoConcurrency: (on: boolean) => void
+  /** 切换 PPT 讲义切片原图保存开关 */
+  setPptSaveImages: (on: boolean) => void
 }
 
 const emptyScanResults = {
@@ -420,22 +457,45 @@ export const useAppStore = create<AppState>()(
       cloudLinkedIds: {},
       batchTaskIds: [],
       concurrency: 3,
-      autoConcurrency: false,
       autoDownloadUpdate: false,
       courseViewMode: 'grid' as CourseViewMode,
+      canvasGroupByTerm: true,
+      canvasSelectedTerm: 'all',
+      scheduleSelectedSemesterKey: 'current',
+      scheduleViewMode: 'week' as 'week' | 'semester',
+      scheduleLayerFilter: { course: true, activity: true, ddl: true },
+      scheduleExpandNoonSlot: false,
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
       windowCloseAction: 'tray' as WindowCloseAction,
       exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
       hasCompletedInitialSetup: false,
+      lastSetupVersion: null,
+      showSetupWizardModal: false,
+      pptSaveImages: false,
+      canvasExportAiTranscript: false,
       setHasCompletedInitialSetup: hasCompletedInitialSetup => set({ hasCompletedInitialSetup }),
+      setLastSetupVersion: lastSetupVersion => set({ lastSetupVersion }),
+      setShowSetupWizardModal: showSetupWizardModal => set({ showSetupWizardModal }),
+      setPptSaveImages: pptSaveImages => set({ pptSaveImages }),
+      setCanvasExportAiTranscript: canvasExportAiTranscript => set({ canvasExportAiTranscript }),
       setWindowCloseAction: windowCloseAction => set({ windowCloseAction }),
       setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
       setCourseViewMode: courseViewMode => set({ courseViewMode }),
+      setCanvasGroupByTerm: canvasGroupByTerm => set({ canvasGroupByTerm }),
+      setCanvasSelectedTerm: canvasSelectedTerm => set({ canvasSelectedTerm }),
+      setScheduleSelectedSemesterKey: scheduleSelectedSemesterKey => set({ scheduleSelectedSemesterKey }),
+      setScheduleViewMode: scheduleViewMode => set({ scheduleViewMode }),
+      setScheduleLayerFilter: filter => set(state => ({
+        scheduleLayerFilter: typeof filter === 'function'
+          ? (filter as (prev: { course: boolean; activity: boolean; ddl: boolean }) => { course: boolean; activity: boolean; ddl: boolean })(state.scheduleLayerFilter)
+          : { ...state.scheduleLayerFilter, ...filter }
+      })),
+      setScheduleExpandNoonSlot: scheduleExpandNoonSlot => set({ scheduleExpandNoonSlot }),
       setLastCourseTab: lastCourseTab => set({ lastCourseTab }),
       setStage: stage => set({ stage }),
       setActiveTab: activeTab => set(state => {
-        const isCourse = activeTab === 'canvas' || activeTab === 'audited' || activeTab === 'cnmooc'
+        const isCourse = activeTab === 'canvas' || activeTab === 'audited' || activeTab === 'cnmooc' || activeTab === 'schedule'
         return {
           activeTab,
           lastCourseTab: isCourse ? activeTab : state.lastCourseTab
@@ -690,7 +750,8 @@ export const useAppStore = create<AppState>()(
                   }
                 }
               }
-              return historyUpdated ? { progress: next, downloadHistory: nextHistory } : { progress: next }
+              const cappedHistory = historyUpdated ? nextHistory.slice(0, 300) : nextHistory
+              return historyUpdated ? { progress: next, downloadHistory: cappedHistory } : { progress: next }
             })
           })
         }
@@ -699,7 +760,11 @@ export const useAppStore = create<AppState>()(
       namingTemplate: DEFAULT_NAMING_TEMPLATE,
       videoQualityOption: 'origin',
       downloadHistory: [],
-      setMaxDownloadSpeedKBps: n => set({ maxDownloadSpeedKBps: Math.max(0, n) }),
+      setMaxDownloadSpeedKBps: n => {
+        const val = Math.max(0, n)
+        set({ maxDownloadSpeedKBps: val })
+        window?.api?.download?.setSpeedLimit?.(val).catch(() => undefined)
+      },
       setNamingTemplate: t => set({ namingTemplate: t }),
       setVideoQualityOption: q => set({ videoQualityOption: q }),
       addDownloadHistory: item =>
@@ -710,13 +775,16 @@ export const useAppStore = create<AppState>()(
             return localMatch || cloudMatch
           })
           if (alreadyExists) return {}
-          return { downloadHistory: [item, ...state.downloadHistory] }
+          return { downloadHistory: [item, ...state.downloadHistory].slice(0, 300) }
         }),
       removeDownloadHistoryItem: taskId =>
         set(state => ({ downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId) })),
       clearDownloadHistory: () => set({ downloadHistory: [] }),
-      setConcurrency: n => set({ concurrency: n === 0 ? 0 : clampConcurrency(n) }),
-      setAutoConcurrency: on => set({ autoConcurrency: on })
+      setConcurrency: n => {
+        const val = n === 0 ? 0 : clampConcurrency(n)
+        set({ concurrency: val })
+        window?.api?.download?.setConcurrency?.(val).catch(() => undefined)
+      }
     }),
     {
       name: 'sjtu-course-downloader',
@@ -726,15 +794,18 @@ export const useAppStore = create<AppState>()(
         if (version < 3 && state) {
           state.theme = 'system'
         }
-        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer')) {
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')) {
           state.activeTab = (state.lastCourseTab as string) || 'canvas'
+        }
+        if (state && Array.isArray(state.downloadHistory) && state.downloadHistory.length > 300) {
+          state.downloadHistory = state.downloadHistory.slice(0, 300)
         }
         return state
       },
       merge: (persistedState: unknown, currentState: AppState) => {
         const persisted = (persistedState ?? {}) as Partial<AppState>
         const activeTab =
-          persisted.activeTab === 'settings' || persisted.activeTab === 'transfer'
+          persisted.activeTab === 'settings' || persisted.activeTab === 'transfer' || persisted.activeTab === 'cloudpan'
             ? persisted.lastCourseTab || currentState.lastCourseTab || 'canvas'
             : (persisted.activeTab ?? currentState.activeTab)
         return {
@@ -744,8 +815,14 @@ export const useAppStore = create<AppState>()(
         }
       },
       onRehydrateStorage: () => state => {
-        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer')) {
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')) {
           state.activeTab = state.lastCourseTab || 'canvas'
+        }
+        if (state && typeof state.concurrency === 'number') {
+          window?.api?.download?.setConcurrency?.(state.concurrency).catch(() => undefined)
+        }
+        if (state && typeof state.maxDownloadSpeedKBps === 'number') {
+          window?.api?.download?.setSpeedLimit?.(state.maxDownloadSpeedKBps).catch(() => undefined)
         }
       },
       storage: createJSONStorage(() => {
@@ -769,11 +846,10 @@ export const useAppStore = create<AppState>()(
       // prefetchCloudConnection 自动隐式 SSO 重新连接。
       partialize: state => ({
         theme: state.theme,
-        activeTab: (state.activeTab === 'settings' || state.activeTab === 'transfer')
+        activeTab: (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')
           ? (state.lastCourseTab || 'canvas')
           : state.activeTab,
         concurrency: state.concurrency,
-        autoConcurrency: state.autoConcurrency,
         downloadMode: state.downloadMode,
         fileConflictStrategy: state.fileConflictStrategy,
         localDestRoot: state.localDestRoot,
@@ -784,10 +860,20 @@ export const useAppStore = create<AppState>()(
         videoQualityOption: state.videoQualityOption,
         downloadHistory: state.downloadHistory,
         courseViewMode: state.courseViewMode,
+        canvasGroupByTerm: state.canvasGroupByTerm,
+        canvasSelectedTerm: state.canvasSelectedTerm,
+        canvasCourseCategorySelections: state.canvasCourseCategorySelections,
+        scheduleSelectedSemesterKey: state.scheduleSelectedSemesterKey,
+        scheduleViewMode: state.scheduleViewMode,
+        scheduleLayerFilter: state.scheduleLayerFilter,
+        scheduleExpandNoonSlot: state.scheduleExpandNoonSlot,
         lastCourseTab: state.lastCourseTab,
         windowCloseAction: state.windowCloseAction,
         exitWhenDownloading: state.exitWhenDownloading,
-        hasCompletedInitialSetup: state.hasCompletedInitialSetup
+        hasCompletedInitialSetup: state.hasCompletedInitialSetup,
+        lastSetupVersion: state.lastSetupVersion,
+        pptSaveImages: state.pptSaveImages,
+        canvasExportAiTranscript: state.canvasExportAiTranscript
       })
     }
   )

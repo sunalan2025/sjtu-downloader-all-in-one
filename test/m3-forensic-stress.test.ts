@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { existsSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -131,7 +131,6 @@ describe('M3 Forensic Audit: Production Implementation & Stress Verification', (
   describe('2. Adversarial Stress & Edge Cases', () => {
     describe('R2-F5: LTI Video Scan & Pagination Loop Termination', () => {
       it('handles empty server record list without infinite loop', async () => {
-        const mockSes = {} as any
         const mockFetch = vi.fn().mockResolvedValue({
           json: async () => ({
             code: '0',

@@ -92,11 +92,7 @@ export async function ensureCnmoocLogin(): Promise<boolean> {
       _cnmoocLoginDone = true
       return true
     }
-    console.log('[cnmooc] 隐藏 SSO 失败，弹出可见窗口')
-    if (await completeCnmoocSso(session, true)) {
-      _cnmoocLoginDone = true
-      return true
-    }
+    console.log('[cnmooc] 静默 SSO 失败，会话可能已失效')
     return false
   })()
   try {
@@ -112,7 +108,7 @@ export async function ensureCnmoocLogin(): Promise<boolean> {
  *  （a.link-other[href="/oauth/jacAuth.mooc"]），带 referer/cookie 触发 SSO 跳转：
  *  cnmooc → jaccount（检测 persist:sjtu 的 jAccount cookie）→ 回跳 cnmooc 落 cpstk。
  *  关 backgroundThrottling：隐藏窗口默认被节流，SSO 重定向链路会被拖慢甚至卡住（曾导致超时）。
- *  show=true 弹可见窗口（首次/jaccount cookie 失效需扫码），show=false 隐藏 60s 自动 SSO。 */
+ *  静默隐藏窗口自动 SSO，严禁弹出可见窗口打扰用户。 */
 async function completeCnmoocSso(session: Electron.Session, show: boolean): Promise<boolean> {
   const win = new BrowserWindow({
     show,
@@ -144,10 +140,18 @@ async function completeCnmoocSso(session: Electron.Session, show: boolean): Prom
     `).catch(() => { /* 点击触发导航会 reject，忽略 */ })
 
     // 3. 轮询 cnmooc 会话是否生效（SSO 回跳落 cpstk 后 myCourseIndex 返回 200）
-    const timeoutMs = show ? 120_000 : 60_000
+    const timeoutMs = show ? 120_000 : 30_000
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 1000))
+
+      if (win.isDestroyed()) return false
+      const currentUrl = win.webContents.getURL()
+      if (currentUrl.includes('jaccount.sjtu.edu.cn/jaccount/jalogin') || currentUrl.includes('/qrcode')) {
+        console.log('[cnmooc] SSO 重定向至 jAccount 登录页，会话已过期')
+        return false
+      }
+
       if (await isCnmoocSessionValid(session)) {
         await new Promise(r => setTimeout(r, 500)) // 等 cpstk cookie 完全落盘
         console.log('[cnmooc] SSO 完成')
