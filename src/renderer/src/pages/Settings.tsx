@@ -14,10 +14,8 @@ import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBrea
 import pkg from '../../../../package.json'
 
 export function Settings({
-  onBack: _onBack,
   onLogout
 }: {
-  onBack?: () => void
   onLogout?: () => void
 }) {
   const auth = useAppStore(s => s.auth)

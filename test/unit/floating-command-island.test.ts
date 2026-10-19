@@ -84,27 +84,28 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
   }
 
   describe('1. 基础渲染与显隐逻辑 (Visibility & Invariants)', () => {
-    it('当 totalItems <= 0 且未显式指定 visible 时平滑隐藏 (返回 null)', () => {
+    it('当 totalItems <= 0 且无批量下载进行时平滑隐藏 (返回 null)', () => {
       const { html } = renderIsland({
         selectedSummary: {
           totalItems: 0,
           formattedSize: '0 B'
-        },
-        visible: false
+        }
       })
       expect(html).toBe('')
     })
 
-    it('当 totalItems === 0 但显式指定 visible=true 时强制呈现', () => {
+    it('当 totalItems === 0 但批量下载进行中 (batchProgress 有任务) 时保持可见', () => {
       const { html, $ } = renderIsland({
         selectedSummary: {
           totalItems: 0,
           formattedSize: '0 B'
         },
-        visible: true
+        batchProgress: { done: 3, downloading: 2, uploading: 0, failed: 0, total: 10, inflight: 0.8 }
       })
       expect(html).not.toBe('')
       expect($('[role="toolbar"]').length).toBe(1)
+      // 批量进度环形态：显示 done/total 计数
+      expect($('[role="status"]').text()).toContain('3/10')
     })
 
     it('当 totalItems > 0 时正常呈现现代毛玻璃悬浮岛', () => {
@@ -350,12 +351,10 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       expect(ctaBtn.text()).toContain('(⏎)')
     })
 
-    it('点击主执行按钮时触发 onStartDownload 及 onDownload 回调', () => {
+    it('点击主执行按钮时触发 onStartDownload 回调（onDownload 别名已删除）', () => {
       const onStartDownload = vi.fn()
-      const onDownload = vi.fn()
       const { vnode } = renderIslandVNode({
-        onStartDownload,
-        onDownload
+        onStartDownload
       })
 
       const ctaBtn = findVNodes(vnode, (n) => n.props?.['aria-label']?.startsWith?.('立即下载'))[0]
@@ -363,7 +362,19 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       ctaBtn.props.onClick()
 
       expect(onStartDownload).toHaveBeenCalledTimes(1)
-      expect(onDownload).toHaveBeenCalledTimes(1)
+    })
+
+    it('批量下载进行中 (batchProgress 存在) 时主按钮切换为进度环形态，不渲染 CTA', () => {
+      const { $ } = renderIsland({
+        batchProgress: { done: 7, downloading: 3, uploading: 0, failed: 1, total: 20, inflight: 1.2 }
+      })
+      // 进度环 status 存在，CTA 按钮不存在
+      expect($('[role="status"]').length).toBe(1)
+      expect($('button[aria-label^="立即下载"]').length).toBe(0)
+      const statusText = $('[role="status"]').text()
+      expect(statusText).toContain('7/20')
+      expect(statusText).toContain('↓3')
+      expect(statusText).toContain('失败 1')
     })
   })
 

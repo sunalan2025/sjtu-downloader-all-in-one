@@ -4,7 +4,7 @@ import { formatBytes } from '../components/DownloadUI'
 import { formatDate } from '../../../shared/utils'
 import type { TransferSpeed } from '@shared/types'
 
-export function TransferCenter({ onBack: _onBack }: { onBack?: () => void } = {}) {
+export function TransferCenter() {
   const history = useAppStore(s => s.downloadHistory)
   const removeHistoryItem = useAppStore(s => s.removeDownloadHistoryItem)
   const clearHistory = useAppStore(s => s.clearDownloadHistory)

@@ -631,6 +631,7 @@ export function AuditedCourses() {
             viewMode={courseViewMode}
             navState={navState}
             onNavigate={setNavState}
+            onStartDownload={() => void onDownload()}
           />
         )}
       </div>

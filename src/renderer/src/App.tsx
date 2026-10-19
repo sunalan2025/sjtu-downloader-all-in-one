@@ -56,10 +56,6 @@ export default function App() {
     }
   }
 
-  const handleBackToCourses = () => {
-    setActiveTab(previousCourseTab)
-  }
-
   // Subscribe to download progress once at App level
   useDownloadProgressSubscription()
 
@@ -191,17 +187,17 @@ export default function App() {
               )}
               {visitedTabs.has('transfer') && (
                 <div className={`h-full w-full flex-col ${activeTab === 'transfer' ? 'flex' : 'hidden'}`}>
-                  <TransferCenter onBack={handleBackToCourses} />
+                  <TransferCenter />
                 </div>
               )}
               {visitedTabs.has('settings') && (
                 <div className={`h-full w-full flex-col ${activeTab === 'settings' ? 'flex' : 'hidden'}`}>
-                  <Settings onBack={handleBackToCourses} onLogout={() => void handleLogout()} />
+                  <Settings onLogout={() => void handleLogout()} />
                 </div>
               )}
               {visitedTabs.has('cloudpan') && (
                 <div className={`h-full w-full flex-col ${activeTab === 'cloudpan' ? 'flex' : 'hidden'}`}>
-                  <CloudPanExplorer onBack={handleBackToCourses} />
+                  <CloudPanExplorer />
                 </div>
               )}
             </div>

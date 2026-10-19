@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import type { DownloadMode } from '@shared/types'
 import { useAppStore } from '../store/app'
+import { Spinner } from './Spinner'
 
 export type VideoPerspective = 'all' | 'teacher' | 'ppt' | 'audio'
 
@@ -41,16 +42,23 @@ export interface FloatingCommandIslandProps {
   onDownloadModeChange?: (mode: DownloadMode) => void
   /** 触发立即下载主回调 */
   onStartDownload?: () => void
-  /** 触发立即下载兼容别名回调 */
-  onDownload?: () => void
   /** 清空选择回调 */
   onClearSelection?: () => void
-  /** 自定义类名 */
-  className?: string
-  /** 是否强制显示（即便 totalItems === 0） */
-  visible?: boolean
-  /** 初始是否展开视频机位悬浮菜单（便于测试与受控场景） */
+  /** 初始是否展开视频机位悬浮菜单（静态渲染测试与受控场景用；生产挂载方不传） */
   defaultPopoverOpen?: boolean
+  /** 本轮批量下载进度（done/downloading/uploading/failed/total 及 inflight 比例和）。
+   *  由挂载方（NetdiskCourseExplorer）基于 batchTaskIds 计算注入；下载中时主按钮
+   *  外圈渲染进度环并显示 done/total，替代已死亡的 OverallProgressBar 的职责。
+   *  不传（undefined）时维持纯 CTA 形态（历史行为）。 */
+  batchProgress?: {
+    done: number
+    downloading: number
+    uploading: number
+    failed: number
+    total: number
+    /** 0..total 的已完成比例和（含小数），让环平滑推进 */
+    inflight: number
+  }
 }
 
 export const VIDEO_PERSPECTIVE_OPTIONS: Array<{
@@ -84,11 +92,9 @@ export function FloatingCommandIsland({
   downloadMode,
   onDownloadModeChange,
   onStartDownload,
-  onDownload,
   onClearSelection,
-  className = '',
-  visible = false,
-  defaultPopoverOpen = false
+  defaultPopoverOpen = false,
+  batchProgress
 }: FloatingCommandIslandProps): React.JSX.Element | null {
   // 内部状态（支持受控与非受控）
   const [internalCategorySelection, setInternalCategorySelection] = useState<CategorySelectionState>({
@@ -116,6 +122,10 @@ export function FloatingCommandIsland({
   // 存储模式优先使用 props，无传入时同步 Zustand 全局状态
   const storeDownloadMode = useAppStore((s) => s.downloadMode)
   const currentDownloadMode = downloadMode ?? storeDownloadMode ?? 'local'
+
+  // 全局下载进行中标志 + 批量进度激活标志（提前声明：快捷键 effect 与隐藏条件都要用）
+  const storeDownloading = useAppStore((s) => s.downloading)
+  const batchActive = batchProgress !== undefined && batchProgress.total > 0
 
   const handleToggleCategory = useCallback(
     (category: 'files' | 'videos' | 'assignments' | 'pptPdf') => {
@@ -156,8 +166,7 @@ export function FloatingCommandIsland({
 
   const handleStartDownload = useCallback(() => {
     onStartDownload?.()
-    onDownload?.()
-  }, [onStartDownload, onDownload])
+  }, [onStartDownload])
 
   // 点击外部关闭视频机位悬浮菜单
   useEffect(() => {
@@ -181,9 +190,11 @@ export function FloatingCommandIsland({
     }
   }, [isPopoverOpen])
 
-  // 全局快捷键：Enter 立即下载，Esc 关闭浮窗或清空选择
+  // 全局快捷键：Enter 立即下载，Esc 关闭浮窗或清空选择。
+  // [Bug Fix] 下载进行中禁用 Enter 提交（与页面 onDownload 的 st.downloading 守卫一致），
+  // 防止批次中途重复入队同一批 taskId。
   useEffect(() => {
-    if (selectedSummary.totalItems <= 0 && !visible) return
+    if (selectedSummary.totalItems <= 0 && !batchActive) return
 
     const handleKeyDown = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement | null
@@ -195,6 +206,7 @@ export function FloatingCommandIsland({
       }
 
       if (e.key === 'Enter') {
+        if (storeDownloading) return
         e.preventDefault()
         handleStartDownload()
       } else if (e.key === 'Escape') {
@@ -209,10 +221,12 @@ export function FloatingCommandIsland({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleStartDownload, isPopoverOpen, onClearSelection, selectedSummary.totalItems, visible])
+  }, [handleStartDownload, isPopoverOpen, onClearSelection, selectedSummary.totalItems, batchActive, storeDownloading])
 
-  // 当没有选中任何项目且未显式指定 visible 时平滑隐藏
-  if (selectedSummary.totalItems <= 0 && !visible) {
+  // 当没有选中任何项目时平滑隐藏。
+  // [Bug Fix] 下载进行中不隐藏：岛的进度环是批量进度的唯一实时展示位（原
+  // OverallProgressBar 已死），下载中即使清空勾选也保持可见直到批次收尾。
+  if (selectedSummary.totalItems <= 0 && !batchActive) {
     return null
   }
 
@@ -225,7 +239,7 @@ export function FloatingCommandIsland({
     <div
       role="toolbar"
       aria-label="下载底栏智能指挥动作岛"
-      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-4xl w-[92%] sm:w-auto bg-surface-1/90 dark:bg-surface-1/85 backdrop-blur-xl border border-bd/80 shadow-2xl rounded-2xl px-4 py-2.5 flex items-center gap-3 animate-fadeIn animate-in fade-in slide-in-from-bottom-4 duration-200 select-none ${className}`}
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-4xl w-[92%] sm:w-auto bg-surface-1/90 dark:bg-surface-1/85 backdrop-blur-xl border border-bd/80 shadow-2xl rounded-2xl px-4 py-2.5 flex items-center gap-3 animate-fadeIn animate-in fade-in slide-in-from-bottom-4 duration-200 select-none"
     >
       {/* ① 左侧信息汇聚胶囊 */}
       <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-2/70 border border-bd/50 text-xs text-text-2 whitespace-nowrap">
@@ -390,17 +404,75 @@ export function FloatingCommandIsland({
         })}
       </div>
 
-      {/* ④ 主执行大按钮 */}
-      <button
-        type="button"
-        role="button"
-        aria-label={`立即下载 ${selectedSummary.formattedSize}`}
-        onClick={handleStartDownload}
-        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-accent hover:bg-accent-dark active:scale-[0.98] text-white font-semibold text-xs sm:text-sm shadow-glow-sm hover:shadow-glow transition-all duration-150 cursor-pointer whitespace-nowrap"
-      >
-        <span>立即下载 {selectedSummary.formattedSize}</span>
-        <span className="inline-flex items-center font-mono text-[11px] opacity-80">(⏎)</span>
-      </button>
+      {/* ④ 主执行大按钮：下载中变为进度环 + done/total（继承已死的 OverallProgressBar 职责） */}
+      {batchActive && batchProgress ? (
+        <div
+          role="status"
+          aria-label={`批量下载进度 ${batchProgress.done}/${batchProgress.total}`}
+          className="inline-flex items-center gap-2.5 px-4 py-1.5 rounded-xl bg-surface-2/80 border border-bd/60 text-xs select-none whitespace-nowrap"
+          title={`完成 ${batchProgress.done} / ${batchProgress.total}${batchProgress.downloading > 0 ? ` · 下载中 ${batchProgress.downloading}` : ''}${batchProgress.uploading > 0 ? ` · 上传中 ${batchProgress.uploading}` : ''}${batchProgress.failed > 0 ? ` · 失败 ${batchProgress.failed}` : ''}`}
+        >
+          {/* 环形进度：done 实心段 + inflight 半透明段，中心 spinner */}
+          <span className="relative inline-flex h-6 w-6 items-center justify-center">
+            <svg className="h-6 w-6 -rotate-90" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5" className="text-surface-4" />
+              {(() => {
+                const C = 2 * Math.PI * 9
+                const wDone = batchProgress.total > 0 ? Math.min(1, batchProgress.done / batchProgress.total) : 0
+                const wInflight = batchProgress.total > 0
+                  ? Math.min(1 - wDone, Math.max(0, batchProgress.inflight) / batchProgress.total)
+                  : 0
+                return (
+                  <>
+                    <circle
+                      cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5"
+                      className="text-accent/40 transition-[stroke-dashoffset] duration-300"
+                      strokeDasharray={`${C * wInflight} ${C}`}
+                      strokeDashoffset={`${-C * wDone}`}
+                      strokeLinecap="round"
+                    />
+                    <circle
+                      cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2.5"
+                      className="text-accent transition-[stroke-dashoffset] duration-300"
+                      strokeDasharray={`${C * wDone} ${C}`}
+                      strokeLinecap="round"
+                    />
+                  </>
+                )
+              })()}
+            </svg>
+            <Spinner size={10} className="absolute" />
+          </span>
+          <span className="font-medium text-text-1 tabular-nums">
+            {batchProgress.done}/{batchProgress.total}
+          </span>
+          {batchProgress.downloading > 0 && (
+            <span className="text-info">↓{batchProgress.downloading}</span>
+          )}
+          {batchProgress.uploading > 0 && (
+            <span className="text-violet-400">↑{batchProgress.uploading}</span>
+          )}
+          {batchProgress.failed > 0 && (
+            <span className="text-warning">失败 {batchProgress.failed}</span>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          role="button"
+          aria-label={`立即下载 ${selectedSummary.formattedSize}`}
+          onClick={handleStartDownload}
+          disabled={storeDownloading}
+          className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-accent hover:bg-accent-dark active:scale-[0.98] text-white font-semibold text-xs sm:text-sm shadow-glow-sm hover:shadow-glow transition-all duration-150 cursor-pointer whitespace-nowrap ${
+            storeDownloading ? 'opacity-60 cursor-not-allowed hover:bg-accent' : ''
+          }`}
+        >
+          <span>{storeDownloading ? '下载进行中…' : `立即下载 ${selectedSummary.formattedSize}`}</span>
+          {!storeDownloading && (
+            <span className="inline-flex items-center font-mono text-[11px] opacity-80">(⏎)</span>
+          )}
+        </button>
+      )}
     </div>
   )
 }

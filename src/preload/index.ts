@@ -164,8 +164,6 @@ const api = {
       ipcRenderer.invoke('download:set-speed-limit', limitKBps),
     /** 订阅下载进度变化事件，返回取消订阅函数 */
     onProgress: (cb: (p: DownloadProgress) => void) => subscribe<DownloadProgress>('download:progress', cb),
-    /** 订阅并发数变化事件（自动模式下），返回取消订阅函数 */
-    onConcurrencyChanged: (cb: (n: number) => void) => subscribe<number>('download:concurrency-changed', cb),
     /** 订阅实时传输速度事件（下行/上行 bytes/s，1s 推送），返回取消订阅函数 */
     onTransferSpeed: (cb: (s: TransferSpeed) => void) => subscribe<TransferSpeed>('transfer:speed', cb)
   },

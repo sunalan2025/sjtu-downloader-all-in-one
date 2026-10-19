@@ -2,8 +2,7 @@ import { useRef, useState, useEffect } from 'react'
 import type { DownloadProgress, DownloadState, CnmoocResourceFilter } from '@shared/types'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { Spinner } from './Spinner'
-import { useAppStore, type CourseViewMode } from '../store/app'
-import { useShallow } from 'zustand/shallow'
+import type { CourseViewMode } from '../store/app'
 import { formatBytes } from '../../../shared/utils'
 
 // ─────────────────────────────────────────────────────────────
@@ -390,7 +389,8 @@ export function ResourceTypeSegmented({
 }
 
 // ─────────────────────────────────────────────────────────────
-// 课程级进度摘要条 — Browser CourseSection & CanvasBrowser CanvasCourseCard 共用
+// 课程级进度摘要条 —（保留为可复用原语；当前页面经 summary prop 携带数据，
+// 由 NetdiskCourseExplorer 的视图渲染。进度环已收敛到 FloatingCommandIsland。）
 // 堆叠段：绿(完成) + 蓝(进行中已下载部分) + 红(失败) + 灰(剩余)
 // inflight = Σ 进行中任务的已完成比例（0..total，含小数），让条平滑推进而非只在任务完成时跳
 // ─────────────────────────────────────────────────────────────
@@ -441,117 +441,11 @@ export function CourseProgressSummary({
 
 // ─────────────────────────────────────────────────────────────
 // 全局总进度条 — 三页 ActionBar 共用，跨所有课程/任务的整批进度
-// 订阅整个 progress map（下载为全局态、每批 resetProgress 清空 → 读全表即当前批次），
-// 算 done/failed/active/inflight/total，渲染堆叠条 + 完成数 + 失败数。
-// 仅在 downloading 时由各页挂载，单组件每 tick 重渲（廉价）。
 // ─────────────────────────────────────────────────────────────
-
-export function OverallProgressBar() {
-  // 基于「本轮显式提交的任务集」batchTaskIds 统计，而非遍历 progress 全表。
-  // 这样 total = 勾选并入队的任务数（扫描占位 / 未勾选残留 / 陈旧条目都不进集合），
-  // PPT 聚合 + iframe HLS + 常规文件统一计入；both 模式区分「下载中 / 上传中」，
-  // 让用户看懂本地已 done 但云端还在传时为什么进度条还在转。
-  const stats = useAppStore(
-    useShallow(s => {
-      let done = 0
-      let failed = 0
-      let downloading = 0 // both: 本地未终态；非 both: 全部 active
-      let uploading = 0   // both: 本地 done 但 cloud 未终态
-      let inflight = 0    // 下载中的进度比例和
-      let upInflight = 0  // 上传中的进度比例和（本地已满，按 1 计）
-      const isBoth = s.downloadMode === 'both'
-      const ids = s.batchTaskIds
-      for (const id of ids) {
-        const prog = s.progress[id]
-        const st = prog?.state
-        if (isBoth) {
-          const cloudId = s.cloudLinkedIds[id]
-          const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
-          const localDone = st === 'done' || st === 'skipped'
-          const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
-          const localFinal = localDone || st === 'error' || st === 'cancelled'
-          const cloudFinal = !cloudId || cloudDone || cloudSt === 'error'
-          if (st === 'error' || cloudSt === 'error') failed++
-          else if (localDone && cloudDone) done++
-          else if (!localFinal) {
-            // 本地还在下载 / 排队 → 下载中
-            downloading++
-            if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          } else if (localDone && !cloudFinal) {
-            // 本地已完成、云端还在上传 → 上传中
-            uploading++
-            upInflight += 1
-          }
-          // 本地 cancelled（且 cloud 非 error）：已取消，静默不计 active/done/failed
-          // （本地 error 已在上方计 failed；本地 cancelled + cloud 仍跑的边角也归静默，避免幽灵）
-        } else {
-          if (st === 'done' || st === 'skipped') done++
-          else if (st === 'error') failed++
-          else if (st !== 'cancelled') {
-            downloading++
-            if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          }
-        }
-      }
-      return { done, failed, downloading, uploading, inflight, upInflight, total: ids.length, isBoth, localDestRoot: s.localDestRoot }
-    })
-  )
-  const { done, failed, downloading, uploading, inflight, upInflight, total, isBoth, localDestRoot } = stats
-  if (total === 0) return null
-  const w = (n: number): number => (total > 0 ? Math.min(100, (n / total) * 100) : 0)
-  const wDone = w(done)
-  const wDown = w(inflight)
-  const wUp = w(upInflight)
-  const wErr = w(failed)
-  return (
-    <div className="flex items-center gap-3 rounded-lg bg-surface-3 px-3 py-1.5 text-xs tabular-nums">
-      <div className="relative flex h-2 flex-1 overflow-hidden rounded-full bg-surface-2 min-w-[120px]">
-        <div className="h-full bg-success transition-[width] duration-300 ease-out" style={{ width: `${wDone}%` }} />
-        <div className="h-full bg-gradient-to-r from-accent to-accent-light transition-[width] duration-300 ease-out" style={{ width: `${wDown}%` }} />
-        {isBoth && (
-          <div className="h-full bg-gradient-to-r from-violet-500 to-violet-400 transition-[width] duration-300 ease-out" style={{ width: `${wUp}%` }} />
-        )}
-        {wErr > 0 && (
-          <div className="h-full bg-warning transition-[width] duration-300 ease-out" style={{ width: `${wErr}%` }} />
-        )}
-      </div>
-      <span className="shrink-0 text-text-2">
-        完成 <span className="font-medium text-success">{done}</span> / {total}
-      </span>
-      {downloading > 0 && (
-        <span className="inline-flex shrink-0 items-center gap-1 text-info">
-          <Spinner size={11} />{isBoth ? `下载${downloading}` : downloading}
-        </span>
-      )}
-      {isBoth && uploading > 0 && (
-        <span className="inline-flex shrink-0 items-center gap-1 text-violet-400">
-          <Spinner size={11} />上传{uploading}
-        </span>
-      )}
-      {failed > 0 && <span className="shrink-0 text-warning">失败 {failed}</span>}
-      {localDestRoot && (
-        <button
-          type="button"
-          onClick={() => void window.api.openPath(localDestRoot)}
-          className="shrink-0 rounded px-1.5 py-0.5 text-text-3 hover:bg-surface-2 hover:text-text-1 transition-colors"
-          title={`在资源管理器中打开目标目录:\n${localDestRoot}`}
-        >
-          📂 目录
-        </button>
-      )}
-      {(done > 0 || failed > 0) && (
-        <button
-          type="button"
-          onClick={() => useAppStore.getState().clearCompletedProgress()}
-          className="shrink-0 rounded px-1.5 py-0.5 text-text-3 hover:bg-surface-2 hover:text-text-1 transition-colors"
-          title="清空当前已完成与失败的任务记录"
-        >
-          🧹 清空
-        </button>
-      )}
-    </div>
-  )
-}
+// 全局总进度条 —（已删除。批量进度的实时展示收敛到 FloatingCommandIsland
+// 的进度环（NetdiskCourseExplorer 基于 batchTaskIds 计算 batchProgress 注入），
+// 统计口径与原实现一致（both 模式区分下载中/上传中）。本文件不再订阅 progress。）
+// ─────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────
 // 设计图对齐视觉徽标与图标

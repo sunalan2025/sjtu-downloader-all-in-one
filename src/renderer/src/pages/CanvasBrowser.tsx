@@ -29,6 +29,7 @@ import type {
   CanvasLectureGroup
 } from '@shared/types'
 import { sanitizeFsName } from '@shared/utils'
+import { applyVideoPerspectivePreference } from '../download/perspective'
 
 export interface CourseData {
   files: CanvasFileItem[]
@@ -303,7 +304,7 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
   isLoading: boolean
   isAudioOnly: boolean
   onScan: () => void
-  onSelectPerspective?: (p: 'all' | 'teacher' | 'ppt' | 'none') => void
+  onSelectPerspective?: (p: 'all' | 'teacher' | 'ppt' | 'none' | 'audio') => void
 }) {
   const tid = `canvas_transcript_${courseId}`
   const p = useEffectiveProgress(tid)
@@ -351,6 +352,15 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
               title="仅勾选 PPT 幻灯片屏幕投屏"
             >
               仅 PPT
+            </button>
+            {/* [Bug Fix] audio 档接入：同步全局画质偏好为纯音频（M4A），PPT 路无独立音频流自动只选教师路 */}
+            <button
+              type="button"
+              onClick={() => onSelectPerspective('audio')}
+              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+              title="切换为仅提取原声音频 (M4A)：自动只选教师视角，PPT 投屏无独立音频流将被禁用"
+            >
+              仅音频
             </button>
             <button
               type="button"
@@ -862,8 +872,24 @@ export function CanvasBrowser() {
     }
   }, [courseTaskIds, setCanvasCourseCategorySelection, toggleSelectMany])
 
-  /** 单门课程视频多流快捷视角调度：全选 / 仅教师视角 / 仅 PPT 投屏 / 清空 */
-  const handleVideoPerspective = useCallback((courseId: number, p: 'all' | 'teacher' | 'ppt' | 'none') => {
+  /** 单门课程视频多流快捷视角调度：全选 / 仅教师视角 / 仅 PPT 投屏 / 清空。
+   *  [Bug Fix] audio 档原为 no-op（p as any 强转后被忽略）。现统一经
+   *  applyVideoPerspectivePreference 同步全局画质偏好（audio_only ↔ 机位互斥），
+   *  同时按教师视角勾选（纯音频模式下 PPT 路无独立音频流，自动只选教师路）。 */
+  const handleVideoPerspective = useCallback((courseId: number, p: 'all' | 'teacher' | 'ppt' | 'none' | 'audio') => {
+    if (p === 'audio') {
+      applyVideoPerspectivePreference('audio')
+      const { teacher, ppt, moduleVideo } = courseTaskIds(courseId)
+      setCanvasCourseCategorySelection(courseId, { teacher: true, ppt: false, moduleVideo: false })
+      setSelected(prev => {
+        const next = new Set(prev)
+        for (const id of teacher) next.add(id)
+        for (const id of [...ppt, ...moduleVideo]) next.delete(id)
+        return next
+      })
+      return
+    }
+    applyVideoPerspectivePreference(p)
     const { teacher, ppt, moduleVideo } = courseTaskIds(courseId)
     if (p === 'all') {
       setCanvasCourseCategorySelection(courseId, { teacher: true, ppt: true, moduleVideo: true })
@@ -2013,7 +2039,7 @@ export function CanvasBrowser() {
           ? { done, downloading: dl, errors: err, inflight, total: progressIds.length }
           : undefined,
         perspective: catSel?.teacher && !catSel?.ppt ? 'teacher' : (!catSel?.teacher && catSel?.ppt ? 'ppt' : 'all'),
-        onPerspectiveChange: p => handleVideoPerspective(c.courseId, p as any),
+        onPerspectiveChange: p => handleVideoPerspective(c.courseId, p),
         onDownload: () => void onDownload()
       }
     })
@@ -2292,6 +2318,7 @@ export function CanvasBrowser() {
             groupByTerm={canvasGroupByTerm}
             onDownloadSingle={handleDownloadSingle}
             onDownloadCourse={() => void onDownload()}
+            onStartDownload={() => void onDownload()}
           />
         )}
       </div>

@@ -568,6 +568,7 @@ export function CnmoocBrowser() {
             viewMode={courseViewMode}
             navState={navState}
             onNavigate={setNavState}
+            onStartDownload={() => void onDownload()}
           />
         )}
       </div>

@@ -1,5 +1,6 @@
 import { memo, useMemo, useEffect, useRef, useState, useCallback, Fragment } from 'react'
 import type React from 'react'
+import { useShallow } from 'zustand/shallow'
 import { BreadcrumbBar, type BreadcrumbItem } from './BreadcrumbBar'
 import {
   TriCheckbox,
@@ -13,6 +14,7 @@ import {
   MacOSCircleCheckbox
 } from './DownloadUI'
 import { Spinner } from './Spinner'
+import { useAppStore } from '../store/app'
 import type { CourseViewMode } from '../store/app'
 import {
   groupCoursesByTerm as sharedGroupCoursesByTerm,
@@ -24,6 +26,7 @@ import {
   type VideoPerspective,
   type CategorySelectionState
 } from './FloatingCommandIsland'
+import { applyVideoPerspectivePreference } from '../download/perspective'
 export type { VideoPerspective, CategorySelectionState }
 
 // ─────────────────────────────────────────────────────────────
@@ -108,6 +111,11 @@ export interface NetdiskCourseExplorerProps {
   groupByTerm?: boolean
   onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
   onDownloadCourse?: (course: NetdiskCourseItem) => void
+  /** 页面级批量下载提交入口（悬浮岛「立即下载」主按钮）。
+   *  [Bug Fix] 原先岛的按钮在旁听/好大学页无任何回调可走（onDownloadCourse 与
+   *  course.onDownload 均未接线）→ 点击无反应。各页必须传入自己的提交函数
+   *  （如 AuditedCourses.onDownload / CnmoocBrowser.onDownload）。 */
+  onStartDownload?: () => void
   perspective?: VideoPerspective
   onPerspectiveChange?: (perspective: VideoPerspective) => void
   hasPptPdf?: boolean
@@ -208,6 +216,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   groupByTerm = true,
   onDownloadSingle,
   onDownloadCourse,
+  onStartDownload,
   perspective,
   onPerspectiveChange,
   hasPptPdf,
@@ -494,7 +503,63 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     }
   }, [isSingleCourse, currentCourse, courses])
 
+  // ── 本轮批量下载进度（供岛的进度环）：从已死的 OverallProgressBar 移植的
+  //    batchTaskIds 统计口径——total = 勾选并入队任务数；both 模式区分
+  //    下载中（本地未终态）/ 上传中（本地 done 但云端未终态）与失败计数。 ──
+  const storeDownloading = useAppStore(s => s.downloading)
+  const batchProgress = useAppStore(
+    useShallow(s => {
+      if (!s.downloading) return undefined
+      const isBoth = s.downloadMode === 'both'
+      const ids = s.batchTaskIds
+      if (ids.length === 0) return undefined
+      let done = 0
+      let failed = 0
+      let downloading = 0
+      let uploading = 0
+      let inflight = 0
+      for (const id of ids) {
+        const prog = s.progress[id]
+        const st = prog?.state
+        if (isBoth) {
+          const cloudId = s.cloudLinkedIds[id]
+          const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
+          const localDone = st === 'done' || st === 'skipped'
+          const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
+          const localFinal = localDone || st === 'error' || st === 'cancelled'
+          const cloudFinal = !cloudId || cloudDone || cloudSt === 'error'
+          if (st === 'error' || cloudSt === 'error') failed++
+          else if (localDone && cloudDone) done++
+          else if (!localFinal) {
+            downloading++
+            if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+          } else if (localDone && !cloudFinal) {
+            uploading++
+            inflight += 1
+          }
+          // 本地 cancelled（cloud 非 error）→ 静默不计
+        } else {
+          if (st === 'done' || st === 'skipped') done++
+          else if (st === 'error') failed++
+          else if (st !== 'cancelled') {
+            downloading++
+            if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
+          }
+        }
+      }
+      return { done, failed, downloading, uploading, total: ids.length, inflight }
+    })
+  )
+
   const handleStartDownload = useCallback(() => {
+    // [Bug Fix] 原兜底链 course.onDownload → onDownloadCourse → courses[0].onDownload
+    // 在旁听/好大学页三环皆空 → 岛的主按钮点击无任何反应。改为优先走页面级
+    // onStartDownload 提交函数（各页 onDownload），仅 Column 视图 inspector 走
+    // onDownloadCourse / course.onDownload（那两个视图不挂岛）。
+    if (onStartDownload) {
+      onStartDownload()
+      return
+    }
     if (isSingleCourse && currentCourse?.onDownload) {
       currentCourse.onDownload()
     } else if (onDownloadCourse && currentCourse) {
@@ -504,12 +569,12 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
       if (selCourses.length === 1 && selCourses[0].onDownload) {
         selCourses[0].onDownload()
       } else if (onDownloadCourse && selCourses.length > 0) {
-        selCourses.forEach(c => onDownloadCourse(c))
-      } else {
-        courses[0]?.onDownload?.()
+        onDownloadCourse(selCourses[0])
       }
+      // 兜底链末环（courses[0]?.onDownload?.()）删除：单课程下载是 inspector 的职责，
+      // 岛是批量提交入口，无回调可用时保持静默而非随机下载列表第一门课。
     }
-  }, [isSingleCourse, currentCourse, onDownloadCourse, courses])
+  }, [onStartDownload, isSingleCourse, currentCourse, onDownloadCourse, courses])
 
   if (courses.length === 0) {
     return <div className="h-full w-full">{emptyPlaceholder}</div>
@@ -615,8 +680,10 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
         </div>
       </div>
 
-      {/* 底部浮动命令动作岛 (非分栏视图下且选中项 > 0 时挂载) */}
-      {viewMode !== 'column' && selectedStats.totalItems > 0 && (
+      {/* 底部浮动命令动作岛 (非分栏视图下挂载：选中项 > 0 或本轮批量下载进行中)。
+          batchProgress 复用已死的 OverallProgressBar 的 batchTaskIds 统计口径
+          （both 模式区分下载中/上传中），让批量进度在岛上以进度环实时可见。 */}
+      {viewMode !== 'column' && (selectedStats.totalItems > 0 || storeDownloading) && (
         <FloatingCommandIsland
           selectedSummary={{
             courseCount: selectedStats.courseCount,
@@ -638,6 +705,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
           }}
           onStartDownload={handleStartDownload}
           onClearSelection={handleClearSelection}
+          batchProgress={batchProgress}
         />
       )}
 
@@ -978,19 +1046,24 @@ export function GridView({
     setInternalPerspective(nextPerspective)
     onPerspectiveChange?.(nextPerspective)
     currentCourse?.onPerspectiveChange?.(nextPerspective)
+    // [Bug Fix] audio 档原先被忽略（no-op）。机位含 audio 语义时同步全局画质偏好；
+    // 纯音频模式下 PPT 路无独立音频流，按教师视角过滤（与 onDownload 的 angle===3 跳过一致）。
+    applyVideoPerspectivePreference(nextPerspective)
 
     if (currentCategory) {
+      const filterPerspective: VideoPerspective =
+        nextPerspective === 'audio' ? 'teacher' : nextPerspective
       for (const item of currentCategory.items) {
         if (item.disabled) continue
         const isTeacher = isTeacherPerspectiveItem(item)
         const isPpt = isPptPerspectiveItem(item)
 
-        if (nextPerspective === 'all') {
+        if (filterPerspective === 'all') {
           if (!item.selected) item.onToggle()
-        } else if (nextPerspective === 'teacher') {
+        } else if (filterPerspective === 'teacher') {
           if (isTeacher && !item.selected) item.onToggle()
           if (!isTeacher && item.selected) item.onToggle()
-        } else if (nextPerspective === 'ppt') {
+        } else if (filterPerspective === 'ppt') {
           if (isPpt && !item.selected) item.onToggle()
           if (!isPpt && item.selected) item.onToggle()
         }
@@ -1019,10 +1092,12 @@ export function GridView({
   const displayedItems = useMemo(() => {
     if (!currentCategory) return []
     if (!isVideoCat) return currentCategory.items
-    if (activePerspective === 'teacher') {
+    // audio 档在文件列表维度按教师视角展示（纯音频只有教师路）
+    const filterPerspective: VideoPerspective = activePerspective === 'audio' ? 'teacher' : activePerspective
+    if (filterPerspective === 'teacher') {
       return currentCategory.items.filter(isTeacherPerspectiveItem)
     }
-    if (activePerspective === 'ppt') {
+    if (filterPerspective === 'ppt') {
       return currentCategory.items.filter(isPptPerspectiveItem)
     }
     return currentCategory.items
@@ -1030,6 +1105,10 @@ export function GridView({
 
   const handleSingleDownload = useCallback((item: NetdiskFileItem) => {
     if (item.disabled) return
+    // 直下必须存在真实回调（页面级 onDownloadSingle 或条目级 onDownloadSingle/onDownload）。
+    // [Bug Fix] 原实现兜底"未勾选则 onToggle + toast 已开始下载"——在旁听/好大学等
+    // 未接单文件直下的页面上，点击"下载"只做了勾选却谎报下载开始。禁止假成功提示：
+    // 无真实回调时回退为勾选并提示需点主按钮，不冒充下载已启动。
     if (onDownloadSingle) {
       onDownloadSingle(item, currentCourse, currentCategory)
     } else if (item.onDownloadSingle) {
@@ -1038,6 +1117,8 @@ export function GridView({
       item.onDownload()
     } else {
       if (!item.selected) item.onToggle()
+      showToast?.(`已勾选 "${item.name}"，点击「立即下载」开始传输`, 'info')
+      return
     }
     showToast?.(`已开始下载 "${item.name}"`, 'success')
   }, [onDownloadSingle, currentCourse, currentCategory, showToast])
@@ -1414,19 +1495,23 @@ export function ListView({
     setInternalPerspective(nextPerspective)
     onPerspectiveChange?.(nextPerspective)
     currentCourse?.onPerspectiveChange?.(nextPerspective)
+    // [Bug Fix] 同 GridView：audio 档同步全局画质偏好，文件列表按教师视角过滤
+    applyVideoPerspectivePreference(nextPerspective)
 
     if (currentCategory) {
+      const filterPerspective: VideoPerspective =
+        nextPerspective === 'audio' ? 'teacher' : nextPerspective
       for (const item of currentCategory.items) {
         if (item.disabled) continue
         const isTeacher = isTeacherPerspectiveItem(item)
         const isPpt = isPptPerspectiveItem(item)
 
-        if (nextPerspective === 'all') {
+        if (filterPerspective === 'all') {
           if (!item.selected) item.onToggle()
-        } else if (nextPerspective === 'teacher') {
+        } else if (filterPerspective === 'teacher') {
           if (isTeacher && !item.selected) item.onToggle()
           if (!isTeacher && item.selected) item.onToggle()
-        } else if (nextPerspective === 'ppt') {
+        } else if (filterPerspective === 'ppt') {
           if (isPpt && !item.selected) item.onToggle()
           if (!isPpt && item.selected) item.onToggle()
         }
@@ -1455,10 +1540,12 @@ export function ListView({
   const displayedItems = useMemo(() => {
     if (!currentCategory) return []
     if (!isVideoCat) return currentCategory.items
-    if (activePerspective === 'teacher') {
+    // audio 档在文件列表维度按教师视角展示（纯音频只有教师路），同 GridView
+    const filterPerspective: VideoPerspective = activePerspective === 'audio' ? 'teacher' : activePerspective
+    if (filterPerspective === 'teacher') {
       return currentCategory.items.filter(isTeacherPerspectiveItem)
     }
-    if (activePerspective === 'ppt') {
+    if (filterPerspective === 'ppt') {
       return currentCategory.items.filter(isPptPerspectiveItem)
     }
     return currentCategory.items
@@ -1466,6 +1553,7 @@ export function ListView({
 
   const handleSingleDownload = useCallback((item: NetdiskFileItem) => {
     if (item.disabled) return
+    // [Bug Fix] 同 GridView：无真实直下回调时禁止假"已开始下载"toast（见上方注释）
     if (onDownloadSingle) {
       onDownloadSingle(item, currentCourse, currentCategory)
     } else if (item.onDownloadSingle) {
@@ -1474,6 +1562,8 @@ export function ListView({
       item.onDownload()
     } else {
       if (!item.selected) item.onToggle()
+      showToast?.(`已勾选 "${item.name}"，点击「立即下载」开始传输`, 'info')
+      return
     }
     showToast?.(`已开始下载 "${item.name}"`, 'success')
   }, [onDownloadSingle, currentCourse, currentCategory, showToast])
@@ -1883,6 +1973,8 @@ export function CourseOverviewInspector({
 
   const handlePerspectiveSelect = (p: VideoPerspective) => {
     setInternalPerspective(p)
+    // [Bug Fix] audio 档原先被忽略（no-op）。同步全局画质偏好（audio_only ↔ 机位互斥）
+    applyVideoPerspectivePreference(p)
     onPerspectiveChange?.(p)
     course.onPerspectiveChange?.(p)
   }
@@ -1898,14 +1990,22 @@ export function CourseOverviewInspector({
   }
 
   const handleDownloadCourse = () => {
+    // [Bug Fix] 原实现兜底"未全选则 onToggle + toast 已开始下载全部资源"——在未接
+    // 页面级提交回调（onDownloadCourse / course.onDownload）的页面上是死按钮 + 假成功。
+    // 无真实回调时改为切换整课勾选态并如实提示，禁止谎报"已开始下载"。
     if (onDownloadCourse) {
       onDownloadCourse(course)
     } else if (course.onDownload) {
       course.onDownload()
     } else {
-      if (course.state !== 'all') {
-        course.onToggle()
-      }
+      course.onToggle()
+      showToast(
+        course.state === 'all'
+          ? `已取消勾选 "${course.name}"`
+          : `已勾选 "${course.name}"，点击「立即下载」开始传输`,
+        'info'
+      )
+      return
     }
     showToast(`已开始下载课程 "${course.name}" 全部资源`, 'success')
   }
@@ -2126,14 +2226,19 @@ export function FileDetailInspector({
 
   const handleDownloadSingle = () => {
     if (item.disabled) return
+    // [Bug Fix] 同 Grid/ListView：无真实直下回调时禁止假"已开始下载"toast
     if (onDownloadSingle) {
       onDownloadSingle(item, course, category)
     } else if (item.onDownload) {
       item.onDownload()
+    } else if (item.onDownloadSingle) {
+      item.onDownloadSingle()
     } else {
       if (!item.selected) {
         item.onToggle()
       }
+      showToast(`已勾选 "${item.name}"，点击「立即下载」开始传输`, 'info')
+      return
     }
     showToast(`已开始下载 "${item.name}"`, 'success')
   }

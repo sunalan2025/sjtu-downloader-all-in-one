@@ -13,10 +13,6 @@ import { Spinner } from '../components/Spinner'
 import { formatBytes, buildAncestorPathChain, formatDate } from '@shared/utils'
 import type { CloudPanItem } from '@shared/types'
 
-interface CloudPanExplorerProps {
-  onBack?: () => void
-}
-
 function getFileIcon(item: CloudPanItem, isLarge = false) {
   const sizeClass = isLarge ? 'h-14 w-14 text-3xl' : 'h-10 w-10 text-xl'
   if (item.type === 'dir') {
@@ -615,7 +611,7 @@ function CloudPanMillerColumns({
   )
 }
 
-export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}) {
+export function CloudPanExplorer() {
   const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
   const setCloudSpaceInfo = useAppStore(s => s.setCloudSpaceInfo)
   const localDestRoot = useAppStore(s => s.localDestRoot)
