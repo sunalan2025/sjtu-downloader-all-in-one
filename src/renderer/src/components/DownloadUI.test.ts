@@ -943,6 +943,142 @@ describe('Video Stream Multi-Perspective Fast Selection Invariants', () => {
   })
 })
 
+describe('Cloud Destination Root and Decoupled Export Options Store State', () => {
+  it('has correct default values for cloudDestRoot, export flags and assignment options', () => {
+    const state = useAppStore.getState()
+    expect(state.cloudDestRoot).toBe('/SJTU课程备份')
+    expect(state.canvasExportSrt).toBe(true)
+    expect(state.canvasExportMarkdown).toBe(true)
+    expect(state.canvasExportAiTranscript).toBe(true)
+    expect(state.canvasAssignmentOptions).toEqual({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+  })
+
+  it('updates cloudDestRoot via setCloudDestRoot', () => {
+    const store = useAppStore.getState()
+    store.setCloudDestRoot('/我的备份目录')
+    expect(useAppStore.getState().cloudDestRoot).toBe('/我的备份目录')
+
+    // Restore default
+    store.setCloudDestRoot('/SJTU课程备份')
+    expect(useAppStore.getState().cloudDestRoot).toBe('/SJTU课程备份')
+  })
+
+  it('updates canvasExportSrt and canvasExportMarkdown with bidirectional sync to canvasExportAiTranscript', () => {
+    const store = useAppStore.getState()
+
+    // Turn off SRT: markdown is still true => canvasExportAiTranscript remains true
+    store.setCanvasExportSrt(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Turn off Markdown as well => canvasExportAiTranscript becomes false
+    store.setCanvasExportMarkdown(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(false)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(false)
+
+    // Turn on SRT => canvasExportAiTranscript becomes true
+    store.setCanvasExportSrt(true)
+    expect(useAppStore.getState().canvasExportSrt).toBe(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Backward-compatible setter setCanvasExportAiTranscript(false) turns off all three
+    store.setCanvasExportAiTranscript(false)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(false)
+
+    // Backward-compatible setter setCanvasExportAiTranscript(true) turns on all three
+    store.setCanvasExportAiTranscript(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+    expect(useAppStore.getState().canvasExportSrt).toBe(true)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(true)
+  })
+
+  it('updates canvasAssignmentOptions via partial updates and updater function', () => {
+    const store = useAppStore.getState()
+
+    // Partial object update
+    store.setCanvasAssignmentOptions({ exportMarkdown: false })
+    expect(useAppStore.getState().canvasAssignmentOptions).toEqual({
+      exportMarkdown: false,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+
+    // Functional updater
+    store.setCanvasAssignmentOptions(prev => ({ ...prev, downloadSubmissions: false }))
+    expect(useAppStore.getState().canvasAssignmentOptions).toEqual({
+      exportMarkdown: false,
+      downloadAttachments: true,
+      downloadSubmissions: false
+    })
+
+    // Restore defaults
+    store.setCanvasAssignmentOptions({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+    expect(useAppStore.getState().canvasAssignmentOptions).toEqual({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+  })
+
+  it('persists cloudDestRoot, canvasExportSrt, canvasExportMarkdown, canvasAssignmentOptions in partialize', () => {
+    const store = useAppStore.getState()
+    store.setCloudDestRoot('/自定义云端目录')
+    store.setCanvasExportSrt(false)
+    store.setCanvasExportMarkdown(true)
+    store.setCanvasAssignmentOptions({ downloadAttachments: false })
+
+    const persistOptions = (useAppStore as any).persist?.getOptions?.()
+    expect(persistOptions).toBeDefined()
+    const partialized = persistOptions.partialize(useAppStore.getState())
+
+    expect(partialized.cloudDestRoot).toBe('/自定义云端目录')
+    expect(partialized.canvasExportSrt).toBe(false)
+    expect(partialized.canvasExportMarkdown).toBe(true)
+    expect(partialized.canvasAssignmentOptions).toEqual({
+      exportMarkdown: true,
+      downloadAttachments: false,
+      downloadSubmissions: true
+    })
+
+    // Test backward compatible merge when restoring older persisted state
+    const mergeFn = persistOptions.merge
+    if (mergeFn) {
+      const mergedOldState = mergeFn(
+        {
+          canvasExportAiTranscript: false,
+          // canvasExportSrt & canvasExportMarkdown are missing in legacy persisted state
+        },
+        useAppStore.getState()
+      )
+      expect(mergedOldState.canvasExportSrt).toBe(false)
+      expect(mergedOldState.canvasExportMarkdown).toBe(false)
+      expect(mergedOldState.canvasExportAiTranscript).toBe(false)
+    }
+
+    // Reset store to defaults
+    store.setCloudDestRoot('/SJTU课程备份')
+    store.setCanvasExportAiTranscript(true)
+    store.setCanvasAssignmentOptions({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+  })
+})
+
+
 
 
 

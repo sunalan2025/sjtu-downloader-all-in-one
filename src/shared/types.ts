@@ -591,6 +591,13 @@ export interface CanvasTranscriptExportOptions {
   exportMarkdown?: boolean
 }
 
+/** Canvas 课程作业与提交归档导出选项 */
+export interface CanvasAssignmentExportOptions {
+  exportMarkdown: boolean
+  downloadAttachments: boolean
+  downloadSubmissions: boolean
+}
+
 /** 渲染端顶部 tab */
 export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'schedule' | 'transfer' | 'settings' | 'cloudpan'
 

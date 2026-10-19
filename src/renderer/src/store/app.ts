@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption } from '@shared/types'
+import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption } from '@shared/types'
 import { DEFAULT_NAMING_TEMPLATE } from '@shared/utils'
 
 /** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
@@ -95,6 +95,8 @@ interface AppState {
   /** 同名文件冲突策略：skip=跳过，overwrite=先删除再下载/上传 */
   fileConflictStrategy: FileConflictStrategy
   localDestRoot: string
+  /** 云盘备份保存的根目录（默认 '/SJTU课程备份'） */
+  cloudDestRoot: string
   /** HLS 模块视频重编码目标高度（720/1080）；不设置 = 不重编码（保留原始质量）。
    *  解决 tv.sjtu.edu.cn 超高分辨率 I-frame-only 源在系统播放器中花屏/卡死的问题。 */
   hlsTranscodeMaxHeight?: 720 | 1080
@@ -148,11 +150,27 @@ interface AppState {
   showSetupWizardModal: boolean
   /** PPT 讲义导出时是否同时保留高清切片图片目录 */
   pptSaveImages: boolean
-  /** 课堂视频下载时是否同步导出 AI 字幕 (.srt) 与逐字稿笔记 (.md) */
+  /** 课堂视频下载时是否同步导出 AI 字幕 (.srt) 与逐字稿笔记 (.md)（兼容字段，与 canvasExportSrt || canvasExportMarkdown 联动） */
   canvasExportAiTranscript: boolean
+  /** 课堂视频下载时是否同步导出 SRT 字幕文件（默认 true） */
+  canvasExportSrt: boolean
+  /** 课堂视频下载时是否同步导出 Markdown 格式逐字稿（默认 true） */
+  canvasExportMarkdown: boolean
+  /** Canvas 课程作业与提交归档导出选项 */
+  canvasAssignmentOptions: CanvasAssignmentExportOptions
   // setters
-  /** 切换 AI 字幕与逐字稿导出开关 */
+  /** 切换 AI 字幕与逐字稿导出开关（向下兼容向导与旧设置，联动更新 srt 和 markdown） */
   setCanvasExportAiTranscript: (on: boolean) => void
+  /** 切换课堂视频 SRT 字幕导出开关 */
+  setCanvasExportSrt: (on: boolean) => void
+  /** 切换课堂视频 Markdown 逐字稿导出开关 */
+  setCanvasExportMarkdown: (on: boolean) => void
+  /** 更新 Canvas 课程作业导出选项 */
+  setCanvasAssignmentOptions: (
+    opts:
+      | Partial<CanvasAssignmentExportOptions>
+      | ((prev: CanvasAssignmentExportOptions) => CanvasAssignmentExportOptions)
+  ) => void
   /** 标记是否完成首次初始化配置 */
   setHasCompletedInitialSetup: (completed: boolean) => void
   /** 记录上次完成向导确认的应用版本号 */
@@ -270,6 +288,8 @@ interface AppState {
   setAutoDownloadUpdate: (on: boolean) => void
   /** 设置本地下载目录路径 */
   setLocalDestRoot: (p: string) => void
+  /** 设置云盘备份保存的根目录路径 */
+  setCloudDestRoot: (p: string) => void
   /** 更新 both 模式下 localTaskId → cloudTaskId 的映射 */
   setCloudLinkedIds: (m: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void
   /** 标记是否有任务正在下载中 */
@@ -454,6 +474,7 @@ export const useAppStore = create<AppState>()(
       downloadMode: 'cloud',
       fileConflictStrategy: 'skip' as FileConflictStrategy,
       localDestRoot: '',
+      cloudDestRoot: '/SJTU课程备份',
       cloudLinkedIds: {},
       batchTaskIds: [],
       concurrency: 3,
@@ -472,12 +493,41 @@ export const useAppStore = create<AppState>()(
       lastSetupVersion: null,
       showSetupWizardModal: false,
       pptSaveImages: false,
-      canvasExportAiTranscript: false,
+      canvasExportAiTranscript: true,
+      canvasExportSrt: true,
+      canvasExportMarkdown: true,
+      canvasAssignmentOptions: {
+        exportMarkdown: true,
+        downloadAttachments: true,
+        downloadSubmissions: true
+      },
       setHasCompletedInitialSetup: hasCompletedInitialSetup => set({ hasCompletedInitialSetup }),
       setLastSetupVersion: lastSetupVersion => set({ lastSetupVersion }),
       setShowSetupWizardModal: showSetupWizardModal => set({ showSetupWizardModal }),
       setPptSaveImages: pptSaveImages => set({ pptSaveImages }),
-      setCanvasExportAiTranscript: canvasExportAiTranscript => set({ canvasExportAiTranscript }),
+      setCanvasExportAiTranscript: canvasExportAiTranscript =>
+        set({
+          canvasExportAiTranscript,
+          canvasExportSrt: canvasExportAiTranscript,
+          canvasExportMarkdown: canvasExportAiTranscript
+        }),
+      setCanvasExportSrt: on =>
+        set(state => ({
+          canvasExportSrt: on,
+          canvasExportAiTranscript: on || state.canvasExportMarkdown
+        })),
+      setCanvasExportMarkdown: on =>
+        set(state => ({
+          canvasExportMarkdown: on,
+          canvasExportAiTranscript: state.canvasExportSrt || on
+        })),
+      setCanvasAssignmentOptions: opts =>
+        set(state => ({
+          canvasAssignmentOptions:
+            typeof opts === 'function'
+              ? opts(state.canvasAssignmentOptions)
+              : { ...state.canvasAssignmentOptions, ...opts }
+        })),
       setWindowCloseAction: windowCloseAction => set({ windowCloseAction }),
       setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
@@ -641,6 +691,7 @@ export const useAppStore = create<AppState>()(
       setHlsTranscodeMaxHeight: hlsTranscodeMaxHeight => set({ hlsTranscodeMaxHeight }),
       setAutoDownloadUpdate: autoDownloadUpdate => set({ autoDownloadUpdate }),
       setLocalDestRoot: localDestRoot => set({ localDestRoot }),
+      setCloudDestRoot: cloudDestRoot => set({ cloudDestRoot }),
       setCloudLinkedIds: (m: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) =>
         set(state => ({ cloudLinkedIds: typeof m === 'function' ? m(state.cloudLinkedIds) : m })),
       setDownloading: downloading => set({ downloading }),
@@ -808,9 +859,24 @@ export const useAppStore = create<AppState>()(
           persisted.activeTab === 'settings' || persisted.activeTab === 'transfer' || persisted.activeTab === 'cloudpan'
             ? persisted.lastCourseTab || currentState.lastCourseTab || 'canvas'
             : (persisted.activeTab ?? currentState.activeTab)
+        const canvasExportSrt = typeof persisted.canvasExportSrt === 'boolean'
+          ? persisted.canvasExportSrt
+          : (typeof persisted.canvasExportAiTranscript === 'boolean' ? persisted.canvasExportAiTranscript : currentState.canvasExportSrt)
+        const canvasExportMarkdown = typeof persisted.canvasExportMarkdown === 'boolean'
+          ? persisted.canvasExportMarkdown
+          : (typeof persisted.canvasExportAiTranscript === 'boolean' ? persisted.canvasExportAiTranscript : currentState.canvasExportMarkdown)
+        const canvasAssignmentOptions: CanvasAssignmentExportOptions = {
+          ...currentState.canvasAssignmentOptions,
+          ...(persisted.canvasAssignmentOptions ?? {})
+        }
         return {
           ...currentState,
           ...persisted,
+          cloudDestRoot: persisted.cloudDestRoot ?? currentState.cloudDestRoot,
+          canvasExportSrt,
+          canvasExportMarkdown,
+          canvasExportAiTranscript: canvasExportSrt || canvasExportMarkdown,
+          canvasAssignmentOptions,
           activeTab
         }
       },
@@ -853,6 +919,7 @@ export const useAppStore = create<AppState>()(
         downloadMode: state.downloadMode,
         fileConflictStrategy: state.fileConflictStrategy,
         localDestRoot: state.localDestRoot,
+        cloudDestRoot: state.cloudDestRoot,
         cnmoocResourceFilter: state.cnmoocResourceFilter,
         autoDownloadUpdate: state.autoDownloadUpdate,
         maxDownloadSpeedKBps: state.maxDownloadSpeedKBps,
@@ -873,7 +940,10 @@ export const useAppStore = create<AppState>()(
         hasCompletedInitialSetup: state.hasCompletedInitialSetup,
         lastSetupVersion: state.lastSetupVersion,
         pptSaveImages: state.pptSaveImages,
-        canvasExportAiTranscript: state.canvasExportAiTranscript
+        canvasExportAiTranscript: state.canvasExportAiTranscript,
+        canvasExportSrt: state.canvasExportSrt,
+        canvasExportMarkdown: state.canvasExportMarkdown,
+        canvasAssignmentOptions: state.canvasAssignmentOptions
       })
     }
   )
