@@ -53,7 +53,7 @@ import { getIsQuitting } from '../window'
 import { emitProgress } from './progress'
 import { notifyConcurrencySlotAvailable } from '../canvas/orchestrator'
 import { sanitizeForLog } from '../canvas/safe-fetch'
-import { sanitizeFsName } from '../../shared/utils'
+import { sanitizeFsName, buildCloudRemoteSegments } from '../../shared/utils'
 import { ChunkedUploader, FileExistsError, deleteCloudFile, ensureFolderPath, startChunkedUpload, resumeChunkedUpload } from '../cloudpan'
 
 const CHUNK_SIZE = 4 * 1024 * 1024 // 4 MB per COS part
@@ -104,23 +104,17 @@ export function cloudScheduleNext(): void {
   }
 }
 
-/** 根据任务 spec 计算云盘远端路径 */
-export function cloudRemotePath(spec: DownloadTaskSpec): string {
-  const root = isCnmoocSpec(spec) ? CLOUD_CNMOOC_ROOT_FOLDER
-    : isCanvasSpec(spec) ? CLOUD_CANVAS_ROOT_FOLDER
-    : CLOUD_ROOT_FOLDER
-  // 逐段 sanitize，保留目录层级（Canvas courseName 的 "Canvas课程/" 前缀由 effectiveCourseName 剥掉）
-  return [root, ...effectiveCourseName(spec).split('/'), spec.fileName]
-    .map(sanitizeFsName)
-    .join('/')
-}
-
 /** 计算 ensureFolderPath 的参数列表（逐级创建文件夹） */
 export function cloudFolderSegments(spec: DownloadTaskSpec): string[] {
-  const root = isCnmoocSpec(spec) ? CLOUD_CNMOOC_ROOT_FOLDER
+  const defaultRoot = isCnmoocSpec(spec) ? CLOUD_CNMOOC_ROOT_FOLDER
     : isCanvasSpec(spec) ? CLOUD_CANVAS_ROOT_FOLDER
     : CLOUD_ROOT_FOLDER
-  return [root, ...effectiveCourseName(spec).split('/').map(sanitizeFsName)]
+  return buildCloudRemoteSegments(spec.cloudDestRoot, effectiveCourseName(spec).split('/'), defaultRoot)
+}
+
+/** 根据任务 spec 计算云盘远端路径 */
+export function cloudRemotePath(spec: DownloadTaskSpec): string {
+  return [...cloudFolderSegments(spec), sanitizeFsName(spec.fileName)].join('/')
 }
 
 async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {

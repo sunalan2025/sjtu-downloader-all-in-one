@@ -283,3 +283,41 @@ export function normalizeCloudPath(pathStr: string): string {
   return p || '/'
 }
 
+/**
+ * 根据用户设定的云盘根目录、子目录层级以及默认前缀，计算云盘远端目录分段数组 (folder segments)。
+ * - 若 destRoot 为 undefined：使用 defaultPrefix（若提供且非空则作为单元素数组 [sanitizeFsName(defaultPrefix)]，否则为空数组 []）；
+ * - 若 destRoot 存在且非空（去除首尾斜杠后）：
+ *   - 清洗后为空字符串（即 destRoot 原为 '/' 或 ''），表示用户指定直属云盘根目录，顶层目录段为空；
+ *   - 否则按 '/' 分割作为顶层目录层级（如 ['SJTU课程备份'] 或 ['我的课程']），各段经 sanitizeFsName 清洗；
+ * - 将 subSegments 经 sanitizeFsName 拼接在后返回。
+ */
+export function buildCloudRemoteSegments(
+  destRoot: string | undefined,
+  subSegments: string[],
+  defaultPrefix?: string
+): string[] {
+  let rootSegments: string[] = []
+  if (destRoot === undefined) {
+    if (defaultPrefix && defaultPrefix.trim()) {
+      rootSegments = [sanitizeFsName(defaultPrefix.trim())]
+    }
+  } else {
+    const trimmed = destRoot.trim().replace(/^\/+/, '').replace(/\/+$/, '')
+    if (trimmed.length > 0) {
+      rootSegments = trimmed
+        .split('/')
+        .map(s => s.trim())
+        .filter(Boolean)
+        .map(sanitizeFsName)
+    }
+  }
+
+  const cleanSubSegments = subSegments
+    .map(s => (s || '').trim())
+    .filter(Boolean)
+    .map(sanitizeFsName)
+
+  return [...rootSegments, ...cleanSubSegments]
+}
+
+

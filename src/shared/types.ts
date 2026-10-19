@@ -258,6 +258,8 @@ export interface DownloadTaskSpec {
   fileName: string
   /** 交大云盘 UserToken；存在时走云盘上传而非本地下载 */
   cloudUserToken?: string
+  /** 交大云盘目标保存根目录（如 '/SJTU课程备份' 或 '/'） */
+  cloudDestRoot?: string
   /** vod-info 资源 id，用于按需解析直链（lazy resolution） */
   refId?: number
   /** 视角：0=教师, 3=PPT */

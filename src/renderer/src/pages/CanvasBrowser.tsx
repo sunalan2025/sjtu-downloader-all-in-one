@@ -962,7 +962,8 @@ export function CanvasBrowser() {
       mode: st.downloadMode,
       conflictStrategy: st.fileConflictStrategy,
       localDestRoot: st.downloadMode !== 'cloud' ? st.localDestRoot : undefined,
-      namingTemplate: st.namingTemplate
+      namingTemplate: st.namingTemplate,
+      cloudDestRoot: st.cloudDestRoot
     }
 
     // ── 等待一门课的所有任务完成（done/skipped/error/cancelled） ──
@@ -1107,7 +1108,9 @@ export function CanvasBrowser() {
             if (r.ok && r.specs) courseSpecs.push(...r.specs)
 
             // AI 语音逐字稿与字幕导出 (.srt / .md)
-            if (useAppStore.getState().canvasExportAiTranscript && needsLocal) {
+            const exportSrt = useAppStore.getState().canvasExportSrt
+            const exportMarkdown = useAppStore.getState().canvasExportMarkdown
+            if ((exportSrt || exportMarkdown) && needsLocal) {
               const transcriptTaskId = `canvas_transcript_${courseId}`
               useAppStore.getState().addBatchTaskIds([transcriptTaskId])
               snap.applyProgress({
@@ -1123,6 +1126,8 @@ export function CanvasBrowser() {
                   courseName,
                   term: c.term,
                   destRoot: st.localDestRoot,
+                  exportSrt,
+                  exportMarkdown,
                   lectures: lectureItems.map(l => ({
                     lectureName: `第${l.lectureNum}讲 ${l.teacher?.videoName || ''}`.trim(),
                     videoBaseName: `${l.teacher?.beginTime.split(' ')[0] || ''}-${l.teacher?.teacher || ''}-${l.teacher?.classroom || ''}-第${l.lectureNum}讲`,
@@ -1220,7 +1225,8 @@ export function CanvasBrowser() {
                 cloudUserToken: cloudToken,
                 conflictStrategy: st.fileConflictStrategy,
                 term: c.term,
-                saveImages: useAppStore.getState().pptSaveImages
+                saveImages: useAppStore.getState().pptSaveImages,
+                cloudDestRoot: st.cloudDestRoot
               })
               const successCount = r.results?.filter(x => x.ok && !x.skipped).length ?? 0
               const skippedCount = r.results?.filter(x => x.skipped).length ?? 0
@@ -1268,6 +1274,7 @@ export function CanvasBrowser() {
             const assignTaskId = `canvas_assign_batch_${courseId}`
             useAppStore.getState().addBatchTaskIds([assignTaskId])
             snap.applyProgress({ taskId: assignTaskId, state: 'pending', received: 0, total: selAssignments.length, message: `正在归档作业 (${selAssignments.length} 项)…` })
+            const assignmentOptions = useAppStore.getState().canvasAssignmentOptions
             try {
               const r = await window.api.canvas.downloadAssignments({
                 taskId: assignTaskId,
@@ -1276,7 +1283,8 @@ export function CanvasBrowser() {
                 assignments: selAssignments,
                 destRoot: needsLocal ? st.localDestRoot : '',
                 term: c.term,
-                conflictStrategy: st.fileConflictStrategy
+                conflictStrategy: st.fileConflictStrategy,
+                options: assignmentOptions
               })
               const successCount = r.results?.filter(x => x.ok).length ?? 0
               const failCount = (r.results?.length ?? 0) - successCount
@@ -1418,7 +1426,8 @@ export function CanvasBrowser() {
             courseName, mvt.iframeUrl, mvt.baseName, localDestForIframe, mvt.taskId,
             cloudToken, cloudToken ? st.fileConflictStrategy : undefined,
             useAppStore.getState().videoQualityOption,
-            c.term || ''
+            c.term || '',
+            st.cloudDestRoot
           )
           if (r.ok) {
             if (r.skipped) {

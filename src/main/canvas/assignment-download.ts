@@ -18,7 +18,8 @@ import * as cheerio from 'cheerio'
 import type {
   CanvasAssignmentItem,
   CanvasAssignmentFile,
-  CanvasAssignmentComment
+  CanvasAssignmentComment,
+  CanvasAssignmentExportOptions
 } from '../../shared/types'
 import { CANVAS_BASE_URL } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
@@ -260,6 +261,7 @@ export interface AssignmentDownloadOpts {
   term?: string
   conflictStrategy?: 'skip' | 'overwrite'
   cloudUserToken?: string
+  options?: CanvasAssignmentExportOptions
 }
 
 /** 单个作业全量归档下载 */
@@ -269,22 +271,28 @@ export async function downloadAssignmentArchive(
   onProgress?: (phase: string) => void
 ): Promise<{ ok: boolean; path?: string; skipped?: boolean; error?: string }> {
   try {
-    const { courseName, assignment, destRoot, term, conflictStrategy = 'skip' } = opts
+    const { courseName, assignment, destRoot, term, conflictStrategy = 'skip', options } = opts
     const base = destRoot || mkdtempSync(join(tmpdir(), 'sjtu-canvas-assign-'))
     const cPath = canvasCoursePath(courseName, term)
     const assignDirName = sanitizeFsName(assignment.name)
     const outDir = join(base, 'Canvas课程', cPath, 'assignments', assignDirName)
 
+    const exportMd = options?.exportMarkdown ?? true
+    const dlAtt = options?.downloadAttachments ?? true
+    const dlSub = options?.downloadSubmissions ?? true
+
     mkdirSync(outDir, { recursive: true })
-    onProgress?.(`生成说明文档: ${assignment.name}`)
 
     // 1. 编译并保存《作业说明与评语.md》
-    const mdPath = join(outDir, '作业说明与评语.md')
-    const mdContent = compileAssignmentMarkdown(assignment)
-    writeFileSync(mdPath, mdContent, 'utf-8')
+    if (exportMd) {
+      onProgress?.(`生成说明文档: ${assignment.name}`)
+      const mdPath = join(outDir, '作业说明与评语.md')
+      const mdContent = compileAssignmentMarkdown(assignment)
+      writeFileSync(mdPath, mdContent, 'utf-8')
+    }
 
     // 2. 下载题目附件
-    if (assignment.teacherAttachments.length > 0) {
+    if (dlAtt && assignment.teacherAttachments.length > 0) {
       const attDir = join(outDir, 'attachments')
       mkdirSync(attDir, { recursive: true })
       for (let i = 0; i < assignment.teacherAttachments.length; i++) {
@@ -298,7 +306,7 @@ export async function downloadAssignmentArchive(
     }
 
     // 3. 下载学生本人提交原件
-    if (assignment.submissionFiles.length > 0) {
+    if (dlSub && assignment.submissionFiles.length > 0) {
       const subDir = join(outDir, 'submissions')
       mkdirSync(subDir, { recursive: true })
       for (let i = 0; i < assignment.submissionFiles.length; i++) {

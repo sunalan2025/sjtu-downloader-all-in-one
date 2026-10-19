@@ -152,6 +152,68 @@ describe('Canvas Assignment Archive Unit Tests', () => {
       try { rmSync(testDir, { recursive: true, force: true }) } catch {}
     })
 
+    it('respects fine-grained export options to skip markdown, attachments, or submissions', async () => {
+      const testDir = mkdtempSync(join(tmpdir(), 'sjtu-assign-opts-test-'))
+      const sampleItem: CanvasAssignmentItem = {
+        ...sampleAssignment,
+        id: 777,
+        name: '期中作业_选项测试',
+        teacherAttachments: [{ id: 1, name: '指导书.txt', url: 'http://test/file1' }],
+        submissionFiles: [{ id: 2, name: '提交.txt', url: 'http://test/file2' }],
+        comments: []
+      }
+
+      const mockSes = {
+        fetch: vi.fn().mockImplementation(async (url: string) => {
+          return {
+            ok: true,
+            arrayBuffer: async () => Buffer.from(`content of ${url}`)
+          }
+        })
+      } as any
+
+      // 1. Skip markdown only
+      const resNoMd = await downloadAssignmentArchive(mockSes, {
+        courseName: '生物化学',
+        courseId: 93803,
+        assignment: sampleItem,
+        destRoot: testDir,
+        options: { exportMarkdown: false, downloadAttachments: true, downloadSubmissions: true }
+      })
+      expect(resNoMd.ok).toBe(true)
+      expect(existsSync(join(resNoMd.path!, '作业说明与评语.md'))).toBe(false)
+      expect(existsSync(join(resNoMd.path!, 'attachments', '指导书.txt'))).toBe(true)
+      expect(existsSync(join(resNoMd.path!, 'submissions', '提交.txt'))).toBe(true)
+
+      // 2. Skip attachments only
+      const resNoAtt = await downloadAssignmentArchive(mockSes, {
+        courseName: '生物化学',
+        courseId: 93803,
+        assignment: { ...sampleItem, name: '期中作业_无附件' },
+        destRoot: testDir,
+        options: { exportMarkdown: true, downloadAttachments: false, downloadSubmissions: true }
+      })
+      expect(resNoAtt.ok).toBe(true)
+      expect(existsSync(join(resNoAtt.path!, '作业说明与评语.md'))).toBe(true)
+      expect(existsSync(join(resNoAtt.path!, 'attachments'))).toBe(false)
+      expect(existsSync(join(resNoAtt.path!, 'submissions', '提交.txt'))).toBe(true)
+
+      // 3. Skip submissions only
+      const resNoSub = await downloadAssignmentArchive(mockSes, {
+        courseName: '生物化学',
+        courseId: 93803,
+        assignment: { ...sampleItem, name: '期中作业_无提交' },
+        destRoot: testDir,
+        options: { exportMarkdown: true, downloadAttachments: true, downloadSubmissions: false }
+      })
+      expect(resNoSub.ok).toBe(true)
+      expect(existsSync(join(resNoSub.path!, '作业说明与评语.md'))).toBe(true)
+      expect(existsSync(join(resNoSub.path!, 'attachments', '指导书.txt'))).toBe(true)
+      expect(existsSync(join(resNoSub.path!, 'submissions'))).toBe(false)
+
+      try { rmSync(testDir, { recursive: true, force: true }) } catch {}
+    })
+
     it('falls back to mkdtempSync-created secure temp directory when destRoot is empty', async () => {
       const mockSes = {
         fetch: vi.fn()

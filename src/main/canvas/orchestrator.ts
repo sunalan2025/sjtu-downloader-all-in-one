@@ -21,8 +21,10 @@ import {
   type CanvasTeacherSelection,
   type CanvasVideoSession,
   type CourseResourceSummary,
-  type VideoQualityOption
+  type VideoQualityOption,
+  type CanvasAssignmentExportOptions
 } from '../../shared/types'
+import { buildCloudRemoteSegments } from '../../shared/utils'
 import {
   fetchCourseAssignments,
   downloadAssignmentArchive
@@ -964,7 +966,8 @@ export function registerCanvasHandlers(): void {
       cloudUserToken?: string,
       conflictStrategy?: 'skip' | 'overwrite',
       qualityOption?: number | string,
-      term?: string
+      term?: string,
+      cloudDestRoot?: string
     ) => {
       try {
         const session = getSession()
@@ -976,7 +979,11 @@ export function registerCanvasHandlers(): void {
 
         const strategy = conflictStrategy ?? 'skip'
         // 云盘远端路径用 sanitizeFsName（与原行为一致）；本地 mp4/ts 用原始 baseName（downloadModuleVideo 内部如此）
-        const remotePathBase = `SJTU Canvas课程/${cPath}/videos/单元视频/${sanitizeFsName(baseName)}`
+        const remotePathBase = buildCloudRemoteSegments(
+          cloudDestRoot,
+          [...cPath.split('/'), 'videos', '单元视频', sanitizeFsName(baseName)],
+          'SJTU Canvas课程'
+        ).join('/')
         const localMp4 = join(videosDir, `${baseName}.mp4`)
         const localTs = join(videosDir, `${baseName}.ts`)
 
@@ -1111,7 +1118,7 @@ export function registerCanvasHandlers(): void {
       videoSession?: { beginTime: string; teacher: string; classroom: string }
     },
     baseOpts: { courseName: string; destRoot: string; term?: string; saveImages?: boolean },
-    cloudOpts: { cloudUserToken?: string; conflictStrategy?: 'skip' | 'overwrite' },
+    cloudOpts: { cloudUserToken?: string; conflictStrategy?: 'skip' | 'overwrite'; cloudDestRoot?: string },
     cPath: string,
     taskId: string | undefined,
     onLectureProgress: (imgCurrent: number, imgTotal: number, phase: string) => void
@@ -1133,7 +1140,11 @@ export function registerCanvasHandlers(): void {
     // 内部 deleteCloudFile 处理）；both 模式本地需要 PDF，不提前查（云端 skip 由 uploadLocalFileToCloud 兜底）。
     if (cloudOpts.cloudUserToken && !baseOpts.destRoot && (cloudOpts.conflictStrategy ?? 'skip') === 'skip') {
       const fileName = buildPptFileNameForLecture(lecture.lectureName, lecture.videoSession)
-      const remotePath = `SJTU Canvas课程/${cPath}/videos/课堂视频/${fileName}`
+      const remotePath = buildCloudRemoteSegments(
+        cloudOpts.cloudDestRoot,
+        [...cPath.split('/'), 'videos', '课堂视频', fileName],
+        'SJTU Canvas课程'
+      ).join('/')
       if (await cloudFileExists(cloudOpts.cloudUserToken, remotePath)) {
         console.log(`[ppt] 云盘已存在，跳过: ${remotePath}`)
         return { ok: true, skipped: true, cloudPath: remotePath }
@@ -1163,7 +1174,11 @@ export function registerCanvasHandlers(): void {
     if (!cloudOpts.cloudUserToken) {
       return { ok: true, skipped: result.skipped, path: result.path }
     }
-    const remotePath = `SJTU Canvas课程/${cPath}/videos/课堂视频/${result.fileName}`
+    const remotePath = buildCloudRemoteSegments(
+      cloudOpts.cloudDestRoot,
+      [...cPath.split('/'), 'videos', '课堂视频', result.fileName],
+      'SJTU Canvas课程'
+    ).join('/')
     if (taskId) {
       emitToRenderer('canvas:ppt-progress', {
         taskId, ivsVideoId: lecture.ivsVideoId,
@@ -1213,6 +1228,7 @@ export function registerCanvasHandlers(): void {
     term?: string
     videoSession?: { beginTime: string; teacher: string; classroom: string }
     saveImages?: boolean
+    cloudDestRoot?: string
   }) => {
     try {
       const session = getSession()
@@ -1225,7 +1241,7 @@ export function registerCanvasHandlers(): void {
         session, token,
         { ivsVideoId: opts.ivsVideoId, lectureName: opts.lectureName, videoSession: opts.videoSession },
         { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages },
-        { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy },
+        { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy, cloudDestRoot: opts.cloudDestRoot },
         cPath, opts.taskId,
         (current, total, phase) => {
           emitToRenderer('canvas:ppt-progress', {
@@ -1252,6 +1268,7 @@ export function registerCanvasHandlers(): void {
     conflictStrategy?: 'skip' | 'overwrite'
     term?: string
     saveImages?: boolean
+    cloudDestRoot?: string
   }) => {
     try {
       const session = getSession()
@@ -1279,7 +1296,7 @@ export function registerCanvasHandlers(): void {
         const result = await runPptLecture(
           session, token, lecture,
           { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages },
-          { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy },
+          { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy, cloudDestRoot: opts.cloudDestRoot },
           cPath, taskId,
           (imgCurrent, imgTotal, phase) => {
             // 讲次级 current/total 不变，图片进度折进 phase
@@ -1318,6 +1335,7 @@ export function registerCanvasHandlers(): void {
     destRoot: string
     term?: string
     conflictStrategy?: 'skip' | 'overwrite'
+    options?: CanvasAssignmentExportOptions
   }) => {
     try {
       const session = getSession()
@@ -1347,7 +1365,8 @@ export function registerCanvasHandlers(): void {
             assignment,
             destRoot: opts.destRoot,
             term: opts.term,
-            conflictStrategy: opts.conflictStrategy
+            conflictStrategy: opts.conflictStrategy,
+            options: opts.options
           },
           (phase) => {
             if (!taskId) return

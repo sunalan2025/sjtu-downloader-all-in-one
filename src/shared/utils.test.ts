@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeFsName, formatPathFromTemplate, formatBytes } from './utils'
+import { sanitizeFsName, formatPathFromTemplate, formatBytes, buildCloudRemoteSegments } from './utils'
 import { getDynamicChunkSize } from '../main/cloudpan'
 
 describe('sanitizeFsName', () => {
@@ -78,5 +78,41 @@ describe('formatBytes', () => {
     expect(formatBytes(1024 * 1024 * 1024 * 1024 * 1.5)).toBe('1.50 TB')
   })
 })
+
+describe('buildCloudRemoteSegments', () => {
+  it('falls back to defaultPrefix when destRoot is undefined', () => {
+    const res = buildCloudRemoteSegments(undefined, ['2026-2027学年', '软件工程'], 'SJTU Canvas课程')
+    expect(res).toEqual(['SJTU Canvas课程', '2026-2027学年', '软件工程'])
+  })
+
+  it('omits prefix when destRoot is undefined and defaultPrefix is not provided', () => {
+    const res = buildCloudRemoteSegments(undefined, ['2026-2027学年', '软件工程'])
+    expect(res).toEqual(['2026-2027学年', '软件工程'])
+  })
+
+  it('uses clean top-level folder when destRoot is specified', () => {
+    const res = buildCloudRemoteSegments('/SJTU课程备份', ['2026-2027学年', '软件工程'], 'SJTU Canvas课程')
+    expect(res).toEqual(['SJTU课程备份', '2026-2027学年', '软件工程'])
+  })
+
+  it('supports multi-level destRoot paths and strips leading/trailing slashes', () => {
+    const res = buildCloudRemoteSegments('///我的归档/课程备份///', ['2026-2027学年', '软件工程'])
+    expect(res).toEqual(['我的归档', '课程备份', '2026-2027学年', '软件工程'])
+  })
+
+  it('treats "/" or empty destRoot as root directory without any prefix', () => {
+    const resSlash = buildCloudRemoteSegments('/', ['2026-2027学年', '软件工程'], 'SJTU Canvas课程')
+    expect(resSlash).toEqual(['2026-2027学年', '软件工程'])
+
+    const resEmpty = buildCloudRemoteSegments('', ['2026-2027学年', '软件工程'], 'SJTU Canvas课程')
+    expect(resEmpty).toEqual(['2026-2027学年', '软件工程'])
+  })
+
+  it('sanitizes illegal file system characters in both root and sub-segments', () => {
+    const res = buildCloudRemoteSegments('/备:份*目录?/', ['学期|1', '软件<工程>'])
+    expect(res).toEqual(['备_份_目录_', '学期_1', '软件_工程_'])
+  })
+})
+
 
 

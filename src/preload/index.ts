@@ -5,6 +5,7 @@ import type {
   AuditCourseItem,
   AuthStatus,
   CanvasAssignmentItem,
+  CanvasAssignmentExportOptions,
   CanvasCourse,
   CanvasDownloadTaskSpec,
   CanvasFileItem,
@@ -138,7 +139,7 @@ const api = {
   },
   download: {
     /** 提交一批下载任务，支持 local/cloud/both 三种模式 */
-    start: (destRoot: string, tasks: DownloadTaskSpec[], options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string }): Promise<{ ok: boolean; error?: string }> =>
+    start: (destRoot: string, tasks: DownloadTaskSpec[], options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string; cloudDestRoot?: string }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('download:start', destRoot, tasks, options),
     /** 暂停单个任务（本地+云端同时尝试） */
     pause: (taskId: string): Promise<{ ok: boolean }> =>
@@ -291,9 +292,10 @@ const api = {
       cloudUserToken?: string,
       conflictStrategy?: FileConflictStrategy,
       qualityOption?: number | string,
-      term?: string
+      term?: string,
+      cloudDestRoot?: string
     ): Promise<{ ok: boolean; skipped?: boolean; path?: string; format?: string; cloudPath?: string; error?: string }> =>
-      ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot, taskId, cloudUserToken, conflictStrategy, qualityOption, term),
+      ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot, taskId, cloudUserToken, conflictStrategy, qualityOption, term, cloudDestRoot),
     /** 下载指定讲次列表（按 lectureItems 按需解析流直链） */
     downloadLectures: (
       courseName: string,
@@ -317,6 +319,7 @@ const api = {
       destRoot: string
       term?: string
       conflictStrategy?: FileConflictStrategy
+      options?: CanvasAssignmentExportOptions
     }): Promise<{
       ok: boolean
       results?: Array<{ assignmentName: string; ok: boolean; path?: string; error?: string }>
@@ -405,6 +408,7 @@ const api = {
       term?: string
       videoSession?: { beginTime: string; teacher: string; classroom: string }
       saveImages?: boolean
+      cloudDestRoot?: string
     }): Promise<{ ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download', opts),
     /** 批量下载多讲 PPT 课件（可选云盘上传）。进度事件 canvas:ppt-progress 带 taskId，
@@ -418,6 +422,7 @@ const api = {
       conflictStrategy?: FileConflictStrategy
       term?: string
       saveImages?: boolean
+      cloudDestRoot?: string
     }): Promise<{ ok: boolean; results?: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }>; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download-batch', opts),
     /** 订阅 PPT 下载进度事件（含 taskId，用于映射到 UI 进度条） */

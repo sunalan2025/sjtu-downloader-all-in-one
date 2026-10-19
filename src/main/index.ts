@@ -651,7 +651,7 @@ app.whenReady().then(async () => {
       _e,
       destRoot: string,
       specs: DownloadTaskSpec[],
-      options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string }
+      options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string; cloudDestRoot?: string }
     ): Promise<{ ok: boolean; error?: string }> => {
       try {
         // [2.1] IPC input validation: bound batch size, validate spec array
@@ -748,8 +748,17 @@ app.whenReady().then(async () => {
         // ─── 云盘上传 ───
         if ((mode === 'cloud' || mode === 'both') && cloudToken) {
           const cloudSpecs = mode === 'both'
-            ? specs.map(s => ({ ...s, taskId: s.taskId + '_cloud', cloudUserToken: cloudToken }))
-            : specs.map(s => ({ ...s, cloudUserToken: cloudToken }))
+            ? specs.map(s => ({
+                ...s,
+                taskId: s.taskId + '_cloud',
+                cloudUserToken: cloudToken,
+                cloudDestRoot: options?.cloudDestRoot ?? s.cloudDestRoot
+              }))
+            : specs.map(s => ({
+                ...s,
+                cloudUserToken: cloudToken,
+                cloudDestRoot: options?.cloudDestRoot ?? s.cloudDestRoot
+              }))
           for (const spec of cloudSpecs) {
             // PERF: O(1) duplicate-check via index Sets instead of O(n) .some() scans
             if (cloudTasks.has(spec.taskId)) {
