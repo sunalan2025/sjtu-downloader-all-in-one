@@ -797,6 +797,7 @@ export interface ScheduleEvent {
   score?: number | null
   pointsPossible?: number | null
   htmlUrl?: string
+  isLockAtDeadline?: boolean // 标记该截止时间是否由 lock_at（锁定/关闭时间）继承而来（如大学物理等未设置 due_at 的课程）
   // 日历类别（如 "课程", "会议", "私人"）
   calendarName?: string
   // 教务排课与大课扩展

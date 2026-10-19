@@ -466,29 +466,90 @@ async function fetchCanvasUpcomingEventsFallback(
       start_at?: string
       end_at?: string
       due_at?: string
+      lock_at?: string
       context_name?: string
       html_url?: string
       description?: string
+      points_possible?: number | null
+      submission?: {
+        workflow_state?: string
+        score?: number | null
+        grade?: string | null
+        submitted_at?: string | null
+        attempt?: number | null
+        late?: boolean
+        missing?: boolean
+      } | null
+      assignment?: {
+        id?: number
+        title?: string
+        name?: string
+        due_at?: string | null
+        lock_at?: string | null
+        end_at?: string | null
+        start_at?: string | null
+        points_possible?: number | null
+        submission?: {
+          workflow_state?: string
+          score?: number | null
+          grade?: string | null
+          submitted_at?: string | null
+          attempt?: number | null
+          late?: boolean
+          missing?: boolean
+        } | null
+      }
     }>
 
     if (!Array.isArray(items)) return []
 
+    const now = Date.now()
     return items
-      .filter(item => item.end_at || item.start_at || item.due_at)
+      .filter(item => item.end_at || item.start_at || item.due_at || item.lock_at || item.assignment?.due_at || item.assignment?.lock_at)
       .map(item => {
-        const rawTime = item.end_at || item.start_at || item.due_at || ''
-        const localTime = formatToLocalDateTime(rawTime)
+        const assignment = item.assignment
+        const dueTime = item.due_at || assignment?.due_at || item.end_at || item.start_at || ''
+        const lockTime = item.lock_at || assignment?.lock_at || ''
+        const rawTime = dueTime || lockTime
+        const isLockAtDeadline = !dueTime && Boolean(lockTime)
+        const localTime = rawTime ? formatToLocalDateTime(rawTime) : ''
         const normalizedUrl = normalizeCanvasUrl(item.html_url)
+
+        const sub = item.submission || assignment?.submission
+        const ws = sub?.workflow_state
+        const isSubmitted =
+          ws === 'submitted' ||
+          ws === 'graded' ||
+          ws === 'pending_review' ||
+          Boolean(sub?.submitted_at) ||
+          (typeof sub?.attempt === 'number' && sub.attempt > 0)
+
+        let subStatus: 'submitted' | 'unsubmitted' | 'graded' | 'missing' = 'unsubmitted'
+        if (ws === 'graded') {
+          subStatus = 'graded'
+        } else if (isSubmitted) {
+          subStatus = 'submitted'
+        } else if (sub?.missing === true) {
+          subStatus = 'missing'
+        } else if (rawTime && new Date(rawTime).getTime() < now) {
+          subStatus = 'missing'
+        } else {
+          subStatus = 'unsubmitted'
+        }
+
         return {
           id: `canvas-ddl-${item.id}`,
-          title: item.title || item.name || '未命名作业',
+          title: item.title || item.name || assignment?.title || assignment?.name || '未命名作业',
           startTime: localTime,
           endTime: localTime,
           type: 'assignment_ddl' as const,
           courseName: item.context_name,
           description: normalizedUrl ? `作业链接: ${normalizedUrl}` : item.description,
           htmlUrl: normalizedUrl || undefined,
-          submissionStatus: 'unsubmitted' as const
+          pointsPossible: item.points_possible ?? assignment?.points_possible,
+          score: sub?.score,
+          submissionStatus: subStatus,
+          isLockAtDeadline
         }
       })
   } catch {
@@ -504,41 +565,56 @@ export async function fetchCanvasUpcomingDeadlines(
     // 关键：确保 Canvas OIDC SSO 握手完成并落盘 _normandy_session
     await ensureCanvasLogin().catch(() => false)
 
-    // 1. 获取用户活跃课程列表（优先收藏夹）
-    let courses: Array<{ id: number; name?: string; title?: string }> = []
-    const favResp = await safeFetch(ses, `${CANVAS_BASE}/api/v1/users/self/favorites/courses`, {
-      method: 'GET',
-      headers: { Accept: 'application/json', Referer: `${CANVAS_BASE}/` }
-    }).catch(() => null)
+    // 1. 获取用户活跃课程列表（并发获取收藏夹课程与活跃课程，去重合并）
+    const courseMap = new Map<number, { id: number; name?: string; title?: string }>()
 
-    if (favResp && favResp.ok) {
-      const raw = await favResp.json().catch(() => [])
-      if (Array.isArray(raw)) {
-        // 区分是课程列表还是作业列表（防 mock 混用）
-        if (raw.length > 0 && (raw[0].name || raw[0].course_code)) {
-          courses = raw as Array<{ id: number; name?: string; title?: string }>
+    const addCourses = (rawList: unknown) => {
+      if (!Array.isArray(rawList)) return
+      for (const item of rawList) {
+        if (item && typeof item === 'object' && 'id' in item) {
+          const c = item as { id: number; name?: string; course_code?: string; title?: string }
+          if (c.id && (c.name || c.course_code)) {
+            if (!courseMap.has(c.id)) {
+              courseMap.set(c.id, {
+                id: c.id,
+                name: c.name || c.course_code || c.title || `Course ${c.id}`,
+                title: c.name || c.title || c.course_code
+              })
+            }
+          }
         }
       }
     }
 
-    if (!Array.isArray(courses) || courses.length === 0) {
-      const activeResp = await safeFetch(ses, `${CANVAS_BASE}/api/v1/courses?enrollment_state=active&per_page=50`, {
+    const [favResp, activeResp] = await Promise.all([
+      safeFetch(ses, `${CANVAS_BASE}/api/v1/users/self/favorites/courses`, {
+        method: 'GET',
+        headers: { Accept: 'application/json', Referer: `${CANVAS_BASE}/` }
+      }).catch(() => null),
+      safeFetch(ses, `${CANVAS_BASE}/api/v1/courses?enrollment_state=active&per_page=100&include[]=term`, {
         method: 'GET',
         headers: { Accept: 'application/json', Referer: `${CANVAS_BASE}/` }
       }).catch(() => null)
-      if (activeResp && activeResp.ok) {
-        const raw = await activeResp.json().catch(() => [])
-        if (Array.isArray(raw) && raw.length > 0 && (raw[0].name || raw[0].course_code)) {
-          courses = raw as Array<{ id: number; name?: string; title?: string }>
-        }
-      }
+    ])
+
+    if (favResp && favResp.ok) {
+      const raw = await favResp.json().catch(() => [])
+      addCourses(raw)
     }
 
-    if (!Array.isArray(courses) || courses.length === 0) {
+    if (activeResp && activeResp.ok) {
+      const raw = await activeResp.json().catch(() => [])
+      addCourses(raw)
+    }
+
+    const courses = Array.from(courseMap.values())
+
+    if (courses.length === 0) {
       return await fetchCanvasUpcomingEventsFallback(ses)
     }
 
     // 2. 并发拉取每门课程的作业列表（包含个人提交详情）
+    const now = Date.now()
     const courseAssignmentPromises = courses.map(async course => {
       try {
         const url = `${CANVAS_BASE}/api/v1/courses/${course.id}/assignments?include[]=submission&per_page=100`
@@ -554,16 +630,17 @@ export async function fetchCanvasUpcomingDeadlines(
           name?: string
           description?: string
           due_at?: string | null
+          lock_at?: string | null
           end_at?: string | null
           start_at?: string | null
           html_url?: string
           points_possible?: number | null
-          has_submitted_submissions?: boolean
           submission?: {
             workflow_state?: string
             score?: number | null
             grade?: string | null
             submitted_at?: string | null
+            attempt?: number | null
             late?: boolean
             missing?: boolean
           } | null
@@ -571,16 +648,34 @@ export async function fetchCanvasUpcomingDeadlines(
 
         if (!Array.isArray(assignments)) return []
 
-        const now = Date.now()
         return assignments.map(a => {
-          const rawTime = a.due_at || a.end_at || a.start_at || ''
+          const dueTime = a.due_at || a.end_at || a.start_at || ''
+          const lockTime = a.lock_at || ''
+          const rawTime = dueTime || lockTime
+          const isLockAtDeadline = !dueTime && Boolean(lockTime)
           const localTime = rawTime ? formatToLocalDateTime(rawTime) : ''
 
+          const sub = a.submission
+          const ws = sub?.workflow_state
+          const isSubmitted =
+            ws === 'submitted' ||
+            ws === 'graded' ||
+            ws === 'pending_review' ||
+            Boolean(sub?.submitted_at) ||
+            (typeof sub?.attempt === 'number' && sub.attempt > 0)
+
           let subStatus: 'submitted' | 'unsubmitted' | 'graded' | 'missing' = 'unsubmitted'
-          const ws = a.submission?.workflow_state
-          if (ws === 'graded') subStatus = 'graded'
-          else if (ws === 'submitted' || a.has_submitted_submissions) subStatus = 'submitted'
-          else if (rawTime && new Date(rawTime).getTime() < now) subStatus = 'missing'
+          if (ws === 'graded') {
+            subStatus = 'graded'
+          } else if (isSubmitted) {
+            subStatus = 'submitted'
+          } else if (sub?.missing === true) {
+            subStatus = 'missing'
+          } else if (rawTime && new Date(rawTime).getTime() < now) {
+            subStatus = 'missing'
+          } else {
+            subStatus = 'unsubmitted'
+          }
 
           const rawUrl = a.html_url || (course.id && a.id ? `${CANVAS_BASE}/courses/${course.id}/assignments/${a.id}` : undefined)
           const normalizedUrl = normalizeCanvasUrl(rawUrl)
@@ -596,7 +691,8 @@ export async function fetchCanvasUpcomingDeadlines(
             htmlUrl: normalizedUrl || undefined,
             pointsPossible: a.points_possible,
             score: a.submission?.score,
-            submissionStatus: subStatus
+            submissionStatus: subStatus,
+            isLockAtDeadline
           }
         })
       } catch (err) {
