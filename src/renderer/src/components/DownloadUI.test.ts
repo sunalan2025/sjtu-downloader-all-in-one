@@ -713,13 +713,37 @@ describe('CloudPan Miller Columns Multi-Level Hydration & Auto-Penetration Suite
 })
 
 describe('macOS Finder Alignment & Vector Icon Suite', () => {
-  it('MacOSFolderIcon renders valid SVG structure with customizable dimensions', () => {
+  it('MacOSFolderIcon renders robust pure-vector layered SVG structure without fragile gradients', () => {
+    // 默认参数与自定义尺寸测试
+    const defaultIcon = MacOSFolderIcon({})
+    expect(defaultIcon.type).toBe('svg')
+    expect(defaultIcon.props.width).toBe(64)
+    expect(defaultIcon.props.height).toBe(64)
+    expect(defaultIcon.props.viewBox).toBe('0 0 100 80')
+
     const vnode = MacOSFolderIcon({ size: 80, className: 'custom-class' })
     expect(vnode.type).toBe('svg')
     expect(vnode.props.width).toBe(80)
     expect(vnode.props.height).toBe(80)
     expect(vnode.props.className).toContain('custom-class')
     expect(vnode.props.viewBox).toBe('0 0 100 80')
+
+    const json = JSON.stringify(vnode)
+    // 关键铁律：彻底移除导致全局冲突与透明失效的脆弱 defs 和 linearGradient
+    expect(json).not.toContain('defs')
+    expect(json).not.toContain('linearGradient')
+    expect(json).not.toContain('url(#')
+
+    // 纯矢量分层与实体色彩填充断言：背板(#2563EB)、内衬与投影(#1D4ED8)、纸张(#DBEAFE)、前盖天蓝(#3B82F6)、高光(#93C5FD)
+    expect(json).toContain('#2563EB')
+    expect(json).toContain('#1D4ED8')
+    expect(json).toContain('#DBEAFE')
+    expect(json).toContain('#3B82F6')
+    expect(json).toContain('#93C5FD')
+
+    // 纯矢量层级包含 6 个图层元素 (path, rect, rect, path, path, path)
+    const children = vnode.props.children.filter(Boolean)
+    expect(children.length).toBe(6)
   })
 
   it('MacOSDocumentIcon correctly categorizes file types and ribbons', () => {

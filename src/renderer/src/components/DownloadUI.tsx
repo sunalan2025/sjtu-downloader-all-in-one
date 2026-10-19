@@ -874,40 +874,31 @@ export function MacOSFolderIcon({
       xmlns="http://www.w3.org/2000/svg"
       className={`drop-shadow-sm select-none shrink-0 ${className}`}
     >
-      <defs>
-        {/* macOS 天蓝色渐变 - 背板 */}
-        <linearGradient id="macFolderBackGrad" x1="50" y1="6" x2="50" y2="76" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#2563EB" />
-          <stop offset="100%" stopColor="#1D4ED8" />
-        </linearGradient>
-        {/* macOS 明亮天蓝色渐变 - 前板 */}
-        <linearGradient id="macFolderFrontGrad" x1="50" y1="22" x2="50" y2="76" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#60A5FA" />
-          <stop offset="14%" stopColor="#3B82F6" />
-          <stop offset="100%" stopColor="#1D4ED8" />
-        </linearGradient>
-        {/* 顶部高光微弱线条 */}
-        <linearGradient id="macFolderLipGrad" x1="50" y1="22" x2="50" y2="28" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#93C5FD" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {/* 文件夹背板与上方 Tab */}
+      {/* 1. 文件夹深蓝背板与上方 Tab */}
       <path
         d="M6 14C6 9.58172 9.58172 6 14 6H34.5C37.5 6 40.2 7.8 41.5 10.5L43.8 15H86C90.4183 15 94 18.5817 94 23V68C94 72.4183 90.4183 76 86 76H14C9.58172 76 6 72.4183 6 68V14Z"
-        fill="url(#macFolderBackGrad)"
+        fill="#2563EB"
       />
-      {/* 文件夹内衬暗部 */}
-      <rect x="10" y="18" width="80" height="20" rx="4" fill="#1E40AF" fillOpacity="0.3" />
-      {/* 文件夹前盖 */}
+      {/* 2. 文件夹开口暗色内衬 */}
+      <rect x="10" y="17" width="80" height="15" rx="3" fill="#1D4ED8" />
+      {/* 3. 文件夹露出纸张微白横条（提供细腻物理拟物感） */}
+      <rect x="16" y="14" width="68" height="6" rx="2" fill="#DBEAFE" fillOpacity="0.9" />
+      {/* 4. 文件夹主前盖（经典 Apple macOS 天蓝色） */}
       <path
-        d="M6 28C6 24.6863 8.68629 22 12 22H88C91.3137 22 94 24.6863 94 28V68C94 72.4183 90.4183 76 86 76H14C9.58172 76 6 72.4183 6 68V28Z"
-        fill="url(#macFolderFrontGrad)"
+        d="M6 26C6 22.6863 8.68629 20 12 20H88C91.3137 20 94 22.6863 94 26V68C94 72.4183 90.4183 76 86 76H14C9.58172 76 6 72.4183 6 68V26Z"
+        fill="#3B82F6"
       />
-      {/* 前盖顶部高光倒角 */}
+      {/* 5. 前盖顶部高光微凸倒角 */}
       <path
-        d="M6 28C6 24.6863 8.68629 22 12 22H88C91.3137 22 94 24.6863 94 28V30H6V28Z"
-        fill="url(#macFolderLipGrad)"
+        d="M6 26C6 22.6863 8.68629 20 12 20H88C91.3137 20 94 22.6863 94 26V28H6V26Z"
+        fill="#93C5FD"
+        fillOpacity="0.8"
+      />
+      {/* 6. 前盖底缘微妙投影衬底 */}
+      <path
+        d="M14 76H86C90.4183 76 94 72.4183 94 68V70C94 74.4183 90.4183 78 86 78H14C9.58172 78 6 74.4183 6 70V68C6 72.4183 9.58172 76 14 76Z"
+        fill="#1D4ED8"
+        fillOpacity="0.5"
       />
     </svg>
   )
