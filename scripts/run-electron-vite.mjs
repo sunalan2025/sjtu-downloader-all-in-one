@@ -35,8 +35,11 @@ if (process.argv.includes('dev') && process.platform === 'win32') {
   } catch {
     // 忽略异常
   }
+}
+
 // 开发模式启动前：自动探活并规避 Windows EACCES / EADDRINUSE 受限或冲突端口（如 Hyper-V / TUN 模式）
 if (process.argv.includes('dev')) {
+
   const defaultPort = Number(process.env.VITE_PORT) || 5173
   const safePort = await getSafeAvailablePort(defaultPort, '127.0.0.1')
   if (safePort !== defaultPort) {
