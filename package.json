@@ -1,6 +1,6 @@
 {
   "name": "sjtu-course-downloader",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "description": "上海交通大学 (SJTU) 课程与交大旁听视频下载器，一站式批量下载交大旁听视频、Canvas 课件录播与好大学在线，支持交大云盘备份",
   "keywords": [
     "sjtu",
