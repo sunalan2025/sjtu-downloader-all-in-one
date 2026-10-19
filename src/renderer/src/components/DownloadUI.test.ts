@@ -1110,6 +1110,13 @@ describe('SetupWizardModal and Cloud Destination / Export Decoupling', () => {
     expect(formatCloudBreadcrumb('深度学习专题')).toBe(
       '交大云盘 > 深度学习专题 > 2026-2027学年第1学期 > 软件工程 > ...'
     )
+    // Multi-slash edge cases like // or ///
+    expect(formatCloudBreadcrumb('//')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    expect(formatCloudBreadcrumb('///')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
     // Custom term and course arguments
     expect(formatCloudBreadcrumb('/SJTU课程备份', '2025-2026-2', '计算机系统结构')).toBe(
       '交大云盘 > SJTU课程备份 > 2025-2026-2 > 计算机系统结构 > ...'

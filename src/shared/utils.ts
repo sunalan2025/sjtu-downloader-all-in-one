@@ -252,10 +252,9 @@ export function formatCloudBreadcrumb(
   sampleTerm = '2026-2027学年第1学期',
   sampleCourse = '软件工程'
 ): string {
-  const trimmed = (root || '').trim()
-  if (!trimmed || trimmed === '/') {
+  const cleaned = (root || '').trim().replace(/^\/+/, '').replace(/\/+$/, '')
+  if (!cleaned) {
     return `交大云盘 > ${sampleTerm} > ${sampleCourse} > ...`
   }
-  const cleaned = trimmed.replace(/^\/+/, '').replace(/\/+$/, '')
   return `交大云盘 > ${cleaned} > ${sampleTerm} > ${sampleCourse} > ...`
 }
