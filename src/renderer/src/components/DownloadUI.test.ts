@@ -812,6 +812,113 @@ describe('formatDate shared utility and UI unification invariants', () => {
   })
 })
 
+describe('Canvas & Schedule Store Persistence and Preferences Invariants', () => {
+  it('has correct default canvasSelectedTerm and updates via setter', () => {
+    const store = useAppStore.getState()
+    expect(store.canvasSelectedTerm).toBe('all')
+    store.setCanvasSelectedTerm('2025-2026-1')
+    expect(useAppStore.getState().canvasSelectedTerm).toBe('2025-2026-1')
+    // reset
+    store.setCanvasSelectedTerm('all')
+  })
+
+  it('manages schedule states and supports functional layerFilter updater', () => {
+    const store = useAppStore.getState()
+    expect(store.scheduleSelectedSemesterKey).toBe('current')
+    expect(store.scheduleViewMode).toBe('week')
+    expect(store.scheduleExpandNoonSlot).toBe(false)
+    expect(store.scheduleLayerFilter).toEqual({ course: true, activity: true, ddl: true })
+
+    store.setScheduleSelectedSemesterKey('2025_1')
+    expect(useAppStore.getState().scheduleSelectedSemesterKey).toBe('2025_1')
+
+    store.setScheduleViewMode('semester')
+    expect(useAppStore.getState().scheduleViewMode).toBe('semester')
+
+    store.setScheduleExpandNoonSlot(true)
+    expect(useAppStore.getState().scheduleExpandNoonSlot).toBe(true)
+
+    // functional update
+    store.setScheduleLayerFilter(f => ({ ...f, activity: false }))
+    expect(useAppStore.getState().scheduleLayerFilter).toEqual({ course: true, activity: false, ddl: true })
+
+    // partial object update
+    store.setScheduleLayerFilter({ ddl: false })
+    expect(useAppStore.getState().scheduleLayerFilter).toEqual({ course: true, activity: false, ddl: false })
+
+    // reset
+    store.setScheduleSelectedSemesterKey('current')
+    store.setScheduleViewMode('week')
+    store.setScheduleExpandNoonSlot(false)
+    store.setScheduleLayerFilter({ course: true, activity: true, ddl: true })
+  })
+})
+
+describe('Video Stream Multi-Perspective Fast Selection Invariants', () => {
+  const teacherTaskIds = ['canvas_stream_101_1_teacher', 'canvas_stream_101_2_teacher', 'canvas_stream_101_3_teacher']
+  const pptTaskIds = ['canvas_stream_101_1_ppt', 'canvas_stream_101_2_ppt', 'canvas_stream_101_3_ppt']
+  const allVideoIds = [...teacherTaskIds, ...pptTaskIds]
+
+  it('filters and selects only teacher perspective while unchecking PPT', () => {
+    let selected = new Set<string>(['canvas_stream_101_1_ppt', 'other_file_1'])
+    // Simulate handleVideoPerspective('teacher')
+    const next = new Set(selected)
+    for (const id of teacherTaskIds) next.add(id)
+    for (const id of pptTaskIds) next.delete(id)
+    selected = next
+
+    expect(selected.has('other_file_1')).toBe(true)
+    for (const t of teacherTaskIds) {
+      expect(selected.has(t)).toBe(true)
+    }
+    for (const p of pptTaskIds) {
+      expect(selected.has(p)).toBe(false)
+    }
+  })
+
+  it('filters and selects only PPT perspective while unchecking teacher', () => {
+    let selected = new Set<string>(['canvas_stream_101_1_teacher', 'other_file_1'])
+    // Simulate handleVideoPerspective('ppt')
+    const next = new Set(selected)
+    for (const id of pptTaskIds) next.add(id)
+    for (const id of teacherTaskIds) next.delete(id)
+    selected = next
+
+    expect(selected.has('other_file_1')).toBe(true)
+    for (const p of pptTaskIds) {
+      expect(selected.has(p)).toBe(true)
+    }
+    for (const t of teacherTaskIds) {
+      expect(selected.has(t)).toBe(false)
+    }
+  })
+
+  it('selects all video streams when perspective is all', () => {
+    let selected = new Set<string>()
+    const next = new Set(selected)
+    for (const id of allVideoIds) next.add(id)
+    selected = next
+
+    expect(selected.size).toBe(6)
+    for (const id of allVideoIds) {
+      expect(selected.has(id)).toBe(true)
+    }
+  })
+
+  it('unselects all video streams when perspective is none', () => {
+    let selected = new Set<string>([...allVideoIds, 'unrelated_file'])
+    const next = new Set(selected)
+    for (const id of allVideoIds) next.delete(id)
+    selected = next
+
+    expect(selected.size).toBe(1)
+    expect(selected.has('unrelated_file')).toBe(true)
+    for (const id of allVideoIds) {
+      expect(selected.has(id)).toBe(false)
+    }
+  })
+})
+
 
 
 

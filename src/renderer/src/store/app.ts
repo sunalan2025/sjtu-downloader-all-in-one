@@ -124,6 +124,16 @@ interface AppState {
   courseViewMode: CourseViewMode
   /** Canvas 课程是否按学期分栏展示（默认 true） */
   canvasGroupByTerm: boolean
+  /** Canvas 当前选中的学期过滤（'all' 或学期名称） */
+  canvasSelectedTerm: string
+  /** 课表当前选中的学期（'current' 或教务系统学期 key） */
+  scheduleSelectedSemesterKey: string
+  /** 课表视图模式：'week' (周视图) | 'semester' (学期总览) */
+  scheduleViewMode: 'week' | 'semester'
+  /** Apple 日历图层开关：排课、讲座/活动、作业 DDL */
+  scheduleLayerFilter: { course: boolean; activity: boolean; ddl: boolean }
+  /** 课表中午时段展开状态 */
+  scheduleExpandNoonSlot: boolean
   /** 上一次激活的内容课程 tab（canvas / audited / cnmooc / schedule） */
   lastCourseTab: 'canvas' | 'audited' | 'cnmooc' | 'schedule'
   /** 关闭主窗口时的默认动作（tray=最小化到托盘，taskbar=最小化到任务栏，quit=彻底退出应用） */
@@ -159,6 +169,16 @@ interface AppState {
   setCourseViewMode: (mode: CourseViewMode) => void
   /** 切换 Canvas 课程是否按学期分栏展示 */
   setCanvasGroupByTerm: (groupByTerm: boolean) => void
+  /** 切换 Canvas 当前选中的学期过滤 */
+  setCanvasSelectedTerm: (term: string) => void
+  /** 切换课表选中的学期 */
+  setScheduleSelectedSemesterKey: (key: string) => void
+  /** 切换课表视图模式 */
+  setScheduleViewMode: (mode: 'week' | 'semester') => void
+  /** 切换课表图层筛选 */
+  setScheduleLayerFilter: (filter: Partial<{ course: boolean; activity: boolean; ddl: boolean }> | ((prev: { course: boolean; activity: boolean; ddl: boolean }) => { course: boolean; activity: boolean; ddl: boolean })) => void
+  /** 切换课表中午时段展开状态 */
+  setScheduleExpandNoonSlot: (expand: boolean) => void
   /** 记录上一次激活的课程 tab */
   setLastCourseTab: (tab: 'canvas' | 'audited' | 'cnmooc') => void
   /** 切换主界面 stage */
@@ -440,6 +460,11 @@ export const useAppStore = create<AppState>()(
       autoDownloadUpdate: false,
       courseViewMode: 'grid' as CourseViewMode,
       canvasGroupByTerm: true,
+      canvasSelectedTerm: 'all',
+      scheduleSelectedSemesterKey: 'current',
+      scheduleViewMode: 'week' as 'week' | 'semester',
+      scheduleLayerFilter: { course: true, activity: true, ddl: true },
+      scheduleExpandNoonSlot: false,
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
       windowCloseAction: 'tray' as WindowCloseAction,
       exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
@@ -458,6 +483,15 @@ export const useAppStore = create<AppState>()(
       setTheme: theme => set({ theme }),
       setCourseViewMode: courseViewMode => set({ courseViewMode }),
       setCanvasGroupByTerm: canvasGroupByTerm => set({ canvasGroupByTerm }),
+      setCanvasSelectedTerm: canvasSelectedTerm => set({ canvasSelectedTerm }),
+      setScheduleSelectedSemesterKey: scheduleSelectedSemesterKey => set({ scheduleSelectedSemesterKey }),
+      setScheduleViewMode: scheduleViewMode => set({ scheduleViewMode }),
+      setScheduleLayerFilter: filter => set(state => ({
+        scheduleLayerFilter: typeof filter === 'function'
+          ? (filter as (prev: { course: boolean; activity: boolean; ddl: boolean }) => { course: boolean; activity: boolean; ddl: boolean })(state.scheduleLayerFilter)
+          : { ...state.scheduleLayerFilter, ...filter }
+      })),
+      setScheduleExpandNoonSlot: scheduleExpandNoonSlot => set({ scheduleExpandNoonSlot }),
       setLastCourseTab: lastCourseTab => set({ lastCourseTab }),
       setStage: stage => set({ stage }),
       setActiveTab: activeTab => set(state => {
@@ -827,6 +861,12 @@ export const useAppStore = create<AppState>()(
         downloadHistory: state.downloadHistory,
         courseViewMode: state.courseViewMode,
         canvasGroupByTerm: state.canvasGroupByTerm,
+        canvasSelectedTerm: state.canvasSelectedTerm,
+        canvasCourseCategorySelections: state.canvasCourseCategorySelections,
+        scheduleSelectedSemesterKey: state.scheduleSelectedSemesterKey,
+        scheduleViewMode: state.scheduleViewMode,
+        scheduleLayerFilter: state.scheduleLayerFilter,
+        scheduleExpandNoonSlot: state.scheduleExpandNoonSlot,
         lastCourseTab: state.lastCourseTab,
         windowCloseAction: state.windowCloseAction,
         exitWhenDownloading: state.exitWhenDownloading,

@@ -295,13 +295,15 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
   hasLectures,
   isLoading,
   isAudioOnly,
-  onScan
+  onScan,
+  onSelectPerspective
 }: {
   courseId: number
   hasLectures: boolean
   isLoading: boolean
   isAudioOnly: boolean
   onScan: () => void
+  onSelectPerspective?: (p: 'all' | 'teacher' | 'ppt' | 'none') => void
 }) {
   const tid = `canvas_transcript_${courseId}`
   const p = useEffectiveProgress(tid)
@@ -320,21 +322,62 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
     )
   }
 
-  if (!p) return null
-
   return (
-    <div className="space-y-1">
-      <div className="relative h-1.5 overflow-hidden rounded-full bg-surface-2">
-        <div
-          className={`h-full rounded-full transition-[width] duration-300 ${
-            p.state === 'error' ? 'bg-warning' : p.state === 'done' ? 'bg-success' : 'bg-gradient-to-r from-accent to-accent-light'
-          }`}
-          style={{ width: `${p.total > 0 ? Math.round((p.received / p.total) * 100) : (p.state === 'done' ? 100 : 0)}%` }}
-        />
-      </div>
-      <div className={`truncate text-2xs tabular-nums ${p.state === 'error' ? 'text-warning' : p.state === 'done' ? 'text-success' : 'text-text-3'}`}>
-        {p.message || (p.state === 'done' ? 'AI 字幕导出完成' : '导出中…')}
-      </div>
+    <div className="space-y-2">
+      {hasLectures && onSelectPerspective && !isAudioOnly && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-2/60 px-2.5 py-1.5 border border-bd/40 text-xs select-none">
+          <span className="text-2xs font-semibold text-text-3">🎬 视角筛选</span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onSelectPerspective('all')}
+              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+              title="同时勾选教师视角与 PPT 投屏"
+            >
+              全选
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectPerspective('teacher')}
+              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+              title="仅勾选教师机位画面与音频"
+            >
+              仅教师
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectPerspective('ppt')}
+              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+              title="仅勾选 PPT 幻灯片屏幕投屏"
+            >
+              仅 PPT
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectPerspective('none')}
+              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-warning/80 hover:border-warning hover:text-warning transition-colors cursor-pointer"
+              title="取消该课程全部视频勾选"
+            >
+              清空
+            </button>
+          </div>
+        </div>
+      )}
+      {p && (
+        <div className="space-y-1">
+          <div className="relative h-1.5 overflow-hidden rounded-full bg-surface-2">
+            <div
+              className={`h-full rounded-full transition-[width] duration-300 ${
+                p.state === 'error' ? 'bg-warning' : p.state === 'done' ? 'bg-success' : 'bg-gradient-to-r from-accent to-accent-light'
+              }`}
+              style={{ width: `${p.total > 0 ? Math.round((p.received / p.total) * 100) : (p.state === 'done' ? 100 : 0)}%` }}
+            />
+          </div>
+          <div className={`truncate text-2xs tabular-nums ${p.state === 'error' ? 'text-warning' : p.state === 'done' ? 'text-success' : 'text-text-3'}`}>
+            {p.message || (p.state === 'done' ? 'AI 字幕导出完成' : '导出中…')}
+          </div>
+        </div>
+      )}
     </div>
   )
 })
@@ -395,8 +438,9 @@ export function CanvasBrowser() {
     setCloudLinkedIds: s.setCloudLinkedIds
   })))
 
+  const selectedTerm = useAppStore(s => s.canvasSelectedTerm)
+  const setSelectedTerm = useAppStore(s => s.setCanvasSelectedTerm)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [selectedTerm, setSelectedTerm] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [navState, setNavState] = useState<NetdiskNavState>({ level: 'root' })
   const [scanningCourseIds, setScanningCourseIds] = useState<Record<number, boolean>>({})
@@ -572,7 +616,7 @@ export function CanvasBrowser() {
     setSelectedTerm('all')
     // 5. 重新拉取课程列表
     await loadCourses()
-  }, [resetProgress, setCloudLinkedIds, setDownloading, resetCanvasScanResults, loadCourses])
+  }, [resetProgress, setCloudLinkedIds, setDownloading, resetCanvasScanResults, setSelectedTerm, loadCourses])
 
   // ── 共享 hooks ──
   // [2.15] useDownloadProgressSubscription moved to App level — removed here
@@ -734,7 +778,7 @@ export function CanvasBrowser() {
     return { files: f, teacher: t, ppt: p, moduleVideo: m, assignments: a, pptPdf, course }
   }, [courseTaskIds, canvasCourseCategorySelections, selected])
 
-  type CategoryPreset = 'all' | 'files_only' | 'videos_only' | 'ppt_only' | 'assignments_only' | 'clear'
+  type CategoryPreset = 'all' | 'files_only' | 'videos_only' | 'videos_teacher_only' | 'videos_ppt_only' | 'ppt_only' | 'assignments_only' | 'clear'
 
   const applyCategoryPreset = useCallback((preset: CategoryPreset) => {
     if (filteredCourses.length === 0) return
@@ -757,8 +801,8 @@ export function CanvasBrowser() {
 
     const selIntent = {
       files: preset === 'all' || preset === 'files_only',
-      teacher: preset === 'all' || preset === 'videos_only',
-      ppt: preset === 'all' || preset === 'videos_only',
+      teacher: preset === 'all' || preset === 'videos_only' || preset === 'videos_teacher_only',
+      ppt: preset === 'all' || preset === 'videos_only' || preset === 'videos_ppt_only',
       moduleVideo: preset === 'all' || preset === 'videos_only',
       pptPdf: preset === 'all' || preset === 'ppt_only',
       assignments: preset === 'all' || preset === 'assignments_only'
@@ -773,8 +817,14 @@ export function CanvasBrowser() {
         for (const id of files) {
           selIntent.files ? next.add(id) : next.delete(id)
         }
-        for (const id of [...teacher, ...ppt, ...moduleVideo]) {
+        for (const id of teacher) {
           selIntent.teacher ? next.add(id) : next.delete(id)
+        }
+        for (const id of ppt) {
+          selIntent.ppt ? next.add(id) : next.delete(id)
+        }
+        for (const id of moduleVideo) {
+          selIntent.moduleVideo ? next.add(id) : next.delete(id)
         }
         for (const id of assignments) {
           selIntent.assignments ? next.add(id) : next.delete(id)
@@ -811,6 +861,42 @@ export function CanvasBrowser() {
       if (assignments.length > 0) toggleSelectMany(assignments, on)
     }
   }, [courseTaskIds, setCanvasCourseCategorySelection, toggleSelectMany])
+
+  /** 单门课程视频多流快捷视角调度：全选 / 仅教师视角 / 仅 PPT 投屏 / 清空 */
+  const handleVideoPerspective = useCallback((courseId: number, p: 'all' | 'teacher' | 'ppt' | 'none') => {
+    const { teacher, ppt, moduleVideo } = courseTaskIds(courseId)
+    if (p === 'all') {
+      setCanvasCourseCategorySelection(courseId, { teacher: true, ppt: true, moduleVideo: true })
+      setSelected(prev => {
+        const next = new Set(prev)
+        for (const id of [...teacher, ...ppt, ...moduleVideo]) next.add(id)
+        return next
+      })
+    } else if (p === 'teacher') {
+      setCanvasCourseCategorySelection(courseId, { teacher: true, ppt: false, moduleVideo: false })
+      setSelected(prev => {
+        const next = new Set(prev)
+        for (const id of teacher) next.add(id)
+        for (const id of [...ppt, ...moduleVideo]) next.delete(id)
+        return next
+      })
+    } else if (p === 'ppt') {
+      setCanvasCourseCategorySelection(courseId, { teacher: false, ppt: true, moduleVideo: false })
+      setSelected(prev => {
+        const next = new Set(prev)
+        for (const id of ppt) next.add(id)
+        for (const id of [...teacher, ...moduleVideo]) next.delete(id)
+        return next
+      })
+    } else if (p === 'none') {
+      setCanvasCourseCategorySelection(courseId, { teacher: false, ppt: false, moduleVideo: false })
+      setSelected(prev => {
+        const next = new Set(prev)
+        for (const id of [...teacher, ...ppt, ...moduleVideo]) next.delete(id)
+        return next
+      })
+    }
+  }, [courseTaskIds, setCanvasCourseCategorySelection])
 
   /** 单课程级复选框切换：all/some→全清，none→全选 */
   const toggleCourse = useCallback((courseId: number) => {
@@ -1725,6 +1811,7 @@ export function CanvasBrowser() {
               isLoading={!!scanningVideoCourseIds[c.courseId]}
               isAudioOnly={isAudioOnly}
               onScan={() => void doClassVideoScan(c.courseId)}
+              onSelectPerspective={p => handleVideoPerspective(c.courseId, p)}
             />
           )
         },
@@ -1768,7 +1855,7 @@ export function CanvasBrowser() {
     canvasCourseCategorySelections, courseStates, courseTaskIds, selected,
     toggleSelect, toggleSelectMany, setCanvasCourseCategorySelection,
     scanningCourseIds, scanningVideoCourseIds, doScanFiles, doClassVideoScan,
-    toggleCourse, toggleCourseCategory, canvasCourseTaskIds, progressMap, downloadMode, cloudLinkedIds,
+    toggleCourse, toggleCourseCategory, handleVideoPerspective, canvasCourseTaskIds, progressMap, downloadMode, cloudLinkedIds,
     videoQualityOption
   ])
 
@@ -1920,8 +2007,36 @@ export function CanvasBrowser() {
                 >
                   <span className="text-sm">🎬</span>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-xs text-info">仅选课堂视频</div>
-                    <div className="text-2xs text-text-3">勾选所有课堂录播，取消课件</div>
+                    <div className="font-semibold text-xs text-info">全部视频</div>
+                    <div className="text-2xs text-text-3">双流全选（教师机位与 PPT）</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    applyCategoryPreset('videos_teacher_only')
+                    setBatchMenuOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-1 hover:bg-surface-2 transition-colors cursor-pointer"
+                >
+                  <span className="text-sm">👨‍🏫</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-xs text-info">仅教师视频</div>
+                    <div className="text-2xs text-text-3">仅勾选教师机位画面与音频</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    applyCategoryPreset('videos_ppt_only')
+                    setBatchMenuOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-1 hover:bg-surface-2 transition-colors cursor-pointer"
+                >
+                  <span className="text-sm">💻</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-xs text-info">仅 PPT 视频</div>
+                    <div className="text-2xs text-text-3">仅勾选幻灯片屏幕投屏画面</div>
                   </div>
                 </button>
                 <button

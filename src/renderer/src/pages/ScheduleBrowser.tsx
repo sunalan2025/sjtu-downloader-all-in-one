@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useAppStore } from '../store/app'
 import { Spinner } from '../components/Spinner'
 import type {
   ScheduleEvent,
@@ -527,27 +528,23 @@ export function ScheduleBrowser() {
   const [semesterTitle, setSemesterTitle] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
 
-  // 学期选择器状态：'current' 为实时交我办+Canvas，其余如 '2026_3' 为教务系统历年课表
-  const [selectedSemesterKey, setSelectedSemesterKey] = useState<string>('current')
+  // 学期选择器状态：'current' 为实时交我办+Canvas，其余如 '2026_3' 为教务系统历年课表（已持久化）
+  const selectedSemesterKey = useAppStore(s => s.scheduleSelectedSemesterKey)
+  const setSelectedSemesterKey = useAppStore(s => s.setScheduleSelectedSemesterKey)
   const [jiaowuCache, setJiaowuCache] = useState<Record<string, JiaowuScheduleResult>>({})
   const [jiaowuLoading, setJiaowuLoading] = useState(false)
   const [selectedJiaowuWeek, setSelectedJiaowuWeek] = useState<number>(5)
   const [enrollmentYear, setEnrollmentYear] = useState<number>(2025)
 
-  // 视图模式：'week' (周视图) | 'semester' (学期总览)
-  const [viewMode, setViewMode] = useState<'week' | 'semester'>('week')
-  const [expandNoonSlot, setExpandNoonSlot] = useState<boolean>(false)
+  // 视图模式：'week' (周视图) | 'semester' (学期总览)（已持久化）
+  const viewMode = useAppStore(s => s.scheduleViewMode)
+  const setViewMode = useAppStore(s => s.setScheduleViewMode)
+  const expandNoonSlot = useAppStore(s => s.scheduleExpandNoonSlot)
+  const setExpandNoonSlot = useAppStore(s => s.setScheduleExpandNoonSlot)
 
-  // Apple 日历图层开关：排课、讲座/活动、作业 DDL
-  const [layerFilter, setLayerFilter] = useState<{
-    course: boolean
-    activity: boolean
-    ddl: boolean
-  }>({
-    course: true,
-    activity: true,
-    ddl: true
-  })
+  // Apple 日历图层开关：排课、讲座/活动、作业 DDL（已持久化）
+  const layerFilter = useAppStore(s => s.scheduleLayerFilter)
+  const setLayerFilter = useAppStore(s => s.setScheduleLayerFilter)
 
   // 学期总览子标签：'courses' (按课程聚合) | 'activities' (讲座与活动) | 'assignments' (作业时间轴)
   const [overviewTab, setOverviewTab] = useState<'courses' | 'activities' | 'assignments'>('courses')

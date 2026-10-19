@@ -137,6 +137,18 @@ export default function App() {
     ])
   }, [stage])
 
+  // 惰性挂载 + 页面状态常驻（Keep-Alive）：初次点击才实例化，挂载后常驻 DOM 移出渲染树，零重绘、零显存浪费、状态永不丢失
+  const [visitedTabs, setVisitedTabs] = useState<Set<ActiveTab>>(() => new Set([activeTab]))
+
+  useEffect(() => {
+    setVisitedTabs(prev => {
+      if (prev.has(activeTab)) return prev
+      const next = new Set(prev)
+      next.add(activeTab)
+      return next
+    })
+  }, [activeTab])
+
   return (
     <div className="flex h-full w-full flex-col">
       <TitleBar
@@ -156,14 +168,42 @@ export default function App() {
         )}
         {stage === 'browser' && (
           <StagePane stage="browser">
-            <div key={activeTab} className="animate-fadeIn flex-1 overflow-hidden">
-              {activeTab === 'audited' && <AuditedCourses />}
-              {activeTab === 'canvas' && <CanvasBrowser />}
-              {activeTab === 'cnmooc' && <CnmoocBrowser />}
-              {activeTab === 'schedule' && <ScheduleBrowser />}
-              {activeTab === 'transfer' && <TransferCenter onBack={handleBackToCourses} />}
-              {activeTab === 'settings' && <Settings onBack={handleBackToCourses} onLogout={() => void handleLogout()} />}
-              {activeTab === 'cloudpan' && <CloudPanExplorer onBack={handleBackToCourses} />}
+            <div className="relative flex-1 overflow-hidden">
+              {visitedTabs.has('audited') && (
+                <div className={`h-full w-full flex-col ${activeTab === 'audited' ? 'flex' : 'hidden'}`}>
+                  <AuditedCourses />
+                </div>
+              )}
+              {visitedTabs.has('canvas') && (
+                <div className={`h-full w-full flex-col ${activeTab === 'canvas' ? 'flex' : 'hidden'}`}>
+                  <CanvasBrowser />
+                </div>
+              )}
+              {visitedTabs.has('cnmooc') && (
+                <div className={`h-full w-full flex-col ${activeTab === 'cnmooc' ? 'flex' : 'hidden'}`}>
+                  <CnmoocBrowser />
+                </div>
+              )}
+              {visitedTabs.has('schedule') && (
+                <div className={`h-full w-full flex-col ${activeTab === 'schedule' ? 'flex' : 'hidden'}`}>
+                  <ScheduleBrowser />
+                </div>
+              )}
+              {visitedTabs.has('transfer') && (
+                <div className={`h-full w-full flex-col ${activeTab === 'transfer' ? 'flex' : 'hidden'}`}>
+                  <TransferCenter onBack={handleBackToCourses} />
+                </div>
+              )}
+              {visitedTabs.has('settings') && (
+                <div className={`h-full w-full flex-col ${activeTab === 'settings' ? 'flex' : 'hidden'}`}>
+                  <Settings onBack={handleBackToCourses} onLogout={() => void handleLogout()} />
+                </div>
+              )}
+              {visitedTabs.has('cloudpan') && (
+                <div className={`h-full w-full flex-col ${activeTab === 'cloudpan' ? 'flex' : 'hidden'}`}>
+                  <CloudPanExplorer onBack={handleBackToCourses} />
+                </div>
+              )}
             </div>
           </StagePane>
         )}
