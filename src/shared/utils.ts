@@ -258,3 +258,28 @@ export function formatCloudBreadcrumb(
   }
   return `交大云盘 > ${cleaned} > ${sampleTerm} > ${sampleCourse} > ...`
 }
+
+/**
+ * 规范化交大云盘根目录路径：
+ * 1. 修剪首尾空白；
+ * 2. 统一将反斜杠 '\' 转换为正斜杠 '/'；
+ * 3. 清理非法字符（<>:"|?* 及控制字符）；
+ * 4. 合并多余连续斜杠；
+ * 5. 确保以 '/' 开头；
+ * 6. 若非根目录 '/'，去除尾部斜杠。
+ * 空输入或仅由空格/斜杠构成时返回 '/'。
+ */
+export function normalizeCloudPath(pathStr: string): string {
+  if (!pathStr || typeof pathStr !== 'string') return '/'
+  let p = pathStr.trim().replace(/\\/g, '/')
+  p = p.replace(/[<>:"|?*\x00-\x1f]/g, '')
+  p = p.replace(/\/+/g, '/')
+  if (!p.startsWith('/')) {
+    p = '/' + p
+  }
+  if (p.length > 1 && p.endsWith('/')) {
+    p = p.replace(/\/+$/, '')
+  }
+  return p || '/'
+}
+

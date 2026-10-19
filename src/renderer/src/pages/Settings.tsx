@@ -10,7 +10,7 @@ import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
 import { prefetchCloudConnection } from '../services/prefetch'
 import type { DownloadMode, VideoQualityOption, MaskedCredential } from '@shared/types'
-import { formatPathFromTemplate, formatDate } from '../../../shared/utils'
+import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBreadcrumb, normalizeCloudPath } from '../../../shared/utils'
 import pkg from '../../../../package.json'
 
 export function Settings({
@@ -35,6 +35,8 @@ export function Settings({
   const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
   const localDestRoot = useAppStore(s => s.localDestRoot)
   const setLocalDestRoot = useAppStore(s => s.setLocalDestRoot)
+  const cloudDestRoot = useAppStore(s => s.cloudDestRoot)
+  const setCloudDestRoot = useAppStore(s => s.setCloudDestRoot)
 
   const [defaultDownloadsDir, setDefaultDownloadsDir] = useState<string>('')
 
@@ -66,8 +68,12 @@ export function Settings({
   const setCanvasGroupByTerm = useAppStore(s => s.setCanvasGroupByTerm)
   const pptSaveImages = useAppStore(s => s.pptSaveImages)
   const setPptSaveImages = useAppStore(s => s.setPptSaveImages)
-  const canvasExportAiTranscript = useAppStore(s => s.canvasExportAiTranscript)
-  const setCanvasExportAiTranscript = useAppStore(s => s.setCanvasExportAiTranscript)
+  const canvasExportSrt = useAppStore(s => s.canvasExportSrt)
+  const setCanvasExportSrt = useAppStore(s => s.setCanvasExportSrt)
+  const canvasExportMarkdown = useAppStore(s => s.canvasExportMarkdown)
+  const setCanvasExportMarkdown = useAppStore(s => s.setCanvasExportMarkdown)
+  const canvasAssignmentOptions = useAppStore(s => s.canvasAssignmentOptions)
+  const setCanvasAssignmentOptions = useAppStore(s => s.setCanvasAssignmentOptions)
   const autoDownloadUpdate = useAppStore(s => s.autoDownloadUpdate)
   const setAutoDownloadUpdate = useAppStore(s => s.setAutoDownloadUpdate)
 
@@ -402,6 +408,75 @@ export function Settings({
                     </div>
                   </div>
 
+                  {/* 行：交大云盘保存目录 */}
+                  <div className="py-5 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="space-y-1 max-w-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-text-1">交大云盘保存目录</span>
+                          {cloudDestRoot === '/SJTU课程备份' && (
+                            <span className="rounded-md bg-accent/10 text-accent px-1.5 py-0.5 text-3xs font-semibold border border-accent/20">
+                              默认预设
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-text-3 leading-relaxed">
+                          云盘直传或双备份模式下，教学资源在交大云盘个人空间中归档存放的顶层目录
+                        </div>
+                      </div>
+                      {/* 快捷切换胶囊 */}
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        {CLOUD_DEST_PRESETS.map(preset => {
+                          const isSelected = (cloudDestRoot || '/SJTU课程备份') === preset.value
+                          return (
+                            <button
+                              key={preset.value}
+                              type="button"
+                              onClick={() => setCloudDestRoot(preset.value)}
+                              className={`rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-accent text-white shadow-2xs font-semibold'
+                                  : 'bg-surface-2 border border-bd/80 text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-3'
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 自定义路径输入与动态路径层级面包屑预览 */}
+                    <div className="rounded-xl border border-bd/60 bg-surface-2/50 p-3 space-y-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-3 shrink-0">自定义路径：</span>
+                        <input
+                          type="text"
+                          value={cloudDestRoot}
+                          onChange={e => setCloudDestRoot(e.target.value)}
+                          onBlur={() => setCloudDestRoot(normalizeCloudPath(cloudDestRoot))}
+                          placeholder="/SJTU课程备份"
+                          className="flex-1 rounded-xl border border-bd bg-surface-1 px-3 py-1.5 text-xs font-mono text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-2 focus:ring-accent/15 transition-all"
+                        />
+                        {cloudDestRoot !== '/SJTU课程备份' && (
+                          <button
+                            type="button"
+                            onClick={() => setCloudDestRoot('/SJTU课程备份')}
+                            className="text-2xs text-text-3 hover:text-accent cursor-pointer"
+                          >
+                            恢复默认
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-2xs text-text-3 flex items-center gap-1.5 font-mono">
+                        <span className="text-accent select-none font-sans font-medium">☁️ 路径层级实时预览：</span>
+                        <span className="truncate text-text-2 font-mono" title={formatCloudBreadcrumb(cloudDestRoot)}>
+                          {formatCloudBreadcrumb(cloudDestRoot)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* 行 3：文件归档路径模板 */}
                   <div className="py-5 space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -562,30 +637,156 @@ export function Settings({
                     </div>
                   </div>
 
-                  {/* 课堂实录 AI 字幕与逐字稿笔记同步导出总开关 */}
+                  {/* 导出外挂字幕 (.srt) */}
                   <div className="flex items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-text-1">同步导出 AI 字幕 (.srt) 与逐字稿笔记 (.md)</span>
-                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">全局生效</span>
+                        <span className="text-sm font-medium text-text-1">导出外挂字幕 (.srt)</span>
+                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">外挂字幕</span>
                       </div>
                       <div className="text-xs text-text-3 leading-relaxed">
-                        下载课堂实录视频时，自动提取交大录播中台 AI 语音识别 (ASR) 文本，在同级目录生成本地播放器可自动匹配加载的同名独立字幕 (.srt) 与包含时间轴定位的 Markdown 复习笔记。
+                        下载课堂实录时，提取录播中台 AI 语音识别文本并生成同名 .srt 字幕，主流播放器双击视频自动加载。
                       </div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setCanvasExportAiTranscript(!canvasExportAiTranscript)}
+                      role="switch"
+                      aria-checked={canvasExportSrt}
+                      onClick={() => setCanvasExportSrt(!canvasExportSrt)}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
-                        canvasExportAiTranscript ? 'bg-accent' : 'bg-surface-4'
+                        canvasExportSrt ? 'bg-accent' : 'bg-surface-4'
                       }`}
                     >
                       <span
                         className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
-                          canvasExportAiTranscript ? 'translate-x-4' : 'translate-x-0'
+                          canvasExportSrt ? 'translate-x-4' : 'translate-x-0'
                         }`}
                       />
                     </button>
+                  </div>
+
+                  {/* 导出复习笔记 (.md) */}
+                  <div className="flex items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-1">导出复习笔记 (.md)</span>
+                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">讲义笔记</span>
+                      </div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        生成包含精确时间戳跳转标记与段落纲要的 Markdown 复习讲义，便于全文搜索与知识回顾。
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={canvasExportMarkdown}
+                      onClick={() => setCanvasExportMarkdown(!canvasExportMarkdown)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
+                        canvasExportMarkdown ? 'bg-accent' : 'bg-surface-4'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
+                          canvasExportMarkdown ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Canvas 作业归档偏好 */}
+                  <div className="py-5 space-y-3">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-1">Canvas 作业归档偏好</span>
+                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">作业资料</span>
+                      </div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        批量下载课程作业与实验任务时包含的具体文件明细
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5">
+                      {[
+                        {
+                          key: 'exportMarkdown' as const,
+                          icon: '📋',
+                          title: '作业说明文档 (.md)',
+                          desc: '包含作业题目要求、起止时间与教师评语',
+                          checked: !!canvasAssignmentOptions.exportMarkdown
+                        },
+                        {
+                          key: 'downloadAttachments' as const,
+                          icon: '📎',
+                          title: '题目附件与资料',
+                          desc: '教师上传的实验模板、参考数据集与大作业说明附件',
+                          checked: !!canvasAssignmentOptions.downloadAttachments
+                        },
+                        {
+                          key: 'downloadSubmissions' as const,
+                          icon: '📦',
+                          title: '本人提交原件历史',
+                          desc: '学生本人过往提交的代码包、实验报告原件与附件',
+                          checked: !!canvasAssignmentOptions.downloadSubmissions
+                        }
+                      ].map(item => (
+                        <div
+                          key={item.key}
+                          role="checkbox"
+                          aria-checked={item.checked}
+                          tabIndex={0}
+                          onClick={() =>
+                            setCanvasAssignmentOptions({
+                              [item.key]: !item.checked
+                            })
+                          }
+                          onKeyDown={e => {
+                            if (e.key === ' ' || e.key === 'Enter') {
+                              e.preventDefault()
+                              setCanvasAssignmentOptions({
+                                [item.key]: !item.checked
+                              })
+                            }
+                          }}
+                          className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
+                            item.checked
+                              ? 'border-accent/60 bg-accent/5 shadow-2xs'
+                              : 'border-bd/70 bg-surface-2/40 hover:border-bd-strong hover:bg-surface-2'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-xl select-none shrink-0">{item.icon}</span>
+                            <div className="space-y-0.5 min-w-0">
+                              <div className={`text-xs font-semibold truncate ${item.checked ? 'text-accent' : 'text-text-1'}`}>
+                                {item.title}
+                              </div>
+                              <div className="text-2xs text-text-3 truncate">
+                                {item.desc}
+                              </div>
+                            </div>
+                          </div>
+                          <div
+                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                              item.checked ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-1'
+                            }`}
+                          >
+                            {item.checked && (
+                              <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {!canvasAssignmentOptions.exportMarkdown &&
+                      !canvasAssignmentOptions.downloadAttachments &&
+                      !canvasAssignmentOptions.downloadSubmissions && (
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                          <span className="font-semibold select-none shrink-0">💡 温和提示：</span>
+                          <span>未勾选任何内容时将仅创建作业文件夹结构</span>
+                        </div>
+                      )}
                   </div>
 
                   {/* 智能 PPT 讲义与幻灯片导出说明 */}

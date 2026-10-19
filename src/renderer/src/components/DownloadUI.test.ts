@@ -11,11 +11,12 @@ import {
   MacOSCircleCheckbox,
   NetdiskViewModeSwitch
 } from './DownloadUI'
-import { buildAncestorPathChain, canAutoPenetrateSingleSubdir, formatDate, formatCloudBreadcrumb, CLOUD_DEST_PRESETS } from '@shared/utils'
+import { buildAncestorPathChain, canAutoPenetrateSingleSubdir, formatDate, formatCloudBreadcrumb, CLOUD_DEST_PRESETS, normalizeCloudPath } from '@shared/utils'
 import { resolveWindowAction } from './WindowConfirmModal'
 import { classifyCnmoocItem, isCnmoocQuizOrExercise } from '../pages/CnmoocBrowser'
 import { getTermTriState, toggleTermCourses, toggleTermCategory } from './NetdiskCourseExplorer'
 import { SetupWizardModal } from './SetupWizardModal'
+import { Settings } from '../pages/Settings'
 
 describe('window exit preferences and resolution', () => {
   it('has correct default window exit preferences', () => {
@@ -1167,6 +1168,122 @@ describe('SetupWizardModal and Cloud Destination / Export Decoupling', () => {
     store.setShowSetupWizardModal(false)
   })
 })
+
+describe('Settings Page: Cloud Destination and Decoupled Options', () => {
+  it('exports Settings component correctly', () => {
+    expect(typeof Settings).toBe('function')
+  })
+
+  it('normalizes cloud destination path with normalizeCloudPath', () => {
+    // Empty, whitespace, nullish cases
+    expect(normalizeCloudPath('')).toBe('/')
+    expect(normalizeCloudPath('   ')).toBe('/')
+    expect(normalizeCloudPath(null as any)).toBe('/')
+    expect(normalizeCloudPath(undefined as any)).toBe('/')
+
+    // Root cases
+    expect(normalizeCloudPath('/')).toBe('/')
+    expect(normalizeCloudPath('///')).toBe('/')
+
+    // Standard presets
+    expect(normalizeCloudPath('/SJTU课程备份')).toBe('/SJTU课程备份')
+    expect(normalizeCloudPath('/SJTU课程备份/')).toBe('/SJTU课程备份')
+    expect(normalizeCloudPath('SJTU课程备份')).toBe('/SJTU课程备份')
+    expect(normalizeCloudPath('/我的课程')).toBe('/我的课程')
+
+    // Windows backslashes and extra spaces
+    expect(normalizeCloudPath('  \\我的课程\\大作业\\  ')).toBe('/我的课程/大作业')
+    expect(normalizeCloudPath('C:\\SJTU\\Course')).toBe('/C/SJTU/Course')
+
+    // Forbidden characters stripping (<>:"|?* and controls)
+    expect(normalizeCloudPath('/课程?name*1/sub:dir')).toBe('/课程name1/subdir')
+    expect(normalizeCloudPath('///folder////subfolder///')).toBe('/folder/subfolder')
+  })
+
+  it('binds and updates cloudDestRoot with presets and custom paths', () => {
+    const store = useAppStore.getState()
+    // Default preset
+    expect(store.cloudDestRoot).toBe('/SJTU课程备份')
+
+    // Switch to root preset
+    store.setCloudDestRoot(CLOUD_DEST_PRESETS[1].value)
+    expect(useAppStore.getState().cloudDestRoot).toBe('/')
+
+    // Switch to my courses preset
+    store.setCloudDestRoot(CLOUD_DEST_PRESETS[2].value)
+    expect(useAppStore.getState().cloudDestRoot).toBe('/我的课程')
+
+    // Custom normalized path
+    const rawInput = '  /交大/专业课/2026/  '
+    store.setCloudDestRoot(normalizeCloudPath(rawInput))
+    expect(useAppStore.getState().cloudDestRoot).toBe('/交大/专业课/2026')
+
+    // Restore default
+    store.setCloudDestRoot('/SJTU课程备份')
+    expect(useAppStore.getState().cloudDestRoot).toBe('/SJTU课程备份')
+  })
+
+  it('manages canvasAssignmentOptions with partial updates and detects all-empty state', () => {
+    const store = useAppStore.getState()
+    // Reset to all enabled
+    store.setCanvasAssignmentOptions({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+    let opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(true)
+    expect(opts.downloadAttachments).toBe(true)
+    expect(opts.downloadSubmissions).toBe(true)
+
+    // Helper checking whether all options are unselected (defensive warning condition)
+    const isAllUnchecked = (o: typeof opts) =>
+      !o.exportMarkdown && !o.downloadAttachments && !o.downloadSubmissions
+
+    expect(isAllUnchecked(opts)).toBe(false)
+
+    // Disable markdown description only
+    store.setCanvasAssignmentOptions({ exportMarkdown: false })
+    opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(false)
+    expect(opts.downloadAttachments).toBe(true)
+    expect(opts.downloadSubmissions).toBe(true)
+    expect(isAllUnchecked(opts)).toBe(false)
+
+    // Disable attachments only
+    store.setCanvasAssignmentOptions({ downloadAttachments: false })
+    opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(false)
+    expect(opts.downloadAttachments).toBe(false)
+    expect(opts.downloadSubmissions).toBe(true)
+    expect(isAllUnchecked(opts)).toBe(false)
+
+    // Disable submissions - now all 3 are disabled
+    store.setCanvasAssignmentOptions({ downloadSubmissions: false })
+    opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(false)
+    expect(opts.downloadAttachments).toBe(false)
+    expect(opts.downloadSubmissions).toBe(false)
+    // Triggers defensive condition: "未勾选任何内容时将仅创建作业文件夹结构"
+    expect(isAllUnchecked(opts)).toBe(true)
+
+    // Re-enable via functional updater
+    store.setCanvasAssignmentOptions(prev => ({ ...prev, exportMarkdown: true }))
+    opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(true)
+    expect(opts.downloadAttachments).toBe(false)
+    expect(opts.downloadSubmissions).toBe(false)
+    expect(isAllUnchecked(opts)).toBe(false)
+
+    // Restore all defaults
+    store.setCanvasAssignmentOptions({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+  })
+})
+
 
 
 
