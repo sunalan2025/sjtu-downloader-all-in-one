@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useAppStore } from '../store/app'
 import { Spinner } from '../components/Spinner'
+import { isSafeExternalUrl } from '@shared/utils'
 import type {
   ScheduleEvent,
   ScheduleWeek,
@@ -351,6 +352,87 @@ export interface SemesterCourseDetail {
   assignments?: ScheduleEvent[]
 }
 
+/** 获取作业 4 态个人提交状态信息（标签文字、徽标样式与卡片样式） */
+export function getAssignmentStatusInfo(
+  status?: 'submitted' | 'unsubmitted' | 'graded' | 'missing',
+  score?: number | null
+): {
+  label: string
+  badgeClass: string
+  cardBorderClass: string
+  cardBgClass: string
+  cardTextClass: string
+} {
+  switch (status) {
+    case 'graded':
+      return {
+        label: `✓ 已评分${score != null ? ` ${score}分` : ''}`,
+        badgeClass: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/25',
+        cardBorderClass: 'border-blue-500/25 dark:border-blue-500/30',
+        cardBgClass: 'bg-blue-500/5 dark:bg-[#142332]',
+        cardTextClass: 'text-blue-800 dark:text-blue-300'
+      }
+    case 'submitted':
+      return {
+        label: '✓ 已提交',
+        badgeClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25',
+        cardBorderClass: 'border-emerald-500/25 dark:border-emerald-500/25',
+        cardBgClass: 'bg-emerald-500/5 dark:bg-[#1a2920]',
+        cardTextClass: 'text-emerald-700 dark:text-emerald-400'
+      }
+    case 'missing':
+      return {
+        label: '✕ 已逾期',
+        badgeClass: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/25',
+        cardBorderClass: 'border-rose-500/25 dark:border-rose-500/25',
+        cardBgClass: 'bg-rose-500/10 dark:bg-[#2b1b1b]',
+        cardTextClass: 'text-rose-700 dark:text-rose-400'
+      }
+    case 'unsubmitted':
+    default:
+      return {
+        label: '⏳ 待提交',
+        badgeClass: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25',
+        cardBorderClass: 'border-amber-500/25 dark:border-amber-500/25',
+        cardBgClass: 'bg-amber-500/10 dark:bg-[#2b241b]',
+        cardTextClass: 'text-amber-700 dark:text-amber-400'
+      }
+  }
+}
+
+/** 锁定截止徽标：标明截止时间继承自 Canvas 课程锁定/关闭时间 (lock_at) */
+export function LockDeadlineBadge({ className = '' }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 rounded border border-sky-500/20 bg-sky-500/10 px-1 py-0.5 text-3xs font-medium text-sky-600 dark:text-sky-400 font-sans select-none shrink-0 ${className}`}
+      title="该作业未设置明确截止时间 (due_at)，截止时限继承自 Canvas 课程锁定/关闭时间 (lock_at)"
+    >
+      <span>🔒</span>
+      <span>锁定截止</span>
+    </span>
+  )
+}
+
+/** 作业 4 态提交状态徽标组件 */
+export function AssignmentStatusBadge({
+  status,
+  score,
+  className = ''
+}: {
+  status?: 'submitted' | 'unsubmitted' | 'graded' | 'missing'
+  score?: number | null
+  className?: string
+}) {
+  const info = getAssignmentStatusInfo(status, score)
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-3xs font-bold ${info.badgeClass} ${className}`}
+    >
+      {info.label}
+    </span>
+  )
+}
+
 /** 辅助从周次文本或英文解析阿拉伯数字周次 (如 "第五周", "Week 5" -> 5) */
 export function parseWeekNumber(weekStr: string, weekEn?: string): number | null {
   if (weekEn) {
@@ -555,6 +637,10 @@ export function ScheduleBrowser() {
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedCourseNames, setExpandedCourseNames] = useState<Set<string>>(new Set())
 
+  // 未标注日期作业（无 due_at 也无 lock_at）指示胶囊与浮窗
+  const [showUndatedPopover, setShowUndatedPopover] = useState(false)
+  const undatedPopoverRef = useRef<HTMLDivElement>(null)
+
   // Apple 风格悬浮卡片 (Hover Popover)
   const [hoveredCourseItem, setHoveredCourseItem] = useState<{
     item: ScheduleEvent
@@ -718,6 +804,27 @@ export function ScheduleBrowser() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedCourseForModal, hoveredCourseItem, handleCardMouseLeave])
 
+  // 监听 Esc 键与外部点击关闭未标注日期作业浮窗
+  useEffect(() => {
+    if (!showUndatedPopover) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (undatedPopoverRef.current && !undatedPopoverRef.current.contains(e.target as Node)) {
+        setShowUndatedPopover(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowUndatedPopover(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [showUndatedPopover])
+
   // 根据入学年份（如 2025 级）动态生成学期列表，只展示入学以来的学期，彻底隐藏入学前的空学期
   const dynamicJiaowuSemesters = useMemo(() => {
     const currentXnm = 2026
@@ -751,6 +858,11 @@ export function ScheduleBrowser() {
   const courseEvents = useMemo(() => events.filter(e => e.type === 'course'), [events])
   const activityEvents = useMemo(() => events.filter(e => e.type === 'activity'), [events])
   const ddlEvents = useMemo(() => events.filter(e => e.type === 'assignment_ddl'), [events])
+  // 筛选既无 due_at 也无 lock_at 的活跃作业（无截止时限容灾）
+  const undatedAssignments = useMemo(() => {
+    if (!isCurrentMode) return []
+    return ddlEvents.filter(e => !e.startTime)
+  }, [isCurrentMode, ddlEvents])
 
   const uniqueCourseNames = useMemo(() => {
     const set = new Set<string>()
@@ -1016,7 +1128,12 @@ export function ScheduleBrowser() {
       ...g,
       locationsList: Array.from(g.locations),
       events: g.events.sort((a, b) => a.startTime.localeCompare(b.startTime)),
-      assignments: g.assignments.sort((a, b) => a.startTime.localeCompare(b.startTime))
+      assignments: g.assignments.sort((a, b) => {
+        if (!a.startTime && !b.startTime) return a.title.localeCompare(b.title)
+        if (!a.startTime) return 1
+        if (!b.startTime) return -1
+        return a.startTime.localeCompare(b.startTime)
+      })
     }))
   }, [courseEvents, ddlEvents])
 
@@ -1058,7 +1175,12 @@ export function ScheduleBrowser() {
   }, [activityEvents, searchQuery])
 
   const filteredAssignments = useMemo(() => {
-    const list = [...ddlEvents].sort((a, b) => a.startTime.localeCompare(b.startTime))
+    const list = [...ddlEvents].sort((a, b) => {
+      if (!a.startTime && !b.startTime) return a.title.localeCompare(b.title)
+      if (!a.startTime) return 1
+      if (!b.startTime) return -1
+      return a.startTime.localeCompare(b.startTime)
+    })
     if (!searchQuery.trim()) return list
     const q = searchQuery.toLowerCase().trim()
     return list.filter(
@@ -1593,6 +1715,71 @@ export function ScheduleBrowser() {
               </div>
 
               <div className="flex items-center gap-3 text-xs font-mono text-text-3">
+                {isCurrentMode && undatedAssignments.length > 0 && (
+                  <div className="relative" ref={undatedPopoverRef}>
+                    <button
+                      type="button"
+                      onClick={() => setShowUndatedPopover(prev => !prev)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 text-2xs font-sans font-medium text-amber-700 dark:text-amber-400 cursor-pointer transition-all shadow-2xs select-none"
+                      title="点击查看未标注截止日期的活跃作业"
+                    >
+                      <span>📌 {undatedAssignments.length} 项未标注日期</span>
+                      <span className="text-3xs opacity-70">▾</span>
+                    </button>
+
+                    {showUndatedPopover && (
+                      <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl border border-bd/80 dark:border-white/15 bg-surface-1/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md p-4 shadow-xl z-30 transition-all duration-150 animate-in fade-in zoom-in-95 font-sans">
+                        <div className="flex items-center justify-between border-b border-bd/50 dark:border-white/10 pb-2.5 mb-3">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-text-1">📌 未标注日期的作业</span>
+                            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-3xs font-semibold text-amber-700 dark:text-amber-400">
+                              {undatedAssignments.length} 项
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowUndatedPopover(false)}
+                            className="rounded-lg p-1 text-text-3 hover:text-text-1 cursor-pointer transition-colors"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <p className="text-3xs text-text-3 mb-3 leading-relaxed">
+                          此类作业在 Canvas 中未设置明确截止时间 (due_at) 与关闭时间 (lock_at)，建议及时查阅课程页面以防遗漏。
+                        </p>
+                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                          {undatedAssignments.map(item => (
+                            <div
+                              key={item.id}
+                              className="rounded-xl border border-bd/60 bg-surface-2/40 p-2.5 text-xs space-y-1.5"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="font-semibold text-text-1 text-2xs line-clamp-2 leading-snug">
+                                  {item.title}
+                                </span>
+                                <AssignmentStatusBadge status={item.submissionStatus} score={item.score} />
+                              </div>
+                              <div className="flex items-center justify-between text-3xs text-text-3">
+                                <span className="truncate max-w-[180px]">{item.courseName || '未归类课程'}</span>
+                                {item.htmlUrl && isSafeExternalUrl(item.htmlUrl) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (item.htmlUrl) void window.api.openExternal(item.htmlUrl)
+                                    }}
+                                    className="text-accent hover:underline font-medium cursor-pointer"
+                                  >
+                                    打开作业 ↗
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {isCurrentMode && selectedWeekObj && (
                   <span>
                     {selectedWeekObj.startTime.slice(0, 10)} ~ {selectedWeekObj.endTime.slice(0, 10)}
@@ -1655,33 +1842,45 @@ export function ScheduleBrowser() {
                           }`}
                         >
                           {topList.map(item => {
-                            const isSubmitted =
-                              item.submissionStatus === 'submitted' || item.submissionStatus === 'graded'
-                            const isMissing = item.submissionStatus === 'missing'
+                            const statusInfo = getAssignmentStatusInfo(item.submissionStatus, item.score)
+                            const canOpen = Boolean(item.htmlUrl && isSafeExternalUrl(item.htmlUrl))
+
                             return (
                               <div
                                 key={item.id}
+                                onClick={() => {
+                                  if (canOpen && item.htmlUrl) {
+                                    void window.api.openExternal(item.htmlUrl)
+                                  }
+                                }}
                                 className={`group rounded-xl border p-2 text-2xs transition-all shadow-2xs ${
-                                  isSubmitted
-                                    ? 'border-emerald-500/20 bg-emerald-500/5 dark:bg-[#1a2920] dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400'
-                                    : isMissing
-                                    ? 'border-rose-500/20 bg-rose-500/10 dark:bg-[#2b1b1b] dark:border-rose-500/20 text-rose-700 dark:text-rose-400'
-                                    : 'border-amber-500/20 bg-amber-500/10 dark:bg-[#2b241b] dark:border-amber-500/20 text-amber-700 dark:text-amber-400'
+                                  statusInfo.cardBorderClass
+                                } ${statusInfo.cardBgClass} ${statusInfo.cardTextClass} ${
+                                  canOpen
+                                    ? 'cursor-pointer hover:shadow-md hover:scale-[1.01] active:scale-[0.99]'
+                                    : ''
                                 }`}
+                                title={canOpen ? '点击前往 Canvas 查看作业详情 ↗' : undefined}
                               >
                                 <div className="flex items-start justify-between gap-1">
-                                  <span className="font-semibold line-clamp-2 leading-tight">
+                                  <span className="font-semibold line-clamp-2 leading-tight flex items-center gap-1">
                                     {item.title}
+                                    {canOpen && (
+                                      <span className="opacity-0 group-hover:opacity-100 transition-opacity text-3xs shrink-0 font-normal">
+                                        ↗
+                                      </span>
+                                    )}
                                   </span>
-                                  <span className="shrink-0 text-3xs font-bold uppercase">
-                                    {isSubmitted ? '✓ 已交' : isMissing ? '已逾期' : '待交'}
+                                  <span className="shrink-0 text-3xs font-bold">
+                                    {statusInfo.label}
                                   </span>
                                 </div>
-                                <div className="mt-1 flex items-center justify-between text-3xs opacity-80">
+                                <div className="mt-1 flex items-center justify-between gap-1 text-3xs opacity-80">
                                   <span className="truncate">{item.courseName || '作业'}</span>
-                                  <span className="font-mono font-medium">
-                                    {formatEventTime(item.endTime) || '截止'}
-                                  </span>
+                                  <div className="flex items-center gap-1 shrink-0 font-mono font-medium">
+                                    {item.isLockAtDeadline && <LockDeadlineBadge />}
+                                    <span>{formatEventTime(item.endTime) || '截止'}</span>
+                                  </div>
                                 </div>
                               </div>
                             )
@@ -2646,9 +2845,7 @@ export function ScheduleBrowser() {
                   <div className="py-16 text-center text-xs text-text-3">暂无 Canvas 作业安排</div>
                 ) : (
                   filteredAssignments.map(ddl => {
-                    const isSubmitted =
-                      ddl.submissionStatus === 'submitted' || ddl.submissionStatus === 'graded'
-                    const isMissing = ddl.submissionStatus === 'missing'
+                    const canOpen = Boolean(ddl.htmlUrl && isSafeExternalUrl(ddl.htmlUrl))
                     return (
                       <div
                         key={ddl.id}
@@ -2656,17 +2853,7 @@ export function ScheduleBrowser() {
                       >
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-3xs font-bold ${
-                                isSubmitted
-                                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                                  : isMissing
-                                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
-                                  : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                              }`}
-                            >
-                              {isSubmitted ? '✓ 已提交' : isMissing ? '已逾期' : '待提交'}
-                            </span>
+                            <AssignmentStatusBadge status={ddl.submissionStatus} score={ddl.score} />
                             <h4 className="font-semibold text-sm text-text-1">{ddl.title}</h4>
                           </div>
                           <div className="text-2xs text-text-3 flex items-center gap-3">
@@ -2675,7 +2862,7 @@ export function ScheduleBrowser() {
                               <span>满分: {ddl.pointsPossible} 分</span>
                             )}
                             {ddl.score != null && (
-                              <span className="font-semibold text-emerald-600">
+                              <span className="font-semibold text-blue-600 dark:text-blue-400">
                                 得分: {ddl.score}
                               </span>
                             )}
@@ -2684,12 +2871,15 @@ export function ScheduleBrowser() {
 
                         <div className="shrink-0 flex items-center gap-4">
                           <div className="text-right font-mono text-2xs">
-                            <div className="text-text-3">截止时间 (DDL)</div>
+                            <div className="text-text-3 flex items-center justify-end gap-1.5">
+                              {ddl.isLockAtDeadline && <LockDeadlineBadge />}
+                              <span>截止时间 (DDL)</span>
+                            </div>
                             <div className="font-semibold text-text-1">
-                              {ddl.startTime || '无截止时间'}
+                              {ddl.startTime || '未标注日期'}
                             </div>
                           </div>
-                          {ddl.htmlUrl && (
+                          {canOpen && ddl.htmlUrl && (
                             <button
                               type="button"
                               onClick={() => {
@@ -2948,29 +3138,25 @@ export function ScheduleBrowser() {
 
                   <div className="space-y-2">
                     {selectedCourseForModal.assignments.map(ddl => {
-                      const isSubmitted =
-                        ddl.submissionStatus === 'submitted' || ddl.submissionStatus === 'graded'
-                      const isMissing = ddl.submissionStatus === 'missing'
+                      const statusInfo = getAssignmentStatusInfo(ddl.submissionStatus, ddl.score)
+                      const canOpen = Boolean(ddl.htmlUrl && isSafeExternalUrl(ddl.htmlUrl))
 
                       return (
                         <div
                           key={ddl.id}
-                          className={`flex items-center justify-between rounded-xl border p-3 text-xs transition-colors ${
-                            isSubmitted
-                              ? 'border-emerald-500/20 bg-emerald-500/5 dark:bg-[#1a2920] dark:border-emerald-500/20'
-                              : isMissing
-                              ? 'border-rose-500/20 bg-rose-500/10 dark:bg-[#2b1b1b] dark:border-rose-500/20'
-                              : 'border-amber-500/20 bg-amber-500/10 dark:bg-[#2b241b] dark:border-amber-500/20'
-                          }`}
+                          className={`flex items-center justify-between rounded-xl border p-3 text-xs transition-colors ${statusInfo.cardBorderClass} ${statusInfo.cardBgClass}`}
                         >
                           <div className="space-y-0.5 pr-2">
                             <div className="font-medium text-text-1">{ddl.title}</div>
-                            <div className="text-3xs text-text-3 font-mono">
-                              截止时间: {ddl.endTime ? `${getEventDateStr(ddl.endTime)} ${formatEventTime(ddl.endTime)}` : '无明确截止'}
+                            <div className="text-3xs text-text-3 font-mono flex items-center gap-1.5 flex-wrap">
+                              <span>
+                                截止时间: {ddl.endTime ? `${getEventDateStr(ddl.endTime)} ${formatEventTime(ddl.endTime)}` : '未标注日期'}
+                              </span>
+                              {ddl.isLockAtDeadline && <LockDeadlineBadge />}
                             </div>
                           </div>
                           <div className="shrink-0 flex items-center gap-2">
-                            {ddl.htmlUrl && (
+                            {canOpen && ddl.htmlUrl && (
                               <button
                                 type="button"
                                 onClick={() => {
@@ -2982,17 +3168,7 @@ export function ScheduleBrowser() {
                                 打开作业 ↗
                               </button>
                             )}
-                            <span
-                              className={`shrink-0 rounded-full px-2.5 py-0.5 text-3xs font-bold ${
-                                isSubmitted
-                                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                                  : isMissing
-                                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
-                                  : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                              }`}
-                            >
-                              {isSubmitted ? '✓ 已提交' : isMissing ? '已逾期' : '待提交'}
-                            </span>
+                            <AssignmentStatusBadge status={ddl.submissionStatus} score={ddl.score} />
                           </div>
                         </div>
                       )

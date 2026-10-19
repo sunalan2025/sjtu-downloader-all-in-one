@@ -11,7 +11,8 @@ import {
   clusterDayEvents,
   getEventDisplayTime,
   parseWeekNumber,
-  formatWeeksRange
+  formatWeeksRange,
+  getAssignmentStatusInfo
 } from '../../src/renderer/src/pages/ScheduleBrowser'
 import { isSafeExternalUrl, normalizeCanvasUrl } from '../../src/shared/utils'
 
@@ -571,6 +572,63 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(normalizeCanvasUrl('')).toBe('')
       expect(normalizeCanvasUrl('   ')).toBe('')
       expect(normalizeCanvasUrl(undefined)).toBe('')
+    })
+  })
+
+  describe('Assignment Status and Badges (4 态个人提交与锁定截止)', () => {
+    it('returns correct status info for graded with score', () => {
+      const info = getAssignmentStatusInfo('graded', 95)
+      expect(info.label).toBe('✓ 已评分 95分')
+      expect(info.badgeClass).toContain('text-blue-600')
+      expect(info.cardBgClass).toContain('bg-blue-500/5')
+    })
+
+    it('returns correct status info for graded without score', () => {
+      const info = getAssignmentStatusInfo('graded', null)
+      expect(info.label).toBe('✓ 已评分')
+      expect(info.badgeClass).toContain('text-blue-600')
+    })
+
+    it('returns correct status info for submitted', () => {
+      const info = getAssignmentStatusInfo('submitted')
+      expect(info.label).toBe('✓ 已提交')
+      expect(info.badgeClass).toContain('text-emerald-600')
+      expect(info.cardBgClass).toContain('bg-emerald-500/5')
+    })
+
+    it('returns correct status info for missing (逾期)', () => {
+      const info = getAssignmentStatusInfo('missing')
+      expect(info.label).toBe('✕ 已逾期')
+      expect(info.badgeClass).toContain('text-rose-600')
+      expect(info.cardBgClass).toContain('bg-rose-500/10')
+    })
+
+    it('returns correct status info for unsubmitted (待提交) and undefined fallback', () => {
+      const info1 = getAssignmentStatusInfo('unsubmitted')
+      expect(info1.label).toBe('⏳ 待提交')
+      expect(info1.badgeClass).toContain('text-amber-600')
+
+      const info2 = getAssignmentStatusInfo(undefined)
+      expect(info2.label).toBe('⏳ 待提交')
+      expect(info2.badgeClass).toContain('text-amber-600')
+    })
+
+    it('sorts assignments with dated deadlines first and undated assignments last', () => {
+      const assignments = [
+        { id: '1', title: '大物实验A', startTime: '' },
+        { id: '2', title: '微积分期中作业', startTime: '2026-10-25 23:59' },
+        { id: '3', title: '程序设计大作业', startTime: '2026-10-15 12:00' },
+        { id: '4', title: '英语读写拓展', startTime: '' }
+      ]
+
+      const sorted = [...assignments].sort((a, b) => {
+        if (!a.startTime && !b.startTime) return a.title.localeCompare(b.title)
+        if (!a.startTime) return 1
+        if (!b.startTime) return -1
+        return a.startTime.localeCompare(b.startTime)
+      })
+
+      expect(sorted.map(s => s.id)).toEqual(['3', '2', '1', '4'])
     })
   })
 })
