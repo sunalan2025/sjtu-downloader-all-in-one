@@ -1,4 +1,4 @@
-import { memo, useMemo, useEffect, useRef } from 'react'
+import { memo, useMemo, useEffect, useRef, useState, useCallback, Fragment } from 'react'
 import type React from 'react'
 import { BreadcrumbBar, type BreadcrumbItem } from './BreadcrumbBar'
 import {
@@ -6,12 +6,15 @@ import {
   ItemCheckbox,
   FileTypeBadge,
   FolderIcon,
-  CourseProgressSummary,
   formatBytes,
-  type TriState
+  type TriState,
+  MacOSFolderIcon,
+  MacOSDocumentIcon,
+  MacOSCircleCheckbox
 } from './DownloadUI'
 import { Spinner } from './Spinner'
 import type { CourseViewMode } from '../store/app'
+import { groupCoursesByTerm as sharedGroupCoursesByTerm, sortAcademicTerms } from '@shared/utils'
 
 // ─────────────────────────────────────────────────────────────
 // Netdisk Navigation Interfaces
@@ -39,7 +42,7 @@ export interface NetdiskFileItem {
 export interface NetdiskCategoryItem {
   id: string
   name: string
-  icon?: 'folder' | 'video' | 'file' | 'presentation' | 'audio' | React.ReactNode
+  icon?: 'folder' | 'video' | 'file' | 'presentation' | 'audio' | 'assignment' | React.ReactNode
   badge?: string
   state: TriState
   onToggle: () => void
@@ -64,6 +67,7 @@ export interface NetdiskCourseItem {
   totalBytes?: number
   categories: NetdiskCategoryItem[]
   onToggle: () => void
+  onToggleCategory?: (categoryId: string, on: boolean) => void
   onEnter?: () => void
   isLoading?: boolean
   loadingMessage?: string
@@ -82,6 +86,7 @@ export interface NetdiskCourseExplorerProps {
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
   emptyPlaceholder?: React.ReactNode
+  groupByTerm?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -99,8 +104,8 @@ function CategoryIcon({
     return <>{icon}</>
   }
 
-  const boxSize = size === 'lg' ? 'h-14 w-14 rounded-2xl' : size === 'sm' ? 'h-5 w-5 rounded-md' : 'h-7 w-7 rounded-lg'
-  const svgSize = size === 'lg' ? 'h-7 w-7' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
+  const boxSize = size === 'lg' ? 'h-10 w-10 rounded-xl' : size === 'sm' ? 'h-5 w-5 rounded-md' : 'h-7 w-7 rounded-lg'
+  const svgSize = size === 'lg' ? 'h-5 w-5' : size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'
 
   if (icon === 'audio') {
     return (
@@ -147,7 +152,22 @@ function CategoryIcon({
       </div>
     )
   }
-  return <FolderIcon className={`${size === 'lg' ? 'h-14 w-14' : size === 'sm' ? 'h-4 w-4' : 'h-6 w-6'} text-amber-500 shrink-0`} />
+  if (icon === 'assignment') {
+    return (
+      <div className={`flex ${boxSize} shrink-0 items-center justify-center bg-gradient-to-br from-violet-500 to-purple-600 text-white shadow-sm ring-1 ring-violet-400/20`}>
+        <svg className={`${svgSize} fill-none stroke-current drop-shadow-2xs`} viewBox="0 0 24 24" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+          <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+          <path d="M9 14l2 2 4-4" />
+        </svg>
+      </div>
+    )
+  }
+  return (
+    <div className={`flex ${boxSize} shrink-0 items-center justify-center bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-sm ring-1 ring-amber-400/20`}>
+      <FolderIcon className={`${svgSize} text-white`} />
+    </div>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -159,7 +179,8 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   viewMode,
   navState,
   onNavigate,
-  emptyPlaceholder
+  emptyPlaceholder,
+  groupByTerm = true
 }: NetdiskCourseExplorerProps) {
   // 当前处于的课程对象
   const currentCourse = useMemo(() => {
@@ -173,17 +194,14 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     return currentCourse.categories.find(cat => cat.id === navState.categoryId)
   }, [currentCourse, navState.categoryId])
 
-  // 在 Column 分栏视图下，当前活跃选中的课程与分类
+  // 在 Column 分栏视图下，当前活跃选中的课程与分类（严格单层步进，未点击时不默认预选 courses[0]）
   const columnActiveCourse = useMemo(() => {
-    return currentCourse || courses[0]
-  }, [currentCourse, courses])
+    return currentCourse
+  }, [currentCourse])
 
   const columnActiveCategory = useMemo(() => {
-    if (!columnActiveCourse) return undefined
-    return (
-      columnActiveCourse.categories.find(cat => cat.id === navState.categoryId) ||
-      columnActiveCourse.categories[0]
-    )
+    if (!columnActiveCourse || !navState.categoryId) return undefined
+    return columnActiveCourse.categories.find(cat => cat.id === navState.categoryId)
   }, [columnActiveCourse, navState.categoryId])
 
   const lastEnteredCourseIdRef = useRef<number | string | null>(null)
@@ -260,7 +278,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
       return `共 ${courses.length} 门课程`
     }
     if (navState.level === 'course' && currentCourse) {
-      return `${currentCourse.categories.length} 个分类 · ${currentCourse.itemCount} 项资源`
+      return `${currentCourse.categories.length} 个分类${!currentCourse.isLoading && currentCourse.itemCount > 0 ? ` · ${currentCourse.itemCount} 项资源` : ''}`
     }
     if (navState.level === 'category' && currentCategory) {
       return `共 ${currentCategory.items.length} 个文件`
@@ -318,8 +336,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
                 }
                 onNavigate({
                   level: 'course',
-                  courseId: c.id,
-                  categoryId: c.categories[0]?.id
+                  courseId: c.id
                 })
               }}
               onSelectCategory={cat => {
@@ -331,6 +348,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
                   })
                 }
               }}
+              groupByTerm={groupByTerm}
             />
           ) : viewMode === 'list' ? (
             <ListView
@@ -339,6 +357,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               currentCategory={currentCategory}
               navState={navState}
               onNavigate={onNavigate}
+              groupByTerm={groupByTerm}
             />
           ) : (
             <GridView
@@ -347,6 +366,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               currentCategory={currentCategory}
               navState={navState}
               onNavigate={onNavigate}
+              groupByTerm={groupByTerm}
             />
           )}
         </div>
@@ -356,99 +376,217 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
 })
 
 // ─────────────────────────────────────────────────────────────
+// 学期分组与批量选择辅助函数 (复用 @shared/utils 消除重复造轮子)
+// ─────────────────────────────────────────────────────────────
+
+export function getTermTriState(courses: NetdiskCourseItem[]): TriState {
+  if (courses.length === 0) return 'none'
+  const allCount = courses.filter(c => c.state === 'all').length
+  const noneCount = courses.filter(c => c.state === 'none').length
+  if (allCount === courses.length) return 'all'
+  if (noneCount === courses.length) return 'none'
+  return 'some'
+}
+
+export function toggleTermCourses(courses: NetdiskCourseItem[], currentState: TriState) {
+  const shouldSelectAll = currentState !== 'all'
+  for (const c of courses) {
+    if (shouldSelectAll) {
+      if (c.state !== 'all') c.onToggle()
+    } else {
+      if (c.state !== 'none') c.onToggle()
+    }
+  }
+}
+
+export function toggleTermCategory(courses: NetdiskCourseItem[], categoryId: string, on: boolean) {
+  for (const c of courses) {
+    if (c.onToggleCategory) {
+      c.onToggleCategory(categoryId, on)
+    } else {
+      const cat = c.categories.find(k => k.id === categoryId)
+      if (cat) {
+        const isAll = cat.state === 'all'
+        if (on && !isAll) cat.onToggle()
+        else if (!on && cat.state !== 'none') cat.onToggle()
+      }
+    }
+  }
+}
+
+function groupCoursesByTerm(courses: NetdiskCourseItem[]) {
+  const grouped = sharedGroupCoursesByTerm(courses)
+  const sortedTerms = sortAcademicTerms(Object.keys(grouped))
+  return sortedTerms.map(term => ({
+    term,
+    items: grouped[term] || []
+  }))
+}
+
+// ─────────────────────────────────────────────────────────────
 // 1. GridView (网格大图标视图)
 // ─────────────────────────────────────────────────────────────
+
+function CourseCard({
+  course,
+  onNavigate
+}: {
+  course: NetdiskCourseItem
+  onNavigate: (next: NetdiskNavState) => void
+}) {
+  const c = course
+  const isSelected = c.state !== 'none'
+  return (
+    <div
+      key={c.id}
+      onClick={() => c.onToggle()}
+      onDoubleClick={() => {
+        c.onEnter?.()
+        onNavigate({ level: 'course', courseId: c.id })
+      }}
+      className={`group relative flex flex-col items-center justify-start rounded-xl p-2.5 transition-all duration-150 cursor-pointer select-none ${
+        isSelected
+          ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs'
+          : 'hover:bg-surface-2/70 active:bg-surface-3/50'
+      }`}
+      title={`${c.name} (双击查看内容)`}
+    >
+      {/* macOS 风格圆圈复选框 (左上角) */}
+      <div
+        className="absolute top-2 left-2 z-10"
+        onClick={e => {
+          e.stopPropagation()
+          c.onToggle()
+        }}
+      >
+        <MacOSCircleCheckbox
+          state={c.state}
+          size="sm"
+          className={isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
+        />
+      </div>
+
+      {/* 居中 macOS 风格大文件夹 (64px) */}
+      <div className="my-1 flex h-16 w-16 items-center justify-center transition-transform duration-150 group-hover:scale-105 shrink-0">
+        <MacOSFolderIcon size={64} />
+      </div>
+
+      {/* 居中标题与副标 (严格顶部对齐与固定基线) */}
+      <div className="w-full flex flex-col items-center text-center mt-1.5">
+        <h3
+          className={`text-xs font-medium line-clamp-2 break-all leading-snug w-full px-1 h-9 flex items-start justify-center ${
+            isSelected ? 'text-accent font-semibold' : 'text-text-1'
+          }`}
+          title={c.name}
+        >
+          {c.name}
+        </h3>
+        <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+          {c.teacher
+            ? c.itemCount > 0
+              ? `${c.teacher} · ${c.itemCount} 项`
+              : c.teacher
+            : c.itemCount > 0
+              ? `${c.itemCount} 项`
+              : ''}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function GridView({
   courses,
   currentCourse,
   currentCategory,
   navState,
-  onNavigate
+  onNavigate,
+  groupByTerm = true
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
   currentCategory?: NetdiskCategoryItem
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
+  groupByTerm?: boolean
 }) {
+  const termGroups = useMemo(() => {
+    if (!groupByTerm) return null
+    return groupCoursesByTerm(courses)
+  }, [courses, groupByTerm])
+
   // 根目录：展示课程大文件夹网格
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className="h-full overflow-y-auto">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-          {courses.map(c => (
-            <div
-              key={c.id}
-              onClick={() => {
-                c.onEnter?.()
-                onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
-              }}
-              className="group relative flex flex-col justify-between rounded-2xl border border-bd bg-surface-1 p-4 shadow-card hover:border-accent hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 cursor-pointer select-none"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <span
-                  role="checkbox"
-                  aria-checked={c.state === 'all'}
-                  tabIndex={0}
-                  onClick={e => {
-                    e.stopPropagation()
-                    c.onToggle()
-                  }}
-                  onKeyDown={e => {
-                    if (e.key === ' ' || e.key === 'Enter') {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      c.onToggle()
-                    }
-                  }}
-                  className="p-1 -m-1 rounded-md hover:bg-surface-2 transition-colors cursor-pointer"
-                >
-                  <TriCheckbox state={c.state} size="sm" />
-                </span>
-                {c.term && (
-                  <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-mono text-text-3">
-                    {c.term}
-                  </span>
-                )}
-              </div>
-
-              <div className="my-3 flex flex-col items-center text-center">
-                <div className="relative mb-2 transition-transform duration-200 group-hover:scale-105">
-                  <FolderIcon className="h-16 w-16 drop-shadow-sm" />
-                </div>
-                <h3 className="line-clamp-2 text-sm font-bold text-text-1 group-hover:text-accent transition-colors" title={c.name}>
-                  {c.name}
-                </h3>
-                <div className="mt-1 text-xs text-text-3 truncate max-w-full">
-                  {c.teacher ? `${c.teacher} · ` : ''}{c.code || ''}
-                </div>
-              </div>
-
-              <div className="border-t border-bd/40 pt-2.5">
-                {c.summary && (
-                  <div className="mb-2">
-                    <CourseProgressSummary
-                      done={c.summary.done}
-                      downloading={c.summary.downloading}
-                      errors={c.summary.errors}
-                      inflight={c.summary.inflight}
-                      total={c.summary.total}
-                    />
+      <div className="h-full overflow-y-auto p-1.5 pb-6">
+        {termGroups ? (
+          <div className="space-y-6">
+            {termGroups.map(group => {
+              const termState = getTermTriState(group.items)
+              return (
+                <div key={group.term} className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-bd/60 pb-2 px-1">
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        role="checkbox"
+                        aria-checked={termState === 'all'}
+                        tabIndex={0}
+                        onClick={() => toggleTermCourses(group.items, termState)}
+                        className="cursor-pointer shrink-0"
+                        title={termState === 'all' ? '取消本学期全选' : '全选本学期课程'}
+                      >
+                        <TriCheckbox state={termState} size="sm" />
+                      </span>
+                      <span className="text-sm">📅</span>
+                      <h3 className="text-xs font-bold text-text-1">{group.term}</h3>
+                      <span className="rounded-full bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">
+                        {group.items.length} 门课程
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 select-none">
+                      <button
+                        type="button"
+                        onClick={() => toggleTermCourses(group.items, termState)}
+                        className="text-2xs text-text-3 hover:text-accent font-medium transition-colors cursor-pointer"
+                      >
+                        {termState === 'all' ? '取消全选' : '全选本学期'}
+                      </button>
+                      <span className="text-bd text-xs">|</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleTermCategory(group.items, 'files', true)}
+                        className="text-2xs text-text-3 hover:text-accent font-medium transition-colors cursor-pointer"
+                        title="仅勾选该学期所有课程的课件资料"
+                      >
+                        仅课件
+                      </button>
+                      <span className="text-bd text-xs">|</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleTermCategory(group.items, 'videos', true)}
+                        className="text-2xs text-text-3 hover:text-accent font-medium transition-colors cursor-pointer"
+                        title="仅勾选该学期所有课程的课堂与录播视频"
+                      >
+                        仅视频
+                      </button>
+                    </div>
                   </div>
-                )}
-                <div className="flex items-center justify-between text-[11px] text-text-3">
-                  <span className="font-mono">
-                    {c.itemCount} 资源{c.totalBytes ? ` · ${formatBytes(c.totalBytes)}` : ''}
-                  </span>
-                  <span className="text-accent font-medium group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
-                    进入 ›
-                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3.5">
+                    {group.items.map(c => (
+                      <CourseCard key={c.id} course={c} onNavigate={onNavigate} />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3.5">
+            {courses.map(c => (
+              <CourseCard key={c.id} course={c} onNavigate={onNavigate} />
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -456,7 +594,7 @@ function GridView({
   // 课程级目录：展示课程下二级分类文件夹网格
   if (navState.level === 'course' || !currentCategory) {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="h-full overflow-y-auto p-1.5 pb-4">
         <div className="mb-4 flex items-center justify-between rounded-xl border border-bd bg-surface-1 p-3">
           <div className="flex items-center gap-3">
             <span
@@ -471,7 +609,7 @@ function GridView({
             <div>
               <h2 className="text-sm font-bold text-text-1">{currentCourse.name}</h2>
               <div className="text-xs text-text-3">
-                {currentCourse.teacher ? `${currentCourse.teacher} · ` : ''}{currentCourse.term || ''} · 共 {currentCourse.itemCount} 项资源
+                {currentCourse.teacher ? `${currentCourse.teacher} · ` : ''}{currentCourse.term || ''}{!currentCourse.isLoading && currentCourse.itemCount > 0 ? ` · 共 ${currentCourse.itemCount} 项资源` : ''}
               </div>
             </div>
           </div>
@@ -483,54 +621,57 @@ function GridView({
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {currentCourse.categories.map(cat => (
-            <div
-              key={cat.id}
-              onClick={() => onNavigate({ level: 'category', courseId: currentCourse.id, categoryId: cat.id })}
-              className="group relative flex flex-col justify-between rounded-2xl border border-bd bg-surface-1 p-4 shadow-card hover:border-accent hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 cursor-pointer select-none"
-            >
-              <div className="flex items-start justify-between">
-                <span
-                  role="checkbox"
-                  aria-checked={cat.state === 'all'}
-                  tabIndex={0}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3.5 pb-6">
+          {currentCourse.categories.map(cat => {
+            const isCatSelected = cat.state !== 'none'
+            return (
+              <div
+                key={cat.id}
+                onClick={() => cat.onToggle()}
+                onDoubleClick={() => onNavigate({ level: 'category', courseId: currentCourse.id, categoryId: cat.id })}
+                className={`group relative flex flex-col items-center justify-start rounded-xl p-2.5 transition-all duration-150 cursor-pointer select-none ${
+                  isCatSelected
+                    ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs'
+                    : 'hover:bg-surface-2/70 active:bg-surface-3/50'
+                }`}
+                title={`${cat.name} (双击查看内容)`}
+              >
+                {/* macOS 风格圆圈复选框 (左上角) */}
+                <div
+                  className="absolute top-2 left-2 z-10"
                   onClick={e => {
                     e.stopPropagation()
                     cat.onToggle()
                   }}
-                  className="p-1 -m-1 rounded-md hover:bg-surface-2 transition-colors cursor-pointer"
                 >
-                  <TriCheckbox state={cat.state} size="sm" />
-                </span>
-                <span className="rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-mono text-text-3">
-                  {cat.items.length} 文件
-                </span>
-              </div>
-
-              <div className="my-4 flex flex-col items-center text-center">
-                <div className="mb-2 transition-transform duration-200 group-hover:scale-105">
-                  <CategoryIcon icon={cat.icon} size="lg" />
+                  <MacOSCircleCheckbox
+                    state={cat.state}
+                    size="sm"
+                    className={isCatSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
+                  />
                 </div>
-                <h4 className="text-sm font-bold text-text-1 group-hover:text-accent transition-colors">
-                  {cat.name}
-                </h4>
-                {cat.isLoading && (
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-text-3">
-                    <Spinner size={12} />
-                    <span>{cat.loadingMessage || '扫描中…'}</span>
-                  </div>
-                )}
-              </div>
 
-              <div className="border-t border-bd/40 pt-2 flex items-center justify-between text-[11px] text-text-3">
-                <span>点击下钻查看文件</span>
-                <span className="text-accent font-medium group-hover:translate-x-0.5 transition-transform">
-                  进入 ›
-                </span>
+                {/* 居中大文件夹图标 (64px) */}
+                <div className="my-1 flex h-16 w-16 items-center justify-center transition-transform duration-150 group-hover:scale-105 shrink-0">
+                  <MacOSFolderIcon size={64} />
+                </div>
+
+                {/* 居中标题与副标 (严格顶部对齐与固定基线) */}
+                <div className="w-full flex flex-col items-center text-center mt-1.5">
+                  <h4
+                    className={`text-xs font-medium line-clamp-2 break-all leading-snug w-full px-1 h-9 flex items-start justify-center ${
+                      isCatSelected ? 'text-accent font-semibold' : 'text-text-1'
+                    }`}
+                  >
+                    {cat.name}
+                  </h4>
+                  <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+                    {cat.items.length} 个文件
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* 渲染分类扩展组件，如 PPT PDF 进度行或教师筛选 */}
@@ -586,7 +727,7 @@ function GridView({
           {currentCategory.emptyMessage || '该分类下暂无资源'}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3 pb-6 select-none">
           {currentCategory.items.map(item => (
             <div
               key={item.id}
@@ -594,43 +735,50 @@ function GridView({
                 if (item.disabled) return
                 item.onToggle()
               }}
-              className={`flex flex-col justify-between rounded-xl border p-3 shadow-2xs transition-colors select-none ${
+              className={`group relative flex flex-col items-center justify-start rounded-xl p-2.5 transition-all duration-150 select-none ${
                 item.disabled
-                  ? 'border-bd/40 bg-surface-2/30 opacity-60 cursor-not-allowed'
-                  : 'border-bd bg-surface-1 hover:border-bd-strong hover:bg-surface-2/40 cursor-pointer'
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'cursor-pointer ' + (item.selected ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs' : 'hover:bg-surface-2/70 active:bg-surface-3/50')
               }`}
+              title={item.disabled ? item.disabledReason : `${item.name} (点击勾选)`}
             >
-              <div className="flex items-start gap-2.5">
-                <span className="shrink-0 mt-0.5">
-                  <ItemCheckbox
-                    checked={item.selected}
-                    disabled={item.disabled}
-                    onChange={() => {
-                      if (item.disabled) return
-                      item.onToggle()
-                    }}
-                  />
-                </span>
-                <span className="shrink-0">
-                  <FileTypeBadge filename={item.name} type={item.type} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className={`text-xs font-medium line-clamp-2 ${item.disabled ? 'text-text-3' : 'text-text-1'}`} title={item.name}>
-                    {item.name}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-[11px] font-mono text-text-3">
-                    {item.disabledReason ? (
-                      <span className="rounded bg-surface-3/80 px-1 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
-                        {item.disabledReason}
-                      </span>
-                    ) : null}
-                    {item.size ? <span>{formatBytes(item.size)}</span> : null}
-                    {item.date ? <span>{item.date}</span> : null}
-                  </div>
-                </div>
+              {/* macOS 风格圆圈复选框 (左上角) */}
+              <div
+                className="absolute top-2 left-2 z-10"
+                onClick={e => {
+                  e.stopPropagation()
+                  if (!item.disabled) item.onToggle()
+                }}
+              >
+                <MacOSCircleCheckbox
+                  checked={item.selected}
+                  size="sm"
+                  className={item.selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
+                />
               </div>
+
+              {/* 居中大文档图标 (58px) */}
+              <div className="my-1 flex h-16 w-16 items-center justify-center transition-transform duration-150 group-hover:scale-105 shrink-0">
+                <MacOSDocumentIcon filename={item.name} type={item.type} size={58} />
+              </div>
+
+              {/* 居中文件名与副标 (严格顶部对齐与固定基线) */}
+              <div className="w-full flex flex-col items-center text-center mt-1.5">
+                <span
+                  className={`text-xs font-medium line-clamp-2 break-all leading-snug w-full px-1 h-9 flex items-start justify-center ${
+                    item.disabled ? 'text-text-3' : item.selected ? 'text-accent font-semibold' : 'text-text-1'
+                  }`}
+                  title={item.name}
+                >
+                  {item.name}
+                </span>
+                <span className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+                  {item.disabledReason || (item.size ? formatBytes(item.size) : item.date || '文件')}
+                </span>
+              </div>
+
               {item.renderExtra && (
-                <div className="mt-2 border-t border-bd/30 pt-2" onClick={e => e.stopPropagation()}>
+                <div className="mt-1 w-full" onClick={e => e.stopPropagation()}>
                   {item.renderExtra}
                 </div>
               )}
@@ -646,19 +794,84 @@ function GridView({
 // 2. ListView (详细列表视图)
 // ─────────────────────────────────────────────────────────────
 
+function CourseRow({
+  course,
+  onNavigate
+}: {
+  course: NetdiskCourseItem
+  onNavigate: (next: NetdiskNavState) => void
+}) {
+  const c = course
+  return (
+    <tr
+      key={c.id}
+      onClick={() => {
+        c.onEnter?.()
+        onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
+      }}
+      className="hover:bg-surface-2/60 transition-colors cursor-pointer"
+    >
+      <td className="py-2.5 px-4">
+        <div className="flex items-center gap-2.5">
+          <span
+            role="checkbox"
+            aria-checked={c.state === 'all'}
+            tabIndex={0}
+            onClick={e => {
+              e.stopPropagation()
+              c.onToggle()
+            }}
+            className="cursor-pointer"
+          >
+            <TriCheckbox state={c.state} size="sm" />
+          </span>
+          <FolderIcon className="h-4 w-4 text-accent shrink-0" />
+          <span className="font-semibold text-text-1 truncate max-w-sm" title={c.name}>
+            {c.name}
+          </span>
+        </div>
+      </td>
+      <td className="py-2.5 px-4 text-text-3 font-mono">
+        {c.term || c.teacher || '—'}
+      </td>
+      <td className="py-2.5 px-4 text-text-3 font-mono">
+        {c.itemCount > 0 ? c.itemCount : '—'}
+      </td>
+      <td className="py-2.5 px-4 text-text-3 font-mono">
+        {c.totalBytes ? formatBytes(c.totalBytes) : '—'}
+      </td>
+      <td className="py-2.5 px-4 text-right">
+        <button
+          type="button"
+          className="text-accent hover:underline font-medium"
+        >
+          查看内容 ›
+        </button>
+      </td>
+    </tr>
+  )
+}
+
 function ListView({
   courses,
   currentCourse,
   currentCategory,
   navState,
-  onNavigate
+  onNavigate,
+  groupByTerm = true
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
   currentCategory?: NetdiskCategoryItem
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
+  groupByTerm?: boolean
 }) {
+  const termGroups = useMemo(() => {
+    if (!groupByTerm) return null
+    return groupCoursesByTerm(courses)
+  }, [courses, groupByTerm])
+
   // 根目录列表
   if (navState.level === 'root' || !currentCourse) {
     return (
@@ -674,54 +887,82 @@ function ListView({
             </tr>
           </thead>
           <tbody className="divide-y divide-bd/50">
-            {courses.map(c => (
-              <tr
-                key={c.id}
-                onClick={() => {
-                  c.onEnter?.()
-                  onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
-                }}
-                className="hover:bg-surface-2/60 transition-colors cursor-pointer"
-              >
-                <td className="py-2.5 px-4">
-                  <div className="flex items-center gap-2.5">
-                    <span
-                      role="checkbox"
-                      aria-checked={c.state === 'all'}
-                      tabIndex={0}
-                      onClick={e => {
-                        e.stopPropagation()
-                        c.onToggle()
-                      }}
-                      className="cursor-pointer"
-                    >
-                      <TriCheckbox state={c.state} size="sm" />
-                    </span>
-                    <FolderIcon className="h-4 w-4 text-accent shrink-0" />
-                    <span className="font-semibold text-text-1 truncate max-w-sm" title={c.name}>
-                      {c.name}
-                    </span>
-                  </div>
-                </td>
-                <td className="py-2.5 px-4 text-text-3 font-mono">
-                  {c.term || c.teacher || '—'}
-                </td>
-                <td className="py-2.5 px-4 text-text-3 font-mono">
-                  {c.itemCount}
-                </td>
-                <td className="py-2.5 px-4 text-text-3 font-mono">
-                  {c.totalBytes ? formatBytes(c.totalBytes) : '—'}
-                </td>
-                <td className="py-2.5 px-4 text-right">
-                  <button
-                    type="button"
-                    className="text-accent hover:underline font-medium"
-                  >
-                    进入 ›
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {termGroups ? (
+              termGroups.map(group => {
+                const termState = getTermTriState(group.items)
+                return (
+                  <Fragment key={group.term}>
+                    <tr className="bg-surface-2/70 font-semibold text-text-2">
+                      <td colSpan={5} className="py-2 px-4 border-y border-bd/40">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              role="checkbox"
+                              aria-checked={termState === 'all'}
+                              tabIndex={0}
+                              onClick={e => {
+                                e.stopPropagation()
+                                toggleTermCourses(group.items, termState)
+                              }}
+                              className="cursor-pointer shrink-0"
+                              title={termState === 'all' ? '取消本学期全选' : '全选本学期课程'}
+                            >
+                              <TriCheckbox state={termState} size="sm" />
+                            </span>
+                            <span>📅</span>
+                            <span>{group.term}</span>
+                            <span className="text-2xs text-text-3 font-normal">({group.items.length} 门课程)</span>
+                          </div>
+                          <div className="flex items-center gap-2 select-none">
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation()
+                                toggleTermCourses(group.items, termState)
+                              }}
+                              className="text-2xs text-accent hover:underline font-normal cursor-pointer"
+                            >
+                              {termState === 'all' ? '取消全选' : '全选本学期'}
+                            </button>
+                            <span className="text-bd text-xs">|</span>
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation()
+                                toggleTermCategory(group.items, 'files', true)
+                              }}
+                              className="text-2xs text-text-3 hover:text-accent font-normal cursor-pointer"
+                              title="仅勾选该学期所有课程的课件资料"
+                            >
+                              仅课件
+                            </button>
+                            <span className="text-bd text-xs">|</span>
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation()
+                                toggleTermCategory(group.items, 'videos', true)
+                              }}
+                              className="text-2xs text-text-3 hover:text-accent font-normal cursor-pointer"
+                              title="仅勾选该学期所有课程的课堂与录播视频"
+                            >
+                              仅视频
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                    {group.items.map(c => (
+                      <CourseRow key={c.id} course={c} onNavigate={onNavigate} />
+                    ))}
+                  </Fragment>
+                )
+              })
+            ) : (
+              courses.map(c => (
+                <CourseRow key={c.id} course={c} onNavigate={onNavigate} />
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -783,72 +1024,86 @@ function ListView({
 
   // 具体资源列表
   return (
-    <div className="h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs">
-      <table className="w-full text-left text-xs">
-        <thead className="sticky top-0 bg-surface-2 text-text-2 border-b border-bd z-10">
-          <tr>
-            <th className="py-2.5 px-4 font-semibold">文件名 / 标题</th>
-            <th className="py-2.5 px-4 font-semibold">大小</th>
-            <th className="py-2.5 px-4 font-semibold">类型</th>
-            <th className="py-2.5 px-4 font-semibold">日期</th>
-            <th className="py-2.5 px-4 font-semibold text-right">状态 / 操作</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-bd/50">
-          {currentCategory.items.map(item => (
-            <tr
-              key={item.id}
-              onClick={() => {
-                if (item.disabled) return
-                item.onToggle()
-              }}
-              className={`transition-colors ${
-                item.disabled
-                  ? 'opacity-60 bg-surface-2/20 cursor-not-allowed'
-                  : 'hover:bg-surface-2/60 cursor-pointer'
-              }`}
-            >
-              <td className="py-2.5 px-4">
-                <div className="flex items-center gap-2.5">
-                  <span className="shrink-0" onClick={e => e.stopPropagation()}>
-                    <ItemCheckbox
-                      checked={item.selected}
-                      disabled={item.disabled}
-                      onChange={() => {
-                        if (item.disabled) return
-                        item.onToggle()
-                      }}
-                    />
-                  </span>
-                  <FileTypeBadge filename={item.name} type={item.type} />
-                  <span className={`font-medium truncate max-w-md ${item.disabled ? 'text-text-3' : 'text-text-1'}`} title={item.name}>
-                    {item.name}
-                  </span>
-                  {item.disabledReason && (
-                    <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
-                      {item.disabledReason}
-                    </span>
-                  )}
-                </div>
-              </td>
-              <td className="py-2.5 px-4 text-text-3 font-mono">
-                {item.size ? formatBytes(item.size) : '—'}
-              </td>
-              <td className="py-2.5 px-4 text-text-3 font-mono uppercase">
-                {item.type || 'FILE'}
-              </td>
-              <td className="py-2.5 px-4 text-text-3 font-mono">
-                {item.date || '—'}
-              </td>
-              <td className="py-2.5 px-4 text-right" onClick={e => e.stopPropagation()}>
-                {item.renderExtra || (
-                  <span className="text-text-4 font-mono">待下载</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="h-full overflow-y-auto space-y-3 pb-4">
+      {currentCategory.renderExtra && (
+        <div className="rounded-xl border border-bd bg-surface-1 p-3 shadow-2xs">
+          {currentCategory.renderExtra}
+        </div>
+      )}
+
+      {currentCategory.items.length === 0 ? (
+        <div className="py-12 text-center text-xs text-text-3">
+          {currentCategory.emptyMessage || '该分类下暂无资源'}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-bd bg-surface-1 shadow-2xs overflow-hidden">
+          <table className="w-full text-left text-xs">
+            <thead className="sticky top-0 bg-surface-2 text-text-2 border-b border-bd z-10">
+              <tr>
+                <th className="py-2.5 px-4 font-semibold">文件名 / 标题</th>
+                <th className="py-2.5 px-4 font-semibold">大小</th>
+                <th className="py-2.5 px-4 font-semibold">类型</th>
+                <th className="py-2.5 px-4 font-semibold">日期</th>
+                <th className="py-2.5 px-4 font-semibold text-right">状态 / 操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-bd/50">
+              {currentCategory.items.map(item => (
+                <tr
+                  key={item.id}
+                  onClick={() => {
+                    if (item.disabled) return
+                    item.onToggle()
+                  }}
+                  className={`transition-colors ${
+                    item.disabled
+                      ? 'opacity-60 bg-surface-2/20 cursor-not-allowed'
+                      : 'hover:bg-surface-2/60 cursor-pointer'
+                  }`}
+                >
+                  <td className="py-2.5 px-4">
+                    <div className="flex items-center gap-2.5">
+                      <span className="shrink-0" onClick={e => e.stopPropagation()}>
+                        <ItemCheckbox
+                          checked={item.selected}
+                          disabled={item.disabled}
+                          onChange={() => {
+                            if (item.disabled) return
+                            item.onToggle()
+                          }}
+                        />
+                      </span>
+                      <FileTypeBadge filename={item.name} type={item.type} />
+                      <span className={`font-medium truncate max-w-md ${item.disabled ? 'text-text-3' : 'text-text-1'}`} title={item.name}>
+                        {item.name}
+                      </span>
+                      {item.disabledReason && (
+                        <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                          {item.disabledReason}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-4 text-text-3 font-mono">
+                    {item.size ? formatBytes(item.size) : '—'}
+                  </td>
+                  <td className="py-2.5 px-4 text-text-3 font-mono uppercase">
+                    {item.type || 'FILE'}
+                  </td>
+                  <td className="py-2.5 px-4 text-text-3 font-mono">
+                    {item.date || '—'}
+                  </td>
+                  <td className="py-2.5 px-4 text-right" onClick={e => e.stopPropagation()}>
+                    {item.renderExtra || (
+                      <span className="text-text-4 font-mono">待下载</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
@@ -862,218 +1117,433 @@ function ColumnView({
   activeCourse,
   activeCategory,
   onSelectCourse,
-  onSelectCategory
+  onSelectCategory,
+  groupByTerm = true
 }: {
   courses: NetdiskCourseItem[]
   activeCourse?: NetdiskCourseItem
   activeCategory?: NetdiskCategoryItem
   onSelectCourse: (c: NetdiskCourseItem) => void
   onSelectCategory: (cat: NetdiskCategoryItem) => void
+  groupByTerm?: boolean
 }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [selectedFileItem, setSelectedFileItem] = useState<NetdiskFileItem | null>(null)
+
+  // 当切换课程或分类时，如果已选文件不在新分类中，则自动清空预览状态
+  useEffect(() => {
+    if (!activeCategory || !selectedFileItem) return
+    const exists = activeCategory.items.some(it => it.id === selectedFileItem.id)
+    if (!exists) {
+      setSelectedFileItem(null)
+    }
+  }, [activeCategory, selectedFileItem])
+
+  const scrollToRight = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (containerRef.current) {
+        containerRef.current.scrollTo({
+          left: containerRef.current.scrollWidth,
+          behavior: 'smooth'
+        })
+      }
+    })
+  }, [])
+
+  const termGroups = useMemo(() => {
+    if (!groupByTerm) return null
+    return groupCoursesByTerm(courses)
+  }, [courses, groupByTerm])
+
+  const renderColumnCourseItem = (c: NetdiskCourseItem) => {
+    const isSelected = activeCourse?.id === c.id
+    return (
+      <div
+        key={c.id}
+        onClick={() => {
+          onSelectCourse(c)
+          scrollToRight()
+        }}
+        className={`group flex items-center justify-between px-3 py-2 transition-all cursor-pointer mx-2 my-0.5 rounded-xl ${
+          isSelected
+            ? 'bg-accent/10 text-accent font-semibold shadow-2xs'
+            : 'hover:bg-surface-2/70 text-text-1'
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <span
+            role="checkbox"
+            aria-checked={c.state === 'all'}
+            tabIndex={0}
+            onClick={e => {
+              e.stopPropagation()
+              c.onToggle()
+            }}
+            className="cursor-pointer shrink-0"
+          >
+            <TriCheckbox state={c.state} size="sm" />
+          </span>
+          <FolderIcon className={`h-4 w-4 shrink-0 ${isSelected ? 'text-accent' : 'text-amber-500'}`} />
+          <span className="truncate text-xs min-w-0 flex-1" title={c.name}>
+            {c.name}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
+          {c.itemCount > 0 ? (
+            <span className="text-[11px] font-mono opacity-70">
+              {c.itemCount}
+            </span>
+          ) : null}
+          <span className={`text-xs font-mono transition-transform ${isSelected ? 'text-accent font-bold translate-x-0.5' : 'text-text-4 group-hover:text-text-3'}`}>
+            ›
+          </span>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="flex h-full w-full divide-x divide-bd rounded-2xl border border-bd bg-surface-1 shadow-card overflow-hidden">
+    <div
+      ref={containerRef}
+      className="flex h-full w-full flex-row overflow-x-auto divide-x divide-bd/60 rounded-2xl border border-bd bg-surface-1 shadow-card select-none scroll-smooth"
+    >
       {/* 第 1 栏：课程列表 */}
-      <div className="flex w-72 shrink-0 flex-col bg-surface-1">
-        <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-4 text-xs font-semibold text-text-2 select-none">
+      <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full">
+        <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
           <span>全部课程 ({courses.length})</span>
         </div>
-        <div className="flex-1 overflow-y-auto divide-y divide-bd/30">
-          {courses.map(c => {
-            const isSelected = activeCourse?.id === c.id
-            return (
-              <div
-                key={c.id}
-                onClick={() => onSelectCourse(c)}
-                className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
-                  isSelected
-                    ? 'bg-accent/10 border-l-4 border-accent text-accent font-semibold'
-                    : 'hover:bg-surface-2/60 text-text-1'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span
-                    role="checkbox"
-                    aria-checked={c.state === 'all'}
-                    tabIndex={0}
-                    onClick={e => {
-                      e.stopPropagation()
-                      c.onToggle()
-                    }}
-                    className="cursor-pointer shrink-0"
-                  >
-                    <TriCheckbox state={c.state} size="sm" />
-                  </span>
-                  <FolderIcon className={`h-4 w-4 shrink-0 ${isSelected ? 'text-accent' : 'text-amber-500'}`} />
-                  <span className="truncate text-xs" title={c.name}>
-                    {c.name}
-                  </span>
+        <div className="flex-1 overflow-y-auto py-2">
+          {termGroups ? (
+            termGroups.map(group => {
+              const termState = getTermTriState(group.items)
+              return (
+                <div key={group.term} className="mb-2">
+                  <div className="sticky top-0 z-10 flex items-center justify-between border-y border-bd/40 bg-surface-2/95 px-3 py-1 text-2xs font-semibold text-text-3 backdrop-blur-xs select-none">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        role="checkbox"
+                        aria-checked={termState === 'all'}
+                        tabIndex={0}
+                        onClick={() => toggleTermCourses(group.items, termState)}
+                        className="cursor-pointer shrink-0"
+                        title={termState === 'all' ? '取消本学期全选' : '全选本学期课程'}
+                      >
+                        <TriCheckbox state={termState} size="sm" />
+                      </span>
+                      <span className="truncate">📅 {group.term}</span>
+                    </div>
+                    <span className="font-mono text-text-4 shrink-0">({group.items.length})</span>
+                  </div>
+                  <div className="pt-1">
+                    {group.items.map(c => renderColumnCourseItem(c))}
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                  <span className="text-[11px] font-mono opacity-70">
-                    {c.itemCount}
-                  </span>
-                  <span className="text-text-4">›</span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* 第 2 栏：二级资源分类 */}
-      <div className="flex w-64 shrink-0 flex-col bg-surface-1/50">
-        <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-4 text-xs font-semibold text-text-2 select-none">
-          <span className="truncate">{activeCourse?.name ? `${activeCourse.name} · 分类` : '资源分类'}</span>
-        </div>
-        <div className="flex-1 overflow-y-auto divide-y divide-bd/30">
-          {activeCourse?.isLoading && (
-            <div className="flex items-center justify-center gap-2 p-6 text-xs text-text-3">
-              <Spinner size={14} />
-              <span>{activeCourse.loadingMessage || '扫描中…'}</span>
-            </div>
-          )}
-          {activeCourse?.categories.map(cat => {
-            const isSelected = activeCategory?.id === cat.id
-            return (
-              <div
-                key={cat.id}
-                onClick={() => onSelectCategory(cat)}
-                className={`flex items-center justify-between px-3.5 py-2.5 transition-colors cursor-pointer select-none ${
-                  isSelected
-                    ? 'bg-accent/10 border-l-4 border-accent text-accent font-semibold'
-                    : 'hover:bg-surface-2/60 text-text-1'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span
-                    role="checkbox"
-                    aria-checked={cat.state === 'all'}
-                    tabIndex={0}
-                    onClick={e => {
-                      e.stopPropagation()
-                      cat.onToggle()
-                    }}
-                    className="cursor-pointer shrink-0"
-                  >
-                    <TriCheckbox state={cat.state} size="sm" />
-                  </span>
-                  <CategoryIcon icon={cat.icon} />
-                  <span className="truncate text-xs">{cat.name}</span>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                  <span className="text-[11px] font-mono opacity-70">
-                    {cat.items.length}
-                  </span>
-                  <span className="text-text-4">›</span>
-                </div>
-              </div>
-            )
-          })}
-          {activeCourse && activeCourse.categories.length === 0 && !activeCourse.isLoading && (
-            <div className="p-6 text-center text-xs text-text-4">
-              未发现分类
-            </div>
+              )
+            })
+          ) : (
+            courses.map(c => renderColumnCourseItem(c))
           )}
         </div>
       </div>
 
-      {/* 第 3 栏：选定分类内的文件流 */}
-      <div className="flex flex-1 min-w-[340px] flex-col bg-surface-1">
-        <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-4 text-xs font-semibold text-text-2 select-none">
-          <div className="flex items-center gap-2">
-            {activeCategory && (
+      {/* 第 2 栏：二级资源分类（严格单层步进：仅在选定课程后滑出展示） */}
+      {activeCourse && (
+        <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full animate-fadeIn">
+          <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
+            <span className="truncate">{activeCourse.name} · 分类</span>
+          </div>
+          <div className="flex-1 overflow-y-auto py-2">
+            {activeCourse.isLoading && (
+              <div className="flex items-center justify-center gap-2 p-6 text-xs text-text-3">
+                <Spinner size={14} />
+                <span>{activeCourse.loadingMessage || '扫描中…'}</span>
+              </div>
+            )}
+            {activeCourse.categories.map(cat => {
+              const isSelected = activeCategory?.id === cat.id
+              return (
+                <div
+                  key={cat.id}
+                  onClick={() => {
+                    onSelectCategory(cat)
+                    scrollToRight()
+                  }}
+                  className={`group flex items-center justify-between px-3 py-2 transition-all cursor-pointer mx-2 my-0.5 rounded-xl ${
+                    isSelected
+                      ? 'bg-accent/10 text-accent font-semibold shadow-2xs'
+                      : 'hover:bg-surface-2/70 text-text-1'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span
+                      role="checkbox"
+                      aria-checked={cat.state === 'all'}
+                      tabIndex={0}
+                      onClick={e => {
+                        e.stopPropagation()
+                        cat.onToggle()
+                      }}
+                      className="cursor-pointer shrink-0"
+                    >
+                      <TriCheckbox state={cat.state} size="sm" />
+                    </span>
+                    <CategoryIcon icon={cat.icon} />
+                    <span className="truncate text-xs min-w-0 flex-1">{cat.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
+                    <span className="text-[11px] font-mono opacity-70">
+                      {cat.items.length}
+                    </span>
+                    <span className={`text-xs font-mono transition-transform ${isSelected ? 'text-accent font-bold translate-x-0.5' : 'text-text-4 group-hover:text-text-3'}`}>
+                      ›
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+            {activeCourse.categories.length === 0 && !activeCourse.isLoading && (
+              <div className="p-6 text-center text-xs text-text-4">
+                未发现分类
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 第 3 栏：选定分类内的文件流（严格单层步进：仅在选定分类后滑出展示） */}
+      {activeCourse && activeCategory && (
+        <div className={`flex flex-col bg-surface-1/40 h-full transition-all animate-fadeIn ${selectedFileItem ? 'w-72 md:w-80 shrink-0' : 'flex-1 min-w-[300px]'}`}>
+          <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <span
                 role="checkbox"
                 aria-checked={activeCategory.state === 'all'}
                 tabIndex={0}
                 onClick={() => activeCategory.onToggle()}
-                className="cursor-pointer"
+                className="cursor-pointer shrink-0"
               >
                 <TriCheckbox state={activeCategory.state} size="sm" />
               </span>
+              <span className="truncate">{activeCategory.name} ({activeCategory.items.length})</span>
+            </div>
+            {activeCategory.isLoading && (
+              <div className="flex items-center gap-1.5 text-[11px] text-text-3 shrink-0 ml-2">
+                <Spinner size={12} />
+                <span>{activeCategory.loadingMessage || '加载中…'}</span>
+              </div>
             )}
-            <span>{activeCategory?.name || '具体文件流'} ({activeCategory?.items.length || 0})</span>
           </div>
-          {activeCategory?.isLoading && (
-            <div className="flex items-center gap-1.5 text-[11px] text-text-3">
-              <Spinner size={12} />
-              <span>{activeCategory.loadingMessage || '加载中…'}</span>
+
+          {activeCategory.renderExtra && (
+            <div className="border-b border-bd/60 p-2.5 bg-surface-2/30 shrink-0">
+              {activeCategory.renderExtra}
             </div>
           )}
-        </div>
 
-        {activeCategory?.renderExtra && (
-          <div className="border-b border-bd p-2.5 bg-surface-2/20">
-            {activeCategory.renderExtra}
+          <div className="flex-1 overflow-y-auto py-2">
+            {activeCategory.items.map(item => {
+              const isActive = selectedFileItem?.id === item.id
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    setSelectedFileItem(item)
+                    scrollToRight()
+                  }}
+                  className={`group flex flex-col px-3 py-2 transition-all cursor-pointer mx-2 my-0.5 rounded-xl ${
+                    isActive
+                      ? 'bg-accent/10 text-accent font-semibold shadow-2xs'
+                      : item.disabled
+                      ? 'opacity-60 hover:bg-surface-2/40'
+                      : 'hover:bg-surface-2/70 text-text-1'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span
+                        role="checkbox"
+                        aria-checked={item.selected}
+                        tabIndex={0}
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (!item.disabled) item.onToggle()
+                        }}
+                        className="cursor-pointer shrink-0"
+                      >
+                        <ItemCheckbox
+                          checked={item.selected}
+                          disabled={item.disabled}
+                          onChange={() => {
+                            if (!item.disabled) item.onToggle()
+                          }}
+                        />
+                      </span>
+                      <FileTypeBadge filename={item.name} type={item.type} />
+                      <span className={`min-w-0 flex-1 truncate text-xs ${item.disabled ? 'text-text-3' : 'text-text-1'}`} title={item.name}>
+                        {item.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
+                      {item.disabledReason ? (
+                        <span className="rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                          {item.disabledReason}
+                        </span>
+                      ) : item.size ? (
+                        <span className="font-mono text-[11px] text-text-3 opacity-80">
+                          {formatBytes(item.size)}
+                        </span>
+                      ) : null}
+                      <span className={`text-xs font-mono transition-transform ${isActive ? 'text-accent font-bold translate-x-0.5' : 'text-text-4 group-hover:text-text-3'}`}>
+                        ›
+                      </span>
+                    </div>
+                  </div>
+                  {item.renderExtra && (
+                    <div className="mt-1 pl-6" onClick={e => e.stopPropagation()}>
+                      {item.renderExtra}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {activeCategory.items.length === 0 && !activeCategory.isLoading && (
+              <div className="py-16 text-center text-xs text-text-4">
+                {activeCategory.emptyMessage || '该分类下暂无资源'}
+              </div>
+            )}
           </div>
-        )}
+        </div>
+      )}
 
-        <div className="flex-1 overflow-y-auto divide-y divide-bd/30">
-          {activeCategory?.items.map(item => (
-            <div
-              key={item.id}
+      {/* 第 4 栏：课件/文件详情与大预览卡片 (Inspector / Preview Column) */}
+      {selectedFileItem && (
+        <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full">
+          <div className="flex items-center justify-between pb-3 border-b border-bd/60 shrink-0">
+            <span className="text-xs font-bold text-text-2">课件详情与预览</span>
+            <button
+              type="button"
+              onClick={() => setSelectedFileItem(null)}
+              className="text-text-4 hover:text-text-1 text-xs p-1 rounded-md hover:bg-surface-3 transition-colors cursor-pointer"
+              title="关闭详情面板"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="my-4">
+            {(() => {
+              const ext = selectedFileItem.name.split('.').pop()?.toLowerCase() || ''
+              const isVideo = ['mp4', 'mkv', 'mov', 'flv', 'ts', 'webm'].includes(ext) || selectedFileItem.type === 'MP4'
+              const isAudio = ['mp3', 'm4a', 'wav', 'aac', 'flac'].includes(ext)
+
+              if (isVideo) {
+                return (
+                  <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-md">
+                    <div className="flex flex-col items-center justify-center text-white/90 gap-2 p-4 text-center">
+                      <span className="text-4xl">🎬</span>
+                      <span className="text-xs font-semibold">课堂视频 / 录播课件</span>
+                      <span className="text-2xs text-white/60">加入下载清单后即可批量高速下载</span>
+                    </div>
+                  </div>
+                )
+              }
+
+              if (isAudio) {
+                return (
+                  <div className="w-full rounded-xl bg-surface-2 p-5 flex flex-col items-center border border-bd/60 shadow-xs">
+                    <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-2 shadow-inner">
+                      🎵
+                    </div>
+                    <span className="text-xs font-medium text-text-2">音频课件</span>
+                  </div>
+                )
+              }
+
+              return (
+                <div className="w-full rounded-xl bg-surface-2/60 p-6 flex flex-col items-center justify-center border border-bd/60 shadow-xs">
+                  <div className="scale-125 mb-2">
+                    <FileTypeBadge filename={selectedFileItem.name} type={selectedFileItem.type} />
+                  </div>
+                  <span className="text-2xs font-mono font-bold text-text-3 uppercase tracking-wider mt-2">
+                    {ext || selectedFileItem.type || 'DOCUMENT'}
+                  </span>
+                </div>
+              )
+            })()}
+          </div>
+
+          <h3 className="text-sm font-bold text-text-1 break-all select-text leading-snug mb-3 shrink-0" title={selectedFileItem.name}>
+            {selectedFileItem.name}
+          </h3>
+
+          <div className="w-full rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40 space-y-2 mb-4 shrink-0">
+            {activeCourse?.name && (
+              <div className="flex justify-between py-1">
+                <span className="text-text-3">所属课程</span>
+                <span className="font-semibold text-text-1 text-2xs truncate max-w-[180px]" title={activeCourse.name}>
+                  {activeCourse.name}
+                </span>
+              </div>
+            )}
+            {activeCategory?.name && (
+              <div className="flex justify-between py-1">
+                <span className="text-text-3">所属分类</span>
+                <span className="font-semibold text-text-1 text-2xs">
+                  {activeCategory.name}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between py-1">
+              <span className="text-text-3">文件大小</span>
+              <span className="font-mono font-bold text-accent">
+                {selectedFileItem.size ? formatBytes(selectedFileItem.size) : '未知'}
+              </span>
+            </div>
+            {selectedFileItem.date && (
+              <div className="flex justify-between py-1">
+                <span className="text-text-3">讲次/时间</span>
+                <span className="font-mono text-text-2 text-2xs">
+                  {selectedFileItem.date}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between py-1">
+              <span className="text-text-3">状态</span>
+              <span className={`text-2xs font-medium ${selectedFileItem.disabled ? 'text-warning' : selectedFileItem.selected ? 'text-accent' : 'text-text-3'}`}>
+                {selectedFileItem.disabled ? (selectedFileItem.disabledReason || '不可用') : selectedFileItem.selected ? '已加入清单' : '未选择'}
+              </span>
+            </div>
+          </div>
+
+          {selectedFileItem.renderExtra && (
+            <div className="w-full mb-4 p-3 rounded-xl bg-surface-2/50 border border-bd/50 text-xs shrink-0">
+              <div className="text-2xs font-semibold text-text-3 mb-1.5 uppercase tracking-wider">资源属性</div>
+              {selectedFileItem.renderExtra}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2 mt-auto shrink-0 pt-2">
+            <button
+              type="button"
+              disabled={selectedFileItem.disabled}
               onClick={() => {
-                if (item.disabled) return
-                item.onToggle()
+                if (selectedFileItem.disabled) return
+                selectedFileItem.onToggle()
               }}
-              className={`flex flex-col px-4 py-2 transition-colors select-none ${
-                item.disabled
-                  ? 'opacity-60 bg-surface-2/20 cursor-not-allowed'
-                  : 'hover:bg-surface-2/40 cursor-pointer'
+              className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
+                selectedFileItem.disabled
+                  ? 'bg-surface-3 text-text-4 cursor-not-allowed opacity-60'
+                  : selectedFileItem.selected
+                  ? 'bg-accent text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98]'
+                  : 'border border-bd bg-surface-2 text-text-1 hover:bg-surface-3 active:scale-[0.98]'
               }`}
             >
-              <div className="flex items-center gap-2.5">
-                <span className="shrink-0" onClick={e => e.stopPropagation()}>
-                  <ItemCheckbox
-                    checked={item.selected}
-                    disabled={item.disabled}
-                    onChange={() => {
-                      if (item.disabled) return
-                      item.onToggle()
-                    }}
-                  />
-                </span>
-                <FileTypeBadge filename={item.name} type={item.type} />
-                <span className={`min-w-0 flex-1 truncate text-xs ${item.disabled ? 'text-text-3' : 'text-text-1'}`} title={item.name}>
-                  {item.name}
-                </span>
-                {item.disabledReason && (
-                  <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
-                    {item.disabledReason}
-                  </span>
-                )}
-                {item.size ? (
-                  <span className="shrink-0 font-mono text-[11px] text-text-3">
-                    {formatBytes(item.size)}
-                  </span>
-                ) : null}
-                {item.date ? (
-                  <span className="shrink-0 font-mono text-[11px] text-text-4">
-                    {item.date}
-                  </span>
-                ) : null}
-              </div>
-              {item.renderExtra && (
-                <div className="mt-1 pl-6" onClick={e => e.stopPropagation()}>
-                  {item.renderExtra}
-                </div>
-              )}
-            </div>
-          ))}
-
-          {activeCategory && activeCategory.items.length === 0 && !activeCategory.isLoading && (
-            <div className="py-16 text-center text-xs text-text-4">
-              {activeCategory.emptyMessage || '该分类下暂无资源'}
-            </div>
-          )}
-
-          {!activeCategory && (
-            <div className="py-16 text-center text-xs text-text-4">
-              请在左侧选择课程与分类以查看资源
-            </div>
-          )}
+              <span>{selectedFileItem.selected ? '✓ 已加入下载清单 (点击取消)' : '+ 加入下载清单'}</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

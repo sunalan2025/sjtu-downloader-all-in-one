@@ -103,13 +103,48 @@ export function buildPptFileNameForLecture(
 
 // ─── 获取 PPT 图片列表 ────────────────────────────────────────
 
-/** 调用 query-ppt-slice-es API 获取一讲视频的全部 PPT 幻灯片。
+/** 获取一讲视频的全部 PPT 幻灯片。
+ *  优先调用新版 `v.sjtu.edu.cn/jy-application-resourcemanage/v1/course/ai/ppt`，
+ *  若失败则回退至旧版 `query-ppt-slice-es` API。
  *  服务端 code/hide/createSec 字段可能是字符串或数字，统一用 String()/Number() 容错。 */
 export async function fetchPptSliceList(
   ses: Electron.Session,
   token: string,
   ivsVideoId: number
 ): Promise<PptSlice[]> {
+  // 1. 优先尝试交大新版科达系统 AI 幻灯片切片 API (GET /v1/course/ai/ppt?courseId=...)
+  try {
+    const aiUrl = `https://v.sjtu.edu.cn/jy-application-resourcemanage/v1/course/ai/ppt?courseId=${ivsVideoId}`
+    const aiResp = await safeFetch(ses, aiUrl, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json, text/plain, */*',
+        'jwt-token': token,
+        token,
+        Referer: VSJTU_REFERER
+      }
+    })
+    if (aiResp && aiResp.ok && typeof aiResp.json === 'function') {
+      const json = (await aiResp.json()) as { data?: { docList?: any[] }; code?: unknown }
+      const docList = json.data?.docList
+      if (Array.isArray(docList) && docList.length > 0) {
+        const rawSlices = docList.map(d => ({
+          ivsVideoId: Number(d.taskId || ivsVideoId),
+          createSec: Number(d.imageSeekTime ?? 0),
+          pptImgUrl: String(d.imageUrl || ''),
+          hide: d.showFlag === false ? 1 : 0
+        }))
+        const { slices } = processPptSlices(rawSlices)
+        if (slices.length > 0) {
+          return slices as unknown as PptSlice[]
+        }
+      }
+    }
+  } catch (_aiErr) {
+    // 忽略新版 AI 接口探测错误，无缝回退旧版
+  }
+
+  // 2. 回退至旧版 query-ppt-slice-es API
   const url = `${VSJTU_CANVAS_BASE}/directOnDemandPlay/vod-analysis/query-ppt-slice-es?ivsVideoId=${ivsVideoId}`
   const resp = await safeFetch(ses, url, {
     method: 'GET',
@@ -119,7 +154,7 @@ export async function fetchPptSliceList(
       Referer: VSJTU_REFERER
     }
   })
-  const data = await resp.json() as { code: string | number; data?: PptSlice[]; message?: string }
+  const data = (await resp.json()) as { code: string | number; data?: PptSlice[]; message?: string }
   // code 可能是字符串 "0" 或数字 0，统一转字符串比较
   if (String(data.code) !== '0') {
     throw new Error(`query-ppt-slice-es code=${data.code}: ${data.message || ''}`)

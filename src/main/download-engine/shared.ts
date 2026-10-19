@@ -16,13 +16,14 @@ import {
   type DownloadTaskSpec,
   type FileConflictStrategy
 } from '../../shared/types'
-import { getHlsActive, noteTaskError } from '../concurrency'
+import { getHlsActive } from '../concurrency'
 import { emitProgress } from './progress'
 import { getIsQuitting } from '../window'
 import { sjtuSession } from '../session'
 import { vsjtuFetch } from '../auth'
 import type { ChunkedUploader, UploadSessionState } from '../cloudpan'
 import { getVodChannelsCached, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from '../canvas/video-tokens'
+import { fetchLegacyVodStreamUrls } from '../canvas/legacy-video'
 import { sanitizeFsName } from '../../shared/utils'
 import { fetchCnmoocResourceUrl, inferCnmoocExt } from '../cnmooc/api'
 import { vsjtuVodResolver } from './vsjtu-resolver'
@@ -274,7 +275,6 @@ export async function resolveDirectUrl(
     } catch (err) {
       if (t.state === 'cancelled') return false
       t.state = 'error'
-      noteTaskError()
       const msg = err instanceof Error ? err.message : String(err)
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
       scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -344,7 +344,6 @@ export async function resolveDirectUrl(
         } catch (err) {
           if (t.state === 'cancelled') return false
           t.state = 'error'
-          noteTaskError()
           const msg = err instanceof Error ? err.message : String(err)
           emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
           scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -376,7 +375,6 @@ export async function resolveDirectUrl(
       } catch (err) {
         if (t.state === 'cancelled') return false
         t.state = 'error'
-        noteTaskError()
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
         scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -417,7 +415,6 @@ export async function resolveDirectUrl(
         }
         if (!t.spec.url) {
           t.state = 'error'
-          noteTaskError()
           emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
           scheduleCleanupTask(t.spec.taskId, isCloud)
           return false
@@ -443,7 +440,30 @@ export async function resolveDirectUrl(
       } catch (err) {
         if (t.state === 'cancelled') return false
         t.state = 'error'
-        noteTaskError()
+        const msg = err instanceof Error ? err.message : String(err)
+        emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
+        scheduleCleanupTask(t.spec.taskId, isCloud)
+        return false
+      }
+    }
+  }
+
+  // 旧版录播中心（courses.sjtu.edu.cn / legacy-video）：支持 pause/resume 及网络重试时重新拉取直链
+  if (src === 'canvas-video' && !t.spec.url) {
+    const cs = t.spec as CanvasDownloadTaskSpec
+    if (cs.canvasVideoId) {
+      if (t.state !== 'cancelled') {
+        t.state = 'downloading'
+        emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: 0, total: 0, message: '解析旧版录播直链…' })
+      }
+      try {
+        const streamUrls = await fetchLegacyVodStreamUrls(sjtuSession(), cs.canvasVideoId)
+        const targetUrl = cs.canvasStreamIdx === 1 ? streamUrls.pptUrl : streamUrls.teacherUrl
+        if (!targetUrl) throw new Error('未获取到旧版录播视频直链')
+        t.spec.url = targetUrl
+      } catch (err) {
+        if (t.state === 'cancelled') return false
+        t.state = 'error'
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
         scheduleCleanupTask(t.spec.taskId, isCloud)
@@ -470,7 +490,6 @@ export async function resolveDirectUrl(
     } catch (err) {
       if (t.state === 'cancelled') return false
       t.state = 'error'
-      noteTaskError()
       const msg = err instanceof Error ? err.message : String(err)
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
       scheduleCleanupTask(t.spec.taskId, isCloud)

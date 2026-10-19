@@ -4,6 +4,7 @@ import type {
   AuditCourseDetail,
   AuditCourseItem,
   AuthStatus,
+  CanvasAssignmentItem,
   CanvasCourse,
   CanvasDownloadTaskSpec,
   CanvasFileItem,
@@ -13,6 +14,7 @@ import type {
   CanvasTeacherSelection,
   CanvasVideoSession,
   CloudPanSpaceInfo,
+  CloudPanDirectoryListing,
   CnmoocChapter,
   CnmoocCourse,
   CnmoocResourceFilter,
@@ -21,11 +23,17 @@ import type {
   FileConflictStrategy,
   DownloadProgress,
   DownloadTaskSpec,
+  MaskedCredential,
   PageResult,
   TransferSpeed,
   UpdateCheckResult,
   UpdateProgress,
-  VideoQualityOption
+  VideoQualityOption,
+  ScheduleFetchResult,
+  JiaowuScheduleResult,
+  IcsExportOptions,
+  ScheduleEvent,
+  IcsExportResult
 } from '../shared/types'
 
 import pkg from '../../package.json'
@@ -61,7 +69,9 @@ const api = {
   /** 在系统资源管理器中打开/高亮指定文件或文件夹 */
   showInFolder: (fullPath: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('app:show-in-folder', fullPath),
   /** 用系统默认关联应用打开指定文件或文件夹 */
-  openPath: (fullPath: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:open-path', fullPath),
+  openPath: (fullPath?: string): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:open-path', fullPath),
+  /** 获取系统默认下载目录路径（Downloads） */
+  getDefaultDownloadsDir: (): Promise<string> => ipcRenderer.invoke('app:get-default-downloads-dir'),
   // ─── 应用内自动更新（asset 取 check-update 缓存；下载到 temp → spawn 安装器 → quit 释放文件锁） ───
   /** 下载当前平台安装包到临时目录（进度经 onUpdateProgress 推送） */
   downloadUpdate: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:download-update'),
@@ -175,7 +185,35 @@ const api = {
     directLogin: (): Promise<{ ok: boolean; userToken?: string; error?: string }> =>
       ipcRenderer.invoke('cloudpan:direct-login'),
     /** 清除云盘缓存的 USER_TOKEN */
-    logout: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('cloudpan:logout')
+    logout: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('cloudpan:logout'),
+    /** 列出交大云盘目录内容 */
+    listDirectory: (
+      dirPath?: string[],
+      page?: number,
+      pageSize?: number
+    ): Promise<{ ok: boolean; data?: CloudPanDirectoryListing; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:list-dir', dirPath, page, pageSize),
+    /** 在交大云盘中创建文件夹 */
+    createFolder: (dirPath: string[]): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:create-dir', dirPath),
+    /** 删除交大云盘中的文件或文件夹 */
+    deleteItem: (targetPath: string[], isDir: boolean): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:delete-item', targetPath, isDir),
+    /** 重命名交大云盘中的文件或文件夹 */
+    renameItem: (oldPath: string[], newName: string, isDir: boolean): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:rename-item', oldPath, newName, isDir),
+    /** 获取交大云盘文件的下载直链 */
+    getDownloadUrl: (filePath: string[]): Promise<{ ok: boolean; url?: string; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:get-download-url', filePath),
+    /** 下载交大云盘文件到本地并加入传输队列 */
+    downloadFile: (remotePath: string[], targetDir?: string): Promise<{ ok: boolean; taskId?: string; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:download-file', remotePath, targetDir),
+    /** 调起本地文件选择框并将选中文件上传到交大云盘 */
+    uploadFiles: (targetDirPath: string[]): Promise<{ ok: boolean; count?: number; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:upload-files', targetDirPath),
+    /** 在系统默认浏览器中打开交大云盘网页版 */
+    openInBrowser: (remotePath?: string[]): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:open-web', remotePath)
   },
   // ─── Canvas (oc.sjtu.edu.cn) ───
   canvas: {
@@ -203,6 +241,7 @@ const api = {
       lectures?: CanvasLectureGroup[]
       token?: string
       canvasCourseId?: string
+      legacyCourseId?: string
       error?: string
     }> =>
       ipcRenderer.invoke('canvas:class-video-scan', courseId),
@@ -268,7 +307,61 @@ const api = {
     ): Promise<{ ok: boolean; specs?: CanvasDownloadTaskSpec[]; error?: string }> =>
       ipcRenderer.invoke('canvas:download-lectures', courseName, courseId, lectureItems, token, destRoot, conflictStrategy, term, qualityOption),
     onScanProgress: (cb: (p: { courseId: number; phase: string; message: string }) => void) => subscribe<{ courseId: number; phase: string; message: string }>('canvas:scan-progress', cb),
-    onHlsProgress: (cb: (p: { taskId: string; baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }) => void) => subscribe<{ taskId: string; baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }>('canvas:hls-progress', cb)
+    onHlsProgress: (cb: (p: { taskId: string; baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }) => void) => subscribe<{ taskId: string; baseName: string; phase: string; segmentsDone: number; segmentsTotal: number; bytesWritten: number; message?: string }>('canvas:hls-progress', cb),
+    /** 批量下载与归档课程作业 (Assignments & Submissions) */
+    downloadAssignments: (opts: {
+      taskId?: string
+      courseId: number
+      courseName: string
+      assignments: CanvasAssignmentItem[]
+      destRoot: string
+      term?: string
+      conflictStrategy?: FileConflictStrategy
+    }): Promise<{
+      ok: boolean
+      results?: Array<{ assignmentName: string; ok: boolean; path?: string; error?: string }>
+      error?: string
+    }> =>
+      ipcRenderer.invoke('canvas:assignment-download-batch', opts),
+    /** 订阅作业归档进度事件 */
+    onAssignmentProgress: (cb: (p: { taskId?: string; current: number; total: number; phase: string; assignmentName?: string }) => void) =>
+      subscribe<{ taskId?: string; current: number; total: number; phase: string; assignmentName?: string }>('canvas:assignment-progress', cb),
+    /** 导出单讲课堂实录 AI 语音逐字稿与字幕 (.srt / .md) */
+    downloadTranscript: (opts: {
+      courseName: string
+      term?: string
+      lectureName: string
+      videoBaseName: string
+      videoSession?: { beginTime: string; teacher: string; classroom: string }
+      destRoot: string
+      courseId: string | number
+      exportSrt?: boolean
+      exportMarkdown?: boolean
+    }): Promise<{ ok: boolean; srtPath?: string; mdPath?: string; count?: number; error?: string }> =>
+      ipcRenderer.invoke('canvas:transcript-download', opts),
+    /** 批量导出多讲课堂实录 AI 语音逐字稿与字幕 */
+    downloadTranscriptBatch: (opts: {
+      taskId?: string
+      courseName: string
+      term?: string
+      destRoot: string
+      lectures: Array<{
+        lectureName: string
+        videoBaseName: string
+        courseId: string | number
+        videoSession?: { beginTime: string; teacher: string; classroom: string }
+      }>
+      exportSrt?: boolean
+      exportMarkdown?: boolean
+    }): Promise<{
+      ok: boolean
+      results?: Array<{ lectureName: string; ok: boolean; srtPath?: string; mdPath?: string; count?: number; error?: string }>
+      error?: string
+    }> =>
+      ipcRenderer.invoke('canvas:transcript-download-batch', opts),
+    /** 订阅逐字稿导出进度事件 */
+    onTranscriptProgress: (cb: (p: { taskId?: string; current: number; total: number; phase: string }) => void) =>
+      subscribe<{ taskId?: string; current: number; total: number; phase: string }>('canvas:transcript-progress', cb)
   },
   // ─── 好大学在线 (cnmooc.sjtu.cn) ───
   cnmooc: {
@@ -330,8 +423,30 @@ const api = {
     /** 订阅 PPT 下载进度事件（含 taskId，用于映射到 UI 进度条） */
     onProgress: (cb: (p: { taskId?: string; ivsVideoId: number; current: number; total: number; phase: string; lectureName?: string }) => void) =>
       subscribe<{ taskId?: string; ivsVideoId: number; current: number; total: number; phase: string; lectureName?: string }>('canvas:ppt-progress', cb)
+  },
+  credentials: {
+    list: (): Promise<MaskedCredential[]> => ipcRenderer.invoke('credentials:list'),
+    save: (username: string, password: string, label?: string): Promise<{ ok: boolean; id?: string; error?: string }> =>
+      ipcRenderer.invoke('credentials:save', { username, password, label }),
+    updateLabel: (id: string, label?: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('credentials:update-label', { id, label }),
+    delete: (id: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('credentials:delete', id),
+    clearAll: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('credentials:clear-all'),
+    getFillData: (id?: string): Promise<{ ok: boolean; username?: string; password?: string; error?: string }> =>
+      ipcRenderer.invoke('credentials:get-fill-data', id)
+  },
+  schedule: {
+    fetchEvents: (options?: { startDate?: string; endDate?: string }): Promise<ScheduleFetchResult> =>
+      ipcRenderer.invoke('schedule:fetch-events', options),
+    fetchJiaowu: (xnm?: string, xqm?: string): Promise<JiaowuScheduleResult> =>
+      ipcRenderer.invoke('schedule:fetch-jiaowu', xnm, xqm),
+    exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]): Promise<IcsExportResult> =>
+      ipcRenderer.invoke('schedule:export-ics', options, events)
   }
 }
+
 
 try {
   contextBridge.exposeInMainWorld('api', api)

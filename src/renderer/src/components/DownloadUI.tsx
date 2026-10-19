@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import type { DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, CnmoocResourceFilter, VideoQualityOption } from '@shared/types'
+import type { DownloadProgress, DownloadState, CnmoocResourceFilter } from '@shared/types'
 import { Segmented, type SegmentedOption } from './Segmented'
 import { Spinner } from './Spinner'
 import { useAppStore, type CourseViewMode } from '../store/app'
@@ -360,70 +360,6 @@ export function TaskCtrlBtn({
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// 下载模式分段选择器（本地 / 云盘 / 两者） — 统一 Browser & CanvasBrowser
-// ─────────────────────────────────────────────────────────────
-
-const MODE_OPTIONS: SegmentedOption<DownloadMode>[] = [
-  { key: 'local', label: '本地', title: '仅下载到本地磁盘' },
-  { key: 'cloud', label: '云盘', title: '仅上传到交大云盘' },
-  { key: 'both', label: '两者', title: '同时下载到本地并上传到云盘' }
-]
-
-export function ModeSegmented({
-  value,
-  onChange
-}: {
-  value: DownloadMode
-  onChange: (m: DownloadMode) => void
-}) {
-  return <Segmented options={MODE_OPTIONS} value={value} onChange={onChange} size="md" />
-}
-
-// ─────────────────────────────────────────────────────────────
-// 同名文件冲突策略分段选择器（跳过 / 替换） — 统一 Browser & CanvasBrowser
-// ─────────────────────────────────────────────────────────────
-
-const CONFLICT_OPTIONS: SegmentedOption<FileConflictStrategy>[] = [
-  { key: 'skip', label: '跳过', title: '同名文件已存在时跳过，保留旧文件' },
-  { key: 'overwrite', label: '替换', title: '同名文件已存在时先删除旧文件，再重新下载/上传' }
-]
-
-export function ConflictStrategySegmented({
-  value,
-  onChange
-}: {
-  value: FileConflictStrategy
-  onChange: (s: FileConflictStrategy) => void
-}) {
-  return <Segmented options={CONFLICT_OPTIONS} value={value} onChange={onChange} size="md" />
-}
-
-// ─────────────────────────────────────────────────────────────
-// HLS 重编码分段选择器 — 解决超高分辨率 I-frame-only 源花屏问题
-// ─────────────────────────────────────────────────────────────
-
-const QUALITY_OPTIONS: SegmentedOption<VideoQualityOption>[] = [
-  { key: 'origin', label: '原始画质', title: '保留原始分辨率和编码' },
-  { key: '1080p', label: '1080P', title: '缩放到 1080p 标准编码' },
-  { key: '720p', label: '720P', title: '缩放到 720p 标准编码' },
-  { key: 'audio_only', label: '🎵 仅音频', title: '提取纯音频 AAC (.m4a)，不保存视频' }
-]
-
-export function HlsTranscodeSegmented({
-  value = 'origin',
-  onChange
-}: {
-  value?: VideoQualityOption
-  onChange: (q: VideoQualityOption) => void
-}) {
-  return (
-    <div className="flex items-center gap-1.5" title="设置视频输出质量或仅提取纯音频">
-      <span className="whitespace-nowrap text-xs text-text-3">画质/格式</span>
-      <Segmented options={QUALITY_OPTIONS} value={value} onChange={onChange} size="sm" />
-    </div>
-  )
-}
 
 // ─────────────────────────────────────────────────────────────
 // 好大学在线 资源类型分段选择器（全部 / 仅视频 / 仅课件）
@@ -464,13 +400,15 @@ export function CourseProgressSummary({
   downloading,
   errors,
   inflight,
-  total
+  total,
+  className
 }: {
   done: number
   downloading: number
   errors: number
   inflight?: number
   total: number
+  className?: string
 }) {
   if (done === 0 && downloading === 0 && errors === 0) return null
   const w = (n: number): number => (total > 0 ? Math.min(100, (n / total) * 100) : 0)
@@ -478,26 +416,24 @@ export function CourseProgressSummary({
   const wInflight = w(inflight ?? 0)
   const wErr = w(errors)
   return (
-    <div className="border-t border-bd px-5 py-3">
-      <div className="flex items-center gap-3">
-        {/* 堆叠进度条 */}
-        <div className="relative flex h-2.5 flex-1 overflow-hidden rounded-full bg-surface-2">
-          <div className="h-full bg-success transition-[width] duration-300 ease-out" style={{ width: `${wDone}%` }} />
-          <div className="h-full bg-gradient-to-r from-accent to-accent-light transition-[width] duration-300 ease-out" style={{ width: `${wInflight}%` }} />
-          {wErr > 0 && (
-            <div className="h-full bg-warning transition-[width] duration-300 ease-out" style={{ width: `${wErr}%` }} />
-          )}
-        </div>
-        {/* 状态文字 */}
-        <div className="flex shrink-0 items-center gap-2.5 text-xs tabular-nums">
-          <span className="font-medium text-success">{done}/{total}</span>
-          {downloading > 0 && (
-            <span className="inline-flex items-center gap-1 text-info">
-              <Spinner size={11} />{downloading}
-            </span>
-          )}
-          {errors > 0 && <span className="text-warning">失败 {errors}</span>}
-        </div>
+    <div className={className ?? 'flex items-center gap-2.5 py-0.5'}>
+      {/* 堆叠进度条 */}
+      <div className="relative flex h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2">
+        <div className="h-full bg-success transition-[width] duration-300 ease-out" style={{ width: `${wDone}%` }} />
+        <div className="h-full bg-gradient-to-r from-accent to-accent-light transition-[width] duration-300 ease-out" style={{ width: `${wInflight}%` }} />
+        {wErr > 0 && (
+          <div className="h-full bg-warning transition-[width] duration-300 ease-out" style={{ width: `${wErr}%` }} />
+        )}
+      </div>
+      {/* 状态文字 */}
+      <div className="flex shrink-0 items-center gap-1.5 text-[11px] font-mono tabular-nums">
+        <span className="font-medium text-success">{done}/{total}</span>
+        {downloading > 0 && (
+          <span className="inline-flex items-center gap-1 text-info">
+            <Spinner size={10} />{downloading}
+          </span>
+        )}
+        {errors > 0 && <span className="text-warning">失败 {errors}</span>}
       </div>
     </div>
   )
@@ -668,12 +604,25 @@ export function FileTypeBadge({
   className?: string
 }) {
   let ext = type?.toUpperCase()
-  if (!ext && filename) {
-    const parts = filename.split('.')
-    if (parts.length > 1) {
-      ext = parts[parts.length - 1].toUpperCase()
+
+  // 关键防错：如果文件名包含明确的文件后缀，优先采用真实文件后缀（避免上游误传通用类型覆盖了真实的 pptx/pdf）
+  if (ext !== 'M4A' && ext !== 'DISABLED' && filename) {
+    const cleanFn = filename.replace(/\s*\([^)]*\)\s*$/, '').trim()
+    const m = cleanFn.match(/\.([a-zA-Z0-9]{2,5})$/)
+    if (m) {
+      const fnExt = m[1].toUpperCase()
+      const recognizedExts = [
+        'PDF', 'PPT', 'PPTX', 'DOC', 'DOCX', 'XLS', 'XLSX', 'ZIP', 'RAR', '7Z', 'TXT',
+        'MP4', 'MP3', 'FLV', 'MKV', 'AVI', 'MOV', 'WAV', 'AAC'
+      ]
+      if (recognizedExts.includes(fnExt)) {
+        ext = fnExt
+      } else if (!ext) {
+        ext = fnExt
+      }
     }
   }
+
   ext = ext || 'FILE'
 
   const badgeClass = className || 'h-[22px] w-[18px] shrink-0 drop-shadow-2xs'
@@ -773,41 +722,27 @@ export function FileTypeBadge({
 export function FolderIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
     <svg
-      className={`${className} shrink-0 drop-shadow-2xs`}
+      className={`${className} shrink-0`}
       viewBox="0 0 24 24"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* 文件夹后盖与标签 (Back Plate & Tab) */}
       <path
-        d="M2.5 5.5C2.5 4.4 3.4 3.5 4.5 3.5H9.2C9.8 3.5 10.4 3.8 10.8 4.3L12.2 6H19.5C20.6 6 21.5 6.9 21.5 8V18.5C21.5 19.6 20.6 20.5 19.5 20.5H4.5C3.4 20.5 2.5 19.6 2.5 18.5V5.5Z"
-        fill="#D97706"
-      />
-      {/* 内部文件露白轻微衬托 (Paper Sheet Reveal) */}
-      <path
-        d="M5 7H19V11H5V7Z"
-        fill="#FEF3C7"
-        opacity="0.9"
-      />
-      {/* 文件夹正面封套 (Front Cover with Gradient) */}
-      <path
-        d="M2.5 9.5C2.5 8.4 3.4 7.5 4.5 7.5H19.5C20.6 7.5 21.5 8.4 21.5 9.5V18.5C21.5 19.6 20.6 20.5 19.5 20.5H4.5C3.4 20.5 2.5 19.6 2.5 18.5V9.5Z"
-        fill="url(#folder_front_gradient)"
-      />
-      {/* 封面顶部微光泽折边 (Subtle Sheen Edge) */}
-      <path
-        d="M3 8.5C3 8 3.5 7.5 4.5 7.5H19.5C20.5 7.5 21 8 21 8.5"
-        stroke="#FDE68A"
-        strokeWidth="0.8"
+        d="M3 7V17C3 18.1 3.9 19 5 19H19C20.1 19 21 18.1 21 17V9C21 7.9 20.1 7 19 7H11L9 5H5C3.9 5 3 5.9 3 7Z"
+        fill="currentColor"
+        fillOpacity="0.18"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinecap="round"
-        opacity="0.6"
+        strokeLinejoin="round"
       />
-      <defs>
-        <linearGradient id="folder_front_gradient" x1="12" y1="7.5" x2="12" y2="20.5" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FBBF24" />
-          <stop offset="1" stopColor="#F59E0B" />
-        </linearGradient>
-      </defs>
+      <path
+        d="M3 10.5H21"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeOpacity="0.28"
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
@@ -921,53 +856,238 @@ export function DropdownSelect<T extends string = string>({
   )
 }
 
-/** 课程卡片网格流 / 传统紧凑列表流 切换器 */
-export function LayoutModeSwitch({
-  mode,
-  onChange
+
+/** macOS 风格经典天蓝色矢量立体文件夹图标 */
+export function MacOSFolderIcon({
+  size = 64,
+  className = ''
 }: {
-  mode: 'deck' | 'list'
-  onChange: (m: 'deck' | 'list') => void
+  size?: number
+  className?: string
 }) {
   return (
-    <div className="flex h-10 items-center rounded-xl border border-bd bg-surface-2 p-1 shadow-2xs">
-      <button
-        type="button"
-        onClick={() => onChange('deck')}
-        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'deck' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
-        }`}
-        title="网格卡片流 (Deck)"
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="3" y="3" width="7" height="7" rx="1.5" />
-          <rect x="14" y="3" width="7" height="7" rx="1.5" />
-          <rect x="3" y="14" width="7" height="7" rx="1.5" />
-          <rect x="14" y="14" width="7" height="7" rx="1.5" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange('list')}
-        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'list' ? 'bg-surface-1 text-accent shadow-2xs font-semibold' : 'text-text-3 hover:text-text-1'
-        }`}
-        title="紧凑列表流 (List)"
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <line x1="8" y1="6" x2="21" y2="6" />
-          <line x1="8" y1="12" x2="21" y2="12" />
-          <line x1="8" y1="18" x2="21" y2="18" />
-          <line x1="3" y1="6" x2="3.01" y2="6" strokeWidth="3" />
-          <line x1="3" y1="12" x2="3.01" y2="12" strokeWidth="3" />
-          <line x1="3" y1="18" x2="3.01" y2="18" strokeWidth="3" />
-        </svg>
-      </button>
-    </div>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 80"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={`drop-shadow-sm select-none shrink-0 ${className}`}
+    >
+      <defs>
+        {/* macOS 天蓝色渐变 - 背板 */}
+        <linearGradient id="macFolderBackGrad" x1="50" y1="6" x2="50" y2="76" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#2563EB" />
+          <stop offset="100%" stopColor="#1D4ED8" />
+        </linearGradient>
+        {/* macOS 明亮天蓝色渐变 - 前板 */}
+        <linearGradient id="macFolderFrontGrad" x1="50" y1="22" x2="50" y2="76" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#60A5FA" />
+          <stop offset="14%" stopColor="#3B82F6" />
+          <stop offset="100%" stopColor="#1D4ED8" />
+        </linearGradient>
+        {/* 顶部高光微弱线条 */}
+        <linearGradient id="macFolderLipGrad" x1="50" y1="22" x2="50" y2="28" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#93C5FD" stopOpacity="0.8" />
+          <stop offset="100%" stopColor="#3B82F6" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {/* 文件夹背板与上方 Tab */}
+      <path
+        d="M6 14C6 9.58172 9.58172 6 14 6H34.5C37.5 6 40.2 7.8 41.5 10.5L43.8 15H86C90.4183 15 94 18.5817 94 23V68C94 72.4183 90.4183 76 86 76H14C9.58172 76 6 72.4183 6 68V14Z"
+        fill="url(#macFolderBackGrad)"
+      />
+      {/* 文件夹内衬暗部 */}
+      <rect x="10" y="18" width="80" height="20" rx="4" fill="#1E40AF" fillOpacity="0.3" />
+      {/* 文件夹前盖 */}
+      <path
+        d="M6 28C6 24.6863 8.68629 22 12 22H88C91.3137 22 94 24.6863 94 28V68C94 72.4183 90.4183 76 86 76H14C9.58172 76 6 72.4183 6 68V28Z"
+        fill="url(#macFolderFrontGrad)"
+      />
+      {/* 前盖顶部高光倒角 */}
+      <path
+        d="M6 28C6 24.6863 8.68629 22 12 22H88C91.3137 22 94 24.6863 94 28V30H6V28Z"
+        fill="url(#macFolderLipGrad)"
+      />
+    </svg>
   )
 }
 
-/** 网盘式导航视图模式切换器（分栏 / 列表 / 网格，带平滑滑动胶囊动效） */
+/** macOS 风格折角文档图标（根据后缀提供专用色带与徽标） */
+export function MacOSDocumentIcon({
+  filename,
+  type,
+  size = 64,
+  className = ''
+}: {
+  filename?: string
+  type?: string
+  size?: number
+  className?: string
+}) {
+  let ext = type?.toUpperCase()
+  if (ext !== 'M4A' && ext !== 'DISABLED' && filename) {
+    const cleanFn = filename.replace(/\s*\([^)]*\)\s*$/, '').trim()
+    const m = cleanFn.match(/\.([a-zA-Z0-9]{2,5})$/)
+    if (m) {
+      const fnExt = m[1].toUpperCase()
+      const recognizedExts = [
+        'PDF', 'PPT', 'PPTX', 'DOC', 'DOCX', 'XLS', 'XLSX', 'ZIP', 'RAR', '7Z', 'TXT',
+        'MP4', 'MP3', 'FLV', 'MKV', 'AVI', 'MOV', 'WAV', 'AAC', 'PNG', 'JPG', 'JPEG', 'MD', 'PY', 'TS', 'JS'
+      ]
+      if (recognizedExts.includes(fnExt)) {
+        ext = fnExt
+      } else if (!ext) {
+        ext = fnExt
+      }
+    }
+  }
+  ext = ext || 'FILE'
+
+  let ribbonColor = '#64748B'
+  let label = ext
+  let isVideo = false
+  let isAudio = false
+  let isImage = false
+
+  if (ext === 'PDF') {
+    ribbonColor = '#EF4444'
+    label = 'PDF'
+  } else if (ext === 'PPT' || ext === 'PPTX') {
+    ribbonColor = '#F97316'
+    label = 'PPT'
+  } else if (ext === 'DOC' || ext === 'DOCX') {
+    ribbonColor = '#3B82F6'
+    label = 'DOC'
+  } else if (ext === 'XLS' || ext === 'XLSX' || ext === 'CSV') {
+    ribbonColor = '#10B981'
+    label = 'XLS'
+  } else if (['MP4', 'MKV', 'AVI', 'MOV', 'FLV', 'TS', 'VIDEO'].includes(ext)) {
+    ribbonColor = '#6366F1'
+    label = 'MP4'
+    isVideo = true
+  } else if (['MP3', 'WAV', 'M4A', 'FLAC', 'AAC', 'AUDIO'].includes(ext)) {
+    ribbonColor = '#06B6D4'
+    label = 'MP3'
+    isAudio = true
+  } else if (['ZIP', 'RAR', '7Z', 'TAR', 'GZ'].includes(ext)) {
+    ribbonColor = '#D97706'
+    label = 'ZIP'
+  } else if (['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'SVG'].includes(ext)) {
+    ribbonColor = '#EC4899'
+    label = ext.slice(0, 4)
+    isImage = true
+  } else if (['TXT', 'MD', 'JSON', 'JS', 'TS', 'PY', 'C', 'CPP', 'JAVA', 'HTML', 'CSS'].includes(ext)) {
+    ribbonColor = '#8B5CF6'
+    label = ext.slice(0, 4)
+  }
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 72 84"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={`drop-shadow-sm select-none shrink-0 ${className}`}
+    >
+      {/* 纸张轮廓：带右上角折角切口 */}
+      <path
+        d="M8 8C8 4.68629 10.6863 2 14 2H50L64 16V76C64 79.3137 61.3137 82 58 82H14C10.6863 82 8 79.3137 8 76V8Z"
+        fill="#FFFFFF"
+        stroke="#CBD5E1"
+        strokeWidth="1.2"
+      />
+      {/* 折角三角形 */}
+      <path
+        d="M50 2V13C50 14.6569 51.3431 16 53 16H64L50 2Z"
+        fill="#E2E8F0"
+        stroke="#CBD5E1"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      {/* 中心特色徽标 */}
+      {isVideo ? (
+        <>
+          <circle cx="36" cy="40" r="13" fill={ribbonColor} fillOpacity="0.15" />
+          <polygon points="32,33 44,40 32,47" fill={ribbonColor} />
+        </>
+      ) : isAudio ? (
+        <path d="M38 31V45C38 47 36 49 33 49C30.5 49 29 47.5 29 45.5C29 43.5 30.5 42 33 42C34.5 42 35.8 42.6 36.5 43.5V34L45 32V42C45 44 43 46 40 46C37.5 46 36 44.5 36 42.5C36 40.5 37.5 39 40 39C41.5 39 42.8 39.6 43.5 40.5V31L38 31Z" fill={ribbonColor} />
+      ) : isImage ? (
+        <g fill={ribbonColor}>
+          <circle cx="28" cy="36" r="3.5" />
+          <path d="M22 47L30 38L37 45L43 39L50 47H22Z" fillOpacity="0.8" />
+        </g>
+      ) : (
+        <g fill="#E2E8F0">
+          <rect x="18" y="26" width="24" height="2.5" rx="1.2" />
+          <rect x="18" y="32" width="36" height="2.5" rx="1.2" />
+          <rect x="18" y="38" width="30" height="2.5" rx="1.2" />
+        </g>
+      )}
+
+      {/* 底部醒目色带与扩展名 */}
+      <rect x="8" y="55" width="56" height="19" fill={ribbonColor} />
+      <text
+        x="36"
+        y="68.5"
+        fill="#FFFFFF"
+        fontSize="10"
+        fontWeight="800"
+        textAnchor="middle"
+        fontFamily="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif"
+        letterSpacing="0.5"
+      >
+        {label}
+      </text>
+    </svg>
+  )
+}
+
+/** macOS 风格圆圈复选框（用于网格视图批量勾选与选中标识） */
+export function MacOSCircleCheckbox({
+  checked = false,
+  state,
+  onClick,
+  className = '',
+  size = 'md'
+}: {
+  checked?: boolean
+  state?: TriState
+  onClick?: (e: React.MouseEvent) => void
+  className?: string
+  size?: 'sm' | 'md'
+}) {
+  const isChecked = state ? state === 'all' : checked
+  const isIndeterminate = state === 'some'
+  const isSelected = isChecked || isIndeterminate
+  const wh = size === 'sm' ? 'h-4 w-4' : 'h-5 w-5'
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative inline-flex items-center justify-center rounded-full transition-all duration-150 cursor-pointer ${wh} ${
+        isSelected
+          ? 'bg-accent text-white shadow-2xs scale-100 ring-2 ring-white/60'
+          : 'bg-surface-1/90 border border-bd text-transparent hover:border-accent/80 hover:bg-surface-2 shadow-2xs'
+      } ${className}`}
+      title={isChecked ? '取消勾选' : '勾选此项'}
+    >
+      {isChecked && (
+        <svg className={size === 'sm' ? 'h-2.5 w-2.5' : 'h-3 w-3'} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="2.5 6 4.8 8.5 9.5 3.5" />
+        </svg>
+      )}
+      {isIndeterminate && (
+        <div className={size === 'sm' ? 'w-2 h-0.5 bg-white rounded-full' : 'w-2.5 h-0.5 bg-white rounded-full'} />
+      )}
+    </button>
+  )
+}
+
+/** 网盘式导航视图模式切换器（对齐 macOS Finder 顺序：图标 / 列表 / 分栏，带平滑滑动胶囊动效） */
 export function NetdiskViewModeSwitch({
   mode,
   onChange
@@ -975,30 +1095,32 @@ export function NetdiskViewModeSwitch({
   mode: CourseViewMode
   onChange: (m: CourseViewMode) => void
 }) {
-  const modes: CourseViewMode[] = ['column', 'list', 'grid']
+  // 对齐 macOS Finder 标准工具栏顺序: [图标 (grid)] [列表 (list)] [分栏 (column)]
+  const modes: CourseViewMode[] = ['grid', 'list', 'column']
   const activeIdx = modes.indexOf(mode)
 
   return (
-    <div className="relative flex h-10 items-center rounded-xl border border-bd bg-surface-2 p-1 shadow-2xs select-none">
+    <div className="relative flex h-9 items-center rounded-xl border border-bd bg-surface-2 p-0.5 shadow-2xs select-none">
       {/* 弹性滑动胶囊背景 (Sliding Pill Indicator) */}
       <div
-        className="absolute top-1 bottom-1 w-8 rounded-lg bg-surface-1 shadow-2xs transition-transform duration-200 ease-out pointer-events-none"
+        className="absolute top-0.5 bottom-0.5 w-8 rounded-lg bg-surface-1 shadow-2xs transition-transform duration-200 ease-out pointer-events-none"
         style={{
           transform: `translateX(${Math.max(0, activeIdx) * 32}px)`
         }}
       />
       <button
         type="button"
-        onClick={() => onChange('column')}
+        onClick={() => onChange('grid')}
         className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'column' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
+          mode === 'grid' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
-        title="分栏多级并列视图 (Column)"
+        title="图标视图 (Icon / Grid)"
       >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="3" y="3" width="5.5" height="18" rx="1" />
-          <rect x="10.5" y="3" width="5.5" height="18" rx="1" />
-          <rect x="18" y="3" width="3" height="18" rx="0.5" />
+        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
+          <rect x="2" y="2" width="5" height="5" rx="1.2" />
+          <rect x="9" y="2" width="5" height="5" rx="1.2" />
+          <rect x="2" y="9" width="5" height="5" rx="1.2" />
+          <rect x="9" y="9" width="5" height="5" rx="1.2" />
         </svg>
       </button>
       <button
@@ -1007,30 +1129,26 @@ export function NetdiskViewModeSwitch({
         className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
           mode === 'list' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
-        title="详细列表视图 (List)"
+        title="列表视图 (List)"
       >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <line x1="8" y1="6" x2="21" y2="6" />
-          <line x1="8" y1="12" x2="21" y2="12" />
-          <line x1="8" y1="18" x2="21" y2="18" />
-          <line x1="3" y1="6" x2="3.01" y2="6" strokeWidth="3" />
-          <line x1="3" y1="12" x2="3.01" y2="12" strokeWidth="3" />
-          <line x1="3" y1="18" x2="3.01" y2="18" strokeWidth="3" />
+        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+          <line x1="2.5" y1="3.5" x2="13.5" y2="3.5" />
+          <line x1="2.5" y1="8" x2="13.5" y2="8" />
+          <line x1="2.5" y1="12.5" x2="13.5" y2="12.5" />
         </svg>
       </button>
       <button
         type="button"
-        onClick={() => onChange('grid')}
+        onClick={() => onChange('column')}
         className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'grid' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
+          mode === 'column' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
-        title="网格大图标视图 (Grid)"
+        title="分栏视图 (Column)"
       >
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="3" y="3" width="7" height="7" rx="1.5" />
-          <rect x="14" y="3" width="7" height="7" rx="1.5" />
-          <rect x="3" y="14" width="7" height="7" rx="1.5" />
-          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+          <rect x="2" y="2" width="3.5" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
+          <rect x="6.5" y="2" width="3.5" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
+          <rect x="11" y="2" width="3" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
         </svg>
       </button>
     </div>

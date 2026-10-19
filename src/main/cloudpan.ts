@@ -6,7 +6,9 @@ import type {
   CloudPanSpaceCred,
   CloudPanStartUploadResult,
   CloudPanConfirmResult,
-  CloudPanSpaceInfo
+  CloudPanSpaceInfo,
+  CloudPanItem,
+  CloudPanDirectoryListing
 } from '../shared/types'
 import { wrapDnsError } from './canvas/safe-fetch'
 
@@ -64,8 +66,13 @@ async function api<T>(url: string, opts?: { method?: string; body?: unknown }): 
   } catch (err) {
     throw wrapDnsError(url, err) ?? err
   }
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`HTTP ${resp.status}: ${text.slice(0, 200)}`)
+  }
+  if (resp.status === 204) return undefined as T
   const text = await resp.text()
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text.slice(0, 200)}`)
+  if (!text || !text.trim()) return undefined as T
   return JSON.parse(text) as T
 }
 
@@ -135,6 +142,157 @@ export async function ensureFolderPath(userToken: string, ...segments: string[])
     created.push(seg)
   }
   createdFolderPaths.add(key)
+}
+
+// ─── 云盘资源管理器与文件操作 API (SMH) ──────────────────────────
+
+/**
+ * 列出云盘目录下的文件和子目录
+ */
+export async function listDirectoryContents(
+  userToken: string,
+  dirPath: string[] = [],
+  page = 1,
+  pageSize = 100
+): Promise<CloudPanDirectoryListing> {
+  const cred = await ensureCred(userToken)
+  const pathPart = enc(dirPath)
+  const pathUrl = pathPart ? `/${pathPart}` : ''
+  const url = `${PAN_BASE}/api/v1/directory/${cred.libraryId}/${cred.spaceId}${pathUrl}?access_token=${cred.accessToken}&page=${page}&page_size=${pageSize}&order_by=name`
+
+  const raw = await api<{
+    contents?: Array<{
+      name: string
+      type: 'dir' | 'file'
+      size?: number
+      fileType?: string
+      file_type?: string
+      modificationTime?: string
+      modification_time?: string
+      creationTime?: string
+      creation_time?: string
+      crc64?: string
+    }>
+    totalNum?: number
+    page?: number
+    pageSize?: number
+    page_size?: number
+  }>(url)
+
+  const contents: CloudPanItem[] = (raw.contents || []).map(item => ({
+    name: item.name,
+    type: item.type === 'dir' ? 'dir' : 'file',
+    size: item.size !== undefined ? Number(item.size) : undefined,
+    fileType: item.fileType || item.file_type || undefined,
+    modificationTime: item.modificationTime || item.modification_time || new Date().toISOString(),
+    creationTime: item.creationTime || item.creation_time || undefined,
+    crc64: item.crc64 ? String(item.crc64) : undefined
+  }))
+
+  return {
+    path: dirPath,
+    currentDirName: dirPath.length > 0 ? dirPath[dirPath.length - 1] : '',
+    totalNum: raw.totalNum ?? contents.length,
+    page: raw.page ?? page,
+    pageSize: raw.pageSize ?? raw.page_size ?? pageSize,
+    contents
+  }
+}
+
+/**
+ * 在云盘中创建文件夹
+ */
+export async function createDirectory(
+  userToken: string,
+  dirPath: string[]
+): Promise<void> {
+  if (dirPath.length === 0) throw new Error('目录路径不能为空')
+  const cred = await ensureCred(userToken)
+  const path = enc(dirPath)
+  const url = `${PAN_BASE}/api/v1/directory/${cred.libraryId}/${cred.spaceId}/${path}?conflict_resolution_strategy=ask&access_token=${cred.accessToken}`
+  await api<unknown>(url, { method: 'PUT' })
+  createdFolderPaths.add(dirPath.join('/'))
+}
+
+/**
+ * 删除云盘中的文件或目录
+ */
+export async function deleteCloudItem(
+  userToken: string,
+  targetPath: string[],
+  isDir: boolean
+): Promise<void> {
+  if (targetPath.length === 0) throw new Error('目标路径不能为空')
+  const cred = await ensureCred(userToken)
+  const path = enc(targetPath)
+  const typeSegment = isDir ? 'directory' : 'file'
+  const url = `${PAN_BASE}/api/v1/${typeSegment}/${cred.libraryId}/${cred.spaceId}/${path}?access_token=${cred.accessToken}`
+  await api<unknown>(url, { method: 'DELETE' })
+  createdFolderPaths.clear()
+}
+
+/**
+ * 重命名/移动云盘中的文件或目录
+ */
+export async function renameCloudItem(
+  userToken: string,
+  oldPath: string[],
+  newName: string,
+  isDir: boolean
+): Promise<void> {
+  if (oldPath.length === 0 || !newName.trim()) throw new Error('路径或新名称不能为空')
+  const cred = await ensureCred(userToken)
+  const oldPathStr = enc(oldPath)
+  const parentPath = oldPath.slice(0, -1)
+  const newPath = [...parentPath, newName.trim()]
+  const moveTo = enc(newPath)
+  const typeSegment = isDir ? 'directory' : 'file'
+  const url = `${PAN_BASE}/api/v1/${typeSegment}/${cred.libraryId}/${cred.spaceId}/${oldPathStr}?move_to=${moveTo}&conflict_resolution_strategy=ask&access_token=${cred.accessToken}`
+  await api<unknown>(url, { method: 'PUT' })
+  createdFolderPaths.clear()
+}
+
+/**
+ * 获取云盘文件的下载直链（COS URL 或 302 重定向目标）
+ */
+export async function getFileDownloadUrl(
+  userToken: string,
+  filePath: string[]
+): Promise<string> {
+  if (filePath.length === 0) throw new Error('文件路径不能为空')
+  const cred = await ensureCred(userToken)
+  const path = enc(filePath)
+  const url = `${PAN_BASE}/api/v1/file/${cred.libraryId}/${cred.spaceId}/${path}?download=true&access_token=${cred.accessToken}`
+
+  let resp: Response
+  try {
+    resp = await ses().fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json, text/plain, */*' },
+      redirect: 'manual'
+    })
+  } catch (err) {
+    throw wrapDnsError(url, err) ?? err
+  }
+
+  // 1. 若服务端返回 302/301/307 重定向，从 Location 提取直链
+  if (resp.status === 302 || resp.status === 301 || resp.status === 307) {
+    const loc = resp.headers.get('location')
+    if (loc) return loc
+  }
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '')
+    throw new Error(`获取文件下载链接失败：HTTP ${resp.status} ${text.slice(0, 120)}`)
+  }
+
+  // 2. 若返回 200 JSON，提取 cosUrl / url / downloadUrl
+  const data = (await resp.json()) as { cosUrl?: string; url?: string; downloadUrl?: string }
+  const downloadUrl = data.cosUrl || data.url || data.downloadUrl
+  if (!downloadUrl) {
+    throw new Error('响应中未包含下载直链')
+  }
+  return downloadUrl
 }
 
 // ─── COS PUT（直连腾讯 COS，不走代理） ─────────────────────────
@@ -532,3 +690,14 @@ export async function uploadLocalFileToCloud(
     throw err
   }
 }
+
+// ─── 云盘网页端 URL 构建 ─────────────────────────────────────
+
+/** 构造网页端目标地址 */
+export function getCloudPanWebUrl(remotePath: string[] = []): string {
+  const clean = Array.isArray(remotePath) ? remotePath.filter(Boolean) : []
+  if (clean.length === 0) return 'https://pan.sjtu.edu.cn/#/files/'
+  return 'https://pan.sjtu.edu.cn/#/files/' + clean.map(encodeURIComponent).join('/')
+}
+
+

@@ -3,7 +3,7 @@
  *
  * 确保落盘文件非空 (size >= minBytes) 且非 HTML 错误页/登录页。
  */
-import { existsSync, statSync, openSync, readSync, closeSync } from 'node:fs'
+import { openSync, readSync, closeSync, fstatSync } from 'node:fs'
 import { extname } from 'node:path'
 
 export class FileIntegrityError extends Error {
@@ -38,21 +38,27 @@ export function verifyDownloadIntegrity(
   minBytes = 1,
   allowHtml = false
 ): FileIntegrityResult {
-  if (!existsSync(filePath)) {
-    return { valid: false, error: '文件不存在' }
-  }
-
-  const stat = statSync(filePath)
-  if (stat.size < minBytes) {
-    return {
-      valid: false,
-      error: `文件大小为 ${stat.size} 字节，小于最小要求 ${minBytes} 字节`
+  let fd: number
+  try {
+    fd = openSync(filePath, 'r')
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code
+    if (code === 'ENOENT') {
+      return { valid: false, error: '文件不存在' }
     }
+    return { valid: false, error: `打开文件失败: ${(err as Error).message}` }
   }
 
-  if (!allowHtml) {
-    const fd = openSync(filePath, 'r')
-    try {
+  try {
+    const stat = fstatSync(fd)
+    if (stat.size < minBytes) {
+      return {
+        valid: false,
+        error: `文件大小为 ${stat.size} 字节，小于最小要求 ${minBytes} 字节`
+      }
+    }
+
+    if (!allowHtml) {
       const readLen = Math.min(2048, stat.size)
       const buf = Buffer.alloc(readLen)
       readSync(fd, buf, 0, readLen, 0)
@@ -63,12 +69,12 @@ export function verifyDownloadIntegrity(
           error: '文件内容为 HTML 网页（疑似未认证重定向至登录页），非有效课件二进制'
         }
       }
-    } finally {
-      closeSync(fd)
     }
-  }
 
-  return { valid: true }
+    return { valid: true }
+  } finally {
+    closeSync(fd)
+  }
 }
 
 /**

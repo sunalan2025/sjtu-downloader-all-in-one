@@ -17,10 +17,10 @@ import { useAppStore } from '../store/app'
  *  handler 内 ensureCanvasLogin 会自动走 OIDC SSO（隐藏窗口，复用 jAccount cookie）。 */
 export async function prefetchCanvasCourses(): Promise<void> {
   const store = useAppStore.getState()
-  store.setCanvasScanState('scanning', '正在拉取 Canvas 课程列表…')
+  store.setCanvasScanState('scanning', '正在获取 Canvas 课程列表…')
   try {
     const r = await window.api.canvas.listCourses()
-    if (!r.ok) { store.setCanvasScanState('error', r.error || '拉取失败'); return }
+    if (!r.ok) { store.setCanvasScanState('error', r.error || '获取失败'); return }
     store.setCanvasCourses(r.courses ?? [])
     store.setCanvasScanState('done')
   } catch (err) {

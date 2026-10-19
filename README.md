@@ -1,636 +1,157 @@
-# SJTU 课程下载器
+# 上海交通大学 (SJTU) 课程下载器 | 交大旁听视频与 Canvas 课件录播批量下载工具
 
 [![stars](https://img.shields.io/github/stars/sunalan2025/sjtu-downloader-all-in-one?style=social)](https://github.com/sunalan2025/sjtu-downloader-all-in-one)
 [![release](https://img.shields.io/github/v/release/sunalan2025/sjtu-downloader-all-in-one?display_name=tag&include_prereleases)](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases)
 [![license](https://img.shields.io/github/license/sunalan2025/sjtu-downloader-all-in-one)](./LICENSE)
-[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#获取方式)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#-快速获取与安装)
 
-> ⭐ **如果这个工具帮到了你，欢迎点右上角的 Star 支持一下！** 这能让更多 SJTU 同学搜到它，也激励我持续更新。
-
-批量下载 [v.sjtu.edu.cn](https://v.sjtu.edu.cn) 旁听课程、[Canvas (oc.sjtu.edu.cn)](https://oc.sjtu.edu.cn) 课程资源和[好大学在线 (cnmooc.sjtu.cn)](https://cnmooc.sjtu.cn) 课程视频与课件的桌面工具。支持本地下载和直传交大云盘（pan.sjtu.edu.cn）。
-
-> **网络要求** — 需要连接 SJTU 校园网或使用交大 VPN 才能正常访问视频资源和下载。
-
-> **免责声明** — 本工具仅供下载**自己有权访问**的课程资源用于个人学习。请勿传播、转售下载内容，亦不得用于任何商业用途。下载内容的版权归课程权利方所有，使用者需自行承担相关责任。
+专为上海交通大学师生与校友打造的**课程资源批量下载与备份工具**。支持**交大旁听视频下载**（v.sjtu 教学视频平台）、**Canvas 课程课件与录播视频批量下载**（oc.sjtu）、以及**好大学在线**（CNMOOC）全套资源；深度集成**交大云盘**（pan.sjtu.edu.cn），支持本地多线程下载与云端秒传双向备份。
 
 ---
 
-## 功能特性
+## 🚀 快速获取与安装
 
-### 登录与认证
+前往 [GitHub Releases](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/latest) 下载对应操作系统的安装包：
 
-- **jAccount 扫码登录** — 内嵌官方登录页面，使用「交我办」或微信扫码即可完成认证
-- **登录态持久化** — session 保存在本地，关闭应用后重新打开无需重新登录
-- **三大来源共享会话** — v.sjtu、Canvas、好大学在线复用同一 jAccount 登录态，一次扫码全通
-- **交大云盘一键连接** — 利用已有的 jAccount session 自动完成云盘 SSO 登录，无需额外操作
+| 操作系统 | 安装包文件 | 说明 |
+| :--- | :--- | :--- |
+| **Windows** | `.exe` / `.msi` | 推荐使用 `.exe` 安装程序；企业与机房环境推荐使用 `.msi` |
+| **macOS** | `.dmg` / `.zip` | 支持 Intel 与 Apple Silicon (M 系列芯片)，拖拽至 Applications 即可 |
+| **Linux** | `.AppImage` | 赋予执行权限（`chmod +x *.AppImage`）后双击直接运行 |
 
-### 界面与信息架构
-
-- **原生双栏启动面板** — 采用原生桌面双栏面板设计，右侧认证操作区自适应流体几何居中，无论如何拖拽缩放窗口均保持黄金比例，彻底消除网页弹窗嵌套感
-- **纯净内容源主导航** — 顶栏主选项卡汇聚三大业务源：`📚 Canvas 课程`、`🎬 旁听课程` 与 `🎓 好大学在线`，剔除一切杂质英文与多层括号
-- **全局传输看板** — 右上角常驻动态传输胶囊，无任务时静雅待命，有任务时显示动态脉冲与实时吞吐（如 `📥 2 项进行中 · 3.5 MB/s`），一键在选课与传输监控间无缝切换
-- **全屏双栏「全局设置」** — 独立的系统设置大模块，提供存储模式、保存目录、并发档位、视频视角与外观等全选项化卡片组，告别繁琐手动输入
-- **外观自动跟随系统** — 默认跟随操作系统深色/浅色偏好自动无缝切换，亦可在全局设置中手动指定
-
-### 课程来源
-
-#### 旁听课程
-- **自动扫描旁听课** — 登录后自动拉取全部已通过审核的旁听课程
-- **双视角视频** — 每节课同时提供教师视角（讲台画面）和 PPT 视角（板书画面），可按需勾选
-- **智能排序** — 按上课时间重新编号，消除原始排序中的错乱和重复
-
-#### Canvas 课程
-- **自动拉取课程列表** — 登录后自动获取全部 Canvas 课程（含已结课）
-- **学期筛选** — 按学期快速筛选课程
-- **课件文件下载** — 支持下载课程文件、模块补漏文件、大纲嵌入文件，保留 Canvas 文件夹层级
-- **课堂视频下载** — 扫描课堂视频后按讲次展示，每讲含教师 + PPT 两路流
-- **PPT 课件下载** — 将课堂视频中的 PPT 幻灯片截图下载并合并为单个 PDF 文件，与视频保存在同一目录
-- **单元视频下载** — 下载 Canvas「单元」tab 里嵌入的视频（HLS 网页嵌入 / v.sjtu / vshare 三类来源）
-- **教师筛选** — 多教师课程可按教师筛选
-
-#### 好大学在线
-- **自动拉取课程列表** — 登录后自动获取正在学习的好大学在线课程
-- **按章节结构组织** — 解析课程章节树，按章节折叠展示视频与课件条目
-- **资源类型筛选** — 一键切换「全部 / 仅视频 / 仅课件」，下载前过滤
-- **懒解析直链** — 扫描只解析章节 HTML，下载时才解析视频 / 课件直链，启动快
-
-### 下载模式
-
-三种模式，三大来源通用：
-
-| 模式 | 说明 |
-|------|------|
-| **本地** | 文件下载到本地磁盘，按课程自动归档 |
-| **云盘** | 边下载边上传到交大云盘，不占本地空间 |
-| **两者** | 同时下载到本地和上传到云盘，一份带宽双重备份 |
-
-### 下载控制
-
-- **并发调节** — 支持 2-16 路并发手动设置，也支持**自动并发**模式
-- **断点续传** — 下载中断后重新开始自动从断点处继续，无需从头下载
-- **智能跳过或替换** — 本地/云盘已存在的同名文件可选择「跳过」（保留旧文件）或「替换」（删除旧文件后重新下载/上传）
-- **暂停 / 恢复 / 取消** — 每个任务独立控制，也可一键操作全部任务；暂停时立即中止在途网络请求，不会出现「暂停后还在上传」的情况
-- **实时进度** — 显示下载百分比、速度、已下载/总大小
-- **完成通知** — 批次全部完成后弹出系统通知，汇报成功 / 失败数量，点击聚焦主窗口
-- **已下载历史管理** — 支持在“已下载历史”专有视图中查看与管理本地和云端的已下载文件历史，支持检索、一键打开/高亮定位本地文件，或直接访问云盘，智能区分「本地 / 云端 / 本地+云端」三种保存状态
-- **自定义命名模板** — 支持按学期、课程、教师等属性自定义分类路径模板（默认 `{term}/{course}/{category}/{fileName}`）
-- **全局限速调节** — 提供一键调节下行宽带限速选项（2MB/s, 5MB/s, 10MB/s, 20MB/s 等），按需调节带宽分配
-
-> 自动并发（AIMD 算法）、懒解析、内存优化、IPC 批处理等底层机制见文末[「机制原理」](#机制原理)章节。
+> 📌 **重要网络提示**：因交大教学服务器权限限制，使用过程中**必须连接 SJTU 校园网或连接交大 VPN**。
+>
+> 💡 **Windows 误报提示**：开源个人软件未购买商业签名，Windows SmartScreen 提示“已保护你的电脑”时，点击**「更多信息」→「仍要运行」**即可正常使用。安装包已内置各平台专用 FFmpeg 二进制，无需额外配置环境。
 
 ---
 
-## 获取方式
+## 📖 核心功能使用手册
 
-### 方式一：下载安装包（推荐）
+### 1. 登录与多账号凭据管理
+- **多种认证方式**：直接内嵌官方 jAccount 认证网关，支持「交我办」/ 微信扫码、账号密码、短信验证码及二次安全验证；
+- **智能记住账号密码**：首次成功登录后，应用主动弹出提示卡片询问是否记住此账号，并支持设置个性化别名（如「本科账号」、「双学位」）；
+- **原生悬浮多账号切换**：已保存多账号时，输入框右侧提供 Chrome/Edge 风格的原生浮动切换卡片，一键选择自动填入对应账号密码；
+- **安全保障与防误操作**：凭据由操作系统原生硬件保险库（Windows DPAPI / macOS Keychain）加密存储，磁盘绝无明文；**自动填充仅回填输入框，绝不自动提交表单**，给您充分确认时间。
 
-前往 Releases 页面，下载对应平台的安装包：
+---
 
-| 平台 | 文件格式 | 说明 |
-|------|---------|------|
-| Windows | `.exe` / `.msi` | NSIS 安装程序（支持自定义路径）或 MSI 安装包（企业部署友好） |
-| macOS | `.dmg` / `.zip` | DMG 拖拽安装，或 ZIP 解压即用 |
-| Linux | `.AppImage` | 无需安装，添加执行权限后直接运行 |
+### 2. 课程资源浏览与批量下载
+顶栏聚合三大核心教学源，全面升级为**网盘式层级探索架构**，默认整齐归类，杜绝冗长瀑布流：
+
+- **📚 Canvas 课程**：
+  - 自动归集所有活跃与历史课程，支持按学期快速筛选；
+  - 课件资料保留原始文件夹层级；模块补漏文件、大纲嵌入附件自动合并整理；
+  - 课堂录播提供「教师视角」与「PPT 视角」双路超清视频流；
+  - **📑 PPT 课件自动导出**：支持自动抓取课堂视频中的演讲切片并合并导出为单份高清 PDF 讲义。
+- **🎬 交大旁听视频下载 (v.sjtu)**：
+  - 自动同步已获旁听审核的全部课程与讲次；
+  - 修正原教务系统课次乱序问题，按真实开课时间轴重新标号归整；
+  - 支持教师视角 / PPT 投影视角单选或整门课程批量高速下载。
+- **🎓 好大学在线 (CNMOOC)**：
+  - 按单元与章节层级整齐树状呈现，支持「全部 / 仅视频 / 仅课件」类型过滤；
+  - 自动过滤无下载实体的随堂练习题与测验，杜绝无效空白条目。
+
+#### 现代化三重视图自由切换
+点击右上角视图按钮即可秒级切换浏览形态：
+1. **⊞ 网格大图标 (Grid)**：文件夹卡片整齐排列，直观点击进入课程；
+2. **☰ 详细列表 (List)**：清晰呈现文件名、格式徽标、文件大小与日期；
+3. **◫ 多级分栏 (Miller Columns)**：macOS Finder / 夸克网盘标配三栏并列视图（课程列表 → 目录章节 → 文件流），层级跳转一目了然。
+
+---
+
+### 3. 交大云盘全功能资源管理器
+顶栏右上角专属入口 `☁️ 交大云盘`，一键连接单点登录，无需打开浏览器即可直接管理云端存储：
+
+- **双向存储传输**：
+  - **下载模式选择**：支持「仅本地保存」、「仅上传云盘（不占本地磁盘）」以及「双备份模式」；
+  - **本地文件直传**：支持点击「📤 上传文件」将本地资料秒传至云盘指定目录；
+  - **云端资源回拉**：支持多选云盘中的任意文件批量高速下载到本地。
+- **云端文件管理**：
+  - 完整目录树下钻浏览与面包屑导航；
+  - 支持创建新文件夹、文件/文件夹重命名、移入云盘回收站；
+  - 顶栏实时展示云盘剩余存储容量与已用百分比进度条。
+
+---
+
+### 4. 传输监控与已下载历史
+- **动态流速看板**：顶栏右侧常驻传输胶囊，有任务运行时呈现呼吸动效与实时上下行吞吐速率（如 `📥 3 项传输中 · 12.8 MB/s`）；
+- **全功能控制**：每个任务支持独立暂停、恢复断点续传、取消；支持一键全部暂停或全部继续；
+- **同名文件冲突策略**：
+  - **智能跳过（推荐）**：目标位置已存在同名且大小一致的文件时自动跳过，节省带宽；
+  - **覆盖更新**：重新下载并覆盖旧版文件。
+- **已下载历史管理**：在传输中心可按课程检索历史文件，支持一键在操作系统资源管理器中高亮定位文件。
+
+---
+
+### 5. 全局设置与偏好配置
+点击顶栏齿轮图标进入双栏系统设置面板：
+
+- **📦 存储与下载**：预设本地默认下载根目录、保存模式与冲突策略；
+- **⚡ 性能与并发**：支持 1~16 档位任务并发调节与带宽限速；
+- **🎬 课件与视频**：配置默认首选视角（教师/PPT）及是否保留原尺寸切片图片；
+- **🎨 外观与窗口**：
+  - 外观主题：浅色模式、深色模式或跟随系统自动切换；
+  - 标题栏适配：Windows/Linux 原生标准三键（最小化至任务栏、最大化/还原、关闭红底高亮），macOS 保持原生左侧交通灯；
+  - **关闭主窗口动作**：`[ 最小化到系统托盘 (推荐) | 最小化到任务栏 | 彻底退出应用 ]`；
+  - **正在下载时保护策略**：`[ 始终弹窗询问确认 (推荐) | 自动转入托盘继续下载 | 自动暂停任务并退出应用 ]`。
+- **🔐 账号与凭据管理**：查看当前在线账号与安全注销登录、查看所有已记住账号列表、修改备注别名、单独删除或一键清空保险库。
+
+---
+
+## ❓ 常见问题 (FAQ)
 
 <details>
-<summary><b>⚠️ 关于杀毒软件 / Windows SmartScreen 误报（必读）</b></summary>
+<summary><b>Q1: 为什么部分课程视频无法播放或提示下载失败？</b></summary>
 
-本工具是**开源**的，源代码完全公开在 GitHub 上，不包含任何恶意代码。但下载安装时你可能会遇到以下情况，这是**未签名个人软件的通病，不是真有病毒**：
-
-**原因**：本工具没有购买商业代码签名证书（个人项目无法承担每年数百美元的费用），且 Electron 应用 + 网络下载行为容易被杀软启发式引擎误判。`.exe` 和 `.msi` 受同等影响，换格式不会改变。
-
-**如何放行**：
-
-- **Windows SmartScreen 拦截**（"Windows 已保护你的电脑"）→ 点击 `更多信息` → `仍要运行`
-- **Microsoft Defender / 360 / 火绒等报毒** → 将安装包和安装目录加入信任区/白名单后运行
-- **浏览器拦截下载**（"此文件可能有害"）→ 选择 `保留` / `仍然下载`
-
-**验证安全性**：你可以自行从源码构建（见下方「方式二」），或在 [virustotal.com](https://www.virustotal.com) 上传安装包查看多引擎扫描结果。随着下载量积累和声誉建立，误报会逐渐减少。
-
+1. 确认已连接 **SJTU 校园网无线 (SJTU / SJTU-Premium)** 或开启了**交大 VPN (EasyConnect)**；校外直连无法访问内网视频流媒体服务器；
+2. 检查该课程在官方网页端是否本身具有观看权限；部分未正式排课录播的课程可能无直录播流；
+3. 若提示认证过期，点击顶栏「刷新 ↻」重新同步登录凭据即可。
 </details>
 
-> 💡 安装包已内置 ffmpeg（各平台对应二进制），Canvas「单元视频」中的网页嵌入视频（HLS）会自动无损转封装为 MP4，可选重编码修复花屏，**无需用户另装 ffmpeg**。如需改用系统 PATH 中的 ffmpeg，可设置环境变量 `FFMPEG_BIN` 指向其路径。
+<details>
+<summary><b>Q2: 下载的文件保存在本地哪里？</b></summary>
 
-### 方式二：从源码构建
-
-需要 [Node.js](https://nodejs.org/) >= 18 和 npm。
-
-```bash
-# 安装依赖
-npm install
-
-# 启动开发模式
-npm run dev
-
-# 或打包为安装包（输出至 release/ 目录）
-npm run build:win     # Windows
-npm run build:mac     # macOS
-npm run build:linux   # Linux
+在「设置 → 本地保存目录」中可以随时查看或修改。下载器会自动按规整的层级归档：
+```text
+所选下载目录/
+├── SJTU 旁听课程/
+│   └── 2025-2026-1/
+│       └── 课程名称-教师/
+│           ├── 第1讲-教师.mp4
+│           └── 第1讲-PPT.mp4
+├── Canvas 课程/
+│   └── 2025-2026-2/
+│       └── 课程名称/
+│           ├── files/ (课程讲义与课件)
+│           └── videos/ (课堂视频与导出的 PPT 课件 PDF)
+└── 好大学在线/
+    └── 课程名称/
+        └── 第一章/
 ```
+</details>
+
+<details>
+<summary><b>Q3: 关闭窗口后下载会中断吗？</b></summary>
+
+默认情况下，点击右上角关闭按钮会将客户端**最小化到系统右下角托盘**并在后台继续稳定下载。您可以在「设置 → 外观与窗口」中自定义关闭窗口时的行为，确保任务不会被意外中断。
+</details>
 
 ---
 
-## 使用教程
+## 📚 进阶文档
 
-### 第一步：登录
-
-1. 打开应用，点击「使用 jAccount 登录」
-2. 页面加载后会出现 jAccount 二维码，使用**交我办**或微信扫码
-3. 在手机上确认登录后，应用会自动检测并跳转至课程页面
-
-> 登录信息仅保存在本机，应用不会上传任何账号或密码。
-
-### 第二步：选择课程来源
-
-登录后可通过顶部标签切换三个课程来源：
-
-- **v.sjtu 旁听** — 自动扫描旁听课程，每节课提供教师 + PPT 双视角
-- **Canvas** — 自动拉取 Canvas 课程列表，支持课件文件、课堂视频、单元视频、PPT 课件
-- **好大学在线** — 自动拉取好大学在线课程，按章节结构展示视频与课件，可按类型筛选
-
-> 每个来源页顶部都有「刷新」键：重新校验登录态并完整重载课程列表。登录态失效时会自动跳转登录页，扫码成功后回到该页自动重新加载。
-
-### 第三步：选择课程和内容
-
-#### v.sjtu 旁听课程
-
-- 点击课程名旁的复选框，全选 / 取消该课程的所有视频
-- 点击「教师」或「PPT」按钮，按视角批量选择
-- 逐个勾选需要下载的课时和视角
-
-#### Canvas 课程
-
-- 点击课程名旁的复选框，全选 / 取消该课程所有内容
-- 顶部分类按钮可按类型批量选择：**课件**、**视频-教师**、**视频-PPT**、**单元视频**、**PPT课件**
-- 展开课程卡片可查看课件文件列表、课堂视频列表和单元视频列表
-- 课件文件默认已扫描；课堂视频需点击「扫描课堂视频」触发，单元视频需点击「扫描单元视频」触发
-- 课堂视频每讲右侧有「📄PPT」按钮，可将该讲的 PPT 幻灯片截图下载为 PDF；也可点击「下载全部PPT」批量下载所有讲次
-- PPT PDF 与课堂视频保存在同一目录下（`videos/课堂视频/`）
-- 支持按学期筛选课程
-
-#### 好大学在线
-
-- 点击章节标题旁的复选框，全选 / 取消该章节所有条目
-- 顶部「资源类型」切换「全部 / 仅视频 / 仅课件」，按需过滤
-- 逐个勾选需要下载的视频或课件条目
-
-### 第四步：选择下载模式
-
-操作栏右侧提供模式和冲突策略选择器：
-
-#### 保存模式
-
-| 模式 | 说明 |
-|------|------|
-| **本地** | 文件下载到本地磁盘（需选择下载目录） |
-| **云盘** | 文件上传到交大云盘（需连接云盘） |
-| **两者** | 同时下载到本地并上传到云盘 |
-
-- 选择「本地」或「两者」时，需要点击「选择下载目录」指定本地保存路径
-- 选择「云盘」或「两者」时，需要点击「连接交大云盘」完成 SSO 登录
-
-#### 同名文件冲突策略
-
-| 策略 | 说明 |
-|------|------|
-| **跳过**（默认） | 同名文件已存在时跳过，保留旧文件 |
-| **替换** | 同名文件已存在时先删除旧文件，再重新下载/上传 |
-
-### 第五步：设置并发数
-
-拖动「并发」滑块调整同时下载的任务数：
-
-- **自动**：点击「自动」按钮启用 AIMD 自动并发模式，系统根据网络吞吐和错误率动态调整（推荐大多数场景使用）
-- **2-3**：带宽有限时（如校园无线网）
-- **5-8**：带宽充裕时（如有线网络）
-- **8-16**：带宽非常充裕且需要快速下载时
-
-> 自动模式下，并发数会实时显示在标题栏。手动模式下并发数过高可能导致下载速度反而下降或触发服务端限流，建议根据实际网络情况调整。
-
-### 第六步：开始下载
-
-1. 确认已选中需要下载的内容
-2. 点击「开始下载 N 项」/ 「开始上传 N 项」/ 「开始下载+上传 N 项」按钮
-
-下载过程中可以：
-
-- **暂停单个任务**：点击该任务进度条旁的暂停按钮
-- **取消单个任务**：点击取消按钮
-- **恢复暂停的任务**：点击继续按钮，从断点处续传
-- **全局控制**：操作栏提供暂停全部、全部继续、取消全部按钮
-
-### 第七步：查看下载结果
-
-下载完成后，进度条变为绿色「完成」状态。同时会弹出**系统通知**，汇报本批次的成功和失败数量（如「全部 23 项完成」或「成功 20 项，失败 3 项」），点击通知可直接聚焦主窗口。
-
-**本地模式**：文件保存在你选择的下载目录下（旁听课程在 `SJTU旁听课程/`，Canvas 在 `Canvas课程/`，好大学在线在 `好大学在线/`）。
-
-**云盘模式**：文件上传到交大云盘（旁听课程在 `SJTU旁听课程/`，Canvas 在 `SJTU Canvas课程/`，好大学在线在 `SJTU好大学在线/`），可在 [pan.sjtu.edu.cn](https://pan.sjtu.edu.cn) 访问。
+- [**架构设计与内部机制原理 (docs/architecture.md)**](./docs/architecture.md)：动态多线程并发调度、惰性物化流控、COS 分片直传机制、硬件安全保险库原理。
+- [**开发与发布构建指南 (docs/development.md)**](./docs/development.md)：本地开发环境搭建、多平台打包命令、自动化 CI Tag 发布与更新检测规范。
 
 ---
 
-## 下载状态说明
+## 🔍 适用场景与关键词索引
 
-| 状态 | 含义 |
-|------|------|
-| 等待中 | 已加入下载队列，等待空闲并发槽 |
-| 解析直链… | 正在从 v.sjtu / 好大学在线获取视频的 CDN 直链（懒解析：下载前按需调用） |
-| 获取文件链接… | 正在从 Canvas API 获取文件签名 URL |
-| 解析视频流… | 正在解析 Canvas 课堂视频的多路流地址（同 videoId 自动缓存） |
-| 下载中 | 正在下载/上传，显示进度百分比和速度 |
-| 已暂停 | 暂停中，恢复后从断点续传（云端任务保留 COS 分片会话） |
-| 完成 | 下载/上传成功 |
-| 已存在 | 本地/云盘已有同名文件，自动跳过（可在冲突策略中选择「替换」模式） |
-| 失败 | 下载/上传出错，可点击重试 |
-| 已取消 | 被手动取消 |
+- **交大教学系统**：上海交通大学、SJTU、Canvas、教学信息服务网、教学视频平台 (v.sjtu.edu.cn)、好大学在线 (cnmooc.sjtu.cn)、交大云盘 (pan.sjtu.edu.cn)、jAccount 统一身份认证。
+- **高频需求场景**：交大旁听视频下载、交大课程下载、Canvas 课件批量下载、交大课堂录播视频下载、PPT 讲义切片导出 PDF、交大网盘文件双向备份。
 
 ---
 
-## 机制原理
+## 📄 开源许可
 
-> 以下为下载引擎、文件落盘、安全模型的实现细节，普通用户可跳过。需要了解内部机制或二次开发时参考。
-
-### 文件命名规则
-
-#### 文件名清洗
-
-所有文件名和文件夹名在写入磁盘或上传云盘前都会经过清洗：
-
-- Windows 非法字符 `<>:"/\|?*` 和控制字符（0x00-0x1f）替换为 `_`
-- 去除末尾的 `.` 和空格
-- 长度限制 180 字符
-- 空名称回退为 `未命名`
-
-#### 本地保存路径
-
-假设用户选择 `D:\Downloads` 作为下载目录：
-
-```
-D:\Downloads/
-├── SJTU旁听课程/                          ← v.sjtu 旁听课程
-│   └── 2024-2025-1/                       ← 学期文件夹
-│       ├── 课程A-张老师/
-│       │   ├── 第1讲-教师.mp4
-│       │   ├── 第1讲-PPT.mp4
-│       │   ├── 第2讲-教师.mp4
-│       │   └── ...
-│       └── 课程B-李老师/
-│           └── ...
-│
-├── Canvas课程/                             ← Canvas 课程
-│   └── 2024-2025-2/                       ← 学期文件夹
-│       ├── 课程C-王老师/
-│       │   ├── files/                      ← 课件文件（按 Canvas 真实文件夹层级）
-│       │   │   ├── 第1章/
-│       │   │   │   ├── 讲义.pdf
-│       │   │   │   └── 习题.pdf
-│       │   │   ├── 第2章/
-│       │   │   │   └── ...
-│       │   │   └── 大纲/                    ← 大纲正文引用的文件（对应「大纲」tab）
-│       │   │       └── 课程大纲.pdf
-│       │   └── videos/                     ← 视频文件
-│       │       ├── 课堂视频/                ← 来自「课堂视频new」tab
-│       │       │   ├── 2025-09-16_08-00-王老师-教学楼101-教师.mp4
-│       │       │   ├── 2025-09-16_08-00-王老师-教学楼101-PPT.mp4
-│       │       │   └── 2025-09-16_08-00-王老师-教学楼101-PPT课件.pdf  ← PPT 课件 PDF
-│       │       └── 单元视频/                ← 来自「单元」tab
-│       │           └── 课程C-第3讲录播.mp4
-│       └── 课程D-赵老师/
-│           └── ...
-│
-└── 好大学在线/                             ← 好大学在线课程
-    └── 课程名/
-        └── 第一章 章节标题/
-            ├── 1.1 视频条目.mp4
-            └── 1.2 课件条目.pdf
-```
-
-#### 云端保存路径（交大云盘）
-
-```
-交大云盘/
-├── SJTU旁听课程/                           ← v.sjtu 旁听课程
-│   └── 2024-2025-1/                       ← 学期文件夹
-│       ├── 课程A-张老师/
-│       │   ├── 第1讲-教师.mp4
-│       │   └── ...
-│       └── ...
-│
-├── SJTU Canvas课程/                        ← Canvas 课程（独立根目录）
-│   └── 2024-2025-2/                       ← 学期文件夹
-│       ├── 课程C-王老师/
-│       │   ├── files/
-│       │   │   └── ...
-│       │   └── videos/
-│       │       ├── 课堂视频/
-│       │       │   └── ...
-│       │       └── 单元视频/
-│       │           └── ...
-│       └── ...
-│
-└── SJTU好大学在线/                         ← 好大学在线课程（独立根目录）
-    └── 课程名/
-        └── 第一章 章节标题/
-            └── ...
-```
-
-#### 各类型文件命名详情
-
-##### 文件夹名（学期 + 课程名）
-
-| 层级 | 格式 | 示例 |
-|------|------|------|
-| 学期文件夹 | `{学期}` | `2024-2025-1`、`2024-2025学年第2学期` |
-| 课程文件夹 | `{课程名}-{教师}` | `课程A-张老师`、`课程C-王老师/赵老师` |
-| 好大学在线课程文件夹 | `{课程名}` | `数据结构` |
-| 好大学在线章节文件夹 | `{章节标题}` | `第一章 绪论` |
-
-- 学期取自课程 API 的 `term` / `acteTerm` 字段，无学期信息时不创建学期文件夹
-- Canvas 教师名优先取课堂视频扫描结果，未扫描时回退到课程 API 的注册教师
-- 多教师用 `/` 连接（如 `王老师/赵老师`）
-- 好大学在线不区分学期，按「课程名 / 章节」两级组织
-
-##### 文件名
-
-| 来源 | 格式 | 示例 |
-|------|------|------|
-| v.sjtu 视频 | `第{N}讲-{视角}.mp4` | `第1讲-教师.mp4`、`第3讲-PPT.mp4` |
-| Canvas 课件 | `{原始文件名}` | `lecture_notes_week1.pdf`、`homework3.docx` |
-| Canvas 课堂视频 | `{日期}_{时间}-{教师}-{教室}-{视角}.mp4` | `2025-09-16_08-00-王老师-教学楼101-教师.mp4` |
-| Canvas PPT 课件 | `{日期}_{时间}-{教师}-{教室}-PPT课件.pdf` | `2025-09-16_08-00-王老师-教学楼101-PPT课件.pdf` |
-| Canvas 单元视频 | `{课程名}-{条目标题}.mp4` | `课程C-第3讲录播.mp4` |
-| 好大学在线资源 | `{条目标题}.{扩展名}` | `1.1 数组定义.mp4`、`1.2 习题.pdf` |
-
-- v.sjtu 的 `N` 是按上课时间排序后的稳定序号（非原始课次编号）
-- Canvas 课堂视频的日期时间格式：原始 `2025-09-16 08:00:00` → `2025-09-16_08-00`（冒号替换为 `-`，空格替换为 `_`，秒数去掉）
-- Canvas 课堂视频视角标签：`教师`（讲台画面）、`PPT`（板书画面），多路流时为 `路1`、`路2`...
-- 好大学在线资源扩展名由下载时懒解析的直链推断（扫描阶段文件名无扩展名）
-
-##### 临时文件
-
-| 文件 | 说明 |
-|------|------|
-| `{文件名}.part` | 下载过程中的临时文件，用于断点续传，完成后自动删除 |
-| `{文件名}.ts` | HLS 单元视频下载时的临时 TS 文件，合并为 MP4 后自动删除 |
-
-##### Canvas 文件夹层级
-
-Canvas 课程文件保留 Canvas 上的文件夹结构：
-
-| 类型 | 路径前缀 | 说明 |
-|------|---------|------|
-| 课程文件 | `files/` 或真实子目录 | 按 Canvas 文件夹层级组织；模块里引用的文件若不在文件列表则按其真实 Canvas 文件夹落盘 |
-| 大纲补漏 | `files/大纲/` | 大纲正文引用、但「文件」tab 看不到的文件，对应浏览器「大纲」tab |
-| 课堂视频 | `videos/课堂视频/` | 来自「课堂视频new」tab，按讲次平铺 |
-| PPT 课件 | `videos/课堂视频/` | 来自「课堂视频new」tab 的 PPT 截图，与视频同目录 |
-| 单元视频 | `videos/单元视频/` | 来自「单元」tab（HLS 网页嵌入 / v.sjtu / vshare 三类来源） |
-
-### 下载引擎机制
-
-- **双模式 AIMD 自适应并发** — 以 RTT（请求→首字节/上传耗时）、任务错误率、系统内存占用、磁盘写入吞吐、429 限流五项指标闭环；快降慢升（资源超限×0.7 / 重度拥塞×0.6 / 轻度拥塞×0.8 / 连续2周期良好+1），硬边界 2–16，调整间隔 ≥3s。定时器兜底 + 任务完成事件驱动
-- **惰性任务物化** — `download:start` 将 spec 存入 pending 队列，调度器临下载时才创建 `TaskRuntime`，内存 O(并发数)
-- **O(1) 去重** — `pendingLocalIds` / `pausedLocalIds` 等 Set 提供 O(1) 重复检测
-- **懒解析直链** — Canvas / 好大学在线视频直链在下载前按需解析（而非全量预解析），降低启动延迟和 API 调用量；暂停 / 出错重试时清空 url 重新解析，防直链过期
-- **网络健康监测** — `noteNetworkError` / `noteNetworkRecovery` 驱动 AIMD 降/升并发；网络频繁出错时自动暂停调度，退避后恢复
-- **事件驱动并发槽位** — HLS 下载等待并发槽位使用 Promise 事件通知（`notifyConcurrencySlotAvailable`），延迟从最高 2 秒降至约 10ms，非轮询
-- **内存优化** — 终态任务立即清理、Canvas 课程串行处理避免大数据集同时驻留内存、vodChannelsCache 上界 500 条目 LRU 淘汰
-- **IPC 进度批处理** — 主进程 `setImmediate` + 渲染端 `queueMicrotask` 双重合并，合并同一事件循环轮次内的多条进度更新
-- **裸 node:https 下载** — 下载引擎用 `node:https` 绕开 Chromium 网络栈（后者对跨域 CDN 请求 BLOCKED_BY_CLIENT），手动跟随 302 重定向，支持 Range 续传与写流 backpressure
-- **Canvas 文件直链解析** — 下载前从 Electron session 提取 `oc.sjtu.edu.cn` 的 Cookie（含 HttpOnly），注入 `node:https` 请求头，仅在 Canvas 站点这一跳携带；跟随 302 到 S3 预签名直链后不带 Cookie，避免泄漏给第三方域
-- **Canvas 端点限流重试** — 高并发下 Canvas `/files/{id}/download` 偶发 429/403，本地与云盘两条 `fetchOnce` 对该跳做指数退避重试（最多 4 次，读 `Retry-After`）；S3 的 403（签名/权限，永久错误）不重试
-- **COS 上传 abort** — `ChunkedUploader.abort()` 暴露在途 `ClientRequest`，pause/cancel 时立即中止分片 PUT，不会出现「暂停后还在传」
-- **实时传输速度** — 主进程 1s 推送 `transfer:speed`（下行/上行 bytes/s，EMA 平滑）
-
-### 安全模型
-
-- **contextIsolation: true, nodeIntegration: false** — 所有 BrowserWindow 均启用上下文隔离，禁止渲染端访问 Node.js API
-- **CSP 内容安全策略** — `index.html` 中配置严格 CSP，`default-src 'self'`，`connect-src` 限制到已知 SJTU 域名
-- **webview 导航白名单** — 登录页 webview 仅允许导航到 `sjtu.edu.cn`、`jaccount.sjtu.edu.cn`、`oc.sjtu.edu.cn`，防止导航劫持
-- **窗口打开拦截** — `setWindowOpenHandler` 拦截所有新窗口请求，重定向到系统默认浏览器；`web-contents-created` 全局注入
-- **IPC 输入验证** — `download:start` 等 IPC handler 对输入参数进行类型和边界校验（非空数组、5000 条上限、每条含 taskId/fileName）
-- **token 不经 IPC** — 云盘 `validateToken()` / `spaceInfo()` 不从 renderer 接收 token，main 进程使用内部缓存；jAccount JWT token 仅保存在内存中，进程退出即丢弃
-
-### 登录与会话
-
-- v.sjtu 登录态保存在本地 Electron session（`persist:sjtu`）中，关闭应用后重新打开如仍有效则无需重新登录
-- Canvas、好大学在线复用同一 `persist:sjtu` session（共享 jAccount 认证）；好大学在线 SSO 用隐藏 BrowserWindow 自动完成，首次 / cookie 失效时弹可见窗口兜底
-- 交大云盘 UserToken 持久化到 localStorage，下次启动可直接使用；main 进程使用内部缓存，不通过 IPC 传输 token
-
-### 云盘上传机制
-
-- 云盘上传采用 4MB 分片直传腾讯 COS，边下载边上传，内存占用恒定
-- 上传支持断点续传：`UploadSessionState` 记录已传分片，暂停后恢复跳过已传部分
-- 暂停或取消时立即中止在途的 COS 分片上传请求（`ChunkedUploader.abort()`），不会出现「点了暂停还在传」的情况
-- 同名文件可选择跳过或替换（`deleteCloudFile` 将远端文件移入回收站，404 幂等），在冲突策略中切换
-- 云盘空间信息可在操作栏实时查看
-
-### 磁盘空间
-
-- 本地下载时，视频体积较大（单个可达数百 MB 至数 GB），请确保目标磁盘有足够空间
-- 下载过程中的临时文件以 `.part` 后缀保存，用于支持断点续传
-- 下载完成后 `.part` 文件会被自动删除；也可手动安全删除，不影响已下载的文件
-
-### 网络与重试
-
-- **必须连接 SJTU 校园网或使用交大 VPN**，否则无法访问 v.sjtu.edu.cn、oc.sjtu.edu.cn、cnmooc.sjtu.cn 的资源
-- 部分视频通过 CDN 分发，在校外可能可以下载，但不保证全部可用
-- 下载使用 Node.js 原生 HTTP 请求，绕过 Chromium 网络栈，避免跨域限制；Canvas 文件下载通过会话 Cookie 注入实现直链解析，确保文件完整性
-- 网络错误（socket hang up、超时、DNS 解析失败等）会自动指数退避重试（最多 3 次），无需手动操作
-- Canvas 端点在高并发下偶发 429/403 限流，系统自动读取 `Retry-After` 并做指数退避重试（最多 4 次），无需手动干预
-- HLS segment 下载同样支持自动重试，m3u8 解析过程也有重试机制
-
----
-
-## 技术栈
-
-| 技术 | 用途 |
-|------|------|
-| [Electron](https://www.electronjs.org/) | 跨平台桌面应用框架 |
-| [electron-vite](https://electron-vite.org/) | 基于 Vite 的 Electron 构建工具 |
-| [React 19](https://react.dev/) | UI 框架 |
-| [TypeScript](https://www.typescriptlang.org/) | 类型安全的 JavaScript 超集 |
-| [Tailwind CSS](https://tailwindcss.com/) | 原子化 CSS 框架 |
-| [Zustand](https://zustand-demo.pmnd.rs/) | 轻量级状态管理（含 persist 中间件） |
-| [Node.js https](https://nodejs.org/api/https.html) | 原生 HTTP 流式下载（绕过 Chromium CORS） |
-| [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) | 内置 ffmpeg 静态二进制（各平台安装包自带，无需用户另装）：HLS TS → MP4 无损 remux + 可选重编码（Canvas 单元视频） |
-| [pdf-lib](https://pdf-lib.js.org/) | PPT 截图合并为 PDF（Canvas 课堂视频配套） |
-| [cheerio](https://cheerio.js.org/) | 好大学在线章节 HTML 解析 |
-
----
-
-## 项目结构
-
-```
-src/
-├── main/
-│   ├── index.ts                  # 主进程：窗口管理、下载引擎、云盘上传引擎、自动并发控制、IPC 进度批处理
-│   ├── cloudpan.ts               # 交大云盘 API：认证、文件夹创建与缓存、分片上传（含断点续传、凭证 renew 重试）、文件删除（移入回收站）
-│   ├── canvas/
-│   │   ├── api.ts                # Canvas REST API 封装（自动翻页、文件夹树、模块/大纲解析、文件元数据查询）
-│   │   ├── orchestrator.ts       # Canvas IPC handler 注册（课程扫描、文件下载、视频下载、OIDC SSO、事件驱动并发槽位等待、PPT 下载）
-│   │   ├── video-tokens.ts       # Canvas 课堂视频 LTI token 获取、vod API 调用、视频通道缓存（TTL + 上界 500）
-│   │   ├── hls-download.ts       # Canvas 单元视频的 m3u8 捕获、HLS 下载、ffmpeg remux + 可选重编码、云盘上传
-│   │   ├── ppt-download.ts       # Canvas PPT 课件图片下载 + pdf-lib PDF 合并（与课堂视频同目录）
-│   │   └── safe-fetch.ts         # safeFetch 封装：429 限流指数退避 + 网络错误重试
-│   ├── cnmooc/
-│   │   ├── api.ts                # 好大学在线 REST API + cheerio HTML 解析（课程列表、章节树、会话校验）
-│   │   └── orchestrator.ts       # 好大学在线 IPC 编排 + jAccount SSO + build-specs（占位 url，下载时懒解析）
-│   └── cloudpan.ts               # 交大云盘 API
-├── preload/
-│   └── index.ts                  # IPC 桥接：通过 contextBridge 安全暴露主进程 API 给渲染端
-├── shared/
-│   └── types.ts                  # 跨层共享的 TypeScript 类型定义（API 响应、业务模型、下载规格、Canvas/cnmooc 类型）
-└── renderer/
-    ├── index.html                # HTML 模板（含 CSP 配置：限制 connect-src 到 SJTU 域名）
-    └── src/
-        ├── main.tsx              # React 入口
-        ├── App.tsx               # 根组件：按 stage 切换页面 + 顶部 Tab 导航 + App 级进度订阅
-        ├── index.css             # Tailwind CSS 入口 + 自定义样式（动画、玻璃效果、自定义滚动条）
-        ├── store/
-        │   └── app.ts            # Zustand 全局状态（含 persist 持久化用户偏好、进度微任务批处理、both 模式聚合）
-        ├── hooks/
-        │   └── useSharedBrowserHooks.ts  # Browser / CanvasBrowser / CnmoocBrowser 共享的 hooks（云盘连接、token 验证、进度订阅、完成检测）
-        ├── components/
-        │   ├── TitleBar.tsx      # 自定义标题栏（并发控制、自动并发 AIMD、帮助弹窗、主题切换、登出）
-        │   ├── Spinner.tsx       # 加载动画组件
-        │   ├── Segmented.tsx     # 统一的「玻璃滑动指示器」分段选择器（Tab/模式/主题复用）
-        │   └── DownloadUI.tsx    # 下载 UI 原子组件（进度条 EMA 速度、三态复选框、控制按钮、模式选择器、同名文件冲突策略选择器）
-        └── pages/
-            ├── Welcome.tsx       # 欢迎页：功能介绍 + 登录入口
-            ├── Login.tsx         # 登录页：内嵌 jAccount 扫码 webview（含域名白名单导航限制）
-            ├── AuditedCourses.tsx # 旁听课程页：课程列表、双视角卡片、选择、下载、实时进度
-            ├── CanvasBrowser.tsx # Canvas 课程页：学期筛选、分类选择、课件/视频下载、串行课程处理、PPT 课件 PDF 下载
-            ├── CnmoocBrowser.tsx # 好大学在线页：章节折叠、资源类型筛选、懒解析下载
-            ├── TransferCenter.tsx # 传输中心页：实时速率看板、活跃任务队列、历史记录管理
-            └── Settings.tsx      # 全局设置页：双栏设计、全选项化卡片交互
-```
-
-### 数据流
-
-```
-用户操作 → AuditedCourses.tsx / CanvasBrowser.tsx / CnmoocBrowser.tsx
-         → window.api.xxx (通过 useSharedBrowserHooks 调用)
-         → preload IPC (contextBridge 安全桥)
-         → main/index.ts 或 main/canvas/orchestrator.ts 或 main/cnmooc/orchestrator.ts
-         → v.sjtu API / Canvas API / 好大学在线 API / 云盘 API
-                                    ↓
-各页面 ← applyProgress ← ipcRenderer.on ← emitProgress (setImmediate 批处理)
-                                    ↓
-               useDownloadStats / useEffectiveProgress ← Zustand selector 聚合（编码-数字技巧避免级联重渲染）
-```
-
-### 各层职责
-
-| 层 | 关键文件 | 职责 |
-|----|---------|------|
-| 主进程 | `main/index.ts` | 窗口管理、jAccount 登录验证（含 5 分钟结果缓存）、v.sjtu API 调用、本地下载引擎（惰性任务物化、任务队列、并发调度、HTTP 流式下载、断点续传、自动重试、HTTPS keep-alive、Canvas Cookie 注入直链解析、Canvas 429/403 限流退避重试）、云盘上传引擎（CDN→COS 边下载边分片上传、凭证 renew 重试、COS PUT 中止、覆盖模式远端删除）、自动并发控制（AIMD + 吞吐增益反馈 + 自适应周期 + 瓶颈冷却）、网络健康监测、IPC 进度批处理（setImmediate 合并）、系统通知（下载完成弹窗）、uncaughtException 安全退出 |
-| 主进程 | `main/cloudpan.ts` | 交大云盘 API 封装：UserToken 验证、空间凭证获取与缓存、文件夹逐级创建（路径缓存避免重复 PUT）、COS 分片上传（含 renew 凭证、单次重试、断点续传会话状态）、文件存在性检查、文件删除（移入回收站，供替换策略使用）、`ChunkedUploader.abort()` 中止在途 PUT |
-| 主进程 | `main/canvas/` | Canvas 课程相关：REST API 封装（自动翻页、并发模块页面批量获取）、OIDC SSO 登录、文件/视频扫描、LTI token 提取、vod 视频通道缓存（TTL 5 分钟 + 上界 500 条目淘汰）、HLS m3u8 捕获与 ffmpeg remux + 可选重编码、事件驱动并发槽位等待、PPT 课件图片下载与 PDF 合成（pdf-lib） |
-| 主进程 | `main/cnmooc/` | 好大学在线课程相关：REST API + cheerio HTML 解析（课程列表、章节树）、jAccount SSO（复用 persist:sjtu，隐藏窗口自动完成 + 可见窗口兜底）、build-specs 产占位 spec（下载时懒解析 play.mooc / detail.mooc 取直链）、资源类型过滤（video/document/all） |
-| 预加载 | `preload/index.ts` | IPC 通信桥（contextBridge.exposeInMainWorld），让渲染端通过 `window.api.xxx` 安全调用主进程功能。云盘 token 验证/空间查询不再接收 renderer 参数，由 main 进程使用内部缓存 |
-| 共享层 | `shared/types.ts` | 跨层共享 TypeScript 类型：API 响应结构、课程/视频模型、下载任务规格、进度状态、云盘类型、Canvas 类型、好大学在线类型、vod API 结构 |
-| 渲染端 | `store/app.ts` | Zustand 全局状态：登录态、课程列表、选中态、下载进度（queueMicrotask 微任务批处理）、云盘信息、并发数、云盘连接状态。`persist` 中间件持久化用户偏好（主题、下载目录）。`useEffectiveProgress` 聚合 both 模式本地+云端进度；`useDownloadStats` 编码统计为单个数字避免级联重渲染 |
-| 渲染端 | `hooks/useSharedBrowserHooks.ts` | Browser / CanvasBrowser / CnmoocBrowser 共享的 hooks：`useCloudConnection`（云盘连接/断开、状态管理，状态存 zustand 跨 tab 共享；连接逻辑委托 `services/prefetch.ts` 的 `prefetchCloudConnection`）、`useDownloadProgressSubscription`（App 级进度订阅）、`useDownloadCompletion`（选中任务全部终态后自动停止下载状态，弹出系统通知汇报成功/失败数量） |
-| 渲染端 | `services/prefetch.ts` | 登录后后台预加载：`prefetchCanvasCourses` / `prefetchCnmoocCourses` / `prefetchCloudConnection`，由 App.tsx 在 `stage==='browser'` 时并行触发；各页面 `loadCourses`/`runScan`/`onConnectCloud` 也复用以去重 |
-| 渲染端 | `pages/Welcome.tsx` | 原生双栏启动与认证面板：左侧版本与服务特性，右侧认证操作区自适应流体居中 |
-| 渲染端 | `pages/AuditedCourses.tsx` | 旁听课程页：自动扫描已授权旁听课程、双视角卡片、全选/单选、批量下载控制、实时进度与重载 |
-| 渲染端 | `pages/CanvasBrowser.tsx` | Canvas 课程页：学期筛选、分类选择（课件/教师/PPT/单元视频/PPT课件）、串行课程处理、内存优化 |
-| 渲染端 | `pages/CnmoocBrowser.tsx` | 好大学在线页：章节折叠卡片、资源类型分段（全部/仅视频/仅课件）、懒解析下载、刷新重载 |
-| 渲染端 | `pages/TransferCenter.tsx` | 独立传输中心：实时下行/上行速率看板、并发任务队列实时管理、已完成历史检索与本地文件高亮定位 |
-| 渲染端 | `pages/Settings.tsx` | 全屏双栏全局设置：存储目标模式、保存目录、并发档位、视频视角偏好、PPT 导出、深浅外观等全选项化配置 |
-| 渲染端 | `components/TitleBar.tsx` | 自定义顶栏：三大课程源纯净切换标签、右上角动态流速传输胶囊看板、云盘连接状态、全局设置与登出 |
-
----
-
-## 开发
-
-### 前置条件
-
-- [Node.js](https://nodejs.org/) >= 18
-- npm
-
-> `npm install` 会通过 [ffmpeg-static](https://github.com/eugeneware/ffmpeg-static) 的安装脚本从 GitHub Releases 下载对应平台的 ffmpeg 二进制（约 80MB，仅下载到 `node_modules`）。国内若 GitHub 访问慢，可设环境变量 `FFMPEG_BINARIES_URL` 指向镜像，或设 `FFMPEG_BIN` 直接指向本地已有 ffmpeg 跳过下载。
-
-### 常用命令
-
-```bash
-# 安装依赖
-npm install
-
-# 启动开发模式（支持热更新）
-npm run dev
-
-# TypeScript 类型检查
-npm run typecheck
-
-# 打包（输出到 release/ 目录）
-npm run build          # 当前平台
-npm run build:win      # Windows NSIS 安装包
-npm run build:mac      # macOS DMG + ZIP
-npm run build:linux    # Linux AppImage
-npm run build:unpack   # 仅构建不打包（输出目录）
-```
-
-### 构建系统
-
-项目使用 [electron-vite](https://electron-vite.org/) 作为构建工具，配置位于 `electron.vite.config.ts`。
-
-构建分为三个独立的 Vite 构建：
-
-- **main** — 主进程代码，入口 `src/main/index.ts`，输出到 `out/main/`
-- **preload** — 预加载脚本，入口 `src/preload/index.ts`，输出到 `out/preload/`
-- **renderer** — 渲染端 React 应用，入口 `src/renderer/index.html`，输出到 `out/renderer/`
-
-打包使用 [electron-builder](https://www.electron.build/)，配置在 `package.json` 的 `build` 字段中。`ffmpeg-static` 作为生产依赖打入 asar 并通过 `asarUnpack` 解包 native 二进制（asar 拼接格式无法在内部 exec native 二进制）。
-
-### 路径别名
-
-| 别名 | 实际路径 |
-|------|---------|
-| `@renderer` | `src/renderer/src` |
-| `@shared` | `src/shared` |
-
-### 开发模式下的进程关闭
-
-应用在关闭窗口时会主动销毁所有活跃的 HTTP 请求、文件写入流和定时器，确保不会有资源泄漏。下载过程中的 `.part` 文件会保留，下次启动时自动从断点续传。
-
----
-
-## 自动更新机制与版本发布指引
-
-本应用采用**轻量级原生无感更新方案**，具备完备的 GitHub Releases 联动与静默安装升级链路：
-
-### 1. 客户端更新检测机制
-- **静默检测**：应用启动时，主进程自动向 GitHub Releases API 发送探测请求（`GET /repos/sunalan2025/sjtu-downloader-all-in-one/releases/latest`），主进程内建 1 小时缓存节流，避免高频请求触发 GitHub 限流。
-- **语义化版本比对**：当检测到线上 Release 的 `tag_name` 高于当前客户端本地版本，且 Release assets 中包含当前操作系统的安装包时，顶栏右侧会自动亮起新版本提醒徽章。
-- **一键无感安装**：
-  - Windows：支持应用内一键下载更新包，下载完成后自动调用 NSIS 静默升级模式（`--updated /S --force-run`），旧进程平滑退出释放文件锁，新版本覆盖安装并自动重启；
-  - macOS / Linux：支持流式下载并校验解包，或提供直达官方 Releases 的下载指引。
-
-### 2. 为何单纯 push 代码无法自动更新？
-- GitHub Actions 发布工作流（`.github/workflows/release.yml`）严格声明了仅由 Git Tag 触发（`on: push: tags: ['v*']`）。
-- 普通分支的代码提交（如 `git push origin master`）仅会触发基本的 CI 语法与单元测试检查，**不会**生成打包文件，亦**不会**发布 Release 资产。
-- 工作流内设有严格的版本一致性门禁：Git Tag 名称（如 `v2.4.0`）必须与 `package.json` 中的 `version` 字段（如 `2.4.0`）完全匹配，否则 CI 自动拦截报错。
-
-### 3. 正确发布新版本并推送自动更新的步骤
-
-当您需要向所有旧版本用户推送新版本更新时，只需按以下三步操作：
-
-```bash
-# 步骤 1：确认 package.json 中版本号已递增（例如 2.4.0），提交代码并推送到 GitHub
-git push origin master
-
-# 步骤 2：在本地打上与 package.json 严格一致的 Git Tag
-git tag v2.4.0
-
-# 步骤 3：将 Tag 推送至 GitHub 触发跨平台编译打包与 Release 发布
-git push origin v2.4.0
-```
-
-推送完成后，GitHub Actions 将自动并行启动 Ubuntu、macOS 与 Windows 三大打包矩阵，编译生成全平台安装包并将构建产物上传至最新 Release。旧版本用户在启动应用或点击检查更新时，即可无感获取并一键升级至最新版本！
-
----
-
-## 许可
-
-[MIT](./LICENSE)
+本项目遵循 [MIT License](./LICENSE) 协议开源。仅供交大师生个人学习与资料归档使用，严禁传播侵权或用于商业用途。

@@ -1,7 +1,22 @@
 {
   "name": "sjtu-course-downloader",
-  "version": "2.4.0",
-  "description": "批量下载 SJTU 旁听课程、Canvas、好大学在线课程资源的 Electron 桌面应用，支持本地下载与直传交大云盘（需连接 SJTU 校园网或交大 VPN）",
+  "version": "2.5.0",
+  "description": "上海交通大学 (SJTU) 课程与交大旁听视频下载器，一站式批量下载交大旁听视频、Canvas 课件录播与好大学在线，支持交大云盘备份",
+  "keywords": [
+    "sjtu",
+    "shanghai-jiao-tong-university",
+    "交大",
+    "交大旁听",
+    "交大旁听视频下载",
+    "交大课程下载",
+    "上海交通大学",
+    "canvas-downloader",
+    "course-downloader",
+    "video-downloader",
+    "jiaoda",
+    "pangting",
+    "electron"
+  ],
   "main": "out/main/index.js",
   "author": "SJTU Course Downloader Contributors",
   "license": "MIT",
@@ -45,7 +60,7 @@
     "prettier": "^3.9.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "sharp": "^0.35.1",
+    "sharp": "^0.35.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.62.1",
@@ -54,7 +69,8 @@
     "zustand": "^5.0.2"
   },
   "overrides": {
-    "brace-expansion": "^5.0.8"
+    "brace-expansion": "^5.0.12",
+    "postcss-selector-parser": "^7.1.6"
   },
   "build": {
     "appId": "edu.sjtu.course-downloader",

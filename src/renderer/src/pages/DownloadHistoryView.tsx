@@ -47,7 +47,7 @@ export function DownloadHistoryView() {
   return (
     <div className="flex h-full flex-col p-6 max-w-6xl mx-auto w-full">
       {/* 顶部标题与工具栏 */}
-      <div className="flex items-center justify-between mb-6 pb-4 border-b border-border/40">
+      <div className="flex items-center justify-between mb-6 pb-4 border-b border-bd">
         <div>
           <h1 className="text-xl font-bold text-text-1 flex items-center gap-2">
             <span>已下载历史管理</span>
@@ -65,7 +65,7 @@ export function DownloadHistoryView() {
             <button
               type="button"
               onClick={() => handleOpenPath(localDestRoot)}
-              className="px-3 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 text-text-2 hover:text-text-1 text-xs font-medium transition-colors flex items-center gap-1.5"
+              className="px-3.5 py-1.5 rounded-xl bg-surface-2 hover:bg-surface-3 text-text-2 hover:text-text-1 text-xs font-medium transition-all flex items-center gap-1.5 shadow-2xs"
             >
               <span>📂</span> 打开保存总目录
             </button>
@@ -78,7 +78,7 @@ export function DownloadHistoryView() {
                   clearHistory()
                 }
               }}
-              className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium transition-colors flex items-center gap-1.5"
+              className="px-3.5 py-1.5 rounded-xl bg-rose/10 hover:bg-rose/20 text-rose text-xs font-medium transition-all flex items-center gap-1.5 shadow-2xs"
             >
               <span>🧹</span> 清空历史
             </button>
@@ -94,7 +94,7 @@ export function DownloadHistoryView() {
             placeholder="搜索文件名、课程名称、本地路径或云盘路径..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 rounded-lg bg-surface-2 text-text-1 text-sm placeholder-text-3 border border-border/40 focus:outline-none focus:border-accent transition-colors"
+            className="w-full h-10 px-3.5 rounded-xl bg-surface-2 text-text-1 text-xs placeholder:text-text-4 border border-bd focus:outline-none focus:border-accent focus:bg-surface-1 shadow-2xs transition-all duration-200"
           />
         </div>
       )}
@@ -122,7 +122,7 @@ export function DownloadHistoryView() {
               return (
                 <div
                   key={item.taskId || displayPath}
-                  className="flex items-center justify-between p-3.5 rounded-xl bg-surface-2/60 hover:bg-surface-2 border border-border/30 transition-all group"
+                  className="flex items-center justify-between p-3.5 rounded-xl bg-surface-2/60 hover:bg-surface-2 border border-bd transition-all group"
                 >
                   <div className="flex items-center gap-3.5 min-w-0 flex-1 pr-4">
                     <div className="w-10 h-10 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0 text-lg">

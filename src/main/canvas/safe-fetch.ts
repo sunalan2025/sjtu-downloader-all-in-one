@@ -22,19 +22,50 @@ export function wrapDnsError(url: string, err: unknown): Error | null {
 }
 
 export const DEFAULT_429_MAX_RETRIES = 4
+export const DEFAULT_FETCH_TIMEOUT_MS = 15_000
 
-/** 包装 ses.fetch，具备 Chromium DNS 错误转义以及 429 限流指数退避自愈 */
+/** 包装 ses.fetch，具备超时熔断、Chromium DNS 错误转义以及 429 限流指数退避自愈 */
 export async function safeFetch(
   ses: Electron.Session,
   url: string,
   init?: RequestInit,
-  maxRetries = DEFAULT_429_MAX_RETRIES
+  maxRetries = DEFAULT_429_MAX_RETRIES,
+  timeoutMs = DEFAULT_FETCH_TIMEOUT_MS
 ): Promise<Response> {
   let attempt = 0
   for (;;) {
     let resp: Response
     try {
-      resp = await ses.fetch(url, init)
+      let fetchPromise: Promise<Response>
+      try {
+        fetchPromise = ses.fetch(url, init)
+      } catch (callErr) {
+        throw wrapDnsError(url, callErr) ?? callErr
+      }
+
+      if (timeoutMs > 0) {
+        let timer: NodeJS.Timeout
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`请求超时 (${Math.round(timeoutMs / 1000)}s): ${sanitizeForLog(url)}`))
+          }, timeoutMs)
+        })
+        resp = await Promise.race([
+          fetchPromise.then(
+            r => {
+              clearTimeout(timer)
+              return r
+            },
+            err => {
+              clearTimeout(timer)
+              throw err
+            }
+          ),
+          timeoutPromise
+        ])
+      } else {
+        resp = await fetchPromise
+      }
     } catch (err) {
       throw wrapDnsError(url, err) ?? err
     }

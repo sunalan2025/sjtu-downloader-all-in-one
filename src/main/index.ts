@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, No
 import { electronApp } from '@electron-toolkit/utils'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { request as httpsRequest } from 'node:https'
 import {
   V_SJTU_API,
@@ -15,8 +16,18 @@ import {
   clearCachedCredentials,
   validateUserToken,
   getSpaceInfo,
-  setSession
+  setSession,
+  listDirectoryContents,
+  createDirectory,
+  deleteCloudItem,
+  renameCloudItem,
+  getFileDownloadUrl
 } from './cloudpan'
+import {
+  downloadCloudFile,
+  uploadCloudFiles,
+  openCloudInBrowser
+} from './cloudpan-transfer'
 import {
   setCanvasSession,
   setCanvasEmitter,
@@ -34,6 +45,8 @@ import {
   setCnmoocEmitter,
   invalidateCnmoocLogin
 } from './cnmooc/orchestrator'
+import { registerScheduleHandlers } from './schedule/orchestrator'
+import { invalidateCalendarLogin } from './schedule/schedule-fetcher'
 import { matchAsset, downloadUpdate, cancelUpdate, installUpdate, setUpdateEmitter } from './updater'
 import { sjtuSession, clearSjtuSessionCookies } from './session'
 import { cleanupStaleDownloads } from './cleanup'
@@ -49,20 +62,23 @@ import {
   ensureVsjtuLogin
 } from './auth'
 import {
+  listMaskedCredentials,
+  saveCredential,
+  updateCredentialLabel,
+  deleteCredential,
+  clearAllCredentials,
+  getCredentialForFill
+} from './credentials'
+import {
   getConcurrency,
   setConcurrency,
-  getAutoConcurrency,
-  setAutoConcurrency,
   getHlsActive,
   setHlsActive,
-  startAutoConcurrency,
-  stopAutoConcurrency,
   startSpeedTicker,
   stopSpeedTicker,
   stopNetworkResumeTimer,
   setRendererEmitter,
   setRescheduleCallback,
-  setHasActiveWorkGetter,
   setIsQuittingGetter
 } from './concurrency'
 import {
@@ -70,6 +86,7 @@ import {
   showMainWindow,
   getMainWindow,
   minimizeToTaskbar,
+  hideToTray,
   setIsQuitting,
   getIsQuitting,
   createTray,
@@ -124,7 +141,7 @@ import {
   cloudResumeAll
 } from './download-engine/cloud'
 import { saveQueueState, loadQueueState } from './download-engine/persistence'
-import { globalSpeedLimiter, formatPathFromTemplate } from '../shared/utils'
+import { globalSpeedLimiter, formatPathFromTemplate, isSafeExternalUrl } from '../shared/utils'
 
 
 // ─── 新版本检查配置 ───
@@ -170,6 +187,7 @@ async function clearSjtuSession(): Promise<void> {
   // [B5 Fix] 同步重置 cnmooc/canvas SSO 标志，否则 session 清除后各 ensureLogin 被旧标志短路、不再探测
   invalidateCnmoocLogin()
   invalidateCanvasLogin()
+  invalidateCalendarLogin()
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -211,6 +229,12 @@ app.whenReady().then(async () => {
     console.error('[unhandledRejection]', reason)
   })
   process.on('uncaughtException', (err) => {
+    // 忽略 Electron net.fetch / undici 内部在连接中断或重置时传递状态码 0 的已知抛错，避免应用意外闪退
+    if (err instanceof RangeError && err.message.includes('init["status"]')) {
+      console.warn('[net:warn] 忽略 Electron net.fetch 内部请求中止/连接重置状态码异常:', err.message)
+      return
+    }
+
     // [2.6] Log the error, then attempt graceful shutdown.
     // Silently swallowing uncaughtException leaves the app in an undefined state.
     console.error('[uncaughtException]', err)
@@ -228,7 +252,9 @@ app.whenReady().then(async () => {
   app.on('web-contents-created', (_, contents) => {
     if (contents.getType() === 'webview') {
       contents.setWindowOpenHandler(d => {
-        shell.openExternal(d.url)
+        if (isSafeExternalUrl(d.url)) {
+          void shell.openExternal(d.url)
+        }
         return { action: 'deny' }
       })
     }
@@ -245,9 +271,7 @@ app.whenReady().then(async () => {
       const hydAuth = await hydrateSjtuSession()
       console.log(
         '[startup] 会话恢复状态:',
-        hydAuth.loggedIn
-          ? `已登录 (${hydAuth.accountName || hydAuth.studentId})`
-          : '未登录/需重新认证'
+        hydAuth.loggedIn ? '已登录' : '未登录/需重新认证'
       )
     } catch (e) {
       console.error('[startup] 会话恢复失败（不阻塞启动）:', e)
@@ -260,9 +284,8 @@ app.whenReady().then(async () => {
     w.webContents.send(channel, data)
   })
   // [concurrency.ts 注入] 打破与 download-engine / window 的循环依赖：
-  // - rendererEmit: 推 transfer:speed / download:concurrency-changed
-  // - reschedule: 并发变化后调 scheduleNext + cloudScheduleNext
-  // - hasActiveWork: 判断是否还有活跃任务（evalAutoConcurrency 用）
+  // - rendererEmit: 推 transfer:speed
+  // - reschedule: 网络恢复后重试调 scheduleNext + cloudScheduleNext
   // - isQuittingGetter: 退出守卫
   setRendererEmitter((channel, data) => {
     getMainWindow()?.webContents.send(channel, data)
@@ -271,7 +294,6 @@ app.whenReady().then(async () => {
     scheduleNext()
     cloudScheduleNext()
   })
-  setHasActiveWorkGetter(() => sharedActiveCount() > 0 || pendingLocal.length > 0 || pendingCloud.length > 0)
   setIsQuittingGetter(() => getIsQuitting())
   // [Bug 37 Fix] 注入并发容量提供者，让 HLS 下载遵守全局并发限制
   setConcurrencyProvider(() => ({ active: sharedActiveCount(), concurrency: getConcurrency() }))
@@ -288,6 +310,9 @@ app.whenReady().then(async () => {
     w.webContents.send(channel, data)
   })
   registerCnmoocHandlers()
+
+  // 课表与日程管理 (calendar.sjtu.edu.cn / Canvas DDL)
+  registerScheduleHandlers(sjtuSession(), getMainWindow)
 
   // 标题栏按钮颜色跟随主题
   ipcMain.handle('app:set-theme', (_e, theme: 'dark' | 'light') => {
@@ -309,7 +334,7 @@ app.whenReady().then(async () => {
   // 原生 minimize 事件无法 preventDefault，故任务栏/Win+Down 最小化仍直接隐藏到托盘。
   // close 事件可 preventDefault：发 window:close-requested 给 renderer 弹确认窗，
   // renderer 选择后回调 window:minimize / window:cancel-and-quit / 不动。
-  ipcMain.handle('window:minimize', () => { getMainWindow()?.hide(); return { ok: true } })
+  ipcMain.handle('window:minimize', () => { hideToTray(); return { ok: true } })
   ipcMain.handle('window:minimize-to-taskbar', () => { minimizeToTaskbar(); return { ok: true } })
   /** 直接退出（无下载时用）：不取消下载，cleanupOnQuit 统一回收句柄 */
   ipcMain.handle('window:quit', () => { setIsQuitting(true); app.quit(); return { ok: true } })
@@ -454,13 +479,17 @@ app.whenReady().then(async () => {
     }
   })
 
-  // ─── 打开外部 URL（限于 GitHub 或交大云盘域，防任意 URL 打开） ───
-  ipcMain.handle('app:open-external', (_e, url: string): { ok: boolean } => {
-    if (typeof url !== 'string' || (!url.startsWith('https://github.com/') && !url.startsWith('https://pan.sjtu.edu.cn/'))) {
-      return { ok: false }
+  // ─── 打开外部 URL（严格校验合法的 HTTP/HTTPS 网页协议，阻断任意本地危险协议） ───
+  ipcMain.handle('app:open-external', async (_e, url: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!isSafeExternalUrl(url)) {
+      return { ok: false, error: '仅支持打开合法的 HTTP/HTTPS 网页链接' }
     }
-    void shell.openExternal(url)
-    return { ok: true }
+    try {
+      await shell.openExternal(url.trim())
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
 
   // ─── 本地文件/文件夹在资源管理器中打开/定位 ───
@@ -474,10 +503,25 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.handle('app:open-path', async (_e, fullPath: string): Promise<{ ok: boolean; error?: string }> => {
-    if (typeof fullPath !== 'string' || !fullPath.trim()) return { ok: false, error: '路径为空' }
+  ipcMain.handle('app:get-default-downloads-dir', (): string => {
     try {
-      const err = await shell.openPath(fullPath)
+      return app.getPath('downloads')
+    } catch {
+      return join(tmpdir(), 'downloads')
+    }
+  })
+
+  ipcMain.handle('app:open-path', async (_e, fullPath?: string): Promise<{ ok: boolean; error?: string }> => {
+    let target = typeof fullPath === 'string' ? fullPath.trim() : ''
+    if (!target) {
+      try {
+        target = app.getPath('downloads')
+      } catch {
+        target = app.getPath('home')
+      }
+    }
+    try {
+      const err = await shell.openPath(target)
       if (err) return { ok: false, error: err }
       return { ok: true }
     } catch (e) {
@@ -532,6 +576,14 @@ app.whenReady().then(async () => {
     const token = await exchangeVsjtuJwtByCode(code)
     return { success: !!token, token }
   })
+
+  // ─── 安全凭据保险库 (Credentials Vault) ─────────────────────────
+  ipcMain.handle('credentials:list', () => listMaskedCredentials())
+  ipcMain.handle('credentials:save', (_e, { username, password, label }) => saveCredential(username, password, label))
+  ipcMain.handle('credentials:update-label', (_e, { id, label }) => updateCredentialLabel(id, label))
+  ipcMain.handle('credentials:delete', (_e, id) => deleteCredential(id))
+  ipcMain.handle('credentials:clear-all', () => clearAllCredentials())
+  ipcMain.handle('credentials:get-fill-data', (_e, id) => getCredentialForFill(id))
 
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
     // 类似于好大学在线的 ensureCnmoocLogin，发起扫描前主动确保持有有效 JWT
@@ -688,7 +740,6 @@ app.whenReady().then(async () => {
             pendingLocal.push({ spec: { ...spec, cloudUserToken: undefined }, filePath, partPath })
             pendingLocalIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            if (getAutoConcurrency()) startAutoConcurrency()
             emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
           }
           scheduleNext()
@@ -710,7 +761,6 @@ app.whenReady().then(async () => {
             pendingCloud.push(spec)
             pendingCloudIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            if (getAutoConcurrency()) startAutoConcurrency()
             emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
           }
           cloudScheduleNext()
@@ -753,19 +803,10 @@ app.whenReady().then(async () => {
     return { ok: true }
   })
   ipcMain.handle('download:set-concurrency', (_e, n: number) => {
-    if (n === 0) {
-      // 自动并发模式
-      setAutoConcurrency(true)
-      setConcurrency(3)
-      startAutoConcurrency()
-    } else {
-      setAutoConcurrency(false)
-      stopAutoConcurrency()
-      setConcurrency(Math.max(2, Math.min(16, Math.floor(Number(n)) || 3)))
-    }
+    setConcurrency(Math.max(1, Math.min(16, Math.floor(Number(n)) || 3)))
     scheduleNext()
     cloudScheduleNext()
-    return { ok: true, concurrency: getConcurrency(), auto: getAutoConcurrency() }
+    return { ok: true, concurrency: getConcurrency() }
   })
   ipcMain.handle('download:set-speed-limit', (_e, limitKBps: number) => {
     globalSpeedLimiter.setLimitKBps(limitKBps || 0)
@@ -809,6 +850,99 @@ app.whenReady().then(async () => {
     saveSessionStore({ cloudUserToken: undefined })
     return { ok: true }
   })
+
+  // ─── 交大云盘资源管理器与文件操作 ─────────────────────────
+
+  ipcMain.handle(
+    'cloudpan:list-dir',
+    async (_e, dirPath: string[] = [], page = 1, pageSize = 100) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        const data = await listDirectoryContents(userToken, dirPath, page, pageSize)
+        return { ok: true, data }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '获取目录列表失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:create-dir',
+    async (_e, dirPath: string[]) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        await createDirectory(userToken, dirPath)
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '创建目录失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:delete-item',
+    async (_e, targetPath: string[], isDir: boolean) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        await deleteCloudItem(userToken, targetPath, isDir)
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '删除失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:rename-item',
+    async (_e, oldPath: string[], newName: string, isDir: boolean) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        await renameCloudItem(userToken, oldPath, newName, isDir)
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '重命名失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:get-download-url',
+    async (_e, filePath: string[]) => {
+      const userToken = getCachedUserToken()
+      if (!userToken) return { ok: false, error: '未登录云盘' }
+      try {
+        const url = await getFileDownloadUrl(userToken, filePath)
+        return { ok: true, url }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '获取下载链接失败' }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:download-file',
+    async (_e, remotePath: string[], targetDir?: string) => {
+      return downloadCloudFile(remotePath, targetDir)
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:upload-files',
+    async (_e, targetDirPath: string[] = []) => {
+      return uploadCloudFiles(targetDirPath)
+    }
+  )
+
+  ipcMain.handle(
+    'cloudpan:open-web',
+    async (_e, remotePath: string[] = []) => {
+      return openCloudInBrowser(remotePath)
+    }
+  )
 
   /** 利用已有的 jAccount session 直接完成 pan SSO 登录。
    *  用隐藏 BrowserWindow 加载 pan → 点击"jAccount登录" → SSO 自动跳转 → 拿 UserToken cookie。 */
@@ -945,18 +1079,16 @@ function cleanupOnQuit(): void {
 
   // 重置 vshare 登录态标志（vshare 域 cookie 随会话清除）
   invalidateVshareLogin()
-  // [B5 Fix] 同步重置 cnmooc/canvas SSO 标志
+  // [B5 Fix] 同步重置 cnmooc/canvas/calendar SSO 标志
   invalidateCnmoocLogin()
   invalidateCanvasLogin()
+  invalidateCalendarLogin()
 
   // 清除 cnmooc 会话 cookie 缓存（释放内存）
   cnmoocCookiesByTask.clear()
 
   // 清除云盘全量重试计数（释放内存）
   cloudFullRetries.clear()
-
-  // 清除自动并发定时器
-  stopAutoConcurrency()
 
   // 清除速度推送定时器
   stopSpeedTicker()

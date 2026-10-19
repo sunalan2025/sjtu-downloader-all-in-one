@@ -28,6 +28,138 @@ export function isClassVideoTab(label: string): boolean {
   return LTI_TAB_KEYWORDS.some(kw => lower.includes(kw))
 }
 
+/** 判断 Canvas tab 是否为旧版课堂录播 (courses.sjtu.edu.cn / Tool 18717) */
+export function isLegacyClassVideoTab(label: string, htmlUrl?: string): boolean {
+  const normLabel = (label || '').toLowerCase()
+  const normUrl = (htmlUrl || '').toLowerCase()
+  if (normUrl.includes('18717') || normUrl.includes('courses.sjtu.edu.cn')) return true
+  if (normLabel.includes('旧版') && isClassVideoTab(normLabel)) return true
+  return false
+}
+
+/** 判断 Canvas tab 是否为新版课堂录播 (v.sjtu.edu.cn / Tool 8329 / 通用) */
+export function isNewClassVideoTab(label: string, htmlUrl?: string): boolean {
+  if (isLegacyClassVideoTab(label, htmlUrl)) return false
+  const normLabel = (label || '').toLowerCase()
+  const normUrl = (htmlUrl || '').toLowerCase()
+  if (normUrl.includes('8329') || normUrl.includes('v.sjtu.edu.cn')) return true
+  if (normLabel.includes('新版') && isClassVideoTab(normLabel)) return true
+  return isClassVideoTab(normLabel)
+}
+
+/** 归一化授课开始时间戳 (YYYY-MM-DD HH:mm) */
+export function normalizeLectureBeginTime(t: string | undefined): string {
+  if (!t) return ''
+  const clean = t.trim().replace(/\//g, '-')
+  const m = clean.match(/^(\d{4}-\d{1,2}-\d{1,2})[T\s](\d{1,2}:\d{1,2})/)
+  if (m) {
+    const d = m[1].split('-').map(p => p.padStart(2, '0')).join('-')
+    const time = m[2].split(':').map(p => p.padStart(2, '0')).join(':')
+    return `${d} ${time}`
+  }
+  const mDate = clean.match(/^(\d{4}-\d{1,2}-\d{1,2})/)
+  if (mDate) {
+    return mDate[1].split('-').map(p => p.padStart(2, '0')).join('-')
+  }
+  return clean
+}
+
+/** 提取归一化授课日期 (YYYY-MM-DD) */
+export function extractLectureDate(t: string | undefined): string {
+  if (!t) return ''
+  const clean = t.trim().replace(/\//g, '-')
+  const m = clean.match(/^(\d{4}-\d{1,2}-\d{1,2})/)
+  if (m) {
+    return m[1].split('-').map(p => p.padStart(2, '0')).join('-')
+  }
+  return ''
+}
+
+/** 判断两个 Session 是否代表同一堂课 */
+export function isSameLectureSession(a: CanvasVideoSession, b: CanvasVideoSession): boolean {
+  const normTimeA = normalizeLectureBeginTime(a.beginTime)
+  const normTimeB = normalizeLectureBeginTime(b.beginTime)
+  if (normTimeA && normTimeB && normTimeA === normTimeB) {
+    return true
+  }
+
+  const numA = extractLectureNum(a.videoName)
+  const numB = extractLectureNum(b.videoName)
+  if (numA > 0 && numB > 0 && numA === numB) {
+    const dateA = extractLectureDate(a.beginTime)
+    const dateB = extractLectureDate(b.beginTime)
+    if (!dateA || !dateB || dateA === dateB) {
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * 双轨录播讲次并集融合与去重引擎。
+ * - 以授课时间戳 beginTime 与讲次序号 lectureNum 对齐去重；
+ * - 两边皆有时：优先保留新版元数据，保留旧版 legacyCourseId 及缺失教师信息；
+ * - 一边独有时：完整并入，消灭任何讲次缺失；
+ * - 结果按讲次编号与开始时间稳定排序。
+ */
+export function mergeAndDeduplicateLectures(
+  newSessions: CanvasVideoSession[],
+  legacySessions: CanvasVideoSession[]
+): CanvasVideoSession[] {
+  const merged: CanvasVideoSession[] = []
+  const usedLegacyIndices = new Set<number>()
+
+  for (const n of newSessions) {
+    let matchedLegacyIdx = -1
+    for (let i = 0; i < legacySessions.length; i++) {
+      if (usedLegacyIndices.has(i)) continue
+      if (isSameLectureSession(n, legacySessions[i])) {
+        matchedLegacyIdx = i
+        break
+      }
+    }
+
+    if (matchedLegacyIdx >= 0) {
+      usedLegacyIndices.add(matchedLegacyIdx)
+      const leg = legacySessions[matchedLegacyIdx]
+      merged.push({
+        ...leg,
+        ...n,
+        legacyCourseId: n.legacyCourseId || leg.legacyCourseId,
+        teacher: (n.teacher && n.teacher !== '未知教师') ? n.teacher : (leg.teacher || n.teacher),
+        classroom: (n.classroom && n.classroom !== '未知教室') ? n.classroom : (leg.classroom || n.classroom),
+        source: n.source || 'new'
+      })
+    } else {
+      merged.push({
+        ...n,
+        source: n.source || 'new'
+      })
+    }
+  }
+
+  for (let i = 0; i < legacySessions.length; i++) {
+    if (usedLegacyIndices.has(i)) continue
+    const leg = legacySessions[i]
+    merged.push({
+      ...leg,
+      source: leg.source || 'legacy'
+    })
+  }
+
+  merged.sort((a, b) => {
+    const na = extractLectureNum(a.videoName)
+    const nb = extractLectureNum(b.videoName)
+    if (na > 0 && nb > 0 && na !== nb) return na - nb
+    if (na > 0 && nb === 0) return -1
+    if (na === 0 && nb > 0) return 1
+    return (a.beginTime || '').localeCompare(b.beginTime || '')
+  })
+
+  return merged
+}
+
 // ─── LTI Token 提取 ──────────────────────────────────────────
 
 /** 全局 LTI 提取互斥锁：确保同一时间仅有 1 个提取窗口运行，彻底避免句柄和资源堆叠 */
@@ -376,14 +508,12 @@ export function identifyVideoStreams(rawStreams: any[]): VideoStream[] {
     const name = String(s.channelName || '')
     const url = String(s.rtmpUrlHdv || s.url || '')
 
-    let label: '教师' | 'PPT' | '全景' = '教师'
-    if (name.includes('PPT') || name.includes('电脑') || channelNum === 1) {
-      label = 'PPT'
-    } else if (name.includes('全景') || channelNum === 2) {
-      label = '全景'
-    } else {
-      label = '教师'
-    }
+    const label: '教师' | 'PPT' | '全景' =
+      name.includes('PPT') || name.includes('电脑') || channelNum === 1
+        ? 'PPT'
+        : name.includes('全景') || channelNum === 2
+          ? '全景'
+          : '教师'
 
     result.push({
       channelNum,

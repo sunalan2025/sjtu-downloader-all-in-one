@@ -1,7 +1,7 @@
 // dev/build wrapper:
 // 某些集成终端会预设 ELECTRON_RUN_AS_NODE=1，让 electron 退化成纯 Node，
 // 窗口无法创建。这里启动 electron-vite 前剥掉该变量。
-import { spawn, execSync } from 'node:child_process'
+import { spawn, execSync, execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -28,8 +28,8 @@ if (process.platform === 'win32') {
 if (process.argv.includes('dev') && process.platform === 'win32') {
   try {
     const projectDir = path.resolve(__dirname, '..')
-    const psCmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' } | ForEach-Object { if ($_.CommandLine -and $_.CommandLine -like '*${projectDir.replace(/\\/g, '\\\\')}*') { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
-    execSync(psCmd, { stdio: 'ignore' })
+    const psScript = `Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'electron.exe' } | ForEach-Object { if ($_.CommandLine -and $_.CommandLine.IndexOf('${projectDir.replace(/'/g, "''")}') -ge 0) { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }`
+    execFileSync('powershell.exe', ['-NoProfile', '-Command', psScript], { stdio: 'ignore' })
   } catch {
     // 忽略异常
   }

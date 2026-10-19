@@ -61,26 +61,40 @@ export class SpeedLimiter {
     this.lastCheck = Date.now()
   }
 
-  public async consume(bytes: number): Promise<void> {
-    if (this.maxBytesPerSec <= 0 || bytes <= 0) return
+  public isLimited(): boolean {
+    return this.maxBytesPerSec > 0
+  }
+
+  /**
+   * 尝试消费指定字节数并返回需要暂停的延迟时间 (ms)。
+   * 返回 0 表示当前令牌充足；返回 > 0 表示需调用 resp.pause() 并延迟对应时间后 resume。
+   */
+  public acquireDelay(bytes: number): number {
+    if (this.maxBytesPerSec <= 0 || bytes <= 0) return 0
 
     const now = Date.now()
     const elapsedSec = (now - this.lastCheck) / 1000
     this.lastCheck = now
 
-    // 补充令牌（上限为 1.5 秒的配额，防止突发）
-    this.tokens = Math.min(this.maxBytesPerSec * 1.5, this.tokens + elapsedSec * this.maxBytesPerSec)
+    // 补充令牌（上限为 1.2 秒的配额，防止突发洪峰）
+    this.tokens = Math.min(this.maxBytesPerSec * 1.2, this.tokens + elapsedSec * this.maxBytesPerSec)
 
     if (this.tokens >= bytes) {
       this.tokens -= bytes
-      return
+      return 0
     }
 
-    // 令牌不足：计算需要等待的时间
     const missing = bytes - this.tokens
-    const waitMs = (missing / this.maxBytesPerSec) * 1000
     this.tokens = 0
-    await new Promise(r => setTimeout(r, Math.min(waitMs, 5000)))
+    const waitMs = Math.round((missing / this.maxBytesPerSec) * 1000)
+    return Math.min(Math.max(waitMs, 10), 3000)
+  }
+
+  public async consume(bytes: number): Promise<void> {
+    const delay = this.acquireDelay(bytes)
+    if (delay > 0) {
+      await new Promise(r => setTimeout(r, delay))
+    }
   }
 }
 
@@ -129,6 +143,96 @@ export function sortAcademicTerms(terms: string[]): string[] {
     if (b === '(无学期)') return -1
     return b.localeCompare(a, 'zh-CN', { numeric: true })
   })
+}
+
+/**
+ * 递归/循环深度级联展开路径生成器（用于分栏文件管理器 Miller Columns 路径水合还原）
+ */
+export function buildAncestorPathChain(path: string[]): Array<{ path: string[]; name: string; selectedName: string | null }> {
+  const chain: Array<{ path: string[]; name: string; selectedName: string | null }> = [
+    { path: [], name: '根目录', selectedName: path[0] || null }
+  ]
+  for (let i = 0; i < path.length; i++) {
+    const subPath = path.slice(0, i + 1)
+    const nextSelected = i + 1 < path.length ? path[i + 1] : null
+    chain.push({
+      path: subPath,
+      name: path[i],
+      selectedName: nextSelected
+    })
+  }
+  return chain
+}
+
+/**
+ * 判断目录列表是否符合单子目录自动穿透条件（仅有 1 个子文件夹且 0 个文件）
+ */
+export function canAutoPenetrateSingleSubdir(items: Array<{ type: 'dir' | 'file'; name: string }>): { canPenetrate: boolean; singleSubdirName?: string } {
+  const dirs = items.filter(i => i.type === 'dir')
+  const files = items.filter(i => i.type === 'file')
+  if (dirs.length === 1 && files.length === 0) {
+    return { canPenetrate: true, singleSubdirName: dirs[0].name }
+  }
+  return { canPenetrate: false }
+}
+
+/**
+ * 校验外部跳转 URL 是否为安全合法的 Web 网页协议（仅允许 http/https，防 file/javascript 等危险本地命令协议）
+ */
+export function isSafeExternalUrl(url: unknown): boolean {
+  if (typeof url !== 'string' || !url.trim()) return false
+  try {
+    const parsed = new URL(url.trim())
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 确保 Canvas 相对路径被补全为完整的交大 Canvas 直链
+ */
+export function normalizeCanvasUrl(url?: string, defaultBase = 'https://oc.sjtu.edu.cn'): string {
+  if (!url || typeof url !== 'string' || !url.trim()) return ''
+  const trimmed = url.trim()
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed
+  }
+  if (trimmed.startsWith('/')) {
+    return `${defaultBase.replace(/\/+$/, '')}${trimmed}`
+  }
+  return `${defaultBase.replace(/\/+$/, '')}/${trimmed}`
+}
+
+/**
+ * 标准时间戳/日期字符串格式化工具
+ * 支持 Date 对象、毫秒时间戳 (number) 及 ISO/标准日期字符串。
+ * 格式化为：YYYY-MM-DD HH:mm（当 includeTime 为 true 时）或 YYYY-MM-DD（当 includeTime 为 false 时）。
+ * 若解析失败或为空，返回 fallback（默认 '-'）。
+ */
+export function formatDate(
+  val?: string | number | Date | null,
+  options?: { includeTime?: boolean; fallback?: string }
+): string {
+  const fallback = options?.fallback ?? '-'
+  if (val === null || val === undefined || val === '' || val === 0) return fallback
+  try {
+    const d = val instanceof Date ? val : new Date(val)
+    if (isNaN(d.getTime())) {
+      return typeof val === 'string' ? val : fallback
+    }
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const date = String(d.getDate()).padStart(2, '0')
+    if (options?.includeTime === false) {
+      return `${y}-${m}-${date}`
+    }
+    const h = String(d.getHours()).padStart(2, '0')
+    const min = String(d.getMinutes()).padStart(2, '0')
+    return `${y}-${m}-${date} ${h}:${min}`
+  } catch {
+    return typeof val === 'string' ? val : fallback
+  }
 }
 
 

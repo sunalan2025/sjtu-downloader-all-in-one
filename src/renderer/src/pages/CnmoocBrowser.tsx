@@ -64,6 +64,86 @@ const CnmoocItemProgress = memo(function CnmoocItemProgress({
   )
 })
 
+const QUIZ_TYPES = new Set(['30', '40', '50', '60', '70'])
+
+/** 判断是否为无下载实体的练习题、测验、测试、作业、考试、问卷、讨论等项 */
+export function isCnmoocQuizOrExercise(title: string, itemType?: string): boolean {
+  if (itemType && QUIZ_TYPES.has(itemType)) return true
+  if (itemType && /^(quiz|exercise|test|exam|discuss|homework|survey)$/i.test(itemType)) return true
+
+  // 清洗尾部括号备注（支持中英文括号及方括号，如“（必做）”、“(选做)”、“[客观题]”）
+  const cleanTitle = title.replace(/\s*[(（[][^)）\]]*[)）\]]\s*$/, '').trim()
+
+  // 若带明确音视频/文档格式扩展名，则是真实文件
+  if (/\.(mp4|flv|webm|mkv|avi|mov|wmv|pdf|ppt|pptx|doc|docx|xls|xlsx|zip|rar|7z|txt)$/i.test(cleanTitle)) {
+    return false
+  }
+
+  // 若包含明确教学录像/讲座关键词（如“习题课/试卷讲评/讲解/答疑”），则是视频课件
+  if (/(?:课|讲|讲解|讲评|答疑|点评|解析|串讲|导学|视频)$/i.test(cleanTitle)) {
+    return false
+  }
+  if (/(?:习题课|复习课|试卷讲评|作业讲解|考试答疑)/i.test(cleanTitle)) {
+    return false
+  }
+
+  // 纯在线练习题、测试题、测验、自测、小测、考试、作业、问卷、讨论
+  const quizPattern = /(?:练习题?|测试题?|测验|自测|随堂测|小测|作业|课后习题|期[中末]考试?|考试|试卷|问卷|调查|互动讨论)$/i
+  return quizPattern.test(cleanTitle)
+}
+
+export function classifyCnmoocItem(it: { title: string; itemType: string }, isAudioOnly = false): {
+  isVideo: boolean
+  type: string
+  displayName: string
+} {
+  const rawTitle = it.title.trim()
+  // 去除历史上或错误拼接的尾部 (MP4) / (M4A) / (音频 M4A) 标记
+  const cleanTitle = rawTitle.replace(/\s*\((MP4|M4A|音频 M4A)\)\s*$/i, '').trim()
+  const m = cleanTitle.match(/\.([a-zA-Z0-9]{2,5})$/)
+  const ext = m ? m[1].toLowerCase() : ''
+
+  const isDocExt = ['pdf', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'zip', 'rar', '7z'].includes(ext)
+  const isVideoExt = ['mp4', 'flv', 'webm', 'mkv', 'avi', 'mov', 'wmv', 'm4v', 'ts'].includes(ext)
+
+  let isVideo = false
+  if (isVideoExt) {
+    isVideo = true
+  } else if (isDocExt) {
+    isVideo = false
+  } else if (it.itemType === '10') {
+    if (/\((课件|文档|资料|PPT|PDF)\)/i.test(cleanTitle) || /课件|讲义|大纲/i.test(cleanTitle)) {
+      isVideo = false
+    } else {
+      isVideo = true
+    }
+  } else {
+    isVideo = false
+  }
+
+  let type: string
+  if (isDocExt) {
+    type = ext.toUpperCase()
+  } else if (isVideo) {
+    type = isAudioOnly ? 'M4A' : (ext ? ext.toUpperCase() : 'MP4')
+  } else {
+    if (/pdf/i.test(cleanTitle)) type = 'PDF'
+    else if (/ppt/i.test(cleanTitle) || /课件/i.test(cleanTitle)) type = 'PPT'
+    else type = 'DOC'
+  }
+
+  let displayName = cleanTitle
+  if (isVideo && isAudioOnly) {
+    if (cleanTitle.toLowerCase().endsWith('.mp4')) {
+      displayName = cleanTitle.replace(/\.mp4$/i, '.m4a')
+    } else if (!cleanTitle.includes('音频') && !cleanTitle.includes('M4A')) {
+      displayName = `${cleanTitle} (音频 M4A)`
+    }
+  }
+
+  return { isVideo, type, displayName }
+}
+
 export function CnmoocBrowser() {
   const {
     courses,
@@ -76,7 +156,6 @@ export function CnmoocBrowser() {
     localDestRoot,
     resourceFilter,
     downloading,
-    setSelected,
     toggleSelect,
     toggleSelectMany,
     setResourceFilter,
@@ -98,7 +177,6 @@ export function CnmoocBrowser() {
       localDestRoot: s.localDestRoot,
       resourceFilter: s.cnmoocResourceFilter,
       downloading: s.downloading,
-      setSelected: s.setSelected,
       toggleSelect: s.toggleSelect,
       toggleSelectMany: s.toggleSelectMany,
       setResourceFilter: s.setCnmoocResourceFilter,
@@ -114,20 +192,26 @@ export function CnmoocBrowser() {
   const [searchQuery, setSearchQuery] = useState('')
   const [navState, setNavState] = useState<NetdiskNavState>({ level: 'root' })
 
-  // 摊平所有条目的 taskId（用于全选 / 计数 / 统计）。依赖 courses + courseData 引用。
-  const dataKey = useMemo(
-    () => courses.map(c => `${c.courseId}:${courseData[c.courseId]?.chapters.length ?? 0}`).join(','),
-    [courses, courseData]
-  )
+  // 摊平所有条目的 taskId（用于全选 / 计数 / 统计）。
   const allTaskIds = useMemo(() => {
     const out: string[] = []
+    const isAudioOnly = videoQualityOption === 'audio_only'
     for (const c of courses) {
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
-      for (const ch of chapters) for (const it of ch.items) out.push(makeTid(c.courseId, it.itemId))
+      for (const ch of chapters) {
+        for (const it of ch.items) {
+          if (isCnmoocQuizOrExercise(it.title, it.itemType)) continue
+          if (resourceFilter !== 'all') {
+            const meta = classifyCnmoocItem(it, isAudioOnly)
+            if (resourceFilter === 'video' && !meta.isVideo) continue
+            if (resourceFilter === 'document' && meta.isVideo) continue
+          }
+          out.push(makeTid(c.courseId, it.itemId))
+        }
+      }
     }
     return out
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataKey])
+  }, [courses, courseData, resourceFilter, videoQualityOption])
   const total = allTaskIds.length
   const selectedCount = selected.size
 
@@ -153,14 +237,6 @@ export function CnmoocBrowser() {
     void runScan()
   }, [runScan, scanState])
 
-  // 扫描结束默认全选（只执行一次）
-  const autoSelectedRef = useRef(false)
-  useEffect(() => {
-    if (scanState === 'done' && total > 0 && !autoSelectedRef.current) {
-      autoSelectedRef.current = true
-      setSelected(new Set(allTaskIds))
-    }
-  }, [scanState, total, allTaskIds, setSelected])
 
   // 搜索过滤课程
   const filteredCourses = useMemo(() => {
@@ -258,7 +334,8 @@ export function CnmoocBrowser() {
       result = await window.api.download.start('', specs, {
         mode: downloadMode,
         conflictStrategy: useAppStore.getState().fileConflictStrategy,
-        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined
+        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined,
+        namingTemplate: useAppStore.getState().namingTemplate
       })
     } catch (err) {
       result = { ok: false, error: err instanceof Error ? err.message : 'IPC 通信失败' }
@@ -297,25 +374,34 @@ export function CnmoocBrowser() {
     return filteredCourses.map(c => {
       const isAudioOnly = videoQualityOption === 'audio_only'
       const chapters = courseData[c.courseId]?.chapters ?? EMPTY_CHAPTERS
-      const ids: string[] = []
-      for (const ch of chapters) for (const it of ch.items) ids.push(makeTid(c.courseId, it.itemId))
+      const allChapterItems = chapters.flatMap(ch => ch.items).filter(it => {
+        if (isCnmoocQuizOrExercise(it.title, it.itemType)) return false
+        if (resourceFilter === 'all') return true
+        const meta = classifyCnmoocItem(it, isAudioOnly)
+        return resourceFilter === 'video' ? meta.isVideo : !meta.isVideo
+      })
+      const ids: string[] = allChapterItems.map(it => makeTid(c.courseId, it.itemId))
       const selCount = ids.filter(id => selected.has(id)).length
       const triState = triStateFromCount(selCount, ids.length)
 
       const categories: NetdiskCategoryItem[] = chapters.map(ch => {
-        const chIds = ch.items.map(it => makeTid(c.courseId, it.itemId))
+        const filteredChapterItems = ch.items.filter(it => {
+          if (isCnmoocQuizOrExercise(it.title, it.itemType)) return false
+          if (resourceFilter === 'all') return true
+          const meta = classifyCnmoocItem(it, isAudioOnly)
+          return resourceFilter === 'video' ? meta.isVideo : !meta.isVideo
+        })
+        const chIds = filteredChapterItems.map(it => makeTid(c.courseId, it.itemId))
         const chSelCount = chIds.filter(id => selected.has(id)).length
         const chTri = triStateFromCount(chSelCount, chIds.length)
 
-        const items: NetdiskFileItem[] = ch.items.map(it => {
+        const items: NetdiskFileItem[] = filteredChapterItems.map(it => {
           const tid = makeTid(c.courseId, it.itemId)
-          const isVideo = it.itemType === '10'
+          const meta = classifyCnmoocItem(it, isAudioOnly)
           return {
             id: tid,
-            name: isVideo
-              ? (isAudioOnly ? `${it.title} (音频 M4A)` : `${it.title} (MP4)`)
-              : it.title,
-            type: isVideo ? (isAudioOnly ? 'M4A' : 'MP4') : 'DOC',
+            name: meta.displayName,
+            type: meta.type,
             selected: selected.has(tid),
             onToggle: () => onToggle(tid),
             renderExtra: (
@@ -370,13 +456,15 @@ export function CnmoocBrowser() {
         onToggle: () => {
           onToggleMany(ids, triState !== 'all')
         },
-        summary: ids.length > 0 ? { done, downloading: downloadingCount, errors, inflight, total: ids.length } : undefined
+        summary: (done > 0 || downloadingCount > 0 || errors > 0) && ids.length > 0
+          ? { done, downloading: downloadingCount, errors, inflight, total: ids.length }
+          : undefined
       }
     })
   }, [
     filteredCourses, courseData, selected, progressMap, cloudLinkedIds,
     onToggleMany, onToggle, onPauseTask, onCancelTask, onResumeTask,
-    videoQualityOption
+    videoQualityOption, resourceFilter
   ])
 
   return (
