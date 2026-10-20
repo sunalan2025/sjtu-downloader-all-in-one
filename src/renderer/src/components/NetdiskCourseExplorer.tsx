@@ -795,7 +795,7 @@ export function VideoPerspectiveFilterPills({
             : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
         }`}
       >
-        全部视频 ({totalCount})
+        全部视频 {totalCount}
       </button>
       <button
         type="button"
@@ -808,7 +808,7 @@ export function VideoPerspectiveFilterPills({
             : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
         }`}
       >
-        仅教师视角 ({teacherCount})
+        仅教师视角 {teacherCount}
       </button>
       <button
         type="button"
@@ -821,7 +821,7 @@ export function VideoPerspectiveFilterPills({
             : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
         }`}
       >
-        仅PPT投屏 ({pptCount})
+        仅PPT投屏 {pptCount}
       </button>
     </div>
   )
@@ -912,7 +912,7 @@ function CourseCard({
           ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs'
           : 'hover:bg-surface-2/70 active:bg-surface-3/50'
       }`}
-      title={`${c.name} (双击查看内容)`}
+      title={`${c.name} · 双击查看内容`}
     >
       {/* macOS 风格圆圈复选框 (左上角) */}
       <div
@@ -1085,7 +1085,7 @@ export function GridView({
   // 根目录：展示课程大文件夹网格
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-24' : 'pb-6'}`}>
+      <div className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-28' : 'pb-6'}`}>
         {termGroups ? (
           <div className="space-y-6">
             {termGroups.map(group => {
@@ -1118,24 +1118,6 @@ export function GridView({
                       >
                         {termState === 'all' ? '取消全选' : '全选本学期'}
                       </button>
-                      <span className="text-bd text-xs">|</span>
-                      <button
-                        type="button"
-                        onClick={() => toggleTermCategory(group.items, 'files', true)}
-                        className="text-2xs text-text-3 hover:text-accent font-medium transition-colors cursor-pointer"
-                        title="仅勾选该学期所有课程的课件资料"
-                      >
-                        仅课件
-                      </button>
-                      <span className="text-bd text-xs">|</span>
-                      <button
-                        type="button"
-                        onClick={() => toggleTermCategory(group.items, 'videos', true)}
-                        className="text-2xs text-text-3 hover:text-accent font-medium transition-colors cursor-pointer"
-                        title="仅勾选该学期所有课程的课堂与录播视频"
-                      >
-                        仅视频
-                      </button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3.5">
@@ -1161,7 +1143,7 @@ export function GridView({
   // 课程级目录：展示课程下二级分类文件夹网格（已彻底移除专属操作白板）
   if (navState.level === 'course' || !currentCategory) {
     return (
-      <div className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-24' : 'pb-4'}`}>
+      <div className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-28' : 'pb-4'}`}>
         <div className="mb-4 flex items-center justify-between rounded-xl border border-bd bg-surface-1 p-3">
           <div className="flex items-center gap-3">
             <span
@@ -1201,7 +1183,7 @@ export function GridView({
                     ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs'
                     : 'hover:bg-surface-2/70 active:bg-surface-3/50'
                 }`}
-                title={`${cat.name} (双击查看内容)`}
+                title={`${cat.name} · 双击查看内容`}
               >
                 {/* macOS 风格圆圈复选框 (左上角) */}
                 <div
@@ -1246,7 +1228,7 @@ export function GridView({
 
   // 三级分类目录：展示具体文件/视频流（顶部内嵌视角筛选器，支持单文件悬停极速下载）
   return (
-    <div className={`h-full overflow-y-auto ${isSelected ? 'pb-24' : 'pb-4'}`}>
+    <div className={`h-full overflow-y-auto ${isSelected ? 'pb-28' : 'pb-4'}`}>
       <CategoryLevelHeader
         category={currentCategory}
         displayedCount={displayedItems.length}
@@ -1276,7 +1258,7 @@ export function GridView({
                   ? 'opacity-50 cursor-not-allowed'
                   : 'cursor-pointer ' + (item.selected ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs' : 'hover:bg-surface-2/70 active:bg-surface-3/50')
               }`}
-              title={item.disabled ? item.disabledReason : `${item.name} (点击勾选)`}
+              title={item.disabled ? item.disabledReason : `${item.name} · 点击勾选`}
             >
               {/* macOS 风格圆圈复选框 (左上角) */}
               <div
@@ -1530,7 +1512,7 @@ export function ListView({
   // 根目录列表
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className={`h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs ${isSelected ? 'pb-24' : ''}`}>
+      <div className={`h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs ${isSelected ? 'pb-28' : ''}`}>
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 bg-surface-2 text-text-2 border-b border-bd z-10">
             <tr>
@@ -1566,7 +1548,7 @@ export function ListView({
                             </span>
                             <span>📅</span>
                             <span>{group.term}</span>
-                            <span className="text-2xs text-text-3 font-normal">({group.items.length} 门课程)</span>
+                            <span className="text-2xs text-text-3 font-normal">{group.items.length} 门课程</span>
                           </div>
                           <div className="flex items-center gap-2 select-none">
                             <button
@@ -1578,30 +1560,6 @@ export function ListView({
                               className="text-2xs text-accent hover:underline font-normal cursor-pointer"
                             >
                               {termState === 'all' ? '取消全选' : '全选本学期'}
-                            </button>
-                            <span className="text-bd text-xs">|</span>
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation()
-                                toggleTermCategory(group.items, 'files', true)
-                              }}
-                              className="text-2xs text-text-3 hover:text-accent font-normal cursor-pointer"
-                              title="仅勾选该学期所有课程的课件资料"
-                            >
-                              仅课件
-                            </button>
-                            <span className="text-bd text-xs">|</span>
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation()
-                                toggleTermCategory(group.items, 'videos', true)
-                              }}
-                              className="text-2xs text-text-3 hover:text-accent font-normal cursor-pointer"
-                              title="仅勾选该学期所有课程的课堂与录播视频"
-                            >
-                              仅视频
                             </button>
                           </div>
                         </div>
@@ -1627,7 +1585,7 @@ export function ListView({
   // 课程分类列表（已彻底移除专属操作白板）
   if (navState.level === 'course' || !currentCategory) {
     return (
-      <div className={`h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs ${isSelected ? 'pb-24' : ''}`}>
+      <div className={`h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs ${isSelected ? 'pb-28' : ''}`}>
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 bg-surface-2 text-text-2 border-b border-bd z-10">
             <tr>
@@ -1679,7 +1637,7 @@ export function ListView({
 
   // 具体资源列表（顶部内嵌视角筛选器，支持单文件悬停极速下载）
   return (
-    <div className={`h-full overflow-y-auto space-y-3 ${isSelected ? 'pb-24' : 'pb-4'}`}>
+    <div className={`h-full overflow-y-auto space-y-3 ${isSelected ? 'pb-28' : 'pb-4'}`}>
       <CategoryLevelHeader
         category={currentCategory}
         displayedCount={displayedItems.length}
@@ -2032,7 +1990,7 @@ export function CourseOverviewInspector({
           <div className="flex flex-col">
             <span className="text-text-4 text-2xs">课件资料</span>
             <span className="text-text-1 font-mono font-semibold">
-              {breakdown.filesCount} 项 {breakdown.fileBytes > 0 ? `(${formatBytes(breakdown.fileBytes)})` : ''}
+              {breakdown.filesCount} 项{breakdown.fileBytes > 0 ? ` · ${formatBytes(breakdown.fileBytes)}` : ''}
             </span>
           </div>
           <div className="flex flex-col">
@@ -2088,12 +2046,12 @@ export function CourseOverviewInspector({
         </div>
       )}
 
-      {/* 增值导出快速开关：提取并生成 PPT 讲义 (PDF) */}
+      {/* 增值导出快速开关：提取并生成 PPT 讲义 */}
       <div className="my-2 rounded-xl border border-bd/80 bg-surface-2/40 p-3 flex items-center justify-between gap-3 shrink-0">
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-xs font-semibold text-text-2 flex items-center gap-1.5">
             <span>📑</span>
-            <span>提取并生成 PPT 讲义 (PDF)</span>
+            <span>提取并生成 PPT 讲义</span>
           </span>
           <span className="text-2xs text-text-4 mt-0.5 truncate">
             从视频画面自动去重合成高清 PDF 讲义
@@ -2103,7 +2061,7 @@ export function CourseOverviewInspector({
           type="button"
           role="switch"
           aria-checked={isPptPdfOn}
-          aria-label="提取并生成 PPT 讲义 (PDF)"
+          aria-label="提取并生成 PPT 讲义"
           onClick={handleTogglePptPdf}
           className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
             isPptPdfOn ? 'bg-accent' : 'bg-surface-4'
@@ -2144,7 +2102,7 @@ export function CourseOverviewInspector({
           onClick={handleDownloadCourse}
           className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98] transition-all cursor-pointer"
         >
-          <span>⬇ 立即下载本门课程全部资源 ({estimated.formattedSize})</span>
+          <span>⬇ 立即下载本门课程全部资源 · {estimated.formattedSize}</span>
         </button>
       </div>
     </div>
@@ -2348,7 +2306,7 @@ export function FileDetailInspector({
               : 'border-bd bg-surface-2 text-text-2 hover:bg-surface-3 hover:text-text-1'
           }`}
         >
-          <span>{item.selected ? '✓ 已加入清单 (点击取消)' : '+ 勾选此文件加入清单'}</span>
+          <span>{item.selected ? '✓ 已加入清单 · 点击取消' : '+ 勾选此文件加入清单'}</span>
         </button>
       </div>
     </div>
@@ -2480,7 +2438,7 @@ export function ColumnView({
       {/* 第 1 栏：课程列表 */}
       <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full">
         <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
-          <span>全部课程 ({courses.length})</span>
+          <span>全部课程 · {courses.length}</span>
         </div>
         <div className="flex-1 overflow-y-auto py-2">
           {termGroups ? (
@@ -2502,7 +2460,7 @@ export function ColumnView({
                       </span>
                       <span className="truncate">📅 {group.term}</span>
                     </div>
-                    <span className="font-mono text-text-4 shrink-0">({group.items.length})</span>
+                    <span className="font-mono text-text-4 shrink-0">{group.items.length}</span>
                   </div>
                   <div className="pt-1">
                     {group.items.map(c => renderColumnCourseItem(c))}

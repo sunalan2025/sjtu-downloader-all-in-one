@@ -280,9 +280,9 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
 
       const pills = $('[data-testid="video-filter-pills"]')
       expect(pills.length).toBe(1)
-      expect(html).toContain('全部视频 (2)')
-      expect(html).toContain('仅教师视角 (1)')
-      expect(html).toContain('仅PPT投屏 (1)')
+      expect(html).toContain('全部视频 2')
+      expect(html).toContain('仅教师视角 1')
+      expect(html).toContain('仅PPT投屏 1')
     })
 
     it('在 ListView 模式下，视频分类顶栏同样内嵌 Filter Pills 胶囊分段器', () => {
@@ -293,9 +293,9 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
 
       const pills = $('[data-testid="video-filter-pills"]')
       expect(pills.length).toBe(1)
-      expect(html).toContain('全部视频 (2)')
-      expect(html).toContain('仅教师视角 (1)')
-      expect(html).toContain('仅PPT投屏 (1)')
+      expect(html).toContain('全部视频 2')
+      expect(html).toContain('仅教师视角 1')
+      expect(html).toContain('仅PPT投屏 1')
     })
 
     it('点击仅教师视角胶囊时，触发视角切换与切流更新', () => {
@@ -522,10 +522,10 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
   })
 
   // ─────────────────────────────────────────────────────────────
-  // 5. 底栏动作岛显示时 GridView 与 ListView 动态注入 pb-24 避让内边距 (Task 5)
+  // 5. 底栏动作岛显示时 GridView 与 ListView 动态注入 pb-28 避让内边距 (Task 5)
   // ─────────────────────────────────────────────────────────────
-  describe('5. 底栏动作岛显示时 GridView 与 ListView 动态注入 pb-24 避让内边距', () => {
-    it('GridView 在有选中项时各层级均注入 pb-24 滚动内边距', () => {
+  describe('5. 底栏动作岛显示时 GridView 与 ListView 动态注入 pb-28 避让内边距', () => {
+    it('GridView 在有选中项时各层级均注入 pb-28 滚动内边距', () => {
       const course = createMockCourse({ state: 'some' })
 
       // 根目录
@@ -537,7 +537,7 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: true
         })
       )
-      expect(rootHtml).toContain('pb-24')
+      expect(rootHtml).toContain('pb-28')
 
       // 课程层级
       const courseHtml = renderToStaticMarkup(
@@ -549,7 +549,7 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: true
         })
       )
-      expect(courseHtml).toContain('pb-24')
+      expect(courseHtml).toContain('pb-28')
 
       // 分类层级
       const catHtml = renderToStaticMarkup(
@@ -562,10 +562,10 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: true
         })
       )
-      expect(catHtml).toContain('pb-24')
+      expect(catHtml).toContain('pb-28')
     })
 
-    it('GridView 在无选中项时使用常规底边距 (无 pb-24)', () => {
+    it('GridView 在无选中项时使用常规底边距 (无 pb-28)', () => {
       const emptyCourse = createMockCourse({
         state: 'none',
         categories: [
@@ -587,7 +587,7 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: false
         })
       )
-      expect(rootHtml).not.toContain('pb-24')
+      expect(rootHtml).not.toContain('pb-28')
       expect(rootHtml).toContain('pb-6')
 
       const courseHtml = renderToStaticMarkup(
@@ -599,11 +599,11 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: false
         })
       )
-      expect(courseHtml).not.toContain('pb-24')
+      expect(courseHtml).not.toContain('pb-28')
       expect(courseHtml).toContain('pb-4')
     })
 
-    it('ListView 在有选中项时各层级均注入 pb-24 滚动内边距', () => {
+    it('ListView 在有选中项时各层级均注入 pb-28 滚动内边距', () => {
       const course = createMockCourse({ state: 'some' })
 
       // 根目录
@@ -615,7 +615,7 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: true
         })
       )
-      expect(rootHtml).toContain('pb-24')
+      expect(rootHtml).toContain('pb-28')
 
       // 课程层级
       const courseHtml = renderToStaticMarkup(
@@ -627,7 +627,7 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: true
         })
       )
-      expect(courseHtml).toContain('pb-24')
+      expect(courseHtml).toContain('pb-28')
 
       // 分类层级
       const catHtml = renderToStaticMarkup(
@@ -640,10 +640,10 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: true
         })
       )
-      expect(catHtml).toContain('pb-24')
+      expect(catHtml).toContain('pb-28')
     })
 
-    it('ListView 在无选中项时使用常规底边距 (无 pb-24)', () => {
+    it('ListView 在无选中项时使用常规底边距 (无 pb-28)', () => {
       const emptyCourse = createMockCourse({
         state: 'none',
         categories: [
@@ -665,7 +665,7 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: false
         })
       )
-      expect(rootHtml).not.toContain('pb-24')
+      expect(rootHtml).not.toContain('pb-28')
 
       const courseHtml = renderToStaticMarkup(
         React.createElement(ListView, {
@@ -676,7 +676,7 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: false
         })
       )
-      expect(courseHtml).not.toContain('pb-24')
+      expect(courseHtml).not.toContain('pb-28')
 
       const catHtml = renderToStaticMarkup(
         React.createElement(ListView, {
@@ -688,19 +688,19 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
           hasSelection: false
         })
       )
-      expect(catHtml).not.toContain('pb-24')
+      expect(catHtml).not.toContain('pb-28')
       expect(catHtml).toContain('pb-4')
     })
 
-    it('NetdiskCourseExplorer 在完整集成渲染时根据选中态动态切换 pb-24', () => {
-      // 1. 有选中项时：渲染包含 pb-24
+    it('NetdiskCourseExplorer 在完整集成渲染时根据选中态动态切换 pb-28', () => {
+      // 1. 有选中项时：渲染包含 pb-28
       const { html: selectedHtml } = renderExplorer({
         viewMode: 'grid',
         navState: { level: 'root' }
       })
-      expect(selectedHtml).toContain('pb-24')
+      expect(selectedHtml).toContain('pb-28')
 
-      // 2. 无任何选中项时：渲染不包含 pb-24
+      // 2. 无任何选中项时：渲染不包含 pb-28
       const emptyCourse = createMockCourse({
         state: 'none',
         categories: [
@@ -718,7 +718,7 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
         viewMode: 'grid',
         navState: { level: 'root' }
       })
-      expect(emptyHtml).not.toContain('pb-24')
+      expect(emptyHtml).not.toContain('pb-28')
     })
   })
 })

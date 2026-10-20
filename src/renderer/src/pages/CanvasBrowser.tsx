@@ -10,7 +10,7 @@ import {
   NetdiskViewModeSwitch,
   GlobalCtrlButton,
   TaskCtrlButtons,
-  formatBytes,
+
   type TriState
 } from '../components/DownloadUI'
 import {
@@ -77,7 +77,7 @@ export function buildPptPdfItems(
     .filter(l => !!l.teacher)
     .map(l => ({
       id: pptPdfTaskId(courseId, l.lectureNum),
-      name: `${courseName} - 第${l.lectureNum}讲 PPT课件 (PDF)`,
+      name: `${courseName} - 第${l.lectureNum}讲 PPT课件`,
       date: l.date,
       type: 'PDF',
       selected: isSelected,
@@ -352,7 +352,7 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
               type="button"
               onClick={() => onSelectPerspective('audio')}
               className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
-              title="切换为仅提取原声音频 (M4A)：自动只选教师视角，PPT 投屏无独立音频流将被禁用"
+              title="切换为仅提取原声音频：自动只选教师视角，PPT 投屏无独立音频流将被禁用"
             >
               仅音频
             </button>
@@ -522,7 +522,7 @@ export function CanvasBrowser() {
 
   // ── 学期列表 ──
   const terms = useMemo(() => {
-    const set = new Set(canvasCourses.map(c => c.term || '(无学期)'))
+    const set = new Set(canvasCourses.map(c => c.term || '未分学期'))
     return [...set].sort().reverse()
   }, [canvasCourses])
 
@@ -532,7 +532,7 @@ export function CanvasBrowser() {
       ...terms.map(t => ({
         value: t,
         label: t,
-        count: canvasCourses.filter(c => (c.term || '(无学期)') === t).length
+        count: canvasCourses.filter(c => (c.term || '未分学期') === t).length
       }))
     ]
   }, [terms, canvasCourses])
@@ -541,7 +541,7 @@ export function CanvasBrowser() {
   const filteredCourses = useMemo(() => {
     let list = canvasCourses
     if (selectedTerm !== 'all') {
-      list = list.filter(c => (c.term || '(无学期)') === selectedTerm)
+      list = list.filter(c => (c.term || '未分学期') === selectedTerm)
     }
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase()
@@ -552,37 +552,6 @@ export function CanvasBrowser() {
     }
     return list
   }, [canvasCourses, selectedTerm, searchQuery])
-
-  // 计算已选任务条数与总预估大小
-  const selectedStats = useMemo(() => {
-    let count = 0
-    let totalBytes = 0
-    for (const c of canvasCourses) {
-      const cd = canvasCourseData[c.courseId]
-      if (cd) {
-        for (const f of cd.files) {
-          if (selected.has(fileTaskId(c.courseId, f.fileId))) {
-            count++
-            totalBytes += (f.size || 0)
-          }
-        }
-        for (const f of cd.moduleFiles) {
-          if (selected.has(fileTaskId(c.courseId, f.fileId))) {
-            count++
-            totalBytes += (f.size || 0)
-          }
-        }
-        for (const f of cd.syllabusFiles) {
-          if (selected.has(fileTaskId(c.courseId, f.fileId))) {
-            count++
-            totalBytes += (f.size || 0)
-          }
-        }
-      }
-    }
-    const totalCount = Math.max(count, selected.size)
-    return { totalCount, totalBytes }
-  }, [canvasCourses, canvasCourseData, selected])
 
   // ── 拉取课程列表（刷新时保留下载进度和已有扫描数据） ──
   // 逻辑提取到 services/prefetch.ts，登录后 App.tsx 也会调它预加载。
@@ -1749,8 +1718,8 @@ export function CanvasBrowser() {
             videoItems.push({
               id: tTid,
               name: isAudioOnly
-                ? `${c.name} - 第${l.lectureNum}讲 教师视角 (音频 M4A)`
-                : `${c.name} - 第${l.lectureNum}讲 教师视角 (MP4)`,
+                ? `${c.name} - 第${l.lectureNum}讲 教师视角 音频`
+                : `${c.name} - 第${l.lectureNum}讲 教师视角`,
               date: l.date,
               type: isAudioOnly ? 'M4A' : 'MP4',
               selected: selected.has(tTid),
@@ -1762,8 +1731,8 @@ export function CanvasBrowser() {
             videoItems.push({
               id: pTid,
               name: isAudioOnly
-                ? `${c.name} - 第${l.lectureNum}讲 PPT投影视角 (无独立音频流)`
-                : `${c.name} - 第${l.lectureNum}讲 PPT投影视角 (MP4)`,
+                ? `${c.name} - 第${l.lectureNum}讲 PPT投影视角 无独立音频流`
+                : `${c.name} - 第${l.lectureNum}讲 PPT投影视角`,
               date: l.date,
               type: isAudioOnly ? 'DISABLED' : 'MP4',
               disabled: isAudioOnly,
@@ -1793,7 +1762,7 @@ export function CanvasBrowser() {
           const tid = iframeVideoTaskId(c.courseId, t.pageTitle)
           videoItems.push({
             id: tid,
-            name: isAudioOnly ? `${t.pageTitle} (音频 M4A)` : `${t.pageTitle} (MP4)`,
+            name: isAudioOnly ? `${t.pageTitle} 音频` : t.pageTitle,
             type: isAudioOnly ? 'M4A' : 'MP4',
             selected: selected.has(tid),
             onToggle: () => toggleSelect(tid),
@@ -1804,7 +1773,7 @@ export function CanvasBrowser() {
           const tid = extToolVideoTaskId(c.courseId, t.fileId)
           videoItems.push({
             id: tid,
-            name: isAudioOnly ? `${t.title} (音频 M4A)` : `${t.title} (MP4)`,
+            name: isAudioOnly ? `${t.title} 音频` : t.title,
             type: isAudioOnly ? 'M4A' : 'MP4',
             selected: selected.has(tid),
             onToggle: () => toggleSelect(tid),
@@ -1815,7 +1784,7 @@ export function CanvasBrowser() {
           const tid = extUrlVideoTaskId(c.courseId, t.uuid)
           videoItems.push({
             id: tid,
-            name: isAudioOnly ? `${t.title} (音频 M4A)` : `${t.title} (MP4)`,
+            name: isAudioOnly ? `${t.title} 音频` : t.title,
             type: isAudioOnly ? 'M4A' : 'MP4',
             selected: selected.has(tid),
             onToggle: () => toggleSelect(tid),
@@ -1842,7 +1811,7 @@ export function CanvasBrowser() {
         const tid = assignmentTaskId(c.courseId, a.id)
         const isSel = selected.has(tid)
         const ddlStr = a.dueAt ? `DDL: ${a.dueAt.slice(0, 16).replace('T', ' ')}` : '无截止时间'
-        const scoreStr = a.submissionScore !== undefined ? `得分: ${a.submissionScore}分` : (a.hasSubmission ? '已提交(未评分)' : '未提交')
+        const scoreStr = a.submissionScore !== undefined ? `得分: ${a.submissionScore}分` : (a.hasSubmission ? '已提交未评分' : '未提交')
         const attCount = a.teacherAttachments.length
         const subCount = a.submissionFiles.length
         const detailParts: string[] = [ddlStr, scoreStr]
@@ -1916,7 +1885,7 @@ export function CanvasBrowser() {
         {
           id: 'videos',
           chipKey: 'videos',
-          name: isAudioOnly ? '🎵 课堂原声音频 (M4A)' : '🎬 课堂视频',
+          name: isAudioOnly ? '🎵 课堂原声音频' : '🎬 课堂视频',
           icon: isAudioOnly ? 'audio' : 'video',
           state: (cStates.teacher === 'all' && cStates.ppt === 'all' && cStates.moduleVideo === 'all')
             ? 'all'
@@ -1950,7 +1919,7 @@ export function CanvasBrowser() {
         {
           id: 'pptPdf',
           chipKey: 'pptPdf',
-          name: '📑 PPT课件 (PDF)',
+          name: '📑 PPT课件',
           icon: 'presentation',
           state: catSel?.pptPdf ? 'all' : 'none',
           onToggle: () => setCanvasCourseCategorySelection(c.courseId, { pptPdf: !catSel?.pptPdf }),
@@ -2030,14 +1999,14 @@ export function CanvasBrowser() {
           <button
             type="button"
             onClick={() => setCanvasGroupByTerm(!canvasGroupByTerm)}
-            title={canvasGroupByTerm ? '当前为按学期分栏展示，点击切换为平铺不分栏' : '当前为平铺展示，点击切换为按学期分栏'}
+            title={canvasGroupByTerm ? '当前为按学期分组展示，点击切换为平铺' : '当前为平铺展示，点击切换为按学期分组'}
             className={`inline-flex h-10 items-center gap-1.5 rounded-xl border px-3 text-xs font-medium transition-all shadow-2xs cursor-pointer select-none ${
               canvasGroupByTerm
                 ? 'border-accent/40 bg-accent/10 text-accent font-semibold'
                 : 'border-bd bg-surface-2 text-text-3 hover:border-bd-strong hover:bg-surface-1 hover:text-text-1'
             }`}
           >
-            <span>{canvasGroupByTerm ? '📑 学期分栏' : '📄 平铺展示'}</span>
+            <span>{canvasGroupByTerm ? '按学期分组' : '平铺展示'}</span>
           </button>
 
           {canvasScanState === 'scanning' && (
@@ -2058,10 +2027,6 @@ export function CanvasBrowser() {
 
         {/* 右侧：已选统计 + 已选全部 + 立即下载 */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-text-2">
-            <span className="text-accent font-bold">☑</span>
-            <span>已选 {selectedStats.totalCount} 项{selectedStats.totalBytes > 0 ? ` (${formatBytes(selectedStats.totalBytes)})` : ''}</span>
-          </div>
 
           {/* 分体全选/分类批量预设选择下拉菜单 */}
           <div ref={batchMenuRef} className="relative inline-flex items-center rounded-xl border border-bd bg-surface-2 shadow-2xs hover:border-bd-strong transition-all">
@@ -2072,14 +2037,14 @@ export function CanvasBrowser() {
               title="全选 / 取消当前筛选范围内的所有资源"
             >
               <TriCheckbox state={courseTriState} size="sm" />
-              <span>已选全部</span>
+              <span>{courseTriState === 'all' ? '取消全选' : '全选所有课程'}</span>
             </button>
             <div className="h-4 w-px bg-bd/70" />
             <button
               type="button"
               onClick={() => setBatchMenuOpen(prev => !prev)}
               className="inline-flex h-10 w-8 items-center justify-center text-xs text-text-3 hover:text-text-1 hover:bg-surface-1 rounded-r-xl transition-all cursor-pointer"
-              title="快捷分类选择（仅选课件/仅选视频/仅选PPT/清空）"
+              title="快捷分类选择"
             >
               <svg className={`h-3.5 w-3.5 transition-transform duration-200 ${batchMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
@@ -2089,7 +2054,7 @@ export function CanvasBrowser() {
             {batchMenuOpen && (
               <div className="absolute right-0 top-full z-50 mt-1.5 w-60 rounded-2xl border border-bd bg-surface-1 p-1.5 shadow-xl animate-fadeIn text-xs">
                 <div className="px-2.5 py-1.5 text-2xs font-semibold text-text-3 border-b border-bd/40 mb-1">
-                  当前筛选范围批量选择 ({filteredCourses.length} 门课程)
+                  当前筛选范围批量选择 · {filteredCourses.length} 门课程
                 </div>
                 <button
                   type="button"
@@ -2144,7 +2109,7 @@ export function CanvasBrowser() {
                   <span className="text-sm">🎬</span>
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-xs text-info">全部视频</div>
-                    <div className="text-2xs text-text-3">双流全选（教师机位与 PPT）</div>
+                    <div className="text-2xs text-text-3">双流全选：教师机位与 PPT</div>
                   </div>
                 </button>
                 <button
@@ -2185,7 +2150,7 @@ export function CanvasBrowser() {
                 >
                   <span className="text-sm">📑</span>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-xs">仅选 PPT 课件 (PDF)</div>
+                    <div className="font-semibold text-xs">仅选 PPT 课件</div>
                     <div className="text-2xs text-text-3">勾选演示幻灯片讲义</div>
                   </div>
                 </button>

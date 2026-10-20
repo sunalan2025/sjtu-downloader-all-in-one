@@ -181,10 +181,10 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
           pptCount: 5
         }
       })
-      expect($('button:contains("📘 课件 (10)")').length).toBe(1)
-      expect($('button:contains("🎬 视频 (6)")').length).toBe(1)
-      expect($('button:contains("📝 作业 (4)")').length).toBe(1)
-      expect($('button:contains("📑 PPT讲义 (5)")').length).toBe(1)
+      expect($('button:contains("📘 课件 10")').length).toBe(1)
+      expect($('button:contains("🎬 视频 6")').length).toBe(1)
+      expect($('button:contains("📝 作业 4")').length).toBe(1)
+      expect($('button:contains("📑 PPT讲义 5")').length).toBe(1)
     })
 
     it('根据 categorySelection 属性呈现对应激活态 (aria-pressed 与高亮类名)', () => {
@@ -257,9 +257,9 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       expect(keys).toEqual(['all', 'teacher', 'ppt', 'audio'])
 
       expect(VIDEO_PERSPECTIVE_OPTIONS[0].label).toBe('双机位同时下载')
-      expect(VIDEO_PERSPECTIVE_OPTIONS[1].label).toBe('仅教师画面 (推荐)')
+      expect(VIDEO_PERSPECTIVE_OPTIONS[1].label).toBe('仅教师画面')
       expect(VIDEO_PERSPECTIVE_OPTIONS[2].label).toBe('仅PPT投影')
-      expect(VIDEO_PERSPECTIVE_OPTIONS[3].label).toBe('仅原声音频 (M4A)')
+      expect(VIDEO_PERSPECTIVE_OPTIONS[3].label).toBe('仅原声音频')
     })
 
     it('切换机位时触发 onPerspectiveChange 回调', () => {
@@ -348,7 +348,7 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       const ctaBtn = $('button[aria-label="立即下载 约 1.80 GB"]')
       expect(ctaBtn.length).toBe(1)
       expect(ctaBtn.text()).toContain('立即下载 约 1.80 GB')
-      expect(ctaBtn.text()).toContain('(⏎)')
+      expect(ctaBtn.text()).toContain('⏎')
     })
 
     it('点击主执行按钮时触发 onStartDownload 回调（onDownload 别名已删除）', () => {

@@ -698,7 +698,7 @@ export function DropdownSelect<T extends string = string>({
           {icon && <span className="text-xs">{icon}</span>}
           <span className="truncate max-w-[150px]">{selectedOpt?.label ?? value}</span>
           {typeof selectedOpt?.count === 'number' && (
-            <span className="text-text-4 font-normal">({selectedOpt.count})</span>
+            <span className="text-text-4 font-normal ml-1.5">{selectedOpt.count}</span>
           )}
         </div>
         <svg
@@ -734,7 +734,7 @@ export function DropdownSelect<T extends string = string>({
               >
                 <span className="truncate">
                   {opt.label}
-                  {typeof opt.count === 'number' ? ` (${opt.count})` : ''}
+                  {typeof opt.count === 'number' ? ` ${opt.count}` : ''}
                 </span>
                 {isSelected && (
                   <svg className="h-3.5 w-3.5 text-accent shrink-0" viewBox="0 0 20 20" fill="currentColor">
@@ -999,7 +999,7 @@ export function NetdiskViewModeSwitch({
         className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
           mode === 'grid' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
-        title="图标视图 (Icon / Grid)"
+        title="图标视图"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
           <rect x="2" y="2" width="5" height="5" rx="1.2" />
@@ -1014,7 +1014,7 @@ export function NetdiskViewModeSwitch({
         className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
           mode === 'list' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
-        title="列表视图 (List)"
+        title="列表视图"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
           <line x1="2.5" y1="3.5" x2="13.5" y2="3.5" />
@@ -1028,7 +1028,7 @@ export function NetdiskViewModeSwitch({
         className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
           mode === 'column' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
         }`}
-        title="分栏视图 (Column)"
+        title="分栏视图"
       >
         <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
           <rect x="2" y="2" width="3.5" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />

@@ -401,14 +401,14 @@ describe('Canvas category badges and PPT PDF lecture items', () => {
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({
       id: pptPdfTaskId(99999, 1),
-      name: '高等数学 - 第1讲 PPT课件 (PDF)',
+      name: '高等数学 - 第1讲 PPT课件',
       date: '2026-03-01',
       type: 'PDF',
       selected: true
     })
     expect(items[1]).toMatchObject({
       id: pptPdfTaskId(99999, 2),
-      name: '高等数学 - 第2讲 PPT课件 (PDF)',
+      name: '高等数学 - 第2讲 PPT课件',
       date: '2026-03-08',
       type: 'PDF',
       selected: true

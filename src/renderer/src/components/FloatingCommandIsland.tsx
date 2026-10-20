@@ -67,9 +67,9 @@ export const VIDEO_PERSPECTIVE_OPTIONS: Array<{
   desc: string
 }> = [
   { key: 'all', label: '双机位同时下载', desc: '包含教师画面与PPT投屏' },
-  { key: 'teacher', label: '仅教师画面 (推荐)', desc: '标准板书与教师全景' },
+  { key: 'teacher', label: '仅教师画面', desc: '标准板书与教师全景' },
   { key: 'ppt', label: '仅PPT投影', desc: '高清讲义与屏幕共享' },
-  { key: 'audio', label: '仅原声音频 (M4A)', desc: '超省空间，随时听课' }
+  { key: 'audio', label: '仅原声音频', desc: '超省空间，随时听课' }
 ]
 
 export const STORAGE_DEST_OPTIONS: Array<{ key: DownloadMode; label: string }> = [
@@ -248,7 +248,7 @@ export function FloatingCommandIsland({
             type="button"
             role="button"
             onClick={onClearSelection}
-            title="清空选择 (Esc)"
+            title="清空选择"
             aria-label="清空选择"
             className="text-text-4 hover:text-text-1 hover:bg-surface-3 p-1 rounded-full transition-colors cursor-pointer text-xs leading-none"
           >
@@ -272,7 +272,7 @@ export function FloatingCommandIsland({
               : 'border-bd/60 text-text-3 hover:text-text-2 bg-surface-2/40'
           }`}
         >
-          <span>📘 课件 ({selectedSummary.filesCount ?? 0})</span>
+          <span>📘 课件 {selectedSummary.filesCount ?? 0}</span>
         </button>
 
         {/* 视频芯片（带机位弹出菜单） */}
@@ -291,7 +291,7 @@ export function FloatingCommandIsland({
               onClick={() => handleToggleCategory('videos')}
               className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 cursor-pointer"
             >
-              <span>🎬 视频 ({selectedSummary.videoCount ?? 0})</span>
+              <span>🎬 视频 {selectedSummary.videoCount ?? 0}</span>
             </button>
             <button
               type="button"
@@ -358,7 +358,7 @@ export function FloatingCommandIsland({
               : 'border-bd/60 text-text-3 hover:text-text-2 bg-surface-2/40'
           }`}
         >
-          <span>📝 作业 ({selectedSummary.assignCount ?? 0})</span>
+          <span>📝 作业 {selectedSummary.assignCount ?? 0}</span>
         </button>
 
         {/* PPT 讲义芯片 */}
@@ -373,7 +373,7 @@ export function FloatingCommandIsland({
               : 'border-bd/60 text-text-3 hover:text-text-2 bg-surface-2/40'
           }`}
         >
-          <span>📑 PPT讲义 ({selectedSummary.pptCount ?? 0})</span>
+          <span>📑 PPT讲义 {selectedSummary.pptCount ?? 0}</span>
         </button>
       </div>
 
@@ -469,7 +469,7 @@ export function FloatingCommandIsland({
         >
           <span>{storeDownloading ? '下载进行中…' : `立即下载 ${selectedSummary.formattedSize}`}</span>
           {!storeDownloading && (
-            <span className="inline-flex items-center font-mono text-[11px] opacity-80">(⏎)</span>
+            <span className="inline-flex items-center font-mono text-[11px] opacity-80">⏎</span>
           )}
         </button>
       )}
