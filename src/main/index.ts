@@ -140,7 +140,7 @@ import {
   cloudCancelAll,
   cloudResumeAll
 } from './download-engine/cloud'
-import { registerTaskMeta, getDownloadSnapshot, clearFinishedSnapshots } from './download-engine/progress'
+import { registerTaskMeta, getDownloadSnapshot, clearFinishedSnapshots, deleteSnapshot } from './download-engine/progress'
 import { globalSpeedLimiter, formatPathFromTemplate, isSafeExternalUrl } from '../shared/utils'
 
 
@@ -810,6 +810,11 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('download:clear-finished-snapshots', () => {
     clearFinishedSnapshots()
+    return { ok: true }
+  })
+  ipcMain.handle('download:delete-snapshot', (_e, taskId: string) => {
+    // 与渲染端删除单条历史联动；仅接受终态条目，防止误删在传任务
+    deleteSnapshot(taskId)
     return { ok: true }
   })
   ipcMain.handle('download:pause-all', () => {

@@ -188,6 +188,29 @@ export function computeBatchStats(
   return { done, failed, active, inflight, downloading, uploading, total: taskIds.length }
 }
 
+/**
+ * 剪枝 both 模式镜像映射：两侧均无活跃条目（都终态，或任一侧终态且另一侧缺失）
+ * 的映射关系直接移除。镜像关系只在任务进行中有统计价值；到终态后残留只会污染
+ * 后续单模式批次（TransferCenter 聚合 / skip-done 判断查到陈旧 error 镜像，把
+ * 正在下载的任务误显示为失败）。提交新批次与快照恢复时调用。
+ */
+export function pruneSettledLinks(
+  cloudLinkedIds: Record<string, string>,
+  progress: Record<string, DownloadProgress>
+): Record<string, string> {
+  const next: Record<string, string> = {}
+  for (const [localId, cloudId] of Object.entries(cloudLinkedIds)) {
+    const local = progress[localId]
+    const cloud = progress[cloudId]
+    // 任一侧条目存在且未终态 → 映射仍可能有统计价值，保留
+    if ((local && !isFinalState(local.state)) || (cloud && !isFinalState(cloud.state))) {
+      next[localId] = cloudId
+    }
+    // 两侧均终态 / 一侧终态另一侧缺失（含从未入队的回滚残留）→ 剪掉
+  }
+  return next
+}
+
 // ─── React hooks（包装纯函数，供组件订阅） ─────────────────────
 
 /**
@@ -232,8 +255,13 @@ export function restoreDownloadSnapshot(snapshot: DownloadProgress[]): {
   const activeIds: string[] = []
   const cloudLinks: Record<string, string> = { ...store.cloudLinkedIds }
 
+  // 先把快照条目全部 applyProgress 进 store；同时叠加快照构建剪枝用的有效进度表
+  // （applyProgress 是微任务批处理，立刻读 store.progress 拿不到本轮条目，
+  // 直接用会把活跃映射误判成"两侧缺失"剪掉）
+  const effectiveProgress: Record<string, DownloadProgress> = { ...store.progress }
   for (const p of snapshot) {
     store.applyProgress(p)
+    effectiveProgress[p.taskId] = p
     if (p.taskId.endsWith('_cloud')) {
       const baseId = p.taskId.slice(0, -'_cloud'.length)
       cloudLinks[baseId] = p.taskId
@@ -241,8 +269,12 @@ export function restoreDownloadSnapshot(snapshot: DownloadProgress[]): {
       activeIds.push(p.taskId)
     }
   }
-  if (Object.keys(cloudLinks).length > 0) {
-    store.setCloudLinkedIds(cloudLinks)
+  // 剪枝：两侧均无活跃条目的映射无保留价值（重载前残留的终态对在这里清掉）
+  const pruned = pruneSettledLinks(cloudLinks, effectiveProgress)
+  if (Object.keys(pruned).length > 0) {
+    store.setCloudLinkedIds(pruned)
+  } else if (Object.keys(cloudLinks).length > 0) {
+    store.setCloudLinkedIds({})
   }
   if (activeIds.length > 0) {
     store.addBatchTaskIds(activeIds)

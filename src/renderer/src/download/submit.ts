@@ -14,6 +14,7 @@
  */
 import type { DownloadTaskSpec } from '@shared/types'
 import { useAppStore } from '../store/app'
+import { pruneSettledLinks } from './progress'
 
 export interface SubmitBatchOptions {
   /** both 模式：本地↔云端镜像 taskId 映射将由此建立 */
@@ -64,9 +65,14 @@ export async function submitDownloadBatch(
     }
   }
 
-  // both 模式建立镜像映射（增量合并现有镜像；非 both 时保留既有映射，防冲掉后台已在传任务）
+  // both 模式建立镜像映射（增量合并现有镜像；非 both 时保留既有映射，防冲掉后台已在传任务）。
+  // 合并前先剪枝：两侧均终态的镜像关系已无统计价值，残留只会污染后续单模式批次
+  // （TransferCenter 聚合 / skip-done 判断会查到陈旧 error 镜像），到终态即剪。
   if (opts.isBothMode) {
-    const pairs: Record<string, string> = { ...(opts.existingCloudLinkedIds ?? store.cloudLinkedIds) }
+    const pairs: Record<string, string> = pruneSettledLinks(
+      opts.existingCloudLinkedIds ?? store.cloudLinkedIds,
+      store.progress
+    )
     for (const spec of specs) pairs[spec.taskId] = spec.taskId + '_cloud'
     store.setCloudLinkedIds(pairs)
   }

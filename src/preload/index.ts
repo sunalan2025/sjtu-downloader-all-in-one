@@ -168,6 +168,9 @@ const api = {
     /** 清除主进程中已完成或已取消的历史快照 */
     clearFinishedSnapshots: (): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('download:clear-finished-snapshots'),
+    /** 删除单条历史快照（含其 _cloud 镜像）；与渲染端删除单条历史记录联动 */
+    deleteSnapshot: (taskId: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('download:delete-snapshot', taskId),
     /** 订阅下载进度变化事件，返回取消订阅函数 */
     onProgress: (cb: (p: DownloadProgress) => void) => subscribe<DownloadProgress>('download:progress', cb),
     /** 订阅实时传输速度事件（下行/上行 bytes/s，1s 推送），返回取消订阅函数 */

@@ -298,11 +298,15 @@ export function AuditedCourses() {
 
     // 构建需要处理的任务 spec：跳过已完全完成的（本地 done 且云端 done）
     const curProgress = useAppStore.getState().progress
+    const curDownloadMode = useAppStore.getState().downloadMode
+    const curLinked = useAppStore.getState().cloudLinkedIds
     const specs: DownloadTaskSpec[] = []
     for (const items of byLecture.values()) {
       for (const t of items) {
         const localDone = curProgress[t.taskId]?.state === 'done' || curProgress[t.taskId]?.state === 'skipped'
-        const cloudId = cloudLinkedIds[t.taskId]
+        // [Bug Fix] 仅 both 模式查镜像映射：cloudLinkedIds 残留历史批次的陈旧
+        // 映射会让单模式批次误判 cloudDone、把未完成任务当成已完成而跳过
+        const cloudId = curDownloadMode === 'both' ? curLinked[t.taskId] : undefined
         const cloudDone = !cloudId
           || curProgress[cloudId]?.state === 'done'
           || curProgress[cloudId]?.state === 'skipped'
@@ -331,7 +335,7 @@ export function AuditedCourses() {
     // batchTaskIds、both 镜像、IPC 启动与失败回滚统一处理。
     const result = await submitDownloadBatch(specs, {
       isBothMode: downloadMode === 'both',
-      existingCloudLinkedIds: cloudLinkedIds
+      existingCloudLinkedIds: curLinked
     })
     if (!result.ok) {
       setDownloading(false)

@@ -47,6 +47,19 @@ export function clearFinishedSnapshots(): void {
   }
 }
 
+/** 删除单条历史快照（含其 _cloud 镜像）。
+ *  供渲染端删除单条历史记录时联动调用——否则刷新页面后快照恢复
+ *  会把该 done 条目连历史一起"复活"。仅允许删终态条目，防误删在传任务。 */
+export function deleteSnapshot(taskId: string): void {
+  const baseId = taskId.replace(/_cloud$/, '')
+  for (const id of [baseId, baseId + '_cloud']) {
+    const item = taskSnapshotRegistry.get(id)
+    if (item && (item.state === 'done' || item.state === 'skipped' || item.state === 'cancelled')) {
+      taskSnapshotRegistry.delete(id)
+    }
+  }
+}
+
 /** 清空全部快照（测试或重置时使用） */
 export function resetSnapshotRegistryForTest(): void {
   taskSnapshotRegistry.clear()

@@ -320,6 +320,10 @@ interface AppState {
   addDownloadHistory: (item: DownloadHistoryItem) => void
   /** 移除单条已下载历史记录 */
   removeDownloadHistoryItem: (taskId: string) => void
+  /** 从进度表删除单条（含 _cloud 镜像）——仅终态条目可删。
+   *  TransferCenter「移除」用：提交失败等主进程不认识的任务，cancel 后主进程
+   *  不会回发终态，行会永远留在列表里；本地直接删除即可。 */
+  removeProgressItem: (taskId: string) => void
   /** 清空所有已下载历史记录 */
   clearDownloadHistory: () => void
   /** 设置下载并发数（0 = 自动） */
@@ -849,7 +853,26 @@ export const useAppStore = create<AppState>()(
           return { downloadHistory: [{ ...item, taskId: baseId }, ...state.downloadHistory].slice(0, 300) }
         }),
       removeDownloadHistoryItem: taskId =>
-        set(state => ({ downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId) })),
+        set(state => {
+          // [Bug Fix] 联动删 progress 终态条目 + 主进程快照：否则刷新页面后
+          // 快照恢复 → applyProgress(done) 会把刚删的历史"复活"。
+          // 仅删终态条目（done/skipped/cancelled），在传/失败任务不动。
+          const baseId = taskId.replace(/_cloud$/, '')
+          const nextProg = { ...state.progress }
+          for (const id of [baseId, baseId + '_cloud']) {
+            const p = nextProg[id]
+            if (p && (p.state === 'done' || p.state === 'skipped' || p.state === 'cancelled')) {
+              delete nextProg[id]
+            }
+          }
+          if (typeof window !== 'undefined' && window.api?.download?.deleteSnapshot) {
+            void window.api.download.deleteSnapshot(baseId).catch(() => {})
+          }
+          return {
+            downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId),
+            progress: nextProg
+          }
+        }),
       clearDownloadHistory: () => {
         set(state => {
           const nextProg = { ...state.progress }
@@ -864,6 +887,21 @@ export const useAppStore = create<AppState>()(
           void window.api.download.clearFinishedSnapshots().catch(() => {})
         }
       },
+      removeProgressItem: taskId =>
+        set(state => {
+          const baseId = taskId.replace(/_cloud$/, '')
+          const nextProg = { ...state.progress }
+          for (const id of [baseId, baseId + '_cloud']) {
+            const p = nextProg[id]
+            // 仅删终态（含 error）：error 属于终态且重试语义走 resumeTask 的 runtime，
+            // 删条目不影响主进程重试；在传任务（downloading/pending/paused）不可删，
+            // 必须走 cancel 让主进程停掉。
+            if (p && (p.state === 'done' || p.state === 'skipped' || p.state === 'cancelled' || p.state === 'error')) {
+              delete nextProg[id]
+            }
+          }
+          return { progress: nextProg }
+        }),
       setConcurrency: n => {
         const val = n === 0 ? 0 : clampConcurrency(n)
         set({ concurrency: val })

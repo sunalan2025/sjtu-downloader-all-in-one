@@ -281,6 +281,7 @@ export function CnmoocBrowser() {
     if (selectedCount === 0 || downloading) return
 
     const curProgress = useAppStore.getState().progress
+    const curDownloadMode = useAppStore.getState().downloadMode
     const curLinked = useAppStore.getState().cloudLinkedIds
 
     // 按课程分组选中条目
@@ -292,9 +293,11 @@ export function CnmoocBrowser() {
         for (const it of ch.items) {
           const tid = makeTid(c.courseId, it.itemId)
           if (!selected.has(tid)) continue
-          // 跳过已完全完成的（本地+云端均 done/skipped）
+          // 跳过已完全完成的（本地+云端均 done/skipped）。
+          // [Bug Fix] 仅 both 模式查镜像映射：cloudLinkedIds 残留历史批次的陈旧
+          // 映射会让单模式批次误判 cloudDone、把未完成任务当成已完成而跳过
           const localDone = curProgress[tid]?.state === 'done' || curProgress[tid]?.state === 'skipped'
-          const cloudId = curLinked[tid]
+          const cloudId = curDownloadMode === 'both' ? curLinked[tid] : undefined
           const cloudDone = !cloudId
             || curProgress[cloudId]?.state === 'done'
             || curProgress[cloudId]?.state === 'skipped'
@@ -400,6 +403,11 @@ export function CnmoocBrowser() {
         return {
           id: ch.chapter,
           name: ch.chapter,
+          // [Bug Fix] 章节是混合容器（视频+课件混排），类型筛选由
+          // ResourceTypeSegmented 表达；显式钉死 files，防章节名含
+          // 「视频处理」「作业」等字样被 resolveCategoryChipKey 嗅探误归类、
+          // 点芯片整章误勾/误退。
+          chipKey: 'files',
           icon: 'folder',
           state: chTri,
           onToggle: () => {

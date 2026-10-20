@@ -8,6 +8,7 @@ import type { TransferSpeed } from '@shared/types'
 export function TransferCenter() {
   const history = useAppStore(s => s.downloadHistory)
   const removeHistoryItem = useAppStore(s => s.removeDownloadHistoryItem)
+  const removeProgressItem = useAppStore(s => s.removeProgressItem)
   const clearHistory = useAppStore(s => s.clearDownloadHistory)
   const localDestRoot = useAppStore(s => s.localDestRoot)
   const progress = useAppStore(s => s.progress)
@@ -20,12 +21,16 @@ export function TransferCenter() {
     return window.api.download.onTransferSpeed(s => setSpeed(s))
   }, [])
 
-  // 聚合逻辑任务：过滤掉 both 模式下的 _cloud 镜像 ID，合并为单个逻辑卡片
+  // 聚合逻辑任务：过滤掉 both 模式下的 _cloud 镜像 ID，合并为单个逻辑卡片。
+  // [Bug Fix] 仅 both 模式下查镜像映射：cloudLinkedIds 里可能残留历史批次的陈旧
+  // 映射（单模式批次不清理它），无守卫地查会把正在下载的单模式任务误聚合到
+  // 陈旧 error 镜像上、显示成"传输失败"。与 useEffectiveProgress 同语义守卫。
+  const downloadMode = useAppStore(s => s.downloadMode)
   const logicalTasks = useMemo(() => {
     const entries = Object.entries(progress).filter(([id]) => !id.endsWith('_cloud'))
     return entries.map(([id, local]) => {
-      const cloudId = cloudLinkedIds[id] || `${id}_cloud`
-      const cloud = progress[cloudId]
+      const cloudId = downloadMode === 'both' ? cloudLinkedIds[id] : undefined
+      const cloud = cloudId ? progress[cloudId] : undefined
       const aggregate = aggregateTaskState(local, cloud)
       const fileName = local.fileName || cloud?.fileName || local.filePath?.split(/[\\/]/).pop() || id.split('_').pop() || id
       const courseName = local.courseName || cloud?.courseName
@@ -37,7 +42,7 @@ export function TransferCenter() {
         isBoth: !!cloud
       }
     })
-  }, [progress, cloudLinkedIds])
+  }, [progress, cloudLinkedIds, downloadMode])
 
   const activeTasks = useMemo(() => {
     return logicalTasks.filter(t => (
@@ -73,7 +78,11 @@ export function TransferCenter() {
 
   const handleCancelAllFailed = () => {
     for (const task of failedTasks) {
-      void window.api.download.cancel(task.taskId)
+      // [Bug Fix] 先请求主进程 cancel（清理其 runtime / cookie / 队列条目），
+      // 再本地删进度条目：提交失败等主进程不认识的任务 cancel 不会回发终态，
+      // 若只等回声，行会永远留在「传输异常」里。本地删除兜底立即消失。
+      void window.api.download.cancel(task.taskId).catch(() => {})
+      removeProgressItem(task.taskId)
     }
   }
 
@@ -359,7 +368,11 @@ export function TransferCenter() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void window.api.download.cancel(task.taskId)}
+                      onClick={() => {
+                        // [Bug Fix] 同 handleCancelAllFailed：cancel + 本地删条目双保险
+                        void window.api.download.cancel(task.taskId).catch(() => {})
+                        removeProgressItem(task.taskId)
+                      }}
                       className="rounded-xl border border-bd bg-surface-1 px-3 py-1 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-all cursor-pointer shadow-2xs active:scale-[0.98]"
                     >
                       移除
