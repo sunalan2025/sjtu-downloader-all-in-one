@@ -22,15 +22,15 @@ import {
   type NetdiskFileItem
 } from '../components/NetdiskCourseExplorer'
 import { Spinner } from '../components/Spinner'
+import { submitDownloadBatch } from '../download/submit'
+import { cnmoocTaskId as makeTid } from '../download/taskIds'
+import { computeBatchStats } from '../download/progress'
 import type {
   CnmoocChapter,
   CnmoocCourse,
   CnmoocSelectedItem,
   DownloadTaskSpec
 } from '@shared/types'
-
-// cnmooc 任务 taskId 模板：`cnmooc_{courseId}_{itemId}`（courseId/itemId 均为字符串）
-const makeTid = (courseId: string, itemId: string): string => `cnmooc_${courseId}_${itemId}`
 
 const EMPTY_CHAPTERS: CnmoocChapter[] = []
 
@@ -160,7 +160,6 @@ export function CnmoocBrowser() {
     toggleSelectMany,
     setResourceFilter,
     setDownloading,
-    setCloudLinkedIds,
     resetCnmoocScanResults,
     courseViewMode,
     setCourseViewMode,
@@ -181,7 +180,6 @@ export function CnmoocBrowser() {
       toggleSelectMany: s.toggleSelectMany,
       setResourceFilter: s.setCnmoocResourceFilter,
       setDownloading: s.setDownloading,
-      setCloudLinkedIds: s.setCloudLinkedIds,
       resetCnmoocScanResults: s.resetCnmoocScanResults,
       courseViewMode: s.courseViewMode,
       setCourseViewMode: s.setCourseViewMode,
@@ -221,7 +219,6 @@ export function CnmoocBrowser() {
   )
   const isBothMode = downloadMode === 'both'
   const stats = useDownloadStats(selectedTaskIds, isBothMode)
-  const applyProgress = useAppStore(s => s.applyProgress)
 
   // ─── 扫描：课程列表 + 并行拉取每门课章节（仅 HTML，不预探直链） ───
   const scanStartedRef = useRef(false)
@@ -312,7 +309,6 @@ export function CnmoocBrowser() {
             spec.fileName = spec.fileName.replace(/\.mp4$/, '.m4a')
             spec.extractAudio = true
           }
-          applyProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, message: '等待解析直链…' })
           specs.push(spec)
         }
       }
@@ -320,34 +316,17 @@ export function CnmoocBrowser() {
     if (specs.length === 0) return
 
     setDownloading(true)
-    useAppStore.getState().addBatchTaskIds(specs.map(s => s.taskId))
-    if (downloadMode === 'both') {
-      const mapping: Record<string, string> = { ...curLinked }
-      for (const spec of specs) mapping[spec.taskId] = spec.taskId + '_cloud'
-      setCloudLinkedIds(mapping)
-    } else {
-      setCloudLinkedIds({})
-    }
 
-    let result: { ok: boolean; error?: string }
-    try {
-      result = await window.api.download.start('', specs, {
-        mode: downloadMode,
-        conflictStrategy: useAppStore.getState().fileConflictStrategy,
-        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined,
-        namingTemplate: useAppStore.getState().namingTemplate
-      })
-    } catch (err) {
-      result = { ok: false, error: err instanceof Error ? err.message : 'IPC 通信失败' }
-    }
+    // [Phase 1] 提交编排收口到领域层 submitDownloadBatch：占位 pending、batchTaskIds、
+    // both 镜像、IPC 启动与失败回滚统一处理。
+    const result = await submitDownloadBatch(specs, {
+      isBothMode: downloadMode === 'both',
+      existingCloudLinkedIds: curLinked
+    })
     if (!result.ok) {
       setDownloading(false)
-      setCloudLinkedIds({})
-      for (const spec of specs) {
-        applyProgress({ taskId: spec.taskId, state: 'error', received: 0, total: 0, message: result.error || '下载启动失败' })
-      }
     }
-  }, [selectedCount, downloading, courses, courseData, selected, resourceFilter, downloadMode, localDestRoot, setDownloading, setCloudLinkedIds, applyProgress])
+  }, [selectedCount, downloading, courses, courseData, selected, resourceFilter, downloadMode, setDownloading])
 
   // 单任务 / 全局 控制
   const onPauseTask = useCallback((id: string) => { window.api.download.pause(id).catch(() => undefined) }, [])
@@ -428,23 +407,14 @@ export function CnmoocBrowser() {
         }
       })
 
-      // 课程级聚合进度
-      let done = 0, downloadingCount = 0, errors = 0, inflight = 0
-      for (const id of ids) {
-        const prog = progressMap[id]
-        const st = prog?.state
-        const cloudId = cloudLinkedIds[id]
-        const cloudProg = cloudId ? progressMap[cloudId] : undefined
-        const cloudSt = cloudProg?.state
-        if (st === 'error' || cloudSt === 'error') errors++
-        const localDone = st === 'done' || st === 'skipped'
-        const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
-        if (localDone && cloudDone) done++
-        else if (st === 'downloading' || st === 'pending' || cloudSt === 'downloading' || cloudSt === 'pending') {
-          downloadingCount++
-          if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          else if (localDone) inflight += 1
-        }
+      // 课程级聚合进度（[Phase 1] 收口到领域层 computeBatchStats，消除三份手抄；
+      //  与 Canvas/Audited 口径一致：无进度条目的任务静默不计）
+      let stats: ReturnType<typeof computeBatchStats> | undefined
+      if (ids.length > 0) {
+        stats = computeBatchStats(ids, progressMap, cloudLinkedIds, true)
+        const started = ids.some(id => progressMap[id] !== undefined
+          || (cloudLinkedIds[id] && progressMap[cloudLinkedIds[id]] !== undefined))
+        if (!started) stats = undefined
       }
 
       return {
@@ -456,8 +426,8 @@ export function CnmoocBrowser() {
         onToggle: () => {
           onToggleMany(ids, triState !== 'all')
         },
-        summary: (done > 0 || downloadingCount > 0 || errors > 0) && ids.length > 0
-          ? { done, downloading: downloadingCount, errors, inflight, total: ids.length }
+        summary: stats && (stats.done > 0 || stats.active > 0 || stats.failed > 0)
+          ? { done: stats.done, downloading: stats.active, errors: stats.failed, inflight: stats.inflight, total: stats.total }
           : undefined
       }
     })

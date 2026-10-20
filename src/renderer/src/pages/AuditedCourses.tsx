@@ -3,6 +3,9 @@ import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/ap
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
 import { useDownloadCompletion } from '../hooks/useSharedBrowserHooks'
+import { submitDownloadBatch } from '../download/submit'
+import { auditedTaskId } from '../download/taskIds'
+import { computeBatchStats } from '../download/progress'
 import type {
   AuditCourseDetail,
   AuditCourseItem,
@@ -64,10 +67,10 @@ export function AuditedCourses() {
   // PERF: batch related primitive selectors with useShallow to reduce selector calls per render
   const {
     setAuth, setStage, scanState, scanMessage, courses, tasksByCourse, selected,
-    downloadMode, localDestRoot,
+    downloadMode,
     cloudLinkedIds, downloading, setScan, setCourses, setTasksForCourse,
     resetScanResults, setSelected, toggleSelect, toggleSelectMany,
-    setCloudLinkedIds, setDownloading, applyProgress,
+    setDownloading,
     courseViewMode, setCourseViewMode,
     videoQualityOption
   } = useAppStore(useShallow(s => ({
@@ -79,7 +82,6 @@ export function AuditedCourses() {
     tasksByCourse: s.tasksByCourse,
     selected: s.selected,
     downloadMode: s.downloadMode,
-    localDestRoot: s.localDestRoot,
     cloudLinkedIds: s.cloudLinkedIds,
     downloading: s.downloading,
     setScan: s.setScan,
@@ -89,9 +91,7 @@ export function AuditedCourses() {
     setSelected: s.setSelected,
     toggleSelect: s.toggleSelect,
     toggleSelectMany: s.toggleSelectMany,
-    setCloudLinkedIds: s.setCloudLinkedIds,
     setDownloading: s.setDownloading,
-    applyProgress: s.applyProgress,
     courseViewMode: s.courseViewMode,
     setCourseViewMode: s.setCourseViewMode,
     videoQualityOption: s.videoQualityOption
@@ -296,13 +296,6 @@ export function AuditedCourses() {
         if (isAudioOnly && t.angle === 3) continue
         const finalFileName = isAudioOnly ? t.fileName.replace(/\.mp4$/, '.m4a') : t.fileName
 
-        applyProgress({
-          taskId: t.taskId,
-          state: 'pending',
-          received: 0,
-          total: 0,
-          message: '等待解析直链…'
-        })
         specs.push({
           taskId: t.taskId,
           url: '',
@@ -317,42 +310,15 @@ export function AuditedCourses() {
 
     if (specs.length === 0) return
     setDownloading(true)
-    // 记入本轮提交集，供 OverallProgressBar 精准统计 total/active
-    useAppStore.getState().addBatchTaskIds(specs.map(s => s.taskId))
 
-    if (downloadMode === 'both') {
-      const mapping: Record<string, string> = { ...cloudLinkedIds }
-      for (const spec of specs) mapping[spec.taskId] = spec.taskId + '_cloud'
-      setCloudLinkedIds(mapping)
-    } else {
-      setCloudLinkedIds({})
-    }
-
-    // BUG FIX: wrap IPC call in try/catch. If the main process throws or IPC fails,
-    // the promise rejection would otherwise be unhandled, leaving downloading=true permanently.
-    let result: { ok: boolean; error?: string }
-    try {
-      result = await window.api.download.start('', specs, {
-        mode: downloadMode,
-        conflictStrategy: useAppStore.getState().fileConflictStrategy,
-        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined,
-        namingTemplate: useAppStore.getState().namingTemplate
-      })
-    } catch (err) {
-      result = { ok: false, error: err instanceof Error ? err.message : 'IPC 通信失败' }
-    }
+    // [Phase 1] 提交编排收口到领域层 submitDownloadBatch：占位 pending、
+    // batchTaskIds、both 镜像、IPC 启动与失败回滚统一处理。
+    const result = await submitDownloadBatch(specs, {
+      isBothMode: downloadMode === 'both',
+      existingCloudLinkedIds: cloudLinkedIds
+    })
     if (!result.ok) {
       setDownloading(false)
-      setCloudLinkedIds({})
-      for (const spec of specs) {
-        applyProgress({
-          taskId: spec.taskId,
-          state: 'error',
-          received: 0,
-          total: 0,
-          message: result.error || '下载启动失败'
-        })
-      }
     }
   }
 
@@ -473,37 +439,19 @@ export function AuditedCourses() {
         }
       ]
 
-      // 统计进度
-      let done = 0, downloadingCount = 0, errors = 0, inflight = 0
-      for (const t of tasks) {
-        const prog = progressMap[t.taskId]
-        const st = prog?.state
-        const cloudId = isBothMode ? cloudLinkedIds[t.taskId] : undefined
-        const cloudSt = cloudId ? progressMap[cloudId]?.state : undefined
-
-        // 未进入下载队列的非活动任务不计入任何进度
-        if (!st && !cloudSt) continue
-
-        const localDone = st === 'done' || st === 'skipped'
-        if (isBothMode) {
-          const cloudDone = cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
-          const isLocalFinal = localDone || st === 'error' || st === 'cancelled'
-          const isCloudFinal = !cloudId || cloudDone || cloudSt === 'error'
-          if (localDone && (cloudDone || !cloudId)) done++
-          else if (st === 'error' || cloudSt === 'error') errors++
-          else if (!isLocalFinal || !isCloudFinal) {
-            downloadingCount++
-            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-            else if (localDone) inflight += 1
-          }
-        } else {
-          if (localDone) done++
-          else if (st === 'error') errors++
-          else if (st === 'downloading' || st === 'pending' || st === 'paused') {
-            downloadingCount++
-            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          }
-        }
+      // 统计进度（[Phase 1] 收口到领域层 computeBatchStats，消除与 Canvas/Cnmooc 的三份手抄）
+      let stats: ReturnType<typeof computeBatchStats> | undefined
+      if (tasks.length > 0) {
+        stats = computeBatchStats(
+          tasks.map(t => t.taskId),
+          progressMap,
+          isBothMode ? cloudLinkedIds : {},
+          isBothMode
+        )
+        // 未进入下载队列的任务不计入任何进度（与原实现语义一致：无进度条目的任务静默）
+        const started = tasks.some(t => progressMap[t.taskId] !== undefined
+          || (isBothMode && cloudLinkedIds[t.taskId] && progressMap[cloudLinkedIds[t.taskId]] !== undefined))
+        if (!started) stats = undefined
       }
 
       return {
@@ -518,8 +466,8 @@ export function AuditedCourses() {
         onToggle: () => {
           onToggleMany(taskIds, triState !== 'all')
         },
-        summary: (done > 0 || downloadingCount > 0 || errors > 0) && tasks.length > 0
-          ? { done, downloading: downloadingCount, errors, inflight, total: tasks.length }
+        summary: stats && (stats.done > 0 || stats.active > 0 || stats.failed > 0)
+          ? { done: stats.done, downloading: stats.active, errors: stats.failed, inflight: stats.inflight, total: stats.total }
           : undefined
       }
     })
@@ -755,7 +703,8 @@ function buildTasksForCourse(course: Course, detail: AuditCourseDetail): VideoTa
       [3, 'PPT']
     ] as const) {
       out.push({
-        taskId: `${course.id}_${e.id}_${angle}`,
+        // [Phase 1] taskId 生成收口到领域层工厂（原字符串拼接的 1/12 处）
+        taskId: auditedTaskId(course.id, e.id, angle),
         courseId: course.id,
         videoId: e.id,
         refId: e.refId,

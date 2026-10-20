@@ -30,6 +30,20 @@ import type {
 } from '@shared/types'
 import { sanitizeFsName } from '@shared/utils'
 import { applyVideoPerspectivePreference } from '../download/perspective'
+import {
+  canvasFileTaskId as fileTaskId,
+  canvasAssignmentTaskId as assignmentTaskId,
+  canvasLectureTaskId as lectureStreamTaskId,
+  canvasPptItemTaskId as pptPdfTaskId,
+  canvasPptPdfBatchTaskId,
+  canvasAssignBatchTaskId,
+  canvasTranscriptBatchTaskId,
+  canvasMvidTaskId,
+  canvasExtToolTaskId as extToolVideoTaskId,
+  canvasExtUrlTaskId as extUrlVideoTaskId,
+  collectCourseIds
+} from '../download/taskIds'
+import { computeBatchStats } from '../download/progress'
 
 export interface CourseData {
   files: CanvasFileItem[]
@@ -40,22 +54,9 @@ export interface CourseData {
 }
 
 // ─── Task ID 生成 ──────────────────────────────────────────────
-
-function fileTaskId(courseId: number, fileId: number): string {
-  return `canvas_file_${courseId}_${fileId}`
-}
-
-function assignmentTaskId(courseId: number, assignmentId: number): string {
-  return `canvas_assignment_${courseId}_${assignmentId}`
-}
-
-function lectureStreamTaskId(courseId: number, lectureNum: number, role: 'teacher' | 'ppt'): string {
-  return `canvas_lecture_${courseId}_${lectureNum}_${role}`
-}
-
-export function pptPdfTaskId(courseId: number, lectureNum: number): string {
-  return `canvas_ppt_item_${courseId}_${lectureNum}`
-}
+// [Phase 1] 全部收口到 download/taskIds.ts 工厂（别名导入），此处不再各自拼接。
+// pptPdfTaskId 保持 re-export 兼容（DownloadUI.test 动态 import 此符号）。
+export { pptPdfTaskId }
 
 /**
  * 构建课程各讲次的 PPT 课件 (PDF) 文件列表项。
@@ -84,20 +85,12 @@ export function buildPptPdfItems(
     }))
 }
 
-// 模块视频 taskId / baseName。sanitize 保证 taskId 稳定、落盘文件名合法。
-// 三类来源的 taskId 前缀对齐 main 端 orchestrator 的产 spec 方案：
+// 模块视频 baseName / iframe taskId。sanitize 保证 taskId 稳定、落盘文件名合法。
+// 三类来源的 taskId 前缀对齐 main 端 orchestrator 的产 spec 方案（工厂见 download/taskIds.ts）：
 //   iframe(HLS) → canvas_mvid_ / extTool(直接MP4) → canvas_exttool_ / extUrl → canvas_exturl_
 
 function iframeVideoTaskId(courseId: number, pageTitle: string): string {
-  return `canvas_mvid_${courseId}_${sanitizeFsName(pageTitle)}`
-}
-
-function extToolVideoTaskId(courseId: number, fileId: string): string {
-  return `canvas_exttool_${courseId}_${fileId}`
-}
-
-function extUrlVideoTaskId(courseId: number, uuid: string): string {
-  return `canvas_exturl_${courseId}_${uuid}`
+  return canvasMvidTaskId(courseId, pageTitle, sanitizeFsName)
 }
 
 function moduleVideoBaseName(courseName: string, title: string): string {
@@ -196,7 +189,7 @@ const VideoRowProgress = memo(function VideoRowProgress({ tid, controllable }: {
 /** PPT 课件 PDF 的课程级聚合进度：current/total 为讲次级（X/Y 讲），
  *  单讲内的图片下载进度折进 message。进度由 canvas:ppt-progress → applyProgress 写入。 */
 const PptPdfProgressRow = memo(function PptPdfProgressRow({ courseId }: { courseId: number }) {
-  const tid = `canvas_ppt_pdf_${courseId}`
+  const tid = canvasPptPdfBatchTaskId(courseId)
   const p = useEffectiveProgress(tid)
   const isSelected = useAppStore(s => !!s.canvasCourseCategorySelections[courseId]?.pptPdf)
   if (!p) {
@@ -241,7 +234,7 @@ const AssignmentProgressRow = memo(function AssignmentProgressRow({
   isLoading: boolean
   onScan: () => void
 }) {
-  const tid = `canvas_assign_batch_${courseId}`
+  const tid = canvasAssignBatchTaskId(courseId)
   const p = useEffectiveProgress(tid)
   const isSelected = useAppStore(s => !!s.canvasCourseCategorySelections[courseId]?.assignments)
 
@@ -306,7 +299,7 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
   onScan: () => void
   onSelectPerspective?: (p: 'all' | 'teacher' | 'ppt' | 'none' | 'audio') => void
 }) {
-  const tid = `canvas_transcript_${courseId}`
+  const tid = canvasTranscriptBatchTaskId(courseId)
   const p = useEffectiveProgress(tid)
 
   if (!hasLectures && !isLoading) {
@@ -1126,11 +1119,8 @@ export function CanvasBrowser() {
     }
 
     // 待处理课程 = selected 解析出的 courseId ∪ 任一分类意图为 true 的 courseId
-    const coursesToProcess = new Set<number>()
-    for (const id of selected) {
-      const m = id.match(/^canvas_(?:file|lecture|mvid|exttool|exturl|assignment)_(\d+)_/)
-      if (m) coursesToProcess.add(Number(m[1]))
-    }
+    // [Phase 1] 正则反解收口到领域层 collectCourseIds（parseTaskId 唯一解析入口）
+    const coursesToProcess = collectCourseIds(selected)
     for (const id of Object.keys(st.canvasCourseCategorySelections)) {
       const sel = st.canvasCourseCategorySelections[Number(id)]
       if (sel && (sel.files || sel.teacher || sel.ppt || sel.moduleVideo || sel.pptPdf || sel.assignments)) coursesToProcess.add(Number(id))
@@ -1289,7 +1279,7 @@ export function CanvasBrowser() {
             const exportSrt = useAppStore.getState().canvasExportSrt
             const exportMarkdown = useAppStore.getState().canvasExportMarkdown
             if ((exportSrt || exportMarkdown) && needsLocal) {
-              const transcriptTaskId = `canvas_transcript_${courseId}`
+              const transcriptTaskId = canvasTranscriptBatchTaskId(courseId)
               useAppStore.getState().addBatchTaskIds([transcriptTaskId])
               snap.applyProgress({
                 taskId: transcriptTaskId,
@@ -1375,7 +1365,7 @@ export function CanvasBrowser() {
         if (pdfLectures?.length && pdfLti) {
           const validLectures = pdfLectures.filter(l => l.teacher)
           if (validLectures.length > 0) {
-            const pptTaskId = `canvas_ppt_pdf_${courseId}`
+            const pptTaskId = canvasPptPdfBatchTaskId(courseId)
             // local/both 用用户目录；cloud-only 传空串，主进程走系统临时目录兜底
             const pptDestRoot = needsLocal ? st.localDestRoot : ''
             const needsCloudPpt = st.downloadMode === 'cloud' || st.downloadMode === 'both'
@@ -1449,7 +1439,7 @@ export function CanvasBrowser() {
             ? cd.assignments
             : cd.assignments.filter(a => selected.has(assignmentTaskId(courseId, a.id)))
           if (selAssignments.length > 0) {
-            const assignTaskId = `canvas_assign_batch_${courseId}`
+            const assignTaskId = canvasAssignBatchTaskId(courseId)
             useAppStore.getState().addBatchTaskIds([assignTaskId])
             snap.applyProgress({ taskId: assignTaskId, state: 'pending', received: 0, total: selAssignments.length, message: `正在归档作业 (${selAssignments.length} 项)…` })
             const assignmentOptions = useAppStore.getState().canvasAssignmentOptions
@@ -1862,40 +1852,17 @@ export function CanvasBrowser() {
         }
       }
 
-      // 进度统计
+      // 进度统计（[Phase 1] 收口到领域层 computeBatchStats，消除三页手抄；
+      //  progressIds 含聚合任务（PPT/作业/逐字稿），无进度条目的任务静默不计）
       const committedTaskIds = canvasCourseTaskIds[c.courseId] ?? EMPTY_TASK_IDS
       const progressIds = tIds.all.length > 0 ? tIds.all : committedTaskIds
-      let done = 0, dl = 0, err = 0, inflight = 0
       const isBoth = downloadMode === 'both'
-      for (const id of progressIds) {
-        const prog = progressMap[id]
-        const st = prog?.state
-        const cloudId = isBoth ? cloudLinkedIds[id] : undefined
-        const cloudSt = cloudId ? progressMap[cloudId]?.state : undefined
-
-        // 未进入下载队列的非活动任务不计入任何进度
-        if (!st && !cloudSt) continue
-
-        const localDone = st === 'done' || st === 'skipped'
-        if (isBoth) {
-          const cloudDone = cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
-          const isLocalFinal = localDone || st === 'error' || st === 'cancelled'
-          const isCloudFinal = !cloudId || cloudDone || cloudSt === 'error'
-          if (localDone && (cloudDone || !cloudId)) done++
-          else if (st === 'error' || cloudSt === 'error') err++
-          else if (!isLocalFinal || !isCloudFinal) {
-            dl++
-            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-            else if (localDone) inflight += 1
-          }
-        } else {
-          if (localDone) done++
-          else if (st === 'error') err++
-          else if (st === 'downloading' || st === 'pending' || st === 'paused') {
-            dl++
-            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          }
-        }
+      let courseStats: ReturnType<typeof computeBatchStats> | undefined
+      if (progressIds.length > 0) {
+        courseStats = computeBatchStats(progressIds, progressMap, isBoth ? cloudLinkedIds : {}, isBoth)
+        const started = progressIds.some(id => progressMap[id] !== undefined
+          || (isBoth && cloudLinkedIds[id] && progressMap[cloudLinkedIds[id]] !== undefined))
+        if (!started) courseStats = undefined
       }
 
       // 课程作业与提交项
@@ -2035,8 +2002,8 @@ export function CanvasBrowser() {
           if (!canvasLectures[c.courseId] && !scannedVideoCourseIdsRef.current.has(c.courseId)) void doClassVideoScan(c.courseId)
         },
         isLoading: scanningCourseIds[c.courseId] || scanningVideoCourseIds[c.courseId],
-        summary: (done > 0 || dl > 0 || err > 0) && progressIds.length > 0
-          ? { done, downloading: dl, errors: err, inflight, total: progressIds.length }
+        summary: courseStats && (courseStats.done > 0 || courseStats.active > 0 || courseStats.failed > 0)
+          ? { done: courseStats.done, downloading: courseStats.active, errors: courseStats.failed, inflight: courseStats.inflight, total: courseStats.total }
           : undefined,
         perspective: catSel?.teacher && !catSel?.ppt ? 'teacher' : (!catSel?.teacher && catSel?.ppt ? 'ppt' : 'all'),
         onPerspectiveChange: p => handleVideoPerspective(c.courseId, p),
