@@ -44,6 +44,7 @@ import {
   collectCourseIds
 } from '../download/taskIds'
 import { computeBatchStats } from '../download/progress'
+import { submitDownloadBatch } from '../download/submit'
 
 export interface CourseData {
   files: CanvasFileItem[]
@@ -967,17 +968,10 @@ export function CanvasBrowser() {
       const specs = r?.specs ?? []
       if (specs.length > 0) {
         specs[0].taskId = tid
-        const downloadOpts = {
-          mode: st.downloadMode,
-          conflictStrategy: st.fileConflictStrategy,
-          localDestRoot: needsLocal ? localDestRoot : undefined,
-          namingTemplate: st.namingTemplate,
-          cloudDestRoot: st.cloudDestRoot
-        }
-        if (st.downloadMode === 'both') {
-          st.setCloudLinkedIds(prev => ({ ...prev, [tid]: tid + '_cloud' }))
-        }
-        await window.api?.download?.start(localDestRoot, specs, downloadOpts)
+        await submitDownloadBatch(specs, {
+          isBothMode: st.downloadMode === 'both',
+          existingCloudLinkedIds: st.cloudLinkedIds
+        })
       }
     } catch (err) {
       st.applyProgress({
@@ -1046,17 +1040,10 @@ export function CanvasBrowser() {
       const specs = r?.specs ?? []
       if (specs.length > 0) {
         specs[0].taskId = tid
-        const downloadOpts = {
-          mode: st.downloadMode,
-          conflictStrategy: st.fileConflictStrategy,
-          localDestRoot: needsLocal ? localDestRoot : undefined,
-          namingTemplate: st.namingTemplate,
-          cloudDestRoot: st.cloudDestRoot
-        }
-        if (st.downloadMode === 'both') {
-          st.setCloudLinkedIds(prev => ({ ...prev, [tid]: tid + '_cloud' }))
-        }
-        await window.api?.download?.start(localDestRoot, specs, downloadOpts)
+        await submitDownloadBatch(specs, {
+          isBothMode: st.downloadMode === 'both',
+          existingCloudLinkedIds: st.cloudLinkedIds
+        })
       }
     } catch (err) {
       st.applyProgress({

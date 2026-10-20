@@ -96,7 +96,7 @@ export function scheduleNext(): void {
       console.error('[runTask] unhandled rejection:', sanitizeForLog(err instanceof Error ? err.message : err))
       t.state = 'error'
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: t.received, total: t.total, message: '内部错误' })
-      scheduleCleanupTask(t.spec.taskId, false)
+      destroyLocalHandles(t, 'internal error')
     }).finally(() => {
       active.delete(spec.taskId)
       t.req = undefined
@@ -299,6 +299,7 @@ async function runTask(t: TaskRuntime): Promise<void> {
       /* ignore */
     }
     t.state = 'error'
+    destroyLocalHandles(t, 'download error')
     const msg = extractErrorMessage(err, '下载失败')
     emitProgress({
       taskId: t.spec.taskId,
@@ -307,7 +308,6 @@ async function runTask(t: TaskRuntime): Promise<void> {
       total: t.total,
       message: msg.slice(0, 240)
     })
-    scheduleCleanupTask(t.spec.taskId, false)
   }
 }
 
@@ -625,6 +625,7 @@ function cancelTaskCore(id: string): void {
       try { unlinkSync(t.partPath) } catch { /* ignore */ }
     }
     tasks.delete(id)
+    scheduleCleanupTask(id, false)
     return
   }
   // pending 或 paused 队列里 → 移除
@@ -634,6 +635,7 @@ function cancelTaskCore(id: string): void {
     emitProgress({ taskId: id, state: 'cancelled', received: 0, total: 0, message: '已取消' })
     pendingLocalIds.delete(id)
     pausedLocalIds.delete(id)
+    scheduleCleanupTask(id, false)
   }
 }
 

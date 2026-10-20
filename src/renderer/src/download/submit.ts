@@ -64,13 +64,11 @@ export async function submitDownloadBatch(
     }
   }
 
-  // both 模式建立镜像映射
+  // both 模式建立镜像映射（增量合并现有镜像；非 both 时保留既有映射，防冲掉后台已在传任务）
   if (opts.isBothMode) {
-    const pairs: Record<string, string> = { ...(opts.existingCloudLinkedIds ?? {}) }
+    const pairs: Record<string, string> = { ...(opts.existingCloudLinkedIds ?? store.cloudLinkedIds) }
     for (const spec of specs) pairs[spec.taskId] = spec.taskId + '_cloud'
     store.setCloudLinkedIds(pairs)
-  } else {
-    store.setCloudLinkedIds({})
   }
 
   // IPC 提交；异常/失败回滚
@@ -82,11 +80,15 @@ export async function submitDownloadBatch(
   }
 
   if (!result.ok) {
-    // 回滚：清掉刚建立的镜像 + 每任务标 error（渲染端可见失败原因）
-    if (opts.isBothMode && opts.existingCloudLinkedIds) {
-      store.setCloudLinkedIds(opts.existingCloudLinkedIds)
-    } else {
-      store.setCloudLinkedIds({})
+    // 回滚：仅清掉本批次刚建立的镜像 + 每任务标 error（渲染端可见失败原因）
+    if (opts.isBothMode) {
+      if (opts.existingCloudLinkedIds) {
+        store.setCloudLinkedIds(opts.existingCloudLinkedIds)
+      } else {
+        const next = { ...store.cloudLinkedIds }
+        for (const spec of specs) delete next[spec.taskId]
+        store.setCloudLinkedIds(next)
+      }
     }
     for (const spec of specs) {
       store.applyProgress({

@@ -92,7 +92,7 @@ export function cloudScheduleNext(): void {
       console.error('[cloudRunTask] unhandled rejection:', sanitizeForLog(err instanceof Error ? err.message : err))
       t.state = 'error'
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: t.received, total: t.total, message: '内部错误' })
-      scheduleCleanupTask(t.spec.taskId, true)
+      destroyCloudHandles(t, 'internal error')
     }).finally(() => {
       cloudActive.delete(spec.taskId)
       t.req = undefined
@@ -240,7 +240,6 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
         ? `重试 ${CLOUD_MAX_FULL_RETRIES} 次仍失败：${msg.slice(0, 180)}`
         : msg.slice(0, 240)
     })
-    scheduleCleanupTask(t.spec.taskId, true)
   }
 }
 
@@ -619,6 +618,7 @@ function cloudCancelTaskCore(id: string): void {
     cloudPausedStates.delete(id)
     // [B1 Fix] 清掉全量重试计数，否则同 taskId 重新下载时 cloudRunTask 取到陈旧值，过早触发「重试耗尽」永久失败
     cloudFullRetries.delete(id)
+    scheduleCleanupTask(id, true)
     return
   }
   if (removeFromSpecArray(pendingCloud, id) || removeFromSpecArray(pausedCloud, id)) {
@@ -628,6 +628,7 @@ function cloudCancelTaskCore(id: string): void {
     cloudFullRetries.delete(id)
     pendingCloudIds.delete(id)
     pausedCloudIds.delete(id)
+    scheduleCleanupTask(id, true)
   }
 }
 

@@ -850,7 +850,20 @@ export const useAppStore = create<AppState>()(
         }),
       removeDownloadHistoryItem: taskId =>
         set(state => ({ downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId) })),
-      clearDownloadHistory: () => set({ downloadHistory: [] }),
+      clearDownloadHistory: () => {
+        set(state => {
+          const nextProg = { ...state.progress }
+          for (const [tid, p] of Object.entries(nextProg)) {
+            if (p.state === 'done' || p.state === 'skipped' || p.state === 'cancelled') {
+              delete nextProg[tid]
+            }
+          }
+          return { downloadHistory: [], progress: nextProg }
+        })
+        if (typeof window !== 'undefined' && window.api?.download?.clearFinishedSnapshots) {
+          void window.api.download.clearFinishedSnapshots().catch(() => {})
+        }
+      },
       setConcurrency: n => {
         const val = n === 0 ? 0 : clampConcurrency(n)
         set({ concurrency: val })

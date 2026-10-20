@@ -165,6 +165,9 @@ const api = {
     /** 获取主进程最新下载进度快照（渲染端重载或初始化时拉取） */
     getSnapshot: (): Promise<DownloadProgress[]> =>
       ipcRenderer.invoke('download:get-snapshot'),
+    /** 清除主进程中已完成或已取消的历史快照 */
+    clearFinishedSnapshots: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('download:clear-finished-snapshots'),
     /** 订阅下载进度变化事件，返回取消订阅函数 */
     onProgress: (cb: (p: DownloadProgress) => void) => subscribe<DownloadProgress>('download:progress', cb),
     /** 订阅实时传输速度事件（下行/上行 bytes/s，1s 推送），返回取消订阅函数 */

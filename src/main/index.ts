@@ -140,7 +140,7 @@ import {
   cloudCancelAll,
   cloudResumeAll
 } from './download-engine/cloud'
-import { registerTaskMeta, getDownloadSnapshot } from './download-engine/progress'
+import { registerTaskMeta, getDownloadSnapshot, clearFinishedSnapshots } from './download-engine/progress'
 import { globalSpeedLimiter, formatPathFromTemplate, isSafeExternalUrl } from '../shared/utils'
 
 
@@ -807,6 +807,10 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('download:get-snapshot', () => {
     return getDownloadSnapshot()
+  })
+  ipcMain.handle('download:clear-finished-snapshots', () => {
+    clearFinishedSnapshots()
+    return { ok: true }
   })
   ipcMain.handle('download:pause-all', () => {
     pauseAll(); cloudPauseAll()
