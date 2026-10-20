@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useAppStore } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { prefetchCloudConnection } from '../services/prefetch'
-import { restoreDownloadSnapshot } from '../download/progress'
+import { restoreDownloadSnapshot, computeBatchStats, isRestoredBatchActive, clearRestoredBatchActive } from '../download/progress'
 
 // ─── 云盘连接状态类型 ──────────────────────────────────────────
 
@@ -139,4 +139,52 @@ export function useDownloadCompletion(
       }
     }
   }, [downloading, selectedTaskIds, activeCount, setDownloading, skipWhenEmpty, doneCount, failedCount])
+}
+
+// ─── useGlobalDownloadCompletion ───────────────────────────────
+
+/**
+ * [Bug Fix / 重载语义] 页面重载（Ctrl+R）后恢复的下载批次收尾器。
+ *
+ * 重载后页面级 useDownloadCompletion 因 selected 为空（扫描/勾选态不持久化）+
+ * skipWhenEmpty 不会把 downloading 收回 false——进度环会永远显示"下载进行中"。
+ * 本 hook 挂在 App 级（页面之外），只接管「快照恢复的批次」：
+ * restoreDownloadSnapshot 置位 restoredBatchActive 标志，此处订阅 progress 变化、
+ * 基于 batchTaskIds 统计 active，归零即收尾 + 通知 + 清标志。
+ * 正常批次（页面 onDownload 发起）不置标志，仍由页面 hook 负责，避免双重通知。
+ */
+export function useGlobalDownloadCompletion(): void {
+  const downloading = useAppStore(s => s.downloading)
+  const batchTaskIds = useAppStore(s => s.batchTaskIds)
+  const setDownloading = useAppStore(s => s.setDownloading)
+
+  // progress 变化驱动重查（订阅整个 map 的引用变化——applyProgress 批处理已合并，
+  // 每 flush 一次仅一次重渲染）
+  const progress = useAppStore(s => s.progress)
+
+  useEffect(() => {
+    if (!downloading || !isRestoredBatchActive()) return
+    const store = useAppStore.getState()
+    const ids = store.batchTaskIds
+    if (ids.length === 0) {
+      // 无批次集（如全部已被移除）→ 直接收尾
+      clearRestoredBatchActive()
+      setDownloading(false)
+      return
+    }
+    const stats = computeBatchStats(
+      ids,
+      store.progress,
+      store.cloudLinkedIds,
+      store.downloadMode === 'both'
+    )
+    if (stats.active > 0) return
+    clearRestoredBatchActive()
+    setDownloading(false)
+    const done = stats.done
+    const failed = stats.failed
+    if (done === 0 && failed === 0) return  // 全取消不打扰
+    const body = failed > 0 ? `成功 ${done} 项，失败 ${failed} 项` : `全部 ${done} 项完成`
+    window.api.notify('下载完成', body).catch(() => undefined)
+  }, [downloading, batchTaskIds, progress, setDownloading])
 }

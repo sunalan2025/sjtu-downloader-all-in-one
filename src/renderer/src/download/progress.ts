@@ -278,6 +278,30 @@ export function restoreDownloadSnapshot(snapshot: DownloadProgress[]): {
   }
   if (activeIds.length > 0) {
     store.addBatchTaskIds(activeIds)
+    // [Bug Fix] 重载时主进程仍在传 → 恢复 downloading 标志。否则岛的进度环消失
+    // （NetdiskCourseExplorer 的 batchProgress selector 以 s.downloading 为门槛）、
+    // Enter 提交守卫失效、完成通知也不会弹出。收尾由 useGlobalDownloadCompletion
+    // 接管（页面级 hook 在重载后因 selected 为空 + skipWhenEmpty 不会收尾）。
+    if (!store.downloading) store.setDownloading(true)
+    restoredBatchActive = true
   }
   return { activeIds, cloudLinks }
+}
+
+// ─── 重载恢复批次的全局收尾标志 ────────────────────────────────
+//
+// 重载后页面级 useDownloadCompletion 因 selected 为空（扫描态不持久化）+ skipWhenEmpty
+// 不会把 downloading 收回 false。useGlobalDownloadCompletion（App 级）接管收尾：
+// 仅当本标志为 true（即 downloading 来自快照恢复而非页面 onDownload）时才动作，
+// 避免与页面 hook 双重通知。恢复批次收尾或被取消时置回 false。
+let restoredBatchActive = false
+
+/** 快照恢复置 downloading=true 时置位（内部使用） */
+export function isRestoredBatchActive(): boolean {
+  return restoredBatchActive
+}
+
+/** 恢复批次收尾/被取消时复位 */
+export function clearRestoredBatchActive(): void {
+  restoredBatchActive = false
 }

@@ -8,7 +8,9 @@ vi.mock('../../src/main/window', () => ({
 import {
   aggregateTaskState,
   pruneSettledLinks,
-  restoreDownloadSnapshot
+  restoreDownloadSnapshot,
+  isRestoredBatchActive,
+  clearRestoredBatchActive
 } from '../../src/renderer/src/download/progress'
 import { submitDownloadBatch } from '../../src/renderer/src/download/submit'
 import { useAppStore } from '../../src/renderer/src/store/app'
@@ -123,6 +125,35 @@ describe('Fix 1 — cloudLinkedIds lifecycle (pruneSettledLinks + mode guards)',
     const links = useAppStore.getState().cloudLinkedIds
     expect(links['settled_task']).toBeUndefined() // 终态映射被剪
     expect(useAppStore.getState().batchTaskIds).toContain('still_running')
+  })
+
+  it('restores downloading=true for an in-flight batch and exposes the restored-batch flag', async () => {
+    clearRestoredBatchActive()
+    useAppStore.setState({ downloading: false, progress: {}, batchTaskIds: [] })
+
+    restoreDownloadSnapshot([
+      prog('live_local', 'downloading', { received: 50, total: 100 }),
+      prog('live_local_cloud', 'downloading', { received: 20, total: 100 })
+    ])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // 岛进度环门槛（s.downloading）被恢复
+    expect(useAppStore.getState().downloading).toBe(true)
+    // 全局收尾器标志置位（页面级 hook 在重载后不会收尾）
+    expect(isRestoredBatchActive()).toBe(true)
+  })
+
+  it('does not flag a restored batch when snapshot has no active tasks', async () => {
+    clearRestoredBatchActive()
+    useAppStore.setState({ downloading: false, progress: {}, batchTaskIds: [] })
+
+    restoreDownloadSnapshot([prog('finished', 'done', { filePath: 'D:/a.pdf' })])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(useAppStore.getState().downloading).toBe(false)
+    expect(isRestoredBatchActive()).toBe(false)
   })
 })
 

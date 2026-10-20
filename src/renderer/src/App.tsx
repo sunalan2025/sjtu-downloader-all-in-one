@@ -13,7 +13,7 @@ import { TransferCenter } from './pages/TransferCenter'
 import { Settings } from './pages/Settings'
 import { CloudPanExplorer } from './pages/CloudPanExplorer'
 import { ScheduleBrowser } from './pages/ScheduleBrowser'
-import { useDownloadProgressSubscription } from './hooks/useSharedBrowserHooks'
+import { useDownloadProgressSubscription, useGlobalDownloadCompletion } from './hooks/useSharedBrowserHooks'
 import { prefetchCanvasCourses, prefetchCnmoocCourses, prefetchCloudConnection } from './services/prefetch'
 import type { ActiveTab } from '@shared/types'
 
@@ -58,6 +58,8 @@ export default function App() {
 
   // Subscribe to download progress once at App level
   useDownloadProgressSubscription()
+  // [Bug Fix / 重载语义] 接管快照恢复批次的收尾（页面级 hook 在重载后不会收尾）
+  useGlobalDownloadCompletion()
 
   const handleLogout = useCallback(async () => {
     try {
