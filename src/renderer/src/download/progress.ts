@@ -215,3 +215,37 @@ export function useBatchStats(
     useShallow(s => computeBatchStats(taskIds, s.progress, s.cloudLinkedIds, isBoth))
   )
 }
+
+/**
+ * 将主进程全量任务快照还原到渲染端 store。
+ * 供应用启动 / 页面重载 (Ctrl+R) / 订阅初始化时调用。
+ * 返回本次恢复的 activeIds 与 cloudLinks。
+ */
+export function restoreDownloadSnapshot(snapshot: DownloadProgress[]): {
+  activeIds: string[]
+  cloudLinks: Record<string, string>
+} {
+  if (!Array.isArray(snapshot) || snapshot.length === 0) {
+    return { activeIds: [], cloudLinks: {} }
+  }
+  const store = useAppStore.getState()
+  const activeIds: string[] = []
+  const cloudLinks: Record<string, string> = { ...store.cloudLinkedIds }
+
+  for (const p of snapshot) {
+    store.applyProgress(p)
+    if (p.taskId.endsWith('_cloud')) {
+      const baseId = p.taskId.slice(0, -'_cloud'.length)
+      cloudLinks[baseId] = p.taskId
+    } else if (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') {
+      activeIds.push(p.taskId)
+    }
+  }
+  if (Object.keys(cloudLinks).length > 0) {
+    store.setCloudLinkedIds(cloudLinks)
+  }
+  if (activeIds.length > 0) {
+    store.addBatchTaskIds(activeIds)
+  }
+  return { activeIds, cloudLinks }
+}

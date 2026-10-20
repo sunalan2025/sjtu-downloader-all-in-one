@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useAppStore } from '../store/app'
 import { useShallow } from 'zustand/shallow'
 import { prefetchCloudConnection } from '../services/prefetch'
+import { restoreDownloadSnapshot } from '../download/progress'
 
 // ─── 云盘连接状态类型 ──────────────────────────────────────────
 
@@ -75,26 +76,7 @@ export function useDownloadProgressSubscription(): void {
       window.api.download
         .getSnapshot()
         .then(snapshot => {
-          if (!Array.isArray(snapshot) || snapshot.length === 0) return
-          const store = useAppStore.getState()
-          const activeIds: string[] = []
-          const cloudLinks: Record<string, string> = { ...store.cloudLinkedIds }
-
-          for (const p of snapshot) {
-            store.applyProgress(p)
-            if (p.taskId.endsWith('_cloud')) {
-              const baseId = p.taskId.slice(0, -'_cloud'.length)
-              cloudLinks[baseId] = p.taskId
-            } else if (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') {
-              activeIds.push(p.taskId)
-            }
-          }
-          if (Object.keys(cloudLinks).length > 0) {
-            store.setCloudLinkedIds(cloudLinks)
-          }
-          if (activeIds.length > 0) {
-            store.addBatchTaskIds(activeIds)
-          }
+          restoreDownloadSnapshot(snapshot)
         })
         .catch(err => {
           console.warn('[snapshot] 拉取主进程下载快照失败:', err)

@@ -212,7 +212,13 @@ async function runTask(t: TaskRuntime): Promise<void> {
           noteNetworkError()
           console.warn(`[download] ${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES})`)
           emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: t.received, total: t.total, message: `${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES})` })
-          await new Promise(r => setTimeout(r, delay))
+          await new Promise<void>(resolve => {
+            const timer = setTimeout(() => {
+              t.retryTimers.delete(timer)
+              resolve()
+            }, delay)
+            t.retryTimers.add(timer)
+          })
           if (t.state !== 'downloading') throw retryErr // 等待期间被 pause/cancel
           continue
         }

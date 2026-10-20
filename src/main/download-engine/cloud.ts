@@ -165,7 +165,7 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
   })
 
   try {
-    await cloudDownloadAndUpload(t, resumeFromByte)
+    await cloudDownloadAndUpload(t)
     if ((t.state as DownloadState) === 'cancelled') return
     t.state = 'done'
     t.uploaderState = undefined
@@ -245,9 +245,8 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
 }
 
 /** 从 CDN 流式下载视频，每积满 4MB 就上传一个 COS 分片。
- *  resumeFromByte > 0 时发送 Range header 断点续传。
  *  uploader 是外层闭包变量，CDN 200 回退时可就地替换，避免旧 handler 引用过期 session。 */
-function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): Promise<void> {
+function cloudDownloadAndUpload(t: CloudTaskRuntime): Promise<void> {
   const userToken = t.spec.cloudUserToken
   if (!userToken) return Promise.reject(new Error('cloudUserToken is required'))
 
