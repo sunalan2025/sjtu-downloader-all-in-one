@@ -574,7 +574,7 @@ function pauseTaskCore(id: string): void {
   // 已 materialize 的活跃/错误任务
   const t = tasks.get(id)
   if (t) {
-    if (t.state !== 'downloading' && t.state !== 'pending' && t.state !== 'error') return
+    if (t.state !== 'downloading' && t.state !== 'pending') return
     const wasActive = active.has(id)
     t.state = 'paused'
     active.delete(id)

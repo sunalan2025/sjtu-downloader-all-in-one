@@ -575,7 +575,7 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
 function cloudPauseTaskCore(id: string): void {
   const t = cloudTasks.get(id)
   if (t) {
-    if (t.state !== 'downloading' && t.state !== 'pending' && t.state !== 'error') return
+    if (t.state !== 'downloading' && t.state !== 'pending') return
     t.state = 'paused'
     cloudActive.delete(id)
     emitProgress({ taskId: id, state: 'paused', received: t.received, total: t.total, message: '已暂停' })

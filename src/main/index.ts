@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, shell } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { request as httpsRequest } from 'node:https'
@@ -140,7 +140,7 @@ import {
   cloudCancelAll,
   cloudResumeAll
 } from './download-engine/cloud'
-import { saveQueueState, loadQueueState } from './download-engine/persistence'
+import { registerTaskMeta, getDownloadSnapshot } from './download-engine/progress'
 import { globalSpeedLimiter, formatPathFromTemplate, isSafeExternalUrl } from '../shared/utils'
 
 
@@ -740,7 +740,8 @@ app.whenReady().then(async () => {
             pendingLocal.push({ spec: { ...spec, cloudUserToken: undefined }, filePath, partPath })
             pendingLocalIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
+            registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
+            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
           }
           scheduleNext()
         }
@@ -770,7 +771,8 @@ app.whenReady().then(async () => {
             pendingCloud.push(spec)
             pendingCloudIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
+            registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
+            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
           }
           cloudScheduleNext()
         }
@@ -784,20 +786,27 @@ app.whenReady().then(async () => {
   )
 
   ipcMain.handle('download:pause', (_e, id: string) => {
-    // 任务可能在本地或云端任一队列（pending/paused/active），两端都尝试，各自对找不到的 id 安全 return
+    // 任务可能在本地或云端任一队列（pending/paused/active），两端都尝试；
+    // both 模式下若传入逻辑主键，顺带控制 _cloud 镜像
     pauseTask(id)
     cloudPauseTask(id)
+    if (!id.endsWith('_cloud')) cloudPauseTask(id + '_cloud')
     return { ok: true }
   })
   ipcMain.handle('download:cancel', (_e, id: string) => {
     cancelTask(id)
     cloudCancelTask(id)
+    if (!id.endsWith('_cloud')) cloudCancelTask(id + '_cloud')
     return { ok: true }
   })
   ipcMain.handle('download:resume', (_e, id: string) => {
     resumeTask(id)
     cloudResumeTask(id)
+    if (!id.endsWith('_cloud')) cloudResumeTask(id + '_cloud')
     return { ok: true }
+  })
+  ipcMain.handle('download:get-snapshot', () => {
+    return getDownloadSnapshot()
   })
   ipcMain.handle('download:pause-all', () => {
     pauseAll(); cloudPauseAll()
@@ -1046,12 +1055,11 @@ app.whenReady().then(async () => {
   createTray()
   startSpeedTicker()
 
-  // 恢复上次退出前未完成的任务队列
-  const { restoredCount } = loadQueueState()
-  if (restoredCount > 0) {
-    scheduleNext()
-    cloudScheduleNext()
-  }
+  // 清理可能遗留的陈旧任务队列文件（避免旧版本残留引起 403 错误）
+  try {
+    const oldQueueFile = join(app.getPath('userData'), 'download_queue.json')
+    if (existsSync(oldQueueFile)) unlinkSync(oldQueueFile)
+  } catch { /* ignore */ }
 
   // 系统深浅主题切换 → 同步窗口/托盘图标 (深色主题用浅色logo, 浅色主题用深色logo)
   nativeTheme.on('updated', applyThemeIcons)
@@ -1069,9 +1077,6 @@ app.whenReady().then(async () => {
  *  同时将任务状态置为 cancelled，确保重试定时器回调时能正确退出。 */
 function cleanupOnQuit(): void {
   setIsQuitting(true)
-
-  // 退出前将待处理与暂停的任务保存到本地用户数据目录
-  saveQueueState()
 
   // 中止自动更新下载并清理临时文件（installing=true 即安装已 spawn 时 no-op，
   // 避免删掉 NSIS 安装器正在使用的临时 .exe）

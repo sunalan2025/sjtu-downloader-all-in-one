@@ -288,6 +288,10 @@ export interface DownloadProgress {
   state: DownloadState
   received: number
   total: number
+  /** 文件名（由 spec 传递，供 UI 稳定展示，避免从临时路径猜文件名） */
+  fileName?: string
+  /** 课程名（供 UI 分类与展示） */
+  courseName?: string
   /** 落盘文件最终绝对路径（done/skipped 时有；仅云端模式下无此字段） */
   filePath?: string
   /** 云盘最终绝对路径（done/skipped 且涉及云盘/both 模式时有） */

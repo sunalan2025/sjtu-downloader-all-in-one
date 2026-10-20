@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useAppStore } from '../store/app'
 import { formatBytes } from '../components/DownloadUI'
 import { formatDate } from '../../../shared/utils'
+import { aggregateTaskState } from '../download/progress'
 import type { TransferSpeed } from '@shared/types'
 
 export function TransferCenter() {
@@ -10,17 +11,45 @@ export function TransferCenter() {
   const clearHistory = useAppStore(s => s.clearDownloadHistory)
   const localDestRoot = useAppStore(s => s.localDestRoot)
   const progress = useAppStore(s => s.progress)
-  
+  const cloudLinkedIds = useAppStore(s => s.cloudLinkedIds)
+
   const [speed, setSpeed] = useState<TransferSpeed>({ down: 0, up: 0 })
-  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active')
+  const [activeTab, setActiveTab] = useState<'active' | 'failed' | 'history'>('active')
 
   useEffect(() => {
     return window.api.download.onTransferSpeed(s => setSpeed(s))
   }, [])
 
+  // 聚合逻辑任务：过滤掉 both 模式下的 _cloud 镜像 ID，合并为单个逻辑卡片
+  const logicalTasks = useMemo(() => {
+    const entries = Object.entries(progress).filter(([id]) => !id.endsWith('_cloud'))
+    return entries.map(([id, local]) => {
+      const cloudId = cloudLinkedIds[id] || `${id}_cloud`
+      const cloud = progress[cloudId]
+      const aggregate = aggregateTaskState(local, cloud)
+      const fileName = local.fileName || cloud?.fileName || local.filePath?.split(/[\\/]/).pop() || id.split('_').pop() || id
+      const courseName = local.courseName || cloud?.courseName
+      return {
+        taskId: id,
+        fileName,
+        courseName,
+        aggregate,
+        isBoth: !!cloud
+      }
+    })
+  }, [progress, cloudLinkedIds])
+
   const activeTasks = useMemo(() => {
-    return Object.values(progress).filter(p => p.state === 'downloading' || p.state === 'pending' || p.state === 'paused')
-  }, [progress])
+    return logicalTasks.filter(t => (
+      t.aggregate.state === 'downloading' ||
+      t.aggregate.state === 'pending' ||
+      t.aggregate.state === 'paused'
+    ))
+  }, [logicalTasks])
+
+  const failedTasks = useMemo(() => {
+    return logicalTasks.filter(t => t.aggregate.state === 'error')
+  }, [logicalTasks])
 
   const handleOpenDownloadFolder = async (): Promise<void> => {
     let target = localDestRoot
@@ -34,6 +63,18 @@ export function TransferCenter() {
 
   const handleShowInFolder = (path: string) => {
     void window.api.showInFolder(path)
+  }
+
+  const handleRetryAllFailed = () => {
+    for (const task of failedTasks) {
+      void window.api.download.resume(task.taskId)
+    }
+  }
+
+  const handleCancelAllFailed = () => {
+    for (const task of failedTasks) {
+      void window.api.download.cancel(task.taskId)
+    }
   }
 
   const renderFileIcon = (filename: string) => {
@@ -51,19 +92,29 @@ export function TransferCenter() {
       <div className="flex shrink-0 items-center justify-between border-b border-bd bg-surface-2 px-6 py-3.5 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 rounded-xl bg-surface-3 px-3 py-1.5 shadow-sm">
-            <span className="text-xs text-text-3">活跃并发</span>
+            <span className="text-xs text-text-3">活跃传输</span>
             <span className="font-mono text-sm font-bold text-accent">{activeTasks.length}</span>
           </div>
 
           <div className="flex items-center gap-2 rounded-xl bg-surface-3 px-3 py-1.5 shadow-sm">
-            <span className="text-xs text-text-3">总下载速度</span>
+            <span className="text-xs text-text-3">下载速度</span>
             <span className="font-mono text-sm font-bold text-text-1">
               {speed.down > 0 ? `${formatBytes(speed.down)}/s` : '0 B/s'}
             </span>
           </div>
 
+          {speed.up > 0 && (
+            <div className="flex items-center gap-2 rounded-xl bg-surface-3 px-3 py-1.5 shadow-sm">
+              <span className="text-xs text-text-3">上传速度</span>
+              <span className="font-mono text-sm font-bold text-sky-600 dark:text-sky-400">
+                {`${formatBytes(speed.up)}/s`}
+              </span>
+            </div>
+          )}
+
           <div className="h-4 w-px bg-bd" />
 
+          {/* 切换 Tab */}
           <div className="flex items-center gap-1 rounded-xl bg-surface-3 p-1 shadow-2xs">
             <button
               type="button"
@@ -74,8 +125,21 @@ export function TransferCenter() {
                   : 'text-text-3 hover:text-text-2'
               }`}
             >
-              正在下载 ({activeTasks.length})
+              正在传输 ({activeTasks.length})
             </button>
+            {failedTasks.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('failed')}
+                className={`rounded-lg px-3.5 py-1 text-xs font-semibold transition-all cursor-pointer ${
+                  activeTab === 'failed'
+                    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 shadow-2xs'
+                    : 'text-rose-500 hover:text-rose-600'
+                }`}
+              >
+                传输异常 ({failedTasks.length})
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setActiveTab('history')}
@@ -90,8 +154,9 @@ export function TransferCenter() {
           </div>
         </div>
 
+        {/* 顶部右侧操作栏 */}
         <div className="flex items-center gap-2">
-          {activeTab === 'active' ? (
+          {activeTab === 'active' && (
             <>
               <button
                 type="button"
@@ -108,7 +173,28 @@ export function TransferCenter() {
                 全部继续
               </button>
             </>
-          ) : (
+          )}
+
+          {activeTab === 'failed' && (
+            <>
+              <button
+                type="button"
+                onClick={handleCancelAllFailed}
+                className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
+              >
+                全部移除
+              </button>
+              <button
+                type="button"
+                onClick={handleRetryAllFailed}
+                className="rounded-xl bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
+              >
+                全部重试
+              </button>
+            </>
+          )}
+
+          {activeTab === 'history' && (
             <>
               <button
                 type="button"
@@ -131,45 +217,73 @@ export function TransferCenter() {
 
       {/* 主体任务列表区 */}
       <div className="flex-1 overflow-y-auto p-6">
+        {/* 正在传输空态 */}
         {activeTab === 'active' && activeTasks.length === 0 && (
           <div className="flex h-64 flex-col items-center justify-center text-sm text-text-3">
             <div className="text-3xl mb-2">📥</div>
-            <span>暂无正在进行的下载任务</span>
+            <span>暂无正在进行的传输任务</span>
             <span className="text-xs text-text-4 mt-1">在课程页面勾选课件或视频后点击「立即下载」即可开始传输</span>
           </div>
         )}
-        
+
+        {/* 正在传输列表 */}
         {activeTab === 'active' && (
           <div className="space-y-3">
             {activeTasks.map(task => {
-              const name = task.filePath?.split(/[\\/]/).pop() || task.taskId.split('_').pop() || task.taskId
-              const pct = task.total > 0 ? Math.min(100, Math.round((task.received / task.total) * 100)) : 0
+              const agg = task.aggregate
+              const pct = agg.total > 0 ? Math.min(100, Math.round((agg.received / agg.total) * 100)) : 0
               return (
                 <div key={task.taskId} className="flex items-center gap-4 rounded-2xl border border-bd bg-surface-2 p-4 shadow-card">
-                  {renderFileIcon(name)}
-                  
+                  {renderFileIcon(task.fileName)}
+
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="truncate text-sm font-semibold text-text-1" title={name}>{name}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate text-sm font-semibold text-text-1" title={task.fileName}>
+                          {task.fileName}
+                        </span>
+                        {task.courseName && (
+                          <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 text-2xs text-text-3">
+                            {task.courseName}
+                          </span>
+                        )}
+                        {task.isBoth && (
+                          <span className="shrink-0 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 px-1.5 py-0.5 text-2xs font-medium">
+                            本地+云盘
+                          </span>
+                        )}
+                        {agg.phase === 'uploading' && (
+                          <span className="shrink-0 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 text-2xs font-medium">
+                            ☁ 上传中
+                          </span>
+                        )}
+                      </div>
                       <span className="ml-3 shrink-0 font-mono text-xs text-text-3">
-                        {formatBytes(task.received)} / {formatBytes(task.total)} ({pct}%)
+                        {formatBytes(agg.received)} / {formatBytes(agg.total)} ({pct}%)
                       </span>
                     </div>
 
                     <div className="h-2 w-full overflow-hidden rounded-full bg-surface-3">
                       <div
-                        className="h-full rounded-full bg-accent transition-all duration-300"
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          agg.phase === 'uploading' ? 'bg-amber-500' : 'bg-accent'
+                        }`}
                         style={{ width: `${pct}%` }}
                       />
                     </div>
 
-                    {task.message && (
-                      <div className="mt-1.5 text-[11px] text-text-3 truncate">{task.message}</div>
-                    )}
+                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-text-3">
+                      <span className="truncate">
+                        {agg.message || (agg.phase === 'uploading' ? '正在上传至交大云盘…' : '正在下载…')}
+                      </span>
+                      {agg.phase === 'uploading' && (
+                        <span className="shrink-0 text-amber-600 dark:text-amber-400">本地已就绪</span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    {task.state === 'paused' ? (
+                    {agg.state === 'paused' ? (
                       <button
                         type="button"
                         onClick={() => void window.api.download.resume(task.taskId)}
@@ -200,6 +314,64 @@ export function TransferCenter() {
           </div>
         )}
 
+        {/* 传输异常列表 */}
+        {activeTab === 'failed' && (
+          <div className="space-y-3">
+            {failedTasks.length === 0 ? (
+              <div className="flex h-64 flex-col items-center justify-center text-sm text-text-3">
+                <div className="text-3xl mb-2">🎉</div>
+                <span>没有传输失败的任务</span>
+              </div>
+            ) : (
+              failedTasks.map(task => (
+                <div key={task.taskId} className="flex items-center gap-4 rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 shadow-card">
+                  {renderFileIcon(task.fileName)}
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate text-sm font-semibold text-text-1" title={task.fileName}>
+                          {task.fileName}
+                        </span>
+                        {task.courseName && (
+                          <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 text-2xs text-text-3">
+                            {task.courseName}
+                          </span>
+                        )}
+                      </div>
+                      <span className="ml-3 shrink-0 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 text-2xs font-semibold">
+                        传输失败
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-rose-600 dark:text-rose-400 truncate">
+                      {task.aggregate.message || '网络连接超时或目标服务异常'}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void window.api.download.resume(task.taskId)}
+                      className="rounded-xl bg-accent px-3 py-1 text-xs font-medium text-white shadow-2xs hover:bg-accent-light transition-all cursor-pointer active:scale-[0.98]"
+                    >
+                      重试
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void window.api.download.cancel(task.taskId)}
+                      className="rounded-xl border border-bd bg-surface-1 px-3 py-1 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-all cursor-pointer shadow-2xs active:scale-[0.98]"
+                    >
+                      移除
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* 已完成历史空态 */}
         {activeTab === 'history' && history.length === 0 && (
           <div className="flex h-64 flex-col items-center justify-center text-sm text-text-3">
             <div className="text-3xl mb-2">📋</div>
@@ -207,6 +379,7 @@ export function TransferCenter() {
           </div>
         )}
 
+        {/* 已完成历史列表 */}
         {activeTab === 'history' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {history.map(item => (
@@ -221,7 +394,7 @@ export function TransferCenter() {
                     <span>{formatDate(item.completedAt)}</span>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-2 shrink-0">
                   {item.filePath && (
                     <button

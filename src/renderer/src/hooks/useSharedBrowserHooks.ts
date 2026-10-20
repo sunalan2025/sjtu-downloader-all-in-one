@@ -64,11 +64,45 @@ export function useCloudConnection(): {
 // ─── useDownloadProgressSubscription ───────────────────────────
 
 /**
- * 订阅主进程的下载进度事件，写入 store。
+ * 订阅主进程的下载进度事件，写入 store；
+ * 并在组件挂载/重载时向主进程拉取全量快照，恢复正在传输与历史状态。
  */
 export function useDownloadProgressSubscription(): void {
   const applyProgress = useAppStore(s => s.applyProgress)
-  useEffect(() => window.api.download.onProgress(p => applyProgress(p)), [applyProgress])
+  useEffect(() => {
+    // 启动/重载时：拉取主进程全量任务快照，根治页面刷新后任务蒸发
+    if (window.api?.download?.getSnapshot) {
+      window.api.download
+        .getSnapshot()
+        .then(snapshot => {
+          if (!Array.isArray(snapshot) || snapshot.length === 0) return
+          const store = useAppStore.getState()
+          const activeIds: string[] = []
+          const cloudLinks: Record<string, string> = { ...store.cloudLinkedIds }
+
+          for (const p of snapshot) {
+            store.applyProgress(p)
+            if (p.taskId.endsWith('_cloud')) {
+              const baseId = p.taskId.slice(0, -'_cloud'.length)
+              cloudLinks[baseId] = p.taskId
+            } else if (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') {
+              activeIds.push(p.taskId)
+            }
+          }
+          if (Object.keys(cloudLinks).length > 0) {
+            store.setCloudLinkedIds(cloudLinks)
+          }
+          if (activeIds.length > 0) {
+            store.addBatchTaskIds(activeIds)
+          }
+        })
+        .catch(err => {
+          console.warn('[snapshot] 拉取主进程下载快照失败:', err)
+        })
+    }
+
+    return window.api.download.onProgress(p => applyProgress(p))
+  }, [applyProgress])
 }
 
 // ─── useDownloadCompletion ─────────────────────────────────────
