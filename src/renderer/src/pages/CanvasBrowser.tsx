@@ -391,14 +391,11 @@ export function CanvasBrowser() {
   // PERF [split]: 3 separate subscriptions to minimize re-render scope
   // Group 1: rarely-changing state (courses, scan results, config)
   const {
-    localDestRoot, cloudUserToken,
     downloadMode, canvasCourses, canvasScanState, canvasScanMessage,
     canvasCourseData,
     canvasLectures, canvasModuleVideos, canvasCourseCategorySelections,
     courseViewMode, canvasGroupByTerm, cloudLinkedIds, videoQualityOption
   } = useAppStore(useShallow(s => ({
-    localDestRoot: s.localDestRoot,
-    cloudUserToken: s.cloudUserToken,
     downloadMode: s.downloadMode,
     canvasCourses: s.canvasCourses,
     canvasScanState: s.canvasScanState,
@@ -1722,18 +1719,6 @@ export function CanvasBrowser() {
   }, [filteredCourseIds, courseStates])
 
 
-  // ── 统计（mode-aware） ──
-  const needsCloud = downloadMode === 'cloud' || downloadMode === 'both'
-  const needsLocal = downloadMode === 'local' || downloadMode === 'both'
-
-  // 任一分类选中或 selected 里有任务 → 该课程可下载
-  const isCourseDownloadable = (id: number): boolean => courseStates(id).course !== 'none'
-  const canStart = (filteredCourseIds.some(isCourseDownloadable) || selected.size > 0)
-    && !downloading
-    && (!needsCloud || !!cloudUserToken)
-    && (!needsLocal || !!localDestRoot)
-  const pendingCourseCount = filteredCourseIds.filter(isCourseDownloadable).length
-
   const canvasCourseTaskIds = useAppStore(s => s.canvasCourseTaskIds)
   const progressMap = useAppStore(s => s.progress)
 
@@ -1891,6 +1876,7 @@ export function CanvasBrowser() {
       const categories: NetdiskCategoryItem[] = [
         {
           id: 'files',
+          chipKey: 'files',
           name: '课件资料',
           icon: 'file',
           state: cStates.files,
@@ -1917,6 +1903,7 @@ export function CanvasBrowser() {
         },
         {
           id: 'assignments',
+          chipKey: 'assignments',
           name: '📝 课程作业与提交',
           icon: 'assignment',
           badge: cd?.assignments?.length ? `${cd.assignments.length}` : undefined,
@@ -1941,6 +1928,7 @@ export function CanvasBrowser() {
         },
         {
           id: 'videos',
+          chipKey: 'videos',
           name: isAudioOnly ? '🎵 课堂原声音频 (M4A)' : '🎬 课堂视频',
           icon: isAudioOnly ? 'audio' : 'video',
           state: (cStates.teacher === 'all' && cStates.ppt === 'all' && cStates.moduleVideo === 'all')
@@ -1974,6 +1962,7 @@ export function CanvasBrowser() {
         },
         {
           id: 'pptPdf',
+          chipKey: 'pptPdf',
           name: '📑 PPT课件 (PDF)',
           icon: 'presentation',
           state: catSel?.pptPdf ? 'all' : 'none',
@@ -2237,17 +2226,6 @@ export function CanvasBrowser() {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => void onDownload()}
-            disabled={!canStart}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-5 text-xs font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:bg-accent-light active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60 cursor-pointer"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
-            </svg>
-            <span>{downloading ? '进行中…' : (selectedStats.totalCount > 0 ? `立即下载 ${selectedStats.totalCount} 项` : `立即下载 (${pendingCourseCount})`)}</span>
-          </button>
         </div>
       </div>
 

@@ -145,19 +145,34 @@ export function classifyCnmoocItem(it: { title: string; itemType: string }, isAu
 }
 
 export function CnmoocBrowser() {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const toggleSelect = useCallback((taskId: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }, [])
+  const toggleSelectMany = useCallback((taskIds: string[], on: boolean) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      for (const id of taskIds) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
   const {
     courses,
     scanState,
     scanMessage,
     courseData,
-    selected,
-    cloudUserToken,
     downloadMode,
-    localDestRoot,
     resourceFilter,
     downloading,
-    toggleSelect,
-    toggleSelectMany,
     setResourceFilter,
     setDownloading,
     resetCnmoocScanResults,
@@ -170,14 +185,9 @@ export function CnmoocBrowser() {
       scanState: s.cnmoocScanState,
       scanMessage: s.cnmoocScanMessage,
       courseData: s.cnmoocCourseData,
-      selected: s.selected,
-      cloudUserToken: s.cloudUserToken,
       downloadMode: s.downloadMode,
-      localDestRoot: s.localDestRoot,
       resourceFilter: s.cnmoocResourceFilter,
       downloading: s.downloading,
-      toggleSelect: s.toggleSelect,
-      toggleSelectMany: s.toggleSelectMany,
       setResourceFilter: s.setCnmoocResourceFilter,
       setDownloading: s.setDownloading,
       resetCnmoocScanResults: s.resetCnmoocScanResults,
@@ -339,13 +349,6 @@ export function CnmoocBrowser() {
     useAppStore.getState().markBatchPendingCancelled()
   }, [])
 
-  const needsCloud = downloadMode === 'cloud' || downloadMode === 'both'
-  const needsLocal = downloadMode === 'local' || downloadMode === 'both'
-  const canStart = selectedCount > 0
-    && !downloading
-    && (!needsCloud || !!cloudUserToken)
-    && (!needsLocal || !!localDestRoot)
-
   const progressMap = useAppStore(s => s.progress)
   const cloudLinkedIds = useAppStore(s => s.cloudLinkedIds)
 
@@ -425,6 +428,23 @@ export function CnmoocBrowser() {
         categories,
         onToggle: () => {
           onToggleMany(ids, triState !== 'all')
+        },
+        onToggleCategory: (catId, on) => {
+          const cd = courseData[c.courseId]
+          if (!cd) return
+          const matchedIds: string[] = []
+          for (const ch of cd.chapters) {
+            for (const it of ch.items) {
+              if (isCnmoocQuizOrExercise(it.title, it.itemType)) continue
+              const meta = classifyCnmoocItem(it, isAudioOnly)
+              if (catId === 'videos' && meta.isVideo) {
+                matchedIds.push(makeTid(c.courseId, it.itemId))
+              } else if (catId === 'files' && !meta.isVideo) {
+                matchedIds.push(makeTid(c.courseId, it.itemId))
+              }
+            }
+          }
+          if (matchedIds.length > 0) onToggleMany(matchedIds, on)
         },
         summary: stats && (stats.done > 0 || stats.active > 0 || stats.failed > 0)
           ? { done: stats.done, downloading: stats.active, errors: stats.failed, inflight: stats.inflight, total: stats.total }
@@ -507,17 +527,6 @@ export function CnmoocBrowser() {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => void onDownload()}
-            disabled={!canStart}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-5 text-xs font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:bg-accent-light active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60 cursor-pointer"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
-            </svg>
-            <span>{downloading ? '进行中…' : `立即下载 (${selectedCount})`}</span>
-          </button>
         </div>
       </div>
 

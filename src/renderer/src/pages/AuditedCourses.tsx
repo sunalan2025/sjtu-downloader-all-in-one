@@ -64,12 +64,32 @@ const AuditedItemProgress = memo(function AuditedItemProgress({
 })
 
 export function AuditedCourses() {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const toggleSelect = useCallback((taskId: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }, [])
+  const toggleSelectMany = useCallback((taskIds: string[], on: boolean) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      for (const id of taskIds) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
   // PERF: batch related primitive selectors with useShallow to reduce selector calls per render
   const {
-    setAuth, setStage, scanState, scanMessage, courses, tasksByCourse, selected,
+    setAuth, setStage, scanState, scanMessage, courses, tasksByCourse,
     downloadMode,
     cloudLinkedIds, downloading, setScan, setCourses, setTasksForCourse,
-    resetScanResults, setSelected, toggleSelect, toggleSelectMany,
+    resetScanResults,
     setDownloading,
     courseViewMode, setCourseViewMode,
     videoQualityOption
@@ -80,7 +100,6 @@ export function AuditedCourses() {
     scanMessage: s.scanMessage,
     courses: s.courses,
     tasksByCourse: s.tasksByCourse,
-    selected: s.selected,
     downloadMode: s.downloadMode,
     cloudLinkedIds: s.cloudLinkedIds,
     downloading: s.downloading,
@@ -88,9 +107,6 @@ export function AuditedCourses() {
     setCourses: s.setCourses,
     setTasksForCourse: s.setTasksForCourse,
     resetScanResults: s.resetScanResults,
-    setSelected: s.setSelected,
-    toggleSelect: s.toggleSelect,
-    toggleSelectMany: s.toggleSelectMany,
     setDownloading: s.setDownloading,
     courseViewMode: s.courseViewMode,
     setCourseViewMode: s.setCourseViewMode,
@@ -412,6 +428,7 @@ export function AuditedCourses() {
       const categories: NetdiskCategoryItem[] = [
         {
           id: 'teacher',
+          chipKey: 'videos',
           name: isAudioOnly ? '🎵 教师原声音频 (M4A)' : '👨‍🏫 教师实录 (MP4)',
           icon: isAudioOnly ? 'audio' : 'video',
           state: triStateFromCount(teacherSelCount, teacherTasks.length),
@@ -424,6 +441,7 @@ export function AuditedCourses() {
         },
         {
           id: 'ppt',
+          chipKey: 'videos',
           name: isAudioOnly ? '📑 课堂PPT实录 (无独立音频)' : '📑 课堂PPT实录 (MP4)',
           icon: 'presentation',
           state: isAudioOnly ? 'none' : triStateFromCount(pptSelCount, pptTasks.length),
@@ -547,17 +565,6 @@ export function AuditedCourses() {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={onDownload}
-            disabled={selectedCount === 0 || downloading}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-5 text-xs font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:bg-accent-light active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60 cursor-pointer"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
-            </svg>
-            <span>{downloading ? '进行中…' : `立即下载 (${selectedCount})`}</span>
-          </button>
         </div>
       </div>
 

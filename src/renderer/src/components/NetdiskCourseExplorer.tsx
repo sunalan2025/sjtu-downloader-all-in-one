@@ -27,7 +27,10 @@ import {
   type CategorySelectionState
 } from './FloatingCommandIsland'
 import { applyVideoPerspectivePreference } from '../download/perspective'
+import { computeBatchStats } from '../download/progress'
 export type { VideoPerspective, CategorySelectionState }
+
+export type IslandChipKey = 'files' | 'videos' | 'assignments' | 'pptPdf'
 
 // ─────────────────────────────────────────────────────────────
 // Netdisk Navigation Interfaces
@@ -59,6 +62,7 @@ export type FileItem = NetdiskFileItem
 export interface NetdiskCategoryItem {
   id: string
   name: string
+  chipKey?: IslandChipKey
   icon?: 'folder' | 'video' | 'file' | 'presentation' | 'audio' | 'assignment' | React.ReactNode
   badge?: string
   state: TriState
@@ -70,6 +74,17 @@ export interface NetdiskCategoryItem {
   renderExtra?: React.ReactNode
   disabled?: boolean
   disabledReason?: string
+}
+
+/** 规范化解析分类所属的动作岛芯片（唯一事实来源，避免模糊嗅探错误分类） */
+export function resolveCategoryChipKey(cat: NetdiskCategoryItem): IslandChipKey {
+  if (cat.chipKey) return cat.chipKey
+  const id = cat.id.toLowerCase()
+  const name = cat.name.toLowerCase()
+  if (id.includes('video') || name.includes('视频') || name.includes('音频') || id === 'teacher' || id === 'ppt') return 'videos'
+  if (id.includes('assign') || name.includes('作业')) return 'assignments'
+  if (id.includes('ppt_pdf') || id.includes('ppt-pdf') || name.includes('讲义') || (id.includes('ppt') && !name.includes('视频') && !name.includes('实录'))) return 'pptPdf'
+  return 'files'
 }
 
 export interface NetdiskCourseItem {
@@ -375,27 +390,20 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     const relevantCourses = isSingleCourse ? [currentCourse!] : courses
     for (const c of relevantCourses) {
       for (const cat of c.categories) {
-        const catId = cat.id.toLowerCase()
-        const isFile = catId.includes('file') || cat.name.includes('课件')
-        const isVideo = catId.includes('video') || cat.name.includes('视频') || cat.name.includes('音频')
-        const isAssign = catId.includes('assign') || cat.name.includes('作业')
-        const isPpt = catId.includes('ppt') || cat.name.includes('ppt') || cat.name.includes('讲义')
+        const chipKey = resolveCategoryChipKey(cat)
 
         for (const item of cat.items) {
           if (item.selected) {
             totalItems++
-            if (isFile) {
+            if (chipKey === 'files') {
               filesCount++
               fileBytes += item.size || 0
-            } else if (isVideo) {
+            } else if (chipKey === 'videos') {
               videoCount++
-            } else if (isAssign) {
+            } else if (chipKey === 'assignments') {
               assignCount++
-            } else if (isPpt) {
+            } else if (chipKey === 'pptPdf') {
               pptCount++
-            } else {
-              filesCount++
-              fileBytes += item.size || 0
             }
           }
         }
@@ -403,10 +411,10 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
         // 未展开/未扫描分类兜底：若勾选了该分类但尚未拉取具体 items，计入 1 项
         if (cat.items.length === 0 && (cat.state === 'all' || cat.state === 'some')) {
           totalItems++
-          if (isFile) filesCount++
-          else if (isVideo) videoCount++
-          else if (isAssign) assignCount++
-          else if (isPpt) pptCount++
+          if (chipKey === 'files') filesCount++
+          else if (chipKey === 'videos') videoCount++
+          else if (chipKey === 'assignments') assignCount++
+          else if (chipKey === 'pptPdf') pptCount++
         }
       }
 
@@ -452,16 +460,12 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
 
     for (const c of targetCourses) {
       for (const cat of c.categories) {
-        const id = cat.id.toLowerCase()
-        const isSel = cat.state !== 'none'
-        if (id.includes('file') || cat.name.includes('课件')) {
-          if (isSel) hasFiles = true
-        } else if (id.includes('video') || cat.name.includes('视频') || cat.name.includes('音频')) {
-          if (isSel) hasVideos = true
-        } else if (id.includes('assign') || cat.name.includes('作业')) {
-          if (isSel) hasAssignments = true
-        } else if (id.includes('ppt') || cat.name.includes('ppt') || cat.name.includes('讲义')) {
-          if (isSel) hasPptPdf = true
+        if (cat.state !== 'none') {
+          const chipKey = resolveCategoryChipKey(cat)
+          if (chipKey === 'files') hasFiles = true
+          else if (chipKey === 'videos') hasVideos = true
+          else if (chipKey === 'assignments') hasAssignments = true
+          else if (chipKey === 'pptPdf') hasPptPdf = true
         }
       }
     }
@@ -477,16 +481,9 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   const handleToggleIslandCategory = useCallback((catKey: 'files' | 'videos' | 'assignments' | 'pptPdf') => {
     const targetCourses = isSingleCourse ? [currentCourse!] : courses
     for (const c of targetCourses) {
-      const cat = c.categories.find(k => {
-        const id = k.id.toLowerCase()
-        if (catKey === 'files') return id.includes('file') || k.name.includes('课件')
-        if (catKey === 'videos') return id.includes('video') || k.name.includes('视频') || k.name.includes('音频')
-        if (catKey === 'assignments') return id.includes('assign') || k.name.includes('作业')
-        if (catKey === 'pptPdf') return id.includes('ppt') || k.name.includes('ppt') || k.name.includes('讲义')
-        return false
-      })
-      if (cat) {
-        cat.onToggle()
+      const matchedCategories = c.categories.filter(k => resolveCategoryChipKey(k) === catKey)
+      if (matchedCategories.length > 0) {
+        for (const cat of matchedCategories) cat.onToggle()
       } else if (c.onToggleCategory) {
         c.onToggleCategory(catKey, true)
       }
@@ -503,51 +500,13 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     }
   }, [isSingleCourse, currentCourse, courses])
 
-  // ── 本轮批量下载进度（供岛的进度环）：从已死的 OverallProgressBar 移植的
-  //    batchTaskIds 统计口径——total = 勾选并入队任务数；both 模式区分
-  //    下载中（本地未终态）/ 上传中（本地 done 但云端未终态）与失败计数。 ──
+  // ── 本轮批量下载进度（供岛的进度环）：复用领域层 computeBatchStats 统一口径 ──
   const storeDownloading = useAppStore(s => s.downloading)
   const batchProgress = useAppStore(
     useShallow(s => {
-      if (!s.downloading) return undefined
+      if (!s.downloading || s.batchTaskIds.length === 0) return undefined
       const isBoth = s.downloadMode === 'both'
-      const ids = s.batchTaskIds
-      if (ids.length === 0) return undefined
-      let done = 0
-      let failed = 0
-      let downloading = 0
-      let uploading = 0
-      let inflight = 0
-      for (const id of ids) {
-        const prog = s.progress[id]
-        const st = prog?.state
-        if (isBoth) {
-          const cloudId = s.cloudLinkedIds[id]
-          const cloudSt = cloudId ? s.progress[cloudId]?.state : undefined
-          const localDone = st === 'done' || st === 'skipped'
-          const cloudDone = !cloudId || cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
-          const localFinal = localDone || st === 'error' || st === 'cancelled'
-          const cloudFinal = !cloudId || cloudDone || cloudSt === 'error'
-          if (st === 'error' || cloudSt === 'error') failed++
-          else if (localDone && cloudDone) done++
-          else if (!localFinal) {
-            downloading++
-            if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          } else if (localDone && !cloudFinal) {
-            uploading++
-            inflight += 1
-          }
-          // 本地 cancelled（cloud 非 error）→ 静默不计
-        } else {
-          if (st === 'done' || st === 'skipped') done++
-          else if (st === 'error') failed++
-          else if (st !== 'cancelled') {
-            downloading++
-            if (st === 'downloading' && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          }
-        }
-      }
-      return { done, failed, downloading, uploading, total: ids.length, inflight }
+      return computeBatchStats(s.batchTaskIds, s.progress, s.cloudLinkedIds, isBoth)
     })
   )
 

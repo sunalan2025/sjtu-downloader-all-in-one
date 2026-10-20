@@ -776,23 +776,40 @@ export const useAppStore = create<AppState>()(
               for (const [tid, prog] of batch) {
                 next[tid] = prog
                 if (prog.state === 'done' && (prog.filePath || prog.cloudPath)) {
-                  const alreadyExists = nextHistory.some(h => {
+                  const baseId = tid.replace(/_cloud$/, '')
+                  const existingIndex = nextHistory.findIndex(h => {
+                    const hBaseId = h.taskId.replace(/_cloud$/, '')
+                    if (hBaseId === baseId) return true
                     const localMatch = !!(prog.filePath && h.filePath === prog.filePath)
                     const cloudMatch = !!(prog.cloudPath && h.cloudPath === prog.cloudPath)
                     return localMatch || cloudMatch
                   })
-                  if (!alreadyExists) {
+                  if (existingIndex >= 0) {
+                    // 已有记录（both 模式另一侧先完成）：补全路径与元数据，不重复增行
+                    if (!historyUpdated) {
+                      nextHistory = [...nextHistory]
+                      historyUpdated = true
+                    }
+                    const existing = nextHistory[existingIndex]
+                    nextHistory[existingIndex] = {
+                      ...existing,
+                      filePath: prog.filePath || existing.filePath,
+                      cloudPath: prog.cloudPath || existing.cloudPath,
+                      fileName: prog.fileName || existing.fileName
+                    }
+                  } else {
                     if (!historyUpdated) {
                       nextHistory = [...nextHistory]
                       historyUpdated = true
                     }
                     const displayPath = prog.filePath || prog.cloudPath || tid
+                    const fileName = prog.fileName || displayPath.split(/[/\\]/).pop() || tid
                     const fileSize = (prog.total && prog.total > 0)
                       ? prog.total
                       : (prog.received && prog.received > 0 ? prog.received : undefined)
                     nextHistory.unshift({
-                      taskId: tid,
-                      fileName: displayPath.split(/[/\\]/).pop() || tid,
+                      taskId: baseId,
+                      fileName,
                       filePath: prog.filePath,
                       cloudPath: prog.cloudPath,
                       fileSize,
@@ -820,13 +837,16 @@ export const useAppStore = create<AppState>()(
       setVideoQualityOption: q => set({ videoQualityOption: q }),
       addDownloadHistory: item =>
         set(state => {
+          const baseId = item.taskId.replace(/_cloud$/, '')
           const alreadyExists = state.downloadHistory.some(h => {
+            const hBaseId = h.taskId.replace(/_cloud$/, '')
+            if (hBaseId === baseId) return true
             const localMatch = !!(item.filePath && h.filePath === item.filePath)
             const cloudMatch = !!(item.cloudPath && h.cloudPath === item.cloudPath)
             return localMatch || cloudMatch
           })
           if (alreadyExists) return {}
-          return { downloadHistory: [item, ...state.downloadHistory].slice(0, 300) }
+          return { downloadHistory: [{ ...item, taskId: baseId }, ...state.downloadHistory].slice(0, 300) }
         }),
       removeDownloadHistoryItem: taskId =>
         set(state => ({ downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId) })),
