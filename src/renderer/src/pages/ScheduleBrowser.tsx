@@ -34,38 +34,11 @@ import {
   getEventDisplayTime
 } from './schedule/schedule-helpers'
 
-/** 锁定截止徽标：标明截止时间继承自 Canvas 课程锁定/关闭时间 (lock_at) */
-export function LockDeadlineBadge({ className = '' }: { className?: string }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-0.5 rounded border border-sky-500/20 bg-sky-500/10 px-1 py-0.5 text-3xs font-medium text-sky-600 dark:text-sky-400 font-sans select-none shrink-0 ${className}`}
-      title="该作业未设置明确截止时间 (due_at)，截止时限继承自 Canvas 课程锁定/关闭时间 (lock_at)"
-    >
-      <span>🔒</span>
-      <span>锁定截止</span>
-    </span>
-  )
-}
-
-/** 作业 4 态提交状态徽标组件 */
-export function AssignmentStatusBadge({
-  status,
-  score,
-  className = ''
-}: {
-  status?: 'submitted' | 'unsubmitted' | 'graded' | 'missing'
-  score?: number | null
-  className?: string
-}) {
-  const info = getAssignmentStatusInfo(status, score)
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-3xs font-bold ${info.badgeClass} ${className}`}
-    >
-      {info.label}
-    </span>
-  )
-}
+export { LockDeadlineBadge, AssignmentStatusBadge } from './schedule/components/ScheduleBadges'
+import { LockDeadlineBadge, AssignmentStatusBadge } from './schedule/components/ScheduleBadges'
+import { ScheduleExportModal } from './schedule/components/ScheduleExportModal'
+import { CourseDetailModal } from './schedule/components/CourseDetailModal'
+import { CourseHoverPopover } from './schedule/components/CourseHoverPopover'
 
 export function ScheduleBrowser() {
   const [loading, setLoading] = useState(true)
@@ -2350,394 +2323,40 @@ export function ScheduleBrowser() {
         )}
       </div>
 
-      {/* ─── 导出日历配置弹窗 (Apple 风格模态框) ─── */}
-      {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-3xl border border-bd bg-surface-1 p-6 shadow-xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-bd/60 pb-3">
-              <h3 className="text-base font-bold text-text-1">🗓️ 导出为标准日历 (.ics)</h3>
-              <button
-                type="button"
-                onClick={() => setShowExportModal(false)}
-                className="rounded-lg p-1 text-text-3 hover:text-text-1 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
+      {/* ─── 导出日历配置弹窗 ─── */}
+      <ScheduleExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        includeCourses={includeCourses}
+        setIncludeCourses={setIncludeCourses}
+        includeActivities={includeActivities}
+        setIncludeActivities={setIncludeActivities}
+        includeDdl={includeDdl}
+        setIncludeDdl={setIncludeDdl}
+        courseEventsCount={courseEvents.length}
+        activityEventsCount={activityEvents.length}
+        ddlEventsCount={ddlEvents.length}
+        alarmMinutesBefore={alarmMinutesBefore}
+        setAlarmMinutesBefore={setAlarmMinutesBefore}
+        alarmDdlHoursBefore={alarmDdlHoursBefore}
+        setAlarmDdlHoursBefore={setAlarmDdlHoursBefore}
+        exportedPath={exportedPath}
+        exportCount={exportCount}
+        exporting={exporting}
+        onExport={() => void handleExport()}
+      />
 
-            <p className="text-xs text-text-3 leading-relaxed">
-              导出的 RFC 5545 iCalendar 文件原生支持 Apple Calendar、Outlook、Google 日历及 Android 手机日历同步。
-            </p>
+      {/* ─── 课程全学期课表详情弹窗 ─── */}
+      <CourseDetailModal
+        course={selectedCourseForModal}
+        onClose={() => setSelectedCourseForModal(null)}
+      />
 
-            <div className="space-y-3 rounded-2xl bg-surface-2/60 p-4 border border-bd/60 text-xs">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeCourses}
-                  onChange={e => setIncludeCourses(e.target.checked)}
-                  className="rounded accent-accent"
-                />
-                <span className="font-medium text-text-1">
-                  包含教务排课 ({courseEvents.length} 节)
-                </span>
-              </label>
-
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeActivities}
-                  onChange={e => setIncludeActivities(e.target.checked)}
-                  className="rounded accent-accent"
-                />
-                <span className="font-medium text-text-1">
-                  包含学术讲座与校园活动 ({activityEvents.length} 场)
-                </span>
-              </label>
-
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeDdl}
-                  onChange={e => setIncludeDdl(e.target.checked)}
-                  className="rounded accent-accent"
-                />
-                <span className="font-medium text-text-1">
-                  包含 Canvas 作业截止时间 ({ddlEvents.length} 项)
-                </span>
-              </label>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <label className="text-2xs text-text-3 block mb-1">上课提前提醒:</label>
-                <select
-                  value={alarmMinutesBefore}
-                  onChange={e => setAlarmMinutesBefore(Number(e.target.value))}
-                  className="w-full rounded-xl border border-bd bg-surface-2 pl-3 pr-8 py-1.5 text-xs text-text-1 focus:border-accent cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
-                >
-                  <option value={10}>提前 10 分钟</option>
-                  <option value={20}>提前 20 分钟 (推荐)</option>
-                  <option value={30}>提前 30 分钟</option>
-                  <option value={60}>提前 1 小时</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-2xs text-text-3 block mb-1">作业 DDL 提前提醒:</label>
-                <select
-                  value={alarmDdlHoursBefore}
-                  onChange={e => setAlarmDdlHoursBefore(Number(e.target.value))}
-                  className="w-full rounded-xl border border-bd bg-surface-2 pl-3 pr-8 py-1.5 text-xs text-text-1 focus:border-accent cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
-                >
-                  <option value={12}>提前 12 小时</option>
-                  <option value={24}>提前 24 小时 (推荐)</option>
-                  <option value={48}>提前 2 天</option>
-                </select>
-              </div>
-            </div>
-
-            {exportedPath && (
-              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-700 dark:text-emerald-400">
-                <div className="font-semibold">✓ 已成功导出 {exportCount} 项日程与作业！</div>
-                <div className="mt-1 font-mono text-3xs truncate">{exportedPath}</div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowExportModal(false)}
-                className="rounded-xl border border-bd px-4 py-2 text-xs font-medium text-text-2 hover:bg-surface-2 cursor-pointer transition-all"
-              >
-                关闭
-              </button>
-              <button
-                type="button"
-                disabled={exporting}
-                onClick={() => void handleExport()}
-                className="rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white hover:bg-accent/90 disabled:opacity-50 cursor-pointer shadow-xs transition-all"
-              >
-                {exporting ? '正在生成…' : '立即导出 .ics'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── 课程全学期课表与教学信息详情弹窗 (Apple HIG Modal) ─── */}
-      {selectedCourseForModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-150"
-          onClick={() => setSelectedCourseForModal(null)}
-        >
-          <div
-            className="w-full max-w-2xl rounded-2xl border border-bd/80 dark:border-white/10 bg-surface-1 shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* 顶栏 Header */}
-            <div className="flex items-start justify-between border-b border-bd/60 dark:border-white/10 px-6 py-4 bg-surface-2/60">
-              <div className="space-y-1.5 pr-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-base font-bold text-text-1 tracking-tight">
-                    {selectedCourseForModal.courseName}
-                  </h3>
-                  {selectedCourseForModal.xf && (
-                    <span className="rounded-full bg-accent/15 px-2.5 py-0.5 text-2xs font-semibold text-accent">
-                      ⭐ {selectedCourseForModal.xf} 学分
-                    </span>
-                  )}
-                  {selectedCourseForModal.kclbmc && (
-                    <span className="rounded-full bg-surface-3 px-2 py-0.5 text-2xs font-medium text-text-3">
-                      🏷️ {selectedCourseForModal.kclbmc}
-                    </span>
-                  )}
-                </div>
-                {(selectedCourseForModal.titleEn || selectedCourseForModal.kch) && (
-                  <div className="font-mono text-2xs text-text-3">
-                    {selectedCourseForModal.kch && `代码: ${selectedCourseForModal.kch}`}
-                    {selectedCourseForModal.kcbj && ` · 教学班: ${selectedCourseForModal.kcbj}`}
-                    {selectedCourseForModal.titleEn && !selectedCourseForModal.kch && selectedCourseForModal.titleEn}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedCourseForModal(null)}
-                className="rounded-full p-1.5 text-text-3 hover:text-text-1 hover:bg-surface-3 transition-colors cursor-pointer"
-                title="关闭 (Esc)"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* 弹窗内容主体 (可滚动) */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* 核心元信息卡片 */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 rounded-xl border border-bd/50 dark:border-white/[0.06] bg-surface-2/40 p-4 text-xs">
-                <div>
-                  <div className="text-3xs text-text-4 uppercase font-semibold">👨‍🏫 任课教师</div>
-                  <div className="mt-1 font-medium text-text-1">{selectedCourseForModal.teachers || '主讲教学团队'}</div>
-                </div>
-                <div>
-                  <div className="text-3xs text-text-4 uppercase font-semibold">📍 教学地点</div>
-                  <div className="mt-1 font-medium text-accent">{selectedCourseForModal.locations || '校内常规教室'}</div>
-                </div>
-                <div>
-                  <div className="text-3xs text-text-4 uppercase font-semibold">🗓️ 排课周期 / 节次</div>
-                  <div className="mt-1 font-mono text-text-2">{selectedCourseForModal.periodAndWeeks}</div>
-                </div>
-                {selectedCourseForModal.jxbmc && (
-                  <div>
-                    <div className="text-3xs text-text-4 uppercase font-semibold">🎓 教学班级</div>
-                    <div className="mt-1 text-text-2 truncate">{selectedCourseForModal.jxbmc}</div>
-                  </div>
-                )}
-              </div>
-
-              {/* 课时安排清单 */}
-              <div>
-                <div className="flex items-center justify-between mb-2.5">
-                  <h4 className="text-xs font-bold text-text-2 uppercase tracking-wider flex items-center gap-1.5">
-                    <span>📅</span>
-                    <span>全学期课时安排清单 ({selectedCourseForModal.scheduleSessions.length} 讲)</span>
-                  </h4>
-                  <span className="text-3xs text-text-4">按教学周次与日期排序</span>
-                </div>
-
-                <div className="max-h-60 overflow-y-auto rounded-xl border border-bd/40 dark:border-white/[0.05] bg-surface-2/30 divide-y divide-bd/30 dark:divide-white/[0.04]">
-                  {selectedCourseForModal.scheduleSessions.map((sess, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between px-3.5 py-2 text-2xs hover:bg-surface-2/60 transition-colors"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-semibold text-text-2 shrink-0">
-                          {sess.weekHint || `第 ${idx + 1} 讲`}
-                        </span>
-                        {sess.dateStr && (
-                          <span className="font-mono text-text-3 text-3xs">
-                            {sess.dateStr}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-right">
-                        <span className="font-mono text-accent">
-                          {sess.timeStr}
-                        </span>
-                        {sess.location && sess.location !== '不排教室' && (
-                          <span className="text-text-3 font-sans max-w-[140px] truncate hidden sm:inline">
-                            📍 {sess.location}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 关联 Canvas 作业与任务 */}
-              {selectedCourseForModal.assignments && selectedCourseForModal.assignments.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2.5">
-                    <h4 className="text-xs font-bold text-text-2 uppercase tracking-wider flex items-center gap-1.5">
-                      <span>📝</span>
-                      <span>关联 Canvas 作业任务 ({selectedCourseForModal.assignments.length} 项)</span>
-                    </h4>
-                  </div>
-
-                  <div className="space-y-2">
-                    {selectedCourseForModal.assignments.map(ddl => {
-                      const statusInfo = getAssignmentStatusInfo(ddl.submissionStatus, ddl.score)
-                      const canOpen = Boolean(ddl.htmlUrl && isSafeExternalUrl(ddl.htmlUrl))
-
-                      return (
-                        <div
-                          key={ddl.id}
-                          className={`flex items-center justify-between rounded-xl border p-3 text-xs transition-colors ${statusInfo.cardBorderClass} ${statusInfo.cardBgClass}`}
-                        >
-                          <div className="space-y-0.5 pr-2">
-                            <div className="font-medium text-text-1">{ddl.title}</div>
-                            <div className="text-3xs text-text-3 font-mono flex items-center gap-1.5 flex-wrap">
-                              <span>
-                                截止时间: {ddl.endTime ? `${getEventDateStr(ddl.endTime)} ${formatEventTime(ddl.endTime)}` : '未标注日期'}
-                              </span>
-                              {ddl.isLockAtDeadline && <LockDeadlineBadge />}
-                            </div>
-                          </div>
-                          <div className="shrink-0 flex items-center gap-2">
-                            {canOpen && ddl.htmlUrl && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (ddl.htmlUrl) void window.api.openExternal(ddl.htmlUrl)
-                                }}
-                                className="rounded-lg border border-bd px-2.5 py-1 text-3xs font-medium text-accent hover:border-accent cursor-pointer transition-all shadow-2xs"
-                                title="在默认浏览器中打开该作业"
-                              >
-                                打开作业 ↗
-                              </button>
-                            )}
-                            <AssignmentStatusBadge status={ddl.submissionStatus} score={ddl.score} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 底栏 Footer */}
-            <div className="flex items-center justify-end border-t border-bd/60 dark:border-white/10 px-6 py-3 bg-surface-2/40">
-              <button
-                type="button"
-                onClick={() => setSelectedCourseForModal(null)}
-                className="rounded-xl bg-surface-3 hover:bg-surface-4 px-5 py-2 text-xs font-semibold text-text-1 cursor-pointer transition-all shadow-2xs"
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Apple 风格鼠标悬停即显浮窗 (Hover Popover) ─── */}
-      {hoveredCourseItem && !selectedCourseForModal && (() => {
-        const { item, rect } = hoveredCourseItem
-        const popoverWidth = 280
-        let left = rect.left + rect.width / 2 - popoverWidth / 2
-        if (left < 16) left = 16
-        if (left + popoverWidth > window.innerWidth - 16) {
-          left = window.innerWidth - popoverWidth - 16
-        }
-
-        const showAbove = rect.top > 200
-        const top = showAbove ? rect.top - 8 : rect.bottom + 8
-
-        return (
-          <div
-            style={{
-              top: `${top}px`,
-              left: `${left}px`,
-              transform: showAbove ? 'translateY(-100%)' : 'none'
-            }}
-            className="fixed z-40 pointer-events-none w-[280px] rounded-2xl border border-bd/80 dark:border-white/15 bg-surface-1/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md p-3.5 shadow-xl transition-all duration-150 animate-in fade-in zoom-in-95"
-          >
-            <div className="space-y-2">
-              {/* 顶部课程名称与学分徽标 */}
-              <div className="space-y-1">
-                <div className="font-bold text-sm text-text-1 leading-snug break-words tracking-tight">
-                  {item.title}
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {item.xf && (
-                    <span className="rounded-full bg-accent/15 px-2 py-0.5 text-3xs font-semibold text-accent">
-                      ⭐ {item.xf} 学分
-                    </span>
-                  )}
-                  {item.badge && (
-                    <span className="rounded-full bg-surface-3 px-2 py-0.5 text-3xs font-medium text-text-3">
-                      {item.badge}
-                    </span>
-                  )}
-                  {item.endTime && item.endTime.includes('周') && (
-                    <span className="rounded-full bg-accent/10 px-2 py-0.5 text-3xs font-semibold text-accent">
-                      🗓️ {item.endTime}
-                    </span>
-                  )}
-                  {item.type === 'activity' && (
-                    <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-3xs font-bold text-purple-600 dark:text-purple-400">
-                      讲座 / 活动
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* 详细时间、地点与教师 (完整展示，绝不截断) */}
-              <div className="space-y-1.5 pt-2 border-t border-bd/40 dark:border-white/10 text-xs">
-                <div className="flex items-start gap-1.5 text-2xs">
-                  <span className="text-text-4 shrink-0 font-medium">🕒 时间:</span>
-                  <span className="font-mono text-accent font-medium leading-tight">
-                    {item.endTime && item.endTime.includes('周')
-                      ? `${item.startTime} (${item.endTime})`
-                      : getEventDisplayTime(item)}
-                  </span>
-                </div>
-                {item.location && item.location !== '不排教室' && (
-                  <div className="flex items-start gap-1.5 text-2xs">
-                    <span className="text-text-4 shrink-0 font-medium">📍 地点:</span>
-                    <span className="font-medium text-text-1 leading-tight break-words">
-                      {item.location}
-                    </span>
-                  </div>
-                )}
-                {item.teacher && (
-                  <div className="flex items-start gap-1.5 text-2xs">
-                    <span className="text-text-4 shrink-0 font-medium">👨‍🏫 教师:</span>
-                    <span className="text-text-2 leading-tight">
-                      {item.teacher}
-                    </span>
-                  </div>
-                )}
-                {(item.jxbmc || item.description) && (
-                  <div className="flex items-start gap-1.5 text-3xs">
-                    <span className="text-text-4 shrink-0">🎓 班级:</span>
-                    <span className="text-text-3 truncate">
-                      {item.jxbmc || item.description}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* 底部操作提示 */}
-              <div className="pt-1.5 border-t border-bd/30 dark:border-white/5 flex items-center justify-between text-3xs text-text-4">
-                <span className="text-accent/90 font-medium">💡 点击查看完整课时与作业</span>
-                <span>Esc 关闭</span>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
+      {/* ─── Apple 风格鼠标悬停即显浮窗 ─── */}
+      <CourseHoverPopover
+        hoveredCourseItem={hoveredCourseItem}
+        hasOpenModal={Boolean(selectedCourseForModal)}
+      />
     </div>
   )
 }
