@@ -99,7 +99,7 @@ export function getSlotRangeFromJc(jc: string): SlotRangeInfo {
       startSlot: 3,
       endSlot: 4,
       span: 2,
-      badge: '6-8节大课 (12:55 ~ 15:40)',
+      badge: '6-8节大课 · 12:55 ~ 15:40',
       isLabOrLongSession: false
     }
   }
@@ -110,7 +110,7 @@ export function getSlotRangeFromJc(jc: string): SlotRangeInfo {
       startSlot: 4,
       endSlot: 5,
       span: 2,
-      badge: `${startP}-${endP}节实验 (14:00 ~ 17:40)`,
+      badge: `${startP}-${endP}节实验 · 14:00 ~ 17:40`,
       isLabOrLongSession: true
     }
   }
@@ -122,9 +122,9 @@ export function getSlotRangeFromJc(jc: string): SlotRangeInfo {
 
   let badge: string | undefined
   if (startSlot === 6 && endP >= 13) {
-    badge = `${startP}-${endP}节 (${endP === 14 ? '18:00 ~ 21:30' : '18:00 ~ 20:25'})`
+    badge = `${startP}-${endP}节 · ${endP === 14 ? '18:00 ~ 21:30' : '18:00 ~ 20:25'}`
   } else if (span > 1) {
-    badge = `${startP}-${endP}节 (${endP - startP + 1}节连堂)`
+    badge = `${startP}-${endP}节 · ${endP - startP + 1}节连堂`
   }
 
   return {
@@ -151,7 +151,7 @@ export function getSlotRangeFromTime(startTime: string, endTime?: string): SlotR
       startSlot: 3,
       endSlot: 4,
       span: 2,
-      badge: '6-8节大课 (12:55 ~ 15:40)',
+      badge: '6-8节大课 · 12:55 ~ 15:40',
       isLabOrLongSession: false
     }
   }
@@ -451,7 +451,7 @@ export function getEventDisplayTime(item: ScheduleEvent): string {
     item.title.includes('思想道德') ||
     item.title.includes('思政')
   ) {
-    return '12:55 ~ 15:40 (第6-8节)'
+    return '12:55 ~ 15:40 · 第6-8节'
   }
 
   // 2. 若带有具体时间时刻（如 "2026-10-14 14:00:00" 或 "14:00"）

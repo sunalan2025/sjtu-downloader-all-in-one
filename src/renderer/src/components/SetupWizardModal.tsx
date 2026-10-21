@@ -221,7 +221,7 @@ export function SetupWizardModal() {
                     {
                       key: 'local',
                       icon: '💻',
-                      title: '仅存本地 (推荐)',
+                      title: '仅存本地',
                       desc: '仅保存在本地磁盘指定目录中，最稳定且随时离线阅读，不占用交大云盘配额。',
                       badge: '推荐'
                     },
@@ -546,7 +546,7 @@ export function SetupWizardModal() {
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center gap-2">
                         <span className={`text-sm font-bold ${canvasExportSrt ? 'text-accent' : 'text-text-1'}`}>
-                          导出外挂字幕 (.srt)
+                          导出外挂字幕
                         </span>
                         <span className={`rounded-md px-2 py-0.5 text-2xs font-semibold ${
                           canvasExportSrt ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
@@ -591,7 +591,7 @@ export function SetupWizardModal() {
                     <div className="flex-1 space-y-1">
                       <div className="flex items-center gap-2">
                         <span className={`text-sm font-bold ${canvasExportMarkdown ? 'text-accent' : 'text-text-1'}`}>
-                          导出复习笔记 (.md)
+                          导出复习讲义笔记
                         </span>
                         <span className={`rounded-md px-2 py-0.5 text-2xs font-semibold ${
                           canvasExportMarkdown ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
@@ -618,7 +618,7 @@ export function SetupWizardModal() {
                 {!canvasExportSrt && !canvasExportMarkdown ? (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2.5">
                     <span className="font-semibold select-none">💡 提示：</span>
-                    <span>当前已全部关闭，仅下载视频本体，不生成文本辅助资料（后续可在设置中随时重新开启）。</span>
+                    <span>当前已全部关闭，仅下载视频本体，不生成文本辅助资料，后续可在设置中随时重新开启。</span>
                   </div>
                 ) : (
                   <div className="rounded-xl border border-bd/70 bg-surface-2/60 p-3.5 text-xs text-text-3 flex items-center gap-2.5">
@@ -655,7 +655,7 @@ export function SetupWizardModal() {
                     {
                       key: 'tray',
                       icon: '🛡️',
-                      title: '最小化到系统托盘 (推荐)',
+                      title: '最小化到系统托盘',
                       desc: '点击关闭窗口时自动隐藏至任务栏托盘后台静默运行，正在进行的课件与视频传输不会中断。',
                       badge: '推荐'
                     },

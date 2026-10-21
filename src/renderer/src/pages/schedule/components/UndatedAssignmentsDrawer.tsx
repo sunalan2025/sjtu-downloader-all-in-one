@@ -31,7 +31,7 @@ export function UndatedAssignmentsDrawer({
       <button
         type="button"
         onClick={onToggle}
-        className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 text-2xs font-sans font-medium text-amber-700 dark:text-amber-400 cursor-pointer transition-all shadow-2xs select-none"
+        className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 px-2.5 py-1 text-2xs font-sans font-medium text-amber-700 dark:text-amber-400 cursor-pointer transition-all shadow-2xs select-none"
         title="点击查看未标注截止日期的活跃作业"
       >
         <span>📌 {assignments.length} 项未标注日期</span>
@@ -39,7 +39,7 @@ export function UndatedAssignmentsDrawer({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl border border-bd/80 dark:border-white/15 bg-surface-1/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md p-4 shadow-xl z-30 transition-all duration-150 animate-in fade-in zoom-in-95 font-sans">
+        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl border border-bd/80 dark:border-white/15 bg-surface-1 dark:bg-[#1c1c1e] p-4 shadow-2xl z-50 transition-all duration-150 animate-in fade-in zoom-in-95 font-sans">
           <div className="flex items-center justify-between border-b border-bd/50 dark:border-white/10 pb-2.5 mb-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-text-1">📌 未标注日期的作业</span>
@@ -56,7 +56,7 @@ export function UndatedAssignmentsDrawer({
             </button>
           </div>
           <p className="text-3xs text-text-3 mb-3 leading-relaxed">
-            此类作业在 Canvas 中未设置明确截止时间 (due_at) 与关闭时间 (lock_at)，建议及时查阅课程页面以防遗漏。
+            此类作业在课程平台中未设置明确截止时间或关闭时限，建议及时查阅课程主页以防遗漏。
           </p>
           <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
             {assignments.map(item => (
@@ -71,7 +71,9 @@ export function UndatedAssignmentsDrawer({
                   <AssignmentStatusBadge status={item.submissionStatus} score={item.score} />
                 </div>
                 <div className="flex items-center justify-between text-3xs text-text-3">
-                  <span className="truncate max-w-[180px]">{item.courseName || '未归类课程'}</span>
+                  <span className="truncate max-w-[200px]" title={item.courseName}>
+                    {(item.courseName || '未归类课程').replace(/\s*[(（][^)）]*[)）]\s*$/, '').trim() || item.courseName || '未归类课程'}
+                  </span>
                   {item.htmlUrl && isSafeExternalUrl(item.htmlUrl) && (
                     <button
                       type="button"

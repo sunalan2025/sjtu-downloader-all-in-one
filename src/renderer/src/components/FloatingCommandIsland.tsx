@@ -218,8 +218,8 @@ export function FloatingCommandIsland({
 
   // 左侧信息汇聚文案
   const infoText = isSingleCourse
-    ? `✦ ${typeof selectedSummary.categoryCount === 'number' ? `已选 ${selectedSummary.categoryCount} 个分类 · ` : ''}共 ${selectedSummary.totalItems} 项资源 · ${selectedSummary.formattedSize}`
-    : `✦ ${typeof selectedSummary.courseCount === 'number' ? `已选 ${selectedSummary.courseCount} 门课程 · ` : ''}共 ${selectedSummary.totalItems} 项资源 · ${selectedSummary.formattedSize}`
+    ? `✦ ${typeof selectedSummary.categoryCount === 'number' ? `已选 ${selectedSummary.categoryCount} 个分类 · ` : ''}共 ${selectedSummary.totalItems} 项资源 · ${selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? selectedSummary.formattedSize : '待获取体积'}`
+    : `✦ ${typeof selectedSummary.courseCount === 'number' ? `已选 ${selectedSummary.courseCount} 门课程 · ` : ''}共 ${selectedSummary.totalItems} 项资源 · ${selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? selectedSummary.formattedSize : '待获取体积'}`
 
   return (
     <div
@@ -446,14 +446,14 @@ export function FloatingCommandIsland({
         <button
           type="button"
           role="button"
-          aria-label={`立即下载 ${selectedSummary.formattedSize}`}
+          aria-label={selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `立即下载 ${selectedSummary.formattedSize}` : `立即下载 · 共 ${selectedSummary.totalItems} 项`}
           onClick={handleStartDownload}
           disabled={storeDownloading}
           className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-accent hover:bg-accent-dark active:scale-[0.98] text-white font-semibold text-xs sm:text-sm shadow-glow-sm hover:shadow-glow transition-all duration-150 cursor-pointer whitespace-nowrap ${
             storeDownloading ? 'opacity-60 cursor-not-allowed hover:bg-accent' : ''
           }`}
         >
-          <span>{storeDownloading ? '下载进行中…' : `立即下载 ${selectedSummary.formattedSize}`}</span>
+          <span>{storeDownloading ? '下载进行中…' : (selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `立即下载 ${selectedSummary.formattedSize}` : `立即下载 · 共 ${selectedSummary.totalItems} 项`)}</span>
           {!storeDownloading && (
             <span className="inline-flex items-center font-mono text-[11px] opacity-80">⏎</span>
           )}

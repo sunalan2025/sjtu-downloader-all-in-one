@@ -350,6 +350,21 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       expect(ctaBtn.text()).toContain('立即下载 约 1.80 GB')
       expect(ctaBtn.text()).toContain('⏎')
     })
+    it('当已选资源大于0但字节数未知时文案友好降级', () => {
+      const { $ } = renderIsland({
+        selectedSummary: {
+          totalItems: 40,
+          courseCount: 1,
+          formattedSize: '0 B'
+        }
+      })
+      const ctaBtn = $('button[aria-label="立即下载 · 共 40 项"]')
+      expect(ctaBtn.length).toBe(1)
+      expect(ctaBtn.text()).toContain('立即下载 · 共 40 项')
+      expect(ctaBtn.text()).not.toContain('0 B')
+      expect($('span.font-medium').text()).toContain('待获取体积')
+      expect($('span.font-medium').text()).not.toContain('0 B')
+    })
 
     it('点击主执行按钮时触发 onStartDownload 回调（onDownload 别名已删除）', () => {
       const onStartDownload = vi.fn()

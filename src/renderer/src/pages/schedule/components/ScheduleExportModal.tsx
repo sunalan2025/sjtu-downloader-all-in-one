@@ -108,7 +108,7 @@ export function ScheduleExportModal({
               className="w-full rounded-xl border border-bd bg-surface-2 pl-3 pr-8 py-1.5 text-xs text-text-1 focus:border-accent cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
             >
               <option value={10}>提前 10 分钟</option>
-              <option value={20}>提前 20 分钟 (推荐)</option>
+              <option value={20}>提前 20 分钟</option>
               <option value={30}>提前 30 分钟</option>
               <option value={60}>提前 1 小时</option>
             </select>
@@ -122,7 +122,7 @@ export function ScheduleExportModal({
               className="w-full rounded-xl border border-bd bg-surface-2 pl-3 pr-8 py-1.5 text-xs text-text-1 focus:border-accent cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
             >
               <option value={12}>提前 12 小时</option>
-              <option value={24}>提前 24 小时 (推荐)</option>
+              <option value={24}>提前 24 小时</option>
               <option value={48}>提前 2 天</option>
             </select>
           </div>

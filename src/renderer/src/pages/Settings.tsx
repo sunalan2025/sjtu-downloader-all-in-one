@@ -10,7 +10,7 @@ import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
 import { prefetchCloudConnection } from '../services/prefetch'
 import type { DownloadMode, VideoQualityOption, MaskedCredential } from '@shared/types'
-import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBreadcrumb, normalizeCloudPath } from '../../../shared/utils'
+import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBreadcrumb, normalizeCloudPath, formatBytes } from '../../../shared/utils'
 import pkg from '../../../../package.json'
 
 export function Settings({
@@ -216,7 +216,7 @@ export function Settings({
         </aside>
 
         {/* 右栏内容 */}
-        <main className="flex-1 overflow-y-auto px-10 py-8">
+        <main className="flex-1 overflow-y-auto px-10 pt-8 pb-24">
           <div className="mx-auto max-w-2xl">
             {/* 1. 常规偏好 */}
             {activeNav === 'general' && (
@@ -259,7 +259,7 @@ export function Settings({
                         value={courseViewMode}
                         onChange={(v) => setCourseViewMode(v as CourseViewMode)}
                         options={[
-                          { key: 'grid', label: '⊞ 网格大图标 (推荐)' },
+                          { key: 'grid', label: '⊞ 网格大图标' },
                           { key: 'list', label: '☰ 详细列表' },
                           { key: 'column', label: '◫ 分栏多级并列' }
                         ]}
@@ -281,7 +281,7 @@ export function Settings({
                         value={canvasGroupByTerm ? 'term' : 'flat'}
                         onChange={(v) => setCanvasGroupByTerm(v === 'term')}
                         options={[
-                          { key: 'term', label: '🗂️ 按学期分栏折叠 (推荐)' },
+                          { key: 'term', label: '🗂️ 按学期分栏折叠' },
                           { key: 'flat', label: '📄 平铺全部课程' }
                         ]}
                       />
@@ -302,7 +302,7 @@ export function Settings({
                         value={windowCloseAction}
                         onChange={(v) => setWindowCloseAction(v as WindowCloseAction)}
                         options={[
-                          { key: 'tray', label: '最小化到系统托盘 (推荐)' },
+                          { key: 'tray', label: '最小化到系统托盘' },
                           { key: 'taskbar', label: '最小化到任务栏' },
                           { key: 'quit', label: '彻底退出应用' }
                         ]}
@@ -324,7 +324,7 @@ export function Settings({
                         value={exitWhenDownloading}
                         onChange={(v) => setExitWhenDownloading(v as ExitWhenDownloadingPolicy)}
                         options={[
-                          { key: 'prompt', label: '始终弹窗询问确认 (推荐)' },
+                          { key: 'prompt', label: '始终弹窗询问确认' },
                           { key: 'background', label: '自动转入托盘继续下载' },
                           { key: 'pause_quit', label: '自动暂停任务并退出应用' }
                         ]}
@@ -380,7 +380,7 @@ export function Settings({
                         )}
                       </div>
                       <div className="truncate font-mono text-xs text-text-3" title={resolvedLocalPath || '系统默认下载目录'}>
-                        {resolvedLocalPath || '系统默认下载目录（Downloads）'}
+                        {resolvedLocalPath || '系统默认下载目录'}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -513,7 +513,7 @@ export function Settings({
                             }
                           }}
                           options={[
-                            { key: 'full', label: '学期/课程/分类 (推荐)' },
+                            { key: 'full', label: '学期/课程/分类' },
                             { key: 'course_cat', label: '课程/分类' },
                             { key: 'flat', label: '紧凑扁平' },
                             { key: 'custom', label: '自定义…' }
@@ -547,7 +547,7 @@ export function Settings({
                             </button>
                           </div>
                           <div className="flex flex-wrap items-center gap-1.5 text-2xs text-text-4">
-                            <span>可用占位符 (点击插入)：</span>
+                            <span>可用占位符：</span>
                             {['{term}', '{course}', '{category}', '{fileName}'].map(tag => (
                               <button
                                 key={tag}
@@ -593,7 +593,7 @@ export function Settings({
                         value={fileConflictStrategy}
                         onChange={(v) => setFileConflictStrategy(v as any)}
                         options={[
-                          { key: 'skip', label: '智能跳过 (推荐)' },
+                          { key: 'skip', label: '智能跳过' },
                           { key: 'overwrite', label: '覆盖更新' }
                         ]}
                       />
@@ -626,7 +626,7 @@ export function Settings({
                         value={videoQualityOption}
                         onChange={(v) => setVideoQualityOption(v as VideoQualityOption)}
                         options={[
-                          { key: 'origin', label: '原画高清 (推荐)' },
+                          { key: 'origin', label: '原画高清' },
                           { key: '1080p', label: '1080P' },
                           { key: '720p', label: '720P' },
                           { key: 'audio_only', label: '仅提取音频' }
@@ -639,8 +639,8 @@ export function Settings({
                   <div className="flex items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-text-1">导出外挂字幕 (.srt)</span>
-                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">外挂字幕</span>
+                        <span className="text-sm font-medium text-text-1">导出外挂字幕</span>
+
                       </div>
                       <div className="text-xs text-text-3 leading-relaxed">
                         下载课堂实录时，提取录播中台 AI 语音识别文本并生成同名 .srt 字幕，主流播放器双击视频自动加载。
@@ -667,8 +667,8 @@ export function Settings({
                   <div className="flex items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-text-1">导出复习笔记 (.md)</span>
-                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">讲义笔记</span>
+                        <span className="text-sm font-medium text-text-1">导出复习讲义笔记</span>
+
                       </div>
                       <div className="text-xs text-text-3 leading-relaxed">
                         生成包含精确时间戳跳转标记与段落纲要的 Markdown 复习讲义，便于全文搜索与知识回顾。
@@ -696,7 +696,7 @@ export function Settings({
                     <div className="space-y-1 max-w-sm">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-text-1">Canvas 作业归档偏好</span>
-                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">作业资料</span>
+
                       </div>
                       <div className="text-xs text-text-3 leading-relaxed">
                         批量下载课程作业与实验任务时包含的具体文件明细
@@ -708,7 +708,7 @@ export function Settings({
                         {
                           key: 'exportMarkdown' as const,
                           icon: '📋',
-                          title: '作业说明文档 (.md)',
+                          title: '作业说明文档',
                           desc: '包含作业题目要求、起止时间与教师评语',
                           checked: !!canvasAssignmentOptions.exportMarkdown
                         },
@@ -794,7 +794,7 @@ export function Settings({
                       <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">已就绪</span>
                     </div>
                     <div className="text-xs text-text-3 leading-relaxed">
-                      在 Canvas 课程浏览器的「📑 PPT课件 (PDF)」分类中，勾选后下载器会在提取课堂录像演示画面的同时自动整合生成包含全部板书与幻灯片画面的高清矢量 PDF 电子讲义，适合导入 iPad / 平板进行无纸化批注。
+                      在 Canvas 课程浏览器的「📑 PPT课件」分类中，勾选后下载器会在提取课堂录像演示画面的同时自动整合生成包含全部板书与幻灯片画面的高清矢量 PDF 电子讲义，适合导入 iPad / 平板进行无纸化批注。
                     </div>
                   </div>
 
@@ -854,7 +854,7 @@ export function Settings({
                                 : 'bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-1'
                             }`}
                           >
-                            {p}{p === 3 ? ' (推荐)' : ''}
+                            {p}
                           </button>
                         ))}
                       </div>
@@ -920,7 +920,7 @@ export function Settings({
                             }
                           }}
                           options={[
-                            { key: '0', label: '不限速 (推荐)' },
+                            { key: '0', label: '不限速' },
                             { key: '5120', label: '5 MB/s' },
                             { key: '10240', label: '10 MB/s' },
                             { key: '25600', label: '25 MB/s' },
@@ -935,7 +935,7 @@ export function Settings({
                       <div className="rounded-xl border border-bd/70 bg-surface-2/40 p-4 space-y-3">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div className="space-y-0.5">
-                            <span className="text-xs font-medium text-text-1">自定义限制速率 (MB/s)</span>
+                            <span className="text-xs font-medium text-text-1">自定义限制速率 · MB/s</span>
                             <p className="text-2xs text-text-3">支持键入任意大小或拖动滑块连续调节</p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -959,7 +959,7 @@ export function Settings({
                               <span className="ml-1 text-xs text-text-3 select-none">MB/s</span>
                             </div>
                             <span className="text-2xs text-text-4 font-mono">
-                              (约 {Math.round((maxDownloadSpeedKBps * 8) / 1000)} Mbps)
+                              约 {Math.round((maxDownloadSpeedKBps * 8) / 1000)} Mbps
                             </span>
                           </div>
                         </div>
@@ -994,7 +994,7 @@ export function Settings({
                 <div>
                   <h2 className="text-base font-bold text-text-1">账号与云盘</h2>
                   <p className="mt-1 text-xs text-text-3">
-                    统一身份认证 (jAccount) 登录会话、交大云盘直连集成与系统安全保险库
+                    jAccount 统一身份认证登录会话、交大云盘直连集成与系统安全保险库
                   </p>
                 </div>
 
@@ -1083,7 +1083,7 @@ export function Settings({
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-text-3">交大云盘已用存储配额</span>
                         <span className="font-mono text-text-2 font-medium">
-                          {cloudSpaceInfo.size} / {cloudSpaceInfo.capacity} ({cloudPercent}%)
+                          {formatBytes(Number(cloudSpaceInfo.size) || 0)} / {formatBytes(Number(cloudSpaceInfo.capacity) || 0)} · {cloudPercent}%
                         </span>
                       </div>
                       <div className="h-2 w-full overflow-hidden rounded-full bg-surface-3">
@@ -1363,7 +1363,7 @@ export function Settings({
                         </span>
                       </div>
                       <div className="text-xs text-text-3">
-                        上海交通大学课程一站式转存与同步套件（Canvas / 录播 / 慕课 / 交大云盘）
+                        上海交通大学课程一站式转存与同步套件 · Canvas / 录播 / 慕课 / 交大云盘
                       </div>
                       {updateMessage && (
                         <div className="text-xs text-accent font-medium mt-1">
@@ -1388,7 +1388,7 @@ export function Settings({
                     <div className="space-y-1 max-w-sm">
                       <div className="text-sm font-medium text-text-1">新版本后台自动下载</div>
                       <div className="text-xs text-text-3 leading-relaxed">
-                        检测到新版本时在后台自动下载安装包（下载就绪后提示安装，不强制打断当前操作）。
+                        检测到新版本时在后台自动下载安装包，下载就绪后提示安装，不强制打断当前操作。
                       </div>
                     </div>
                     <button

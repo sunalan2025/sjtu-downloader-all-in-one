@@ -126,7 +126,7 @@ export function groupCoursesByTerm<T extends { term?: string | { name?: string }
     } else if (c.term && typeof c.term === 'object' && typeof c.term.name === 'string') {
       termName = c.term.name.trim()
     }
-    const key = termName || '(无学期)'
+    const key = termName || '未标注学期'
     if (!grouped[key]) grouped[key] = []
     grouped[key].push(c)
   }
@@ -139,8 +139,8 @@ export function groupCoursesByTerm<T extends { term?: string | { name?: string }
  */
 export function sortAcademicTerms(terms: string[]): string[] {
   return [...terms].sort((a, b) => {
-    if (a === '(无学期)') return 1
-    if (b === '(无学期)') return -1
+    if (a === '未标注学期' || a === '(无学期)') return 1
+    if (b === '未标注学期' || b === '(无学期)') return -1
     return b.localeCompare(a, 'zh-CN', { numeric: true })
   })
 }

@@ -11,7 +11,6 @@ import {
   ProgressBar,
   ResourceTypeSegmented,
   TaskCtrlButtons,
-  TriCheckbox,
   triStateFromCount
 } from '../components/DownloadUI'
 import {
@@ -220,7 +219,6 @@ export function CnmoocBrowser() {
     }
     return out
   }, [courses, courseData, resourceFilter, videoQualityOption])
-  const total = allTaskIds.length
   const selectedCount = selected.size
 
   const selectedTaskIds = useMemo(
@@ -271,10 +269,6 @@ export function CnmoocBrowser() {
     if (useAppStore.getState().downloading) return
     toggleSelectMany(ids, on)
   }, [toggleSelectMany])
-
-  const onToggleAll = useCallback(() => {
-    onToggleMany(allTaskIds, selectedCount !== allTaskIds.length)
-  }, [allTaskIds, selectedCount, onToggleMany])
 
   // ─── 下载：收集选中条目 → build-specs（占位 url）→ download:start ───
   const onDownload = useCallback(async (): Promise<void> => {
@@ -511,22 +505,8 @@ export function CnmoocBrowser() {
           )}
         </div>
 
-        {/* 右侧：已选统计 + 已选全部 + 全局下载控制 + 立即下载 */}
+        {/* 右侧：下载控制 */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-text-2">
-            <span className="text-accent font-bold">☑</span>
-            <span>已选 {selectedCount} / {total} 项</span>
-          </div>
-
-          <button
-            type="button"
-            onClick={onToggleAll}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
-          >
-            <TriCheckbox state={triStateFromCount(selectedCount, total)} size="sm" />
-            <span>已选全部</span>
-          </button>
-
           {downloading && (
             <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
               <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
@@ -534,7 +514,6 @@ export function CnmoocBrowser() {
               <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
             </div>
           )}
-
         </div>
       </div>
 

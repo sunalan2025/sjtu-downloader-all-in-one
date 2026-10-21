@@ -19,7 +19,6 @@ import {
   ProgressBar,
   NetdiskViewModeSwitch,
   TaskCtrlButtons,
-  TriCheckbox,
   triStateFromCount
 } from '../components/DownloadUI'
 import {
@@ -142,7 +141,6 @@ export function AuditedCourses() {
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasksKey])
-  const total = allTasks.length
   const selectedCount = selected.size
 
   // 选中任务的 id 列表 —— 喂给 useDownloadStats 做编码统计，
@@ -271,13 +269,6 @@ export function AuditedCourses() {
     if (downloading) return
     toggleSelectMany(ids, on)
   }, [downloading, toggleSelectMany])
-
-  const onToggleAll = (): void => {
-    if (downloading) return
-    if (selectedCount === total && total > 0) setSelected(new Set())
-    else setSelected(new Set(allTasks.map(t => t.taskId)))
-  }
-
 
   const onDownload = async (): Promise<void> => {
     if (selectedCount === 0 || downloading) return
@@ -546,21 +537,8 @@ export function AuditedCourses() {
           )}
         </div>
 
+        {/* 右侧：下载控制 */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-text-2">
-            <span className="text-accent font-bold">☑</span>
-            <span>已选 {selectedCount} / {total} 节视频</span>
-          </div>
-
-          <button
-            type="button"
-            onClick={onToggleAll}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
-          >
-            <TriCheckbox state={triStateFromCount(selectedCount, total)} size="sm" />
-            <span>已选全部</span>
-          </button>
-
           {downloading && (
             <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
               <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
@@ -568,7 +546,6 @@ export function AuditedCourses() {
               <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
             </div>
           )}
-
         </div>
       </div>
 

@@ -1056,7 +1056,7 @@ function CourseCard({
         >
           {c.name}
         </h3>
-        <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+        <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-sans tabular-nums h-4 flex items-center justify-center">
           {c.teacher
             ? c.itemCount > 0
               ? `${c.teacher} · ${c.itemCount} 项`
@@ -1252,7 +1252,7 @@ export function GridView({
                   >
                     {cat.name}
                   </h4>
-                  <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+                  <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-sans tabular-nums h-4 flex items-center justify-center">
                     {cat.items.length} 个文件
                   </div>
                 </div>
@@ -1347,7 +1347,7 @@ export function GridView({
                 >
                   {item.name}
                 </span>
-                <span className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+                <span className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-sans tabular-nums h-4 flex items-center justify-center">
                   {item.disabledReason || (item.size ? formatBytes(item.size) : item.date || '文件')}
                 </span>
               </div>

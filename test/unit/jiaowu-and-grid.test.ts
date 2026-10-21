@@ -257,7 +257,7 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
         endTime: '2026-10-14 15:40:00',
         type: 'course' as const
       }
-      expect(getEventDisplayTime(ideologicalEvent)).toBe('12:55 ~ 15:40 (第6-8节)')
+      expect(getEventDisplayTime(ideologicalEvent)).toBe('12:55 ~ 15:40 · 第6-8节')
     })
 
     it('formats 5-10节 long lab course with full time range and duration', () => {
