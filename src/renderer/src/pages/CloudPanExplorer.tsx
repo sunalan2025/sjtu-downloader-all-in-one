@@ -1,3 +1,6 @@
+import { useToast } from '../hooks/useToast'
+import { Toast } from '../components/Toast'
+import { useClickOutside } from '../hooks/useClickOutside'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../store/app'
 import { BreadcrumbBar, type BreadcrumbItem } from '../components/BreadcrumbBar'
@@ -626,25 +629,9 @@ export function CloudPanExplorer() {
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set())
   const [cloudPanBatchMenuOpen, setCloudPanBatchMenuOpen] = useState(false)
   const cloudPanBatchMenuRef = useRef<HTMLDivElement>(null)
-  const [toastMsg, setToastMsg] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null)
+  const { toast: toastMsg, showToast, hideToast } = useToast(3500)
 
-  useEffect(() => {
-    if (!cloudPanBatchMenuOpen) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (cloudPanBatchMenuRef.current && !cloudPanBatchMenuRef.current.contains(e.target as Node)) {
-        setCloudPanBatchMenuOpen(false)
-      }
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setCloudPanBatchMenuOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [cloudPanBatchMenuOpen])
+  useClickOutside(cloudPanBatchMenuRef, () => setCloudPanBatchMenuOpen(false), { enabled: cloudPanBatchMenuOpen })
 
   // 模态弹窗状态
   const [newFolderOpen, setNewFolderOpen] = useState(false)
@@ -658,16 +645,7 @@ export function CloudPanExplorer() {
   const [deleteTargets, setDeleteTargets] = useState<CloudPanItem[] | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  // 弹窗提示通知
-  const showToast = useCallback((text: string, type: 'info' | 'success' | 'error' = 'info') => {
-    setToastMsg({ text, type })
-  }, [])
-
-  useEffect(() => {
-    if (!toastMsg) return
-    const timer = setTimeout(() => setToastMsg(null), 3500)
-    return () => clearTimeout(timer)
-  }, [toastMsg])
+  // 弹窗提示通知已统一由 useToast hook 接管
 
   // 配额容量计算
   const quota = useMemo(() => {
@@ -1208,22 +1186,7 @@ export function CloudPanExplorer() {
       </div>
 
       {/* 提示消息 Floating Toast */}
-      {toastMsg && (
-        <div className="fixed top-16 right-6 z-50 animate-fadeIn">
-          <div
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium shadow-xl border backdrop-blur-md ${
-              toastMsg.type === 'success'
-                ? 'bg-success/15 border-success/30 text-success'
-                : toastMsg.type === 'error'
-                  ? 'bg-warning/15 border-warning/30 text-warning'
-                  : 'bg-surface-1/90 border-bd text-text-1'
-            }`}
-          >
-            <span>{toastMsg.type === 'success' ? '✅' : toastMsg.type === 'error' ? '⚠️' : 'ℹ️'}</span>
-            <span>{toastMsg.text}</span>
-          </div>
-        </div>
-      )}
+      <Toast toast={toastMsg} onClose={hideToast} className="fixed top-16 right-6" />
 
       {/* 主视图内容区域 */}
       <main className={`relative flex-1 p-4 md:p-6 ${courseViewMode === 'column' ? 'overflow-hidden flex flex-col pb-20' : 'overflow-y-auto'}`}>

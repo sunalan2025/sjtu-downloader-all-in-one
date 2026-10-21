@@ -4,7 +4,8 @@
 // 与下载状态机无关）+ progress-primitives.tsx（进度状态机与任务控制）。旧导入
 // 路径 '../components/DownloadUI' 由 DownloadUI.tsx barrel re-export 保持不变。
 
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState } from 'react'
+import { useClickOutside } from '../hooks/useClickOutside'
 import type { CourseViewMode } from '../store/app'
 
 export type TriState = 'none' | 'some' | 'all'
@@ -284,23 +285,7 @@ export function DropdownSelect<T extends string = string>({
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [open])
+  useClickOutside(containerRef, () => setOpen(false), { enabled: open })
 
   const selectedOpt = options.find(o => o.value === value) || options[0]
 

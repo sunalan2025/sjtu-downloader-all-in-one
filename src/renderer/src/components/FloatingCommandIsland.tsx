@@ -1,3 +1,4 @@
+import { useClickOutside } from '../hooks/useClickOutside'
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import type { DownloadMode } from '@shared/types'
 import { useAppStore } from '../store/app'
@@ -169,26 +170,11 @@ export function FloatingCommandIsland({
   }, [onStartDownload])
 
   // 点击外部关闭视频机位悬浮菜单
-  useEffect(() => {
-    if (!isPopoverOpen) return
-
-    const handlePointerDown = (event: MouseEvent | PointerEvent): void => {
-      const target = event.target as Node
-      if (
-        popoverRef.current &&
-        !popoverRef.current.contains(target) &&
-        videoTriggerRef.current &&
-        !videoTriggerRef.current.contains(target)
-      ) {
-        setIsPopoverOpen(false)
-      }
-    }
-
-    document.addEventListener('pointerdown', handlePointerDown)
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown)
-    }
-  }, [isPopoverOpen])
+  useClickOutside(popoverRef, () => setIsPopoverOpen(false), {
+    enabled: isPopoverOpen,
+    ignoreRefs: [videoTriggerRef],
+    eventType: 'pointerdown'
+  })
 
   // 全局快捷键：Enter 立即下载，Esc 关闭浮窗或清空选择。
   // [Bug Fix] 下载进行中禁用 Enter 提交（与页面 onDownload 的 st.downloading 守卫一致），

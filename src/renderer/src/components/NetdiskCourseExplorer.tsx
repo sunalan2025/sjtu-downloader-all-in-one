@@ -1,3 +1,5 @@
+import { useToast } from '../hooks/useToast'
+import { Toast } from './Toast'
 import { memo, useMemo, useEffect, useRef, useState, useCallback, Fragment } from 'react'
 import type React from 'react'
 import { useShallow } from 'zustand/shallow'
@@ -341,22 +343,8 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     return ''
   }, [viewMode, columnActiveCourse, columnActiveCategory, courses.length, navState.level, currentCourse, currentCategory])
 
-  // 全局 Toast 提示状态
-  const [toast, setToast] = useState<{ text: string; type: 'success' | 'info' } | null>(null)
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const showToast = useCallback((text: string, type: 'success' | 'info' = 'success') => {
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-    setToast({ text, type })
-    toastTimeoutRef.current = setTimeout(() => {
-      setToast(null)
-    }, 2500)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-    }
-  }, [])
+  // 全局 Toast 提示状态（统一收口至 useToast）
+  const { toast, showToast, hideToast } = useToast(2500)
 
   const isSingleCourse = navState.level !== 'root' && !!currentCourse
 
@@ -669,16 +657,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
       )}
 
       {/* Toast 提示浮条 */}
-      {toast && (
-        <div
-          role="status"
-          data-testid="toast-notification"
-          className="fixed top-12 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-xl border border-bd bg-surface-1/95 px-4 py-2 text-xs font-medium text-text-1 shadow-lg backdrop-blur animate-in fade-in slide-in-from-top-2 duration-200"
-        >
-          <span>{toast.type === 'success' ? '✅' : 'ℹ️'}</span>
-          <span className="truncate max-w-sm">{toast.text}</span>
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   )
 })
@@ -1846,22 +1825,7 @@ export function CourseOverviewInspector({
   const [internalPptPdf, setInternalPptPdf] = useState<boolean>(defaultPptPdf)
   const isPptPdfOn = hasPptPdf ?? course.hasPptPdf ?? (pptCat ? pptCat.state === 'all' : internalPptPdf)
 
-  const [toast, setToast] = useState<{ text: string; type: 'success' | 'info' } | null>(null)
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const showToast = useCallback((text: string, type: 'success' | 'info' = 'success') => {
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-    setToast({ text, type })
-    toastTimeoutRef.current = setTimeout(() => {
-      setToast(null)
-    }, 2500)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-    }
-  }, [])
+  const { toast, showToast, hideToast } = useToast(2500)
 
   const breakdown = useMemo(() => getCourseResourceBreakdown(course), [course])
 
@@ -2073,15 +2037,7 @@ export function CourseOverviewInspector({
       </div>
 
       {/* Toast 提示浮条 */}
-      {toast && (
-        <div
-          role="status"
-          className="absolute bottom-16 left-4 right-4 z-20 flex items-center gap-2 rounded-xl bg-surface-3/95 px-3 py-2 text-xs font-medium text-text-1 shadow-lg ring-1 ring-bd backdrop-blur animate-fadeIn"
-        >
-          <span>{toast.type === 'success' ? '✅' : 'ℹ️'}</span>
-          <span className="truncate flex-1">{toast.text}</span>
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} position="bottom-wide" />
 
       {/* 底部主执行按钮 */}
       <div className="mt-auto pt-3 shrink-0">
@@ -2113,22 +2069,7 @@ export function FileDetailInspector({
   onClose,
   onDownloadSingle
 }: FileDetailInspectorProps) {
-  const [toast, setToast] = useState<{ text: string; type: 'success' | 'info' } | null>(null)
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const showToast = useCallback((text: string, type: 'success' | 'info' = 'success') => {
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-    setToast({ text, type })
-    toastTimeoutRef.current = setTimeout(() => {
-      setToast(null)
-    }, 2500)
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current)
-    }
-  }, [])
+  const { toast, showToast, hideToast } = useToast(2500)
 
   const handleDownloadSingle = () => {
     if (item.disabled) return
@@ -2254,15 +2195,7 @@ export function FileDetailInspector({
       )}
 
       {/* Toast 提示浮条 */}
-      {toast && (
-        <div
-          role="status"
-          className="absolute bottom-28 left-4 right-4 z-20 flex items-center gap-2 rounded-xl bg-surface-3/95 px-3 py-2 text-xs font-medium text-text-1 shadow-lg ring-1 ring-bd backdrop-blur animate-fadeIn"
-        >
-          <span>{toast.type === 'success' ? '✅' : 'ℹ️'}</span>
-          <span className="truncate flex-1">{toast.text}</span>
-        </div>
-      )}
+      <Toast toast={toast} onClose={hideToast} position="bottom-wide" />
 
       {/* 底部双按钮操作区 */}
       <div className="flex flex-col gap-2 mt-auto shrink-0 pt-2">

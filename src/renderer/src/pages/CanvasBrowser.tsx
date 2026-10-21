@@ -1,3 +1,4 @@
+import { useClickOutside } from '../hooks/useClickOutside'
 import { useCallback, useEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react'
 import { useAppStore, useEffectiveProgress } from '../store/app'
 import { useShallow } from 'zustand/shallow'
@@ -449,23 +450,7 @@ export function CanvasBrowser() {
   const [batchMenuOpen, setBatchMenuOpen] = useState(false)
   const batchMenuRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!batchMenuOpen) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (batchMenuRef.current && !batchMenuRef.current.contains(e.target as Node)) {
-        setBatchMenuOpen(false)
-      }
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setBatchMenuOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [batchMenuOpen])
+  useClickOutside(batchMenuRef, () => setBatchMenuOpen(false), { enabled: batchMenuOpen })
 
   const scanStartedRef = useRef(false)
   const scanningVideoInFlightRef = useRef<Set<number>>(new Set())

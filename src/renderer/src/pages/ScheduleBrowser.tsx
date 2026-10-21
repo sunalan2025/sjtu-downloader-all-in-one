@@ -1,3 +1,4 @@
+import { useClickOutside } from '../hooks/useClickOutside'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useAppStore } from '../store/app'
 import { Spinner } from '../components/Spinner'
@@ -805,25 +806,7 @@ export function ScheduleBrowser() {
   }, [selectedCourseForModal, hoveredCourseItem, handleCardMouseLeave])
 
   // 监听 Esc 键与外部点击关闭未标注日期作业浮窗
-  useEffect(() => {
-    if (!showUndatedPopover) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (undatedPopoverRef.current && !undatedPopoverRef.current.contains(e.target as Node)) {
-        setShowUndatedPopover(false)
-      }
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowUndatedPopover(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [showUndatedPopover])
+  useClickOutside(undatedPopoverRef, () => setShowUndatedPopover(false), { enabled: showUndatedPopover })
 
   // 根据入学年份（如 2025 级）动态生成学期列表，只展示入学以来的学期，彻底隐藏入学前的空学期
   const dynamicJiaowuSemesters = useMemo(() => {

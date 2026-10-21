@@ -1,3 +1,4 @@
+import { useClickOutside } from '../hooks/useClickOutside'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, type Theme } from '../store/app'
 import { Segmented, type SegmentedOption } from './Segmented'
@@ -339,14 +340,7 @@ function UpdateBadge() {
     return () => { offP(); offR(); offF() }
   }, [])
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: globalThis.MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), { enabled: open })
 
   if (!info?.hasUpdate || !info.latestVersion) return null
 
