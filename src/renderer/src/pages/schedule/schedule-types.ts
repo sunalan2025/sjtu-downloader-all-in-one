@@ -1,4 +1,4 @@
-import type { ScheduleEvent } from '@shared/types'
+import type { ScheduleEvent, JiaowuCourseItem } from '@shared/types'
 
 /** 交大官方 6 大标准教学时段定义 */
 export interface TimeSlotDef {
@@ -59,3 +59,35 @@ export interface SemesterCourseDetail {
   }>
   assignments?: ScheduleEvent[]
 }
+
+/** 教务去重课程聚合项 */
+export interface UniqueJiaowuCourse {
+  name: string
+  kch?: string
+  xf?: string
+  kcbj?: string
+  kclbmc?: string
+  jxbmc?: string
+  teachers: string
+  locations: string
+  periodAndWeeks: string
+  items: JiaowuCourseItem[]
+}
+
+/** 学期课程清单卡片项 */
+export interface SemesterCourseCardItem {
+  courseName: string
+  titleEn?: string
+  teacher?: string
+  locationsList: string[]
+  assignments: ScheduleEvent[]
+  events: ScheduleEvent[]
+}
+
+/** 教务总览指标概要 */
+export interface JiaowuOverviewSummary {
+  uniqueCourses: UniqueJiaowuCourse[]
+  totalCredits: number
+  uniqueTeachers: string[]
+}
+
