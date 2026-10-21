@@ -762,6 +762,139 @@ export function isTeacherPerspectiveItem(item: NetdiskFileItem): boolean {
   return true
 }
 
+// ─── useCategoryViewLogic：GridView / ListView 共用的分类视图逻辑 ───
+//
+// [Phase 3 去重] 两个视图组件各自手抄了同一套 ~130 行分类视图逻辑：选中态判定、
+// 学期分组、视角筛选（audio 档映射教师视角 + 同步全局画质偏好 + 按机位勾选）、
+// 教师/PPT 计数、displayedItems 过滤、单文件直下调度（含假成功 toast 禁令）。
+// 布局（网格卡片 vs 表格行）真正不同，留在各视图组件里。
+
+export interface CategoryViewLogicParams {
+  courses: NetdiskCourseItem[]
+  currentCourse?: NetdiskCourseItem
+  currentCategory?: NetdiskCategoryItem
+  groupByTerm?: boolean
+  hasSelection?: boolean
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  showToast?: (text: string, type?: 'success' | 'info') => void
+}
+
+export function useCategoryViewLogic(params: CategoryViewLogicParams) {
+  const { courses, currentCourse, currentCategory, groupByTerm = true, hasSelection, onDownloadSingle, perspective, onPerspectiveChange, showToast } = params
+
+  const isSelected =
+    hasSelection ??
+    (courses.some(c => c.state !== 'none') ||
+      currentCourse?.state !== 'none' ||
+      currentCategory?.items.some(i => i.selected) ||
+      false)
+
+  const termGroups = useMemo(() => {
+    if (!groupByTerm) return null
+    return groupCoursesByTerm(courses)
+  }, [courses, groupByTerm])
+
+  const isVideoCat = isVideoCategory(currentCategory)
+  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('all')
+  const activePerspective = perspective ?? currentCourse?.perspective ?? internalPerspective
+
+  const handleFilterPerspectiveChange = useCallback((nextPerspective: VideoPerspective) => {
+    setInternalPerspective(nextPerspective)
+    onPerspectiveChange?.(nextPerspective)
+    currentCourse?.onPerspectiveChange?.(nextPerspective)
+    // [Bug Fix] audio 档原先被忽略（no-op）。机位含 audio 语义时同步全局画质偏好；
+    // 纯音频模式下 PPT 路无独立音频流，按教师视角过滤（与 onDownload 的 angle===3 跳过一致）。
+    applyVideoPerspectivePreference(nextPerspective)
+
+    if (currentCategory) {
+      const filterPerspective: VideoPerspective =
+        nextPerspective === 'audio' ? 'teacher' : nextPerspective
+      for (const item of currentCategory.items) {
+        if (item.disabled) continue
+        const isTeacher = isTeacherPerspectiveItem(item)
+        const isPpt = isPptPerspectiveItem(item)
+
+        if (filterPerspective === 'all') {
+          if (!item.selected) item.onToggle()
+        } else if (filterPerspective === 'teacher') {
+          if (isTeacher && !item.selected) item.onToggle()
+          if (!isTeacher && item.selected) item.onToggle()
+        } else if (filterPerspective === 'ppt') {
+          if (isPpt && !item.selected) item.onToggle()
+          if (!isPpt && item.selected) item.onToggle()
+        }
+      }
+    }
+  }, [onPerspectiveChange, currentCourse, currentCategory])
+
+  const { totalCount, teacherCount, pptCount } = useMemo(() => {
+    if (!currentCategory) return { totalCount: 0, teacherCount: 0, pptCount: 0 }
+    let teacher = 0
+    let ppt = 0
+    for (const item of currentCategory.items) {
+      if (isTeacherPerspectiveItem(item)) teacher++
+      if (isPptPerspectiveItem(item)) ppt++
+    }
+    if (teacher === 0 && ppt === 0) {
+      teacher = currentCategory.items.length
+    }
+    return {
+      totalCount: currentCategory.items.length,
+      teacherCount: teacher,
+      pptCount: ppt
+    }
+  }, [currentCategory])
+
+  const displayedItems = useMemo(() => {
+    if (!currentCategory) return []
+    if (!isVideoCat) return currentCategory.items
+    // audio 档在文件列表维度按教师视角展示（纯音频只有教师路）
+    const filterPerspective: VideoPerspective = activePerspective === 'audio' ? 'teacher' : activePerspective
+    if (filterPerspective === 'teacher') {
+      return currentCategory.items.filter(isTeacherPerspectiveItem)
+    }
+    if (filterPerspective === 'ppt') {
+      return currentCategory.items.filter(isPptPerspectiveItem)
+    }
+    return currentCategory.items
+  }, [currentCategory, isVideoCat, activePerspective])
+
+  const handleSingleDownload = useCallback((item: NetdiskFileItem) => {
+    if (item.disabled) return
+    // 直下必须存在真实回调（页面级 onDownloadSingle 或条目级 onDownloadSingle/onDownload）。
+    // [Bug Fix] 原实现兜底"未勾选则 onToggle + toast 已开始下载"——在旁听/好大学等
+    // 未接单文件直下的页面上，点击"下载"只做了勾选却谎报下载开始。禁止假成功提示：
+    // 无真实回调时回退为勾选并提示需点主按钮，不冒充下载已启动。
+    if (onDownloadSingle) {
+      onDownloadSingle(item, currentCourse, currentCategory)
+    } else if (item.onDownloadSingle) {
+      item.onDownloadSingle()
+    } else if (item.onDownload) {
+      item.onDownload()
+    } else {
+      if (!item.selected) item.onToggle()
+      showToast?.(`已勾选 "${item.name}"，点击「立即下载」开始传输`, 'info')
+      return
+    }
+    showToast?.(`已开始下载 "${item.name}"`, 'success')
+  }, [onDownloadSingle, currentCourse, currentCategory, showToast])
+
+  return {
+    isSelected,
+    termGroups,
+    isVideoCat,
+    activePerspective,
+    handleFilterPerspectiveChange,
+    totalCount,
+    teacherCount,
+    pptCount,
+    displayedItems,
+    handleSingleDownload
+  }
+}
+
 export interface VideoPerspectiveFilterPillsProps {
   perspective: VideoPerspective
   totalCount: number
@@ -985,102 +1118,28 @@ export function GridView({
   showToast?: (text: string, type?: 'success' | 'info') => void
   hasSelection?: boolean
 }) {
-  const isSelected =
-    hasSelection ??
-    (courses.some(c => c.state !== 'none') ||
-      currentCourse?.state !== 'none' ||
-      currentCategory?.items.some(i => i.selected) ||
-      false)
-
-  const termGroups = useMemo(() => {
-    if (!groupByTerm) return null
-    return groupCoursesByTerm(courses)
-  }, [courses, groupByTerm])
-
-  const isVideoCat = isVideoCategory(currentCategory)
-  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('all')
-  const activePerspective = perspective ?? currentCourse?.perspective ?? internalPerspective
-
-  const handleFilterPerspectiveChange = useCallback((nextPerspective: VideoPerspective) => {
-    setInternalPerspective(nextPerspective)
-    onPerspectiveChange?.(nextPerspective)
-    currentCourse?.onPerspectiveChange?.(nextPerspective)
-    // [Bug Fix] audio 档原先被忽略（no-op）。机位含 audio 语义时同步全局画质偏好；
-    // 纯音频模式下 PPT 路无独立音频流，按教师视角过滤（与 onDownload 的 angle===3 跳过一致）。
-    applyVideoPerspectivePreference(nextPerspective)
-
-    if (currentCategory) {
-      const filterPerspective: VideoPerspective =
-        nextPerspective === 'audio' ? 'teacher' : nextPerspective
-      for (const item of currentCategory.items) {
-        if (item.disabled) continue
-        const isTeacher = isTeacherPerspectiveItem(item)
-        const isPpt = isPptPerspectiveItem(item)
-
-        if (filterPerspective === 'all') {
-          if (!item.selected) item.onToggle()
-        } else if (filterPerspective === 'teacher') {
-          if (isTeacher && !item.selected) item.onToggle()
-          if (!isTeacher && item.selected) item.onToggle()
-        } else if (filterPerspective === 'ppt') {
-          if (isPpt && !item.selected) item.onToggle()
-          if (!isPpt && item.selected) item.onToggle()
-        }
-      }
-    }
-  }, [onPerspectiveChange, currentCourse, currentCategory])
-
-  const { totalCount, teacherCount, pptCount } = useMemo(() => {
-    if (!currentCategory) return { totalCount: 0, teacherCount: 0, pptCount: 0 }
-    let teacher = 0
-    let ppt = 0
-    for (const item of currentCategory.items) {
-      if (isTeacherPerspectiveItem(item)) teacher++
-      if (isPptPerspectiveItem(item)) ppt++
-    }
-    if (teacher === 0 && ppt === 0) {
-      teacher = currentCategory.items.length
-    }
-    return {
-      totalCount: currentCategory.items.length,
-      teacherCount: teacher,
-      pptCount: ppt
-    }
-  }, [currentCategory])
-
-  const displayedItems = useMemo(() => {
-    if (!currentCategory) return []
-    if (!isVideoCat) return currentCategory.items
-    // audio 档在文件列表维度按教师视角展示（纯音频只有教师路）
-    const filterPerspective: VideoPerspective = activePerspective === 'audio' ? 'teacher' : activePerspective
-    if (filterPerspective === 'teacher') {
-      return currentCategory.items.filter(isTeacherPerspectiveItem)
-    }
-    if (filterPerspective === 'ppt') {
-      return currentCategory.items.filter(isPptPerspectiveItem)
-    }
-    return currentCategory.items
-  }, [currentCategory, isVideoCat, activePerspective])
-
-  const handleSingleDownload = useCallback((item: NetdiskFileItem) => {
-    if (item.disabled) return
-    // 直下必须存在真实回调（页面级 onDownloadSingle 或条目级 onDownloadSingle/onDownload）。
-    // [Bug Fix] 原实现兜底"未勾选则 onToggle + toast 已开始下载"——在旁听/好大学等
-    // 未接单文件直下的页面上，点击"下载"只做了勾选却谎报下载开始。禁止假成功提示：
-    // 无真实回调时回退为勾选并提示需点主按钮，不冒充下载已启动。
-    if (onDownloadSingle) {
-      onDownloadSingle(item, currentCourse, currentCategory)
-    } else if (item.onDownloadSingle) {
-      item.onDownloadSingle()
-    } else if (item.onDownload) {
-      item.onDownload()
-    } else {
-      if (!item.selected) item.onToggle()
-      showToast?.(`已勾选 "${item.name}"，点击「立即下载」开始传输`, 'info')
-      return
-    }
-    showToast?.(`已开始下载 "${item.name}"`, 'success')
-  }, [onDownloadSingle, currentCourse, currentCategory, showToast])
+  const {
+    isSelected,
+    termGroups,
+    isVideoCat,
+    activePerspective,
+    handleFilterPerspectiveChange,
+    totalCount,
+    teacherCount,
+    pptCount,
+    displayedItems,
+    handleSingleDownload
+  } = useCategoryViewLogic({
+    courses,
+    currentCourse,
+    currentCategory,
+    groupByTerm,
+    hasSelection,
+    onDownloadSingle,
+    perspective,
+    onPerspectiveChange,
+    showToast
+  })
 
   // 根目录：展示课程大文件夹网格
   if (navState.level === 'root' || !currentCourse) {
@@ -1416,98 +1475,28 @@ export function ListView({
   showToast?: (text: string, type?: 'success' | 'info') => void
   hasSelection?: boolean
 }) {
-  const isSelected =
-    hasSelection ??
-    (courses.some(c => c.state !== 'none') ||
-      currentCourse?.state !== 'none' ||
-      currentCategory?.items.some(i => i.selected) ||
-      false)
-
-  const termGroups = useMemo(() => {
-    if (!groupByTerm) return null
-    return groupCoursesByTerm(courses)
-  }, [courses, groupByTerm])
-
-  const isVideoCat = isVideoCategory(currentCategory)
-  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('all')
-  const activePerspective = perspective ?? currentCourse?.perspective ?? internalPerspective
-
-  const handleFilterPerspectiveChange = useCallback((nextPerspective: VideoPerspective) => {
-    setInternalPerspective(nextPerspective)
-    onPerspectiveChange?.(nextPerspective)
-    currentCourse?.onPerspectiveChange?.(nextPerspective)
-    // [Bug Fix] 同 GridView：audio 档同步全局画质偏好，文件列表按教师视角过滤
-    applyVideoPerspectivePreference(nextPerspective)
-
-    if (currentCategory) {
-      const filterPerspective: VideoPerspective =
-        nextPerspective === 'audio' ? 'teacher' : nextPerspective
-      for (const item of currentCategory.items) {
-        if (item.disabled) continue
-        const isTeacher = isTeacherPerspectiveItem(item)
-        const isPpt = isPptPerspectiveItem(item)
-
-        if (filterPerspective === 'all') {
-          if (!item.selected) item.onToggle()
-        } else if (filterPerspective === 'teacher') {
-          if (isTeacher && !item.selected) item.onToggle()
-          if (!isTeacher && item.selected) item.onToggle()
-        } else if (filterPerspective === 'ppt') {
-          if (isPpt && !item.selected) item.onToggle()
-          if (!isPpt && item.selected) item.onToggle()
-        }
-      }
-    }
-  }, [onPerspectiveChange, currentCourse, currentCategory])
-
-  const { totalCount, teacherCount, pptCount } = useMemo(() => {
-    if (!currentCategory) return { totalCount: 0, teacherCount: 0, pptCount: 0 }
-    let teacher = 0
-    let ppt = 0
-    for (const item of currentCategory.items) {
-      if (isTeacherPerspectiveItem(item)) teacher++
-      if (isPptPerspectiveItem(item)) ppt++
-    }
-    if (teacher === 0 && ppt === 0) {
-      teacher = currentCategory.items.length
-    }
-    return {
-      totalCount: currentCategory.items.length,
-      teacherCount: teacher,
-      pptCount: ppt
-    }
-  }, [currentCategory])
-
-  const displayedItems = useMemo(() => {
-    if (!currentCategory) return []
-    if (!isVideoCat) return currentCategory.items
-    // audio 档在文件列表维度按教师视角展示（纯音频只有教师路），同 GridView
-    const filterPerspective: VideoPerspective = activePerspective === 'audio' ? 'teacher' : activePerspective
-    if (filterPerspective === 'teacher') {
-      return currentCategory.items.filter(isTeacherPerspectiveItem)
-    }
-    if (filterPerspective === 'ppt') {
-      return currentCategory.items.filter(isPptPerspectiveItem)
-    }
-    return currentCategory.items
-  }, [currentCategory, isVideoCat, activePerspective])
-
-  const handleSingleDownload = useCallback((item: NetdiskFileItem) => {
-    if (item.disabled) return
-    // [Bug Fix] 同 GridView：无真实直下回调时禁止假"已开始下载"toast（见上方注释）
-    if (onDownloadSingle) {
-      onDownloadSingle(item, currentCourse, currentCategory)
-    } else if (item.onDownloadSingle) {
-      item.onDownloadSingle()
-    } else if (item.onDownload) {
-      item.onDownload()
-    } else {
-      if (!item.selected) item.onToggle()
-      showToast?.(`已勾选 "${item.name}"，点击「立即下载」开始传输`, 'info')
-      return
-    }
-    showToast?.(`已开始下载 "${item.name}"`, 'success')
-  }, [onDownloadSingle, currentCourse, currentCategory, showToast])
+  const {
+    isSelected,
+    termGroups,
+    isVideoCat,
+    activePerspective,
+    handleFilterPerspectiveChange,
+    totalCount,
+    teacherCount,
+    pptCount,
+    displayedItems,
+    handleSingleDownload
+  } = useCategoryViewLogic({
+    courses,
+    currentCourse,
+    currentCategory,
+    groupByTerm,
+    hasSelection,
+    onDownloadSingle,
+    perspective,
+    onPerspectiveChange,
+    showToast
+  })
 
   // 根目录列表
   if (navState.level === 'root' || !currentCourse) {
