@@ -234,13 +234,13 @@ export function ScheduleBrowser() {
     const list: Array<{ key: string; label: string }> = []
     for (let y = currentXnm; y >= enrollmentYear; y--) {
       if (y === currentXnm) {
-        list.push({ key: `${y}_3`, label: `${y}-${y + 1}学年 第1学期 (秋季 · 官方教务)` })
+        list.push({ key: `${y}_3`, label: `${y}-${y + 1} 秋季学期` })
       } else {
-        list.push({ key: `${y}_16`, label: `${y}-${y + 1}学年 第3学期 (夏季小学期)` })
-        list.push({ key: `${y}_12`, label: `${y}-${y + 1}学年 第2学期 (春季)` })
+        list.push({ key: `${y}_16`, label: `${y}-${y + 1} 夏季小学期` })
+        list.push({ key: `${y}_12`, label: `${y}-${y + 1} 春季学期` })
         list.push({
           key: `${y}_3`,
-          label: `${y}-${y + 1}学年 第1学期 (秋季${y === enrollmentYear ? ' · 入学学期' : ''})`
+          label: `${y}-${y + 1} 秋季学期`
         })
       }
     }

@@ -372,7 +372,7 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(res.studentName).toBe('张三')
       expect(res.studentId).toBe('525080910001')
       expect(res.studentGrade).toBe('2025')
-      expect(res.termTitle).toContain('2026-2027学年 第1学期 (秋季)')
+      expect(res.termTitle).toContain('2026-2027 秋季学期')
     })
 
     it('extracts studentGrade preferentially from NJDM_ID', async () => {
@@ -441,13 +441,13 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       const list: Array<{ key: string; label: string }> = []
       for (let y = currentXnm; y >= enrollmentYear; y--) {
         if (y === currentXnm) {
-          list.push({ key: `${y}_3`, label: `${y}-${y + 1}学年 第1学期 (秋季 · 官方教务)` })
+          list.push({ key: `${y}_3`, label: `${y}-${y + 1} 秋季学期` })
         } else {
-          list.push({ key: `${y}_16`, label: `${y}-${y + 1}学年 第3学期 (夏季小学期)` })
-          list.push({ key: `${y}_12`, label: `${y}-${y + 1}学年 第2学期 (春季)` })
+          list.push({ key: `${y}_16`, label: `${y}-${y + 1} 夏季小学期` })
+          list.push({ key: `${y}_12`, label: `${y}-${y + 1} 春季学期` })
           list.push({
             key: `${y}_3`,
-            label: `${y}-${y + 1}学年 第1学期 (秋季${y === enrollmentYear ? ' · 入学学期' : ''})`
+            label: `${y}-${y + 1} 秋季学期`
           })
         }
       }
@@ -460,7 +460,7 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(keys).toEqual(['2026_3', '2025_16', '2025_12', '2025_3'])
       expect(keys).not.toContain('2024_3')
       expect(keys).not.toContain('2023_3')
-      expect(semesters.find(s => s.key === '2025_3')?.label).toContain('入学学期')
+      expect(semesters.find(s => s.key === '2025_3')?.label).toBe('2025-2026 秋季学期')
     })
 
     it('includes earlier semesters only for senior students (e.g. 2023 grade)', () => {
@@ -470,7 +470,7 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(keys).toContain('2025_3')
       expect(keys).toContain('2024_3')
       expect(keys).toContain('2023_3')
-      expect(semesters.find(s => s.key === '2023_3')?.label).toContain('入学学期')
+      expect(semesters.find(s => s.key === '2023_3')?.label).toBe('2023-2024 秋季学期')
     })
   })
 

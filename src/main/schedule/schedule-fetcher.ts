@@ -917,8 +917,8 @@ export async function fetchJiaowuSchedule(
   xnm = '2026',
   xqm = '3'
 ): Promise<JiaowuScheduleResult> {
-  const termName = xqm === '3' ? '第1学期 (秋季)' : xqm === '12' ? '第2学期 (春季)' : '第3学期 (夏季小学期)'
-  const termTitle = `${xnm}-${Number(xnm) + 1}学年 ${termName}`
+  const termName = xqm === '3' ? '秋季学期' : xqm === '12' ? '春季学期' : '夏季小学期'
+  const termTitle = `${xnm}-${Number(xnm) + 1} ${termName}`
 
   try {
     const loggedIn = await ensureJiaowuLoggedIn(ses)
