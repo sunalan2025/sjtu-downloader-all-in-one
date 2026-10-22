@@ -1,14 +1,20 @@
 import { getAssignmentStatusInfo } from '../schedule-helpers'
 
 /** 锁定截止徽标：标明截止时间继承自 Canvas 课程锁定/关闭时间 (lock_at) */
-export function LockDeadlineBadge({ className = '' }: { className?: string }) {
+export function LockDeadlineBadge({
+  className = '',
+  compact = false
+}: {
+  className?: string
+  compact?: boolean
+}) {
   return (
     <span
       className={`inline-flex items-center gap-0.5 rounded border border-sky-500/20 bg-sky-500/10 px-1 py-0.5 text-3xs font-medium text-sky-600 dark:text-sky-400 font-sans select-none shrink-0 ${className}`}
-      title="该作业未设置明确截止时间 (due_at)，截止时限继承自 Canvas 课程锁定/关闭时间 (lock_at)"
+      title="该作业未设置明确截止时间，截止时限自动继承自课程锁定关闭时间"
     >
       <span>🔒</span>
-      <span>锁定截止</span>
+      <span>{compact ? '锁定' : '锁定截止'}</span>
     </span>
   )
 }

@@ -1,6 +1,6 @@
 import type React from 'react'
 import type { ScheduleEvent, JiaowuScheduleResult } from '@shared/types'
-import { isSafeExternalUrl } from '@shared/utils'
+import { isSafeExternalUrl, cleanParenthesesInTitle } from '@shared/utils'
 import type {
   PlacedEvent,
   DayEventCluster,
@@ -296,7 +296,7 @@ export function SemesterScheduleView({
                         style={{ gridColumn: 1, gridRow: 3 }}
                         onClick={() => setExpandSemesterNoonSlot(true)}
                         className="min-w-0 flex items-center justify-center border-b border-r border-bd/50 dark:border-white/[0.05] bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer p-1 text-center select-none group"
-                        title="点击展开中午第 5-6 节时段 (12:00 - 13:40)"
+                        title="点击展开中午第 5-6 节时段 · 12:00 - 13:40"
                       >
                         <span className="text-3xs text-text-4 font-mono group-hover:text-text-2">
                           第 5-6 节 ▾
@@ -434,7 +434,7 @@ export function SemesterScheduleView({
                                 {/* 顶部课程名 (全宽无遮挡展示) */}
                                 <div>
                                   <div className="font-bold text-text-1 text-xs md:text-sm leading-snug break-words">
-                                    {item.title}
+                                    {cleanParenthesesInTitle(item.title)}
                                   </div>
                                 </div>
 
@@ -513,7 +513,7 @@ export function SemesterScheduleView({
                           className="font-bold text-sm text-text-1 line-clamp-1 hover:text-accent cursor-pointer transition-colors"
                           title="点击查看课程全学期课表与教学信息"
                         >
-                          {c.courseName}
+                          {cleanParenthesesInTitle(c.courseName)}
                         </h4>
                         <button
                           type="button"
@@ -604,7 +604,7 @@ export function SemesterScheduleView({
                         className="font-bold text-sm text-text-1 line-clamp-1 hover:text-accent cursor-pointer transition-colors"
                         title="点击查看课程全学期课表与教学信息"
                       >
-                        {c.name}
+                        {cleanParenthesesInTitle(c.name)}
                       </h4>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {c.xf && (
@@ -718,7 +718,7 @@ export function SemesterScheduleView({
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <AssignmentStatusBadge status={ddl.submissionStatus} score={ddl.score} />
-                      <h4 className="font-semibold text-sm text-text-1">{ddl.title}</h4>
+                      <h4 className="font-semibold text-sm text-text-1">{cleanParenthesesInTitle(ddl.title)}</h4>
                     </div>
                     <div className="text-2xs text-text-3 flex items-center gap-3">
                       <span>📚 课程: {ddl.courseName || '未归类'}</span>

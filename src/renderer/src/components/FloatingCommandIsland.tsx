@@ -144,11 +144,8 @@ export function FloatingCommandIsland({
 
   const handlePerspectiveSelect = useCallback(
     (p: VideoPerspective) => {
-      if (onPerspectiveChange) {
-        onPerspectiveChange(p)
-      } else {
-        setInternalPerspective(p)
-      }
+      setInternalPerspective(p)
+      onPerspectiveChange?.(p)
       setIsPopoverOpen(false)
     },
     [onPerspectiveChange]

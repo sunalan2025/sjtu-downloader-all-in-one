@@ -9,6 +9,7 @@ import {
 import { useToast } from '../../src/renderer/src/hooks/useToast'
 import { Toast } from '../../src/renderer/src/components/Toast'
 import * as cheerio from 'cheerio'
+import { cleanParenthesesInTitle } from '../../src/shared/utils'
 
 describe('useClickOutside & registerClickOutside Primitives', () => {
   let listeners: Record<string, Array<(e: any) => void>> = {}
@@ -199,5 +200,28 @@ describe('useToast Hook & Toast Component', () => {
     expect(wideHtml).toContain('bottom-16')
     expect(wideHtml).toContain('left-4')
     expect(wideHtml).toContain('right-4')
+  })
+})
+describe('cleanParenthesesInTitle 标题与课程名去括号纯函数测试', () => {
+  it('正确将末尾教学班号 (1) 转化为 1班 并清除括号', () => {
+    expect(cleanParenthesesInTitle('物理化学 (1)')).toBe('物理化学 1班')
+    expect(cleanParenthesesInTitle('科技实习与创新—生物信息学 (1)')).toBe('科技实习与创新—生物信息学 1班')
+  })
+
+  it('正确将课程分类 (B类) 保留文字并移除括号，同时处理班号 (2)', () => {
+    expect(cleanParenthesesInTitle('大学物理 (B类) (2)')).toBe('大学物理 B类 2班')
+    expect(cleanParenthesesInTitle('高等数学（A类）（1）')).toBe('高等数学 A类 1班')
+  })
+
+  it('正确处理作业标题中的课程分类与第N次作业', () => {
+    expect(cleanParenthesesInTitle('大学物理二 (B类) 第五周周二作业')).toBe('大学物理二 B类 第五周周二作业')
+    expect(cleanParenthesesInTitle('《热力学第二定律》作业 物理化学 (1)')).toBe('《热力学第二定律》作业 物理化学 1班')
+    expect(cleanParenthesesInTitle('第(1)次作业')).toBe('第1次作业')
+    expect(cleanParenthesesInTitle('第（2）讲课件')).toBe('第2讲课件')
+  })
+
+  it('容灾测试：空字符串、无括号文本直接安全返回', () => {
+    expect(cleanParenthesesInTitle('')).toBe('')
+    expect(cleanParenthesesInTitle('大学英语')).toBe('大学英语')
   })
 })

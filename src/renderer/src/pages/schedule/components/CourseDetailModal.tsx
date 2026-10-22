@@ -1,4 +1,4 @@
-import { isSafeExternalUrl } from '@shared/utils'
+import { isSafeExternalUrl, cleanParenthesesInTitle } from '@shared/utils'
 import type { SemesterCourseDetail } from '../schedule-types'
 import {
   getAssignmentStatusInfo,
@@ -29,7 +29,7 @@ export function CourseDetailModal({ course, onClose }: CourseDetailModalProps) {
           <div className="space-y-1.5 pr-4">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-bold text-text-1 tracking-tight">
-                {course.courseName}
+                {cleanParenthesesInTitle(course.courseName)}
               </h3>
               {course.xf && (
                 <span className="rounded-full bg-accent/15 px-2.5 py-0.5 text-2xs font-semibold text-accent">
@@ -54,7 +54,7 @@ export function CourseDetailModal({ course, onClose }: CourseDetailModalProps) {
             type="button"
             onClick={onClose}
             className="rounded-full p-1.5 text-text-3 hover:text-text-1 hover:bg-surface-3 transition-colors cursor-pointer"
-            title="关闭 (Esc)"
+            title="关闭 · 按 Esc 退出"
           >
             ✕
           </button>

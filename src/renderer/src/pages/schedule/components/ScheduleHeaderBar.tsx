@@ -62,12 +62,12 @@ export function ScheduleHeaderBar({
             className="rounded-xl border border-bd bg-surface-1 pl-3 pr-8 py-1.5 text-xs font-semibold text-text-1 focus:border-accent focus:outline-none cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
             title="切换当前学期或历史官方排课"
           >
-            <optgroup label="交我办 & Canvas (当前学期实时联动)">
+            <optgroup label="交我办与教学平台 · 当前学期实时同步">
               <option value="current">
-                2026-2027-1 (交我办日历 + Canvas全量作业) · 实时
+                2026-2027-1 · 当前学期实时同步
               </option>
             </optgroup>
-            <optgroup label="交大教学信息服务网 (历年官方学生课表)">
+            <optgroup label="教学信息服务网 · 历年官方课表">
               {semesters.map(s => (
                 <option key={s.key} value={s.key}>
                   {s.label}
@@ -120,7 +120,7 @@ export function ScheduleHeaderBar({
               title="切换教务排课显示"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-              <span>排课 ({courseEventsCount})</span>
+              <span>排课 · {courseEventsCount}</span>
             </button>
             <button
               type="button"
@@ -133,7 +133,7 @@ export function ScheduleHeaderBar({
               title="切换学术讲座与校园活动显示"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-purple-500" />
-              <span>讲座 ({activityEventsCount})</span>
+              <span>讲座 · {activityEventsCount}</span>
             </button>
             <button
               type="button"
@@ -146,7 +146,7 @@ export function ScheduleHeaderBar({
               title="切换 Canvas 作业 DDL 显示"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-              <span>作业 ({ddlEventsCount})</span>
+              <span>作业 · {ddlEventsCount}</span>
             </button>
           </div>
         )}
@@ -155,7 +155,7 @@ export function ScheduleHeaderBar({
           <div className="hidden sm:inline-flex items-center gap-2 rounded-xl border border-bd bg-surface-1 px-3 py-1 text-2xs text-text-2 shadow-2xs">
             <span>👤 {studentName}</span>
             {studentId && (
-              <span className="font-mono text-text-3">({studentId})</span>
+              <span className="font-mono text-text-3">· {studentId}</span>
             )}
           </div>
         )}

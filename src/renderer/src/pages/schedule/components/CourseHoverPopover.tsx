@@ -1,5 +1,6 @@
 import type { ScheduleEvent } from '@shared/types'
 import { getEventDisplayTime } from '../schedule-helpers'
+import { cleanParenthesesInTitle } from '@shared/utils'
 
 export interface HoveredCourseInfo {
   item: ScheduleEvent
@@ -41,7 +42,7 @@ export function CourseHoverPopover({
         {/* 顶部课程名称与学分徽标 */}
         <div className="space-y-1">
           <div className="font-bold text-sm text-text-1 leading-snug break-words tracking-tight">
-            {item.title}
+            {cleanParenthesesInTitle(item.title)}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {item.xf && (

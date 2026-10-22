@@ -394,3 +394,26 @@ export function estimateResourceSize(params: EstimateSizeParams): EstimatedSizeR
 
 
 
+
+/**
+ * 界面标题与课程名称括号净化函数
+ * 消除生硬的中文/英文括号，将教学班号（如 `(1)`）自然转化为 `1班`，
+ * 将课程分类（如 `(B类)`）转化为 `B类`，彻底消除可见括号。
+ *
+ * 示例:
+ * - `大学物理 (B类) (2)` -> `大学物理 B类 2班`
+ * - `物理化学 (1)` -> `物理化学 1班`
+ * - `科技实习与创新—生物信息学 (1)` -> `科技实习与创新—生物信息学 1班`
+ * - `大学物理二 (B类) 第五周周二作业` -> `大学物理二 B类 第五周周二作业`
+ * - `《热力学第二定律》作业 物理化学 (1)` -> `《热力学第二定律》作业 物理化学 1班`
+ * - `第(1)次作业` -> `第1次作业`
+ */
+export function cleanParenthesesInTitle(title: string): string {
+  if (!title) return ''
+  return title
+    .replace(/第\s*[（(]\s*(\d+)\s*[）)]\s*([次讲章节周题])/g, '第$1$2')
+    .replace(/(?<!第)[（(]\s*(\d+)\s*[）)](?![次讲章节周题])/g, ' $1班 ')
+    .replace(/[（(](.*?)[）)]/g, ' $1 ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}

@@ -1,11 +1,10 @@
 import type React from 'react'
 import type { ScheduleWeek, ScheduleEvent, JiaowuScheduleResult } from '@shared/types'
-import { isSafeExternalUrl } from '@shared/utils'
+import { isSafeExternalUrl, cleanParenthesesInTitle } from '@shared/utils'
 import type { PlacedEvent, DayEventCluster } from '../schedule-types'
 import {
   SJTU_TIME_SLOTS,
   formatEventTime,
-  formatShortDate,
   getEventDisplayTime,
   getAssignmentStatusInfo
 } from '../schedule-helpers'
@@ -82,8 +81,8 @@ export function WeekScheduleView({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 周次导航条 */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-bd bg-surface-2/60 p-3 shadow-2xs backdrop-blur-sm">
+      {/* 周次导航条 (声明 relative z-30 防止展开抽屉时日历表头漂浮在上方) */}
+      <div className="relative z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-bd bg-surface-2/60 p-3 shadow-2xs backdrop-blur-sm">
         <div className="flex items-center gap-2">
           {isCurrentMode ? (
             <>
@@ -108,13 +107,12 @@ export function WeekScheduleView({
                   onChange={e => setSelectedWeekKey(e.target.value)}
                   className="rounded-xl border border-bd bg-surface-1 pl-3 pr-8 py-1.5 text-xs font-semibold text-text-1 focus:border-accent focus:outline-none cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
                 >
-                  <optgroup label={`${semesterTitle || '秋季学期'} (正序)`}>
+                  <optgroup label={`${semesterTitle || '秋季学期'} 正序`}>
                     {regularTermWeeks.map(w => {
                       const isCur = w.week === currentWeek
-                      const span = `${formatShortDate(w.startTime)} ~ ${formatShortDate(w.endTime)}`
                       return (
                         <option key={`${w.title}_${w.week}`} value={`${w.title || ''}_${w.week}`}>
-                          {w.week} ({span}) {isCur ? '· 当前周' : ''}
+                          {w.week} {isCur ? '· 当前周' : ''}
                         </option>
                       )
                     })}
@@ -123,7 +121,7 @@ export function WeekScheduleView({
                     <optgroup label="假期周次">
                       {breakWeeks.map(w => (
                         <option key={`${w.title}_${w.week}`} value={`${w.title || ''}_${w.week}`}>
-                          {w.title} - {w.week} ({formatShortDate(w.startTime)} ~ {formatShortDate(w.endTime)})
+                          {w.title} - {w.week}
                         </option>
                       ))}
                     </optgroup>
@@ -278,7 +276,7 @@ export function WeekScheduleView({
                         >
                           <div className="flex items-start justify-between gap-1">
                             <span className="font-semibold line-clamp-2 leading-tight flex items-center gap-1">
-                              {item.title}
+                              {cleanParenthesesInTitle(item.title)}
                               {canOpen && (
                                 <span className="opacity-0 group-hover:opacity-100 transition-opacity text-3xs shrink-0 font-normal">
                                   ↗
@@ -290,9 +288,9 @@ export function WeekScheduleView({
                             </span>
                           </div>
                           <div className="mt-1 flex items-center justify-between gap-1 text-3xs opacity-80">
-                            <span className="truncate">{item.courseName || '作业'}</span>
+                            <span className="truncate">{cleanParenthesesInTitle(item.courseName || '作业')}</span>
                             <div className="flex items-center gap-1 shrink-0 font-mono font-medium">
-                              {item.isLockAtDeadline && <LockDeadlineBadge />}
+                              {item.isLockAtDeadline && <LockDeadlineBadge compact />}
                               <span>{formatEventTime(item.endTime) || '截止'}</span>
                             </div>
                           </div>
@@ -325,7 +323,7 @@ export function WeekScheduleView({
                     style={{ gridColumn: 1, gridRow: 3 }}
                     onClick={() => setExpandNoonSlot(true)}
                     className="min-w-0 flex items-center justify-center border-b border-r border-bd/50 dark:border-white/[0.05] bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer p-1 text-center select-none group"
-                    title="点击展开中午第 5-6 节时段 (12:00 - 13:40)"
+                    title="点击展开中午第 5-6 节时段 · 12:00 - 13:40"
                   >
                     <span className="text-3xs text-text-4 font-mono group-hover:text-text-2">
                       第 5-6 节 ▾
@@ -436,7 +434,7 @@ export function WeekScheduleView({
                           <div className="pl-1.5 flex flex-col h-full justify-between">
                             <div>
                               <div className="flex items-start justify-between gap-1 text-purple-700 dark:text-purple-400 font-semibold">
-                                <span className="leading-tight break-words">{item.title}</span>
+                                <span className="leading-tight break-words">{cleanParenthesesInTitle(item.title)}</span>
                                 <span className="shrink-0 rounded bg-purple-500/15 px-1 py-0.2 text-3xs font-bold">
                                   讲座
                                 </span>
@@ -473,7 +471,7 @@ export function WeekScheduleView({
                             <div>
                               <div>
                                 <div className="font-bold text-text-1 text-xs md:text-sm leading-snug break-words">
-                                  {item.title}
+                                  {cleanParenthesesInTitle(item.title)}
                                 </div>
                               </div>
 
@@ -536,7 +534,7 @@ export function WeekScheduleView({
                             <div>
                               <div>
                                 <div className="font-bold text-text-1 text-xs md:text-sm leading-snug break-words">
-                                  {item.title}
+                                  {cleanParenthesesInTitle(item.title)}
                                 </div>
                               </div>
 
@@ -582,7 +580,7 @@ export function WeekScheduleView({
                           <div>
                             <div>
                               <div className="font-semibold text-text-1 leading-snug break-words">
-                                {item.title}
+                                {cleanParenthesesInTitle(item.title)}
                               </div>
                             </div>
                             <div className="mt-1 space-y-0.5 text-3xs text-text-3 font-mono">

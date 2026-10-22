@@ -261,6 +261,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     return columnActiveCourse.categories.find(cat => cat.id === navState.categoryId)
   }, [columnActiveCourse, navState.categoryId])
 
+  const [sharedPerspective, setSharedPerspective] = useState<VideoPerspective>('teacher')
   const lastEnteredCourseIdRef = useRef<number | string | null>(null)
 
   // Column 模式下仅在选中的课程 ID 变化时触发进入加载（阻断每帧重新触发的死循环）
@@ -645,10 +646,17 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
           isSingleCourse={selectedStats.isSingleCourse}
           categorySelection={categorySelectionState}
           onToggleCategory={handleToggleIslandCategory}
-          perspective={perspective ?? currentCourse?.perspective}
+          perspective={perspective ?? currentCourse?.perspective ?? sharedPerspective}
           onPerspectiveChange={p => {
+            setSharedPerspective(p)
             onPerspectiveChange?.(p)
-            currentCourse?.onPerspectiveChange?.(p)
+            if (currentCourse) {
+              currentCourse.onPerspectiveChange?.(p)
+            } else {
+              const targetCourses = courses.filter(c => c.state !== 'none')
+              const broadcastList = targetCourses.length > 0 ? targetCourses : courses
+              broadcastList.forEach(c => c.onPerspectiveChange?.(p))
+            }
           }}
           onStartDownload={handleStartDownload}
           onClearSelection={handleClearSelection}
