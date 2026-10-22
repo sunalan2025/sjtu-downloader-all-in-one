@@ -175,6 +175,14 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(getSlotRangeFromTime('18:00', '21:30').span).toBe(1)
     })
 
+    it('maps Xuhui and Medical School afternoon times (13:30 ~ 15:10) to Slot 4 (第 7-8 节) with span 1', () => {
+      const resXuhui = getSlotRangeFromTime('13:30', '15:10')
+      expect(resXuhui.startSlot).toBe(4)
+      expect(resXuhui.endSlot).toBe(4)
+      expect(resXuhui.span).toBe(1)
+      expect(resXuhui.isLabOrLongSession).toBe(false)
+    })
+
     it('maps 12:00 ~ 17:40 long lab to span 3', () => {
       const res = getSlotRangeFromTime('12:00', '17:40')
       expect(res.startSlot).toBe(3)

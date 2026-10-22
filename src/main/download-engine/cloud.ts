@@ -392,7 +392,7 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime): Promise<void> {
             tryUploadNext()
 
             const now = Date.now()
-            if (now - lastEmit > 2000) {
+            if (now - lastEmit > 250) {
               lastEmit = now
               emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total })
             }

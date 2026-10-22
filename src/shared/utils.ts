@@ -8,7 +8,9 @@ export function sanitizeFsName(name: string): string {
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
     .replace(/[. ]+$/, '')
     .trim()
-  return cleaned.slice(0, 180) || '未命名'
+  const trimmed = cleaned.slice(0, 180) || '未命名'
+  const reservedRegex = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
+  return reservedRegex.test(trimmed) ? `_${trimmed}` : trimmed
 }
 
 /** 默认命名模板 */

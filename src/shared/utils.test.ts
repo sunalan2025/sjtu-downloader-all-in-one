@@ -14,6 +14,16 @@ describe('sanitizeFsName', () => {
   it('fallback to 未命名 when empty', () => {
     expect(sanitizeFsName('   ')).toBe('未命名')
   })
+
+  it('prefixes Windows reserved device names with an underscore', () => {
+    expect(sanitizeFsName('CON')).toBe('_CON')
+    expect(sanitizeFsName('con.pdf')).toBe('_con.pdf')
+    expect(sanitizeFsName('aux.docx')).toBe('_aux.docx')
+    expect(sanitizeFsName('prn.tar.gz')).toBe('_prn.tar.gz')
+    expect(sanitizeFsName('com1.mp4')).toBe('_com1.mp4')
+    expect(sanitizeFsName('lpt2')).toBe('_lpt2')
+    expect(sanitizeFsName('console.log')).toBe('console.log')
+  })
 })
 
 describe('getDynamicChunkSize', () => {

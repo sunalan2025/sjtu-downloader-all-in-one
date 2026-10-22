@@ -432,7 +432,7 @@ function downloadStream(t: TaskRuntime): Promise<void> {
           }
 
           const now = Date.now()
-          if (now - lastEmit > 2000) {
+          if (now - lastEmit > 250) {
             lastEmit = now
             emitProgress({
               taskId: t.spec.taskId,

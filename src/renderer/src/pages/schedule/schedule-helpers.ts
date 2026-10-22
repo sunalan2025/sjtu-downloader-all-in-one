@@ -32,7 +32,7 @@ export const SJTU_TIME_SLOTS: TimeSlotDef[] = [
     id: 4,
     periodHint: '下午',
     slotLabel: '第 7-8 节',
-    timeRange: '14:00 - 15:40',
+    timeRange: '14:00 - 15:40 · 徐汇/医学院 13:30',
     matchPeriod: m => m >= 12 * 60 + 50 && m < 15 * 60 + 50
   },
   {
@@ -170,8 +170,8 @@ export function getSlotRangeFromTime(startTime: string, endTime?: string): SlotR
   const minToSlot = (m: number): number => {
     if (m < 9 * 60 + 50) return 1 // 08:00 - 09:40
     if (m < 11 * 60 + 50) return 2 // 10:00 - 11:40
-    if (m < 13 * 60 + 50) return 3 // 12:00 - 13:40
-    if (m < 15 * 60 + 50) return 4 // 14:00 - 15:40
+    if (m < 13 * 60 + 15) return 3 // 12:00 - 13:40 (中午时段)
+    if (m < 15 * 60 + 50) return 4 // 14:00 - 15:40 (下午第 7-8 节，含徐汇/医学院 13:30)
     if (m < 17 * 60 + 50) return 5 // 16:00 - 17:40
     return 6 // 18:00 - 21:30
   }
@@ -191,7 +191,7 @@ export function getSlotRangeFromTime(startTime: string, endTime?: string): SlotR
 
   let badge: string | undefined
   if (span > 1) {
-    badge = `${span}时段连堂 (${formatEventTime(startTime)} ~ ${endTime ? formatEventTime(endTime) : ''})`
+    badge = `${span}时段连堂 · ${formatEventTime(startTime)} ~ ${endTime ? formatEventTime(endTime) : ''}`
   }
 
   return {
