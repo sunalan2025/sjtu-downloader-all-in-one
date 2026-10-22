@@ -261,52 +261,108 @@ export function FolderIcon({ className = 'h-4 w-4' }: { className?: string }) {
   )
 }
 
-export interface DropdownOption<T extends string = string> {
+export interface DropdownOption<T extends string | number = string> {
   value: T
   label: string
   count?: number
   icon?: string
 }
 
-/** 现代圆角自定义下拉组件（彻底告别系统原生粗糙 select 弹窗） */
-export function DropdownSelect<T extends string = string>({
-  value,
-  options,
-  onChange,
-  icon,
-  className = ''
-}: {
-  value: T
+export interface DropdownGroup<T extends string | number = string> {
+  label: string
   options: DropdownOption<T>[]
+}
+
+export interface DropdownSelectProps<T extends string | number = string> {
+  value: T
+  options?: DropdownOption<T>[]
+  groups?: DropdownGroup<T>[]
   onChange: (val: T) => void
   icon?: string
   className?: string
-}) {
+  buttonClassName?: string
+  menuClassName?: string
+  align?: 'left' | 'right'
+  title?: string
+  disabled?: boolean
+}
+
+/** 现代圆角自定义下拉组件（彻底告别系统原生粗糙 select 弹窗，支持分组与 Apple HIG 毛玻璃悬浮弹窗） */
+export function DropdownSelect<T extends string | number = string>({
+  value,
+  options,
+  groups,
+  onChange,
+  icon,
+  className = '',
+  buttonClassName = '',
+  menuClassName = '',
+  align = 'left',
+  title,
+  disabled = false
+}: DropdownSelectProps<T>) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useClickOutside(containerRef, () => setOpen(false), { enabled: open })
 
-  const selectedOpt = options.find(o => o.value === value) || options[0]
+  const allOptions = groups && groups.length > 0
+    ? groups.flatMap(g => g.options)
+    : (options || [])
+
+  const selectedOpt = allOptions.find(o => o.value === value) || allOptions[0]
+
+  const renderOptionItem = (opt: DropdownOption<T>) => {
+    const isSelected = opt.value === value
+    return (
+      <button
+        key={String(opt.value)}
+        type="button"
+        role="option"
+        aria-selected={isSelected}
+        onClick={() => {
+          onChange(opt.value)
+          setOpen(false)
+        }}
+        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
+          isSelected
+            ? 'bg-accent/15 font-semibold text-accent'
+            : 'text-text-2 hover:bg-surface-2/80 hover:text-text-1'
+        }`}
+      >
+        <span className="truncate">
+          {opt.icon && <span className="mr-1.5">{opt.icon}</span>}
+          {opt.label}
+          {typeof opt.count === 'number' ? ` ${opt.count}` : ''}
+        </span>
+        {isSelected && (
+          <span className="text-accent text-xs font-bold shrink-0">✓</span>
+        )}
+      </button>
+    )
+  }
 
   return (
-    <div ref={containerRef} className={`relative inline-block text-left ${className}`}>
+    <div ref={containerRef} className={`relative inline-block text-left ${className}`} title={title}>
       <button
         type="button"
-        onClick={() => setOpen(prev => !prev)}
-        className={`h-10 inline-flex items-center justify-between gap-2 rounded-xl border bg-surface-2 px-3.5 text-xs font-medium text-text-1 shadow-2xs transition-all hover:bg-surface-1 cursor-pointer select-none ${
+        disabled={disabled}
+        onClick={() => !disabled && setOpen(prev => !prev)}
+        className={`h-9 inline-flex items-center justify-between gap-2 rounded-xl border bg-surface-1 px-3 text-xs font-medium text-text-1 shadow-2xs transition-all hover:bg-surface-2 cursor-pointer select-none ${
+          disabled ? 'opacity-40 cursor-not-allowed hover:bg-surface-1' : ''
+        } ${
           open ? 'border-accent ring-2 ring-accent/15 bg-surface-1' : 'border-bd hover:border-bd-strong'
-        }`}
+        } ${buttonClassName}`}
       >
         <div className="flex items-center gap-1.5 min-w-0">
           {icon && <span className="text-xs">{icon}</span>}
-          <span className="truncate max-w-[150px]">{selectedOpt?.label ?? value}</span>
+          <span className="truncate max-w-[200px]">{selectedOpt?.label ?? String(value)}</span>
           {typeof selectedOpt?.count === 'number' && (
             <span className="text-text-4 font-normal ml-1.5">{selectedOpt.count}</span>
           )}
         </div>
         <svg
-          className={`h-3.5 w-3.5 text-text-3 transition-transform duration-200 ${open ? 'rotate-180 text-accent' : ''}`}
+          className={`h-3.5 w-3.5 text-text-3 transition-transform duration-200 shrink-0 ${open ? 'rotate-180 text-accent' : ''}`}
           viewBox="0 0 20 20"
           fill="currentColor"
         >
@@ -319,35 +375,24 @@ export function DropdownSelect<T extends string = string>({
       </button>
 
       {open && (
-        <div className="animate-fadeIn absolute left-0 top-[calc(100%+6px)] z-50 min-w-full w-max max-w-[280px] max-h-64 overflow-y-auto rounded-xl border border-bd bg-surface-1 p-1.5 shadow-2xl">
-          {options.map(opt => {
-            const isSelected = opt.value === value
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => {
-                  onChange(opt.value)
-                  setOpen(false)
-                }}
-                className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
-                  isSelected
-                    ? 'bg-accent/10 font-semibold text-accent'
-                    : 'text-text-2 hover:bg-surface-2 hover:text-text-1'
-                }`}
-              >
-                <span className="truncate">
-                  {opt.label}
-                  {typeof opt.count === 'number' ? ` ${opt.count}` : ''}
-                </span>
-                {isSelected && (
-                  <svg className="h-3.5 w-3.5 text-accent shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
-                  </svg>
-                )}
-              </button>
-            )
-          })}
+        <div
+          role="listbox"
+          className={`animate-fadeIn absolute ${
+            align === 'right' ? 'right-0' : 'left-0'
+          } top-[calc(100%+6px)] z-50 min-w-full w-max max-w-[340px] max-h-72 overflow-y-auto rounded-2xl border border-black/[0.08] dark:border-white/[0.12] bg-surface-1/95 backdrop-blur-xl p-1.5 shadow-2xl ${menuClassName}`}
+        >
+          {groups && groups.length > 0 ? (
+            groups.map((group, gIdx) => (
+              <div key={group.label} className={gIdx > 0 ? 'mt-1 pt-1 border-t border-bd/60' : ''}>
+                <div className="px-3 py-1 text-3xs font-semibold text-text-4 select-none tracking-wider uppercase">
+                  {group.label}
+                </div>
+                {group.options.map(opt => renderOptionItem(opt))}
+              </div>
+            ))
+          ) : (
+            allOptions.map(opt => renderOptionItem(opt))
+          )}
         </div>
       )}
     </div>
