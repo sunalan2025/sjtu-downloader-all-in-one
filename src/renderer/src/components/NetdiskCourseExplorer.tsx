@@ -103,6 +103,7 @@ export interface NetdiskCourseItem {
   onToggle: () => void
   onToggleCategory?: (categoryId: string, on: boolean) => void
   onEnter?: () => void
+  onHover?: () => void
   isLoading?: boolean
   loadingMessage?: string
   summary?: {
@@ -1027,6 +1028,9 @@ function CourseCard({
         c.onEnter?.()
         onNavigate({ level: 'course', courseId: c.id })
       }}
+      onMouseEnter={() => {
+        c.onHover?.()
+      }}
       className={`group relative flex flex-col items-center justify-start rounded-xl p-2.5 transition-all duration-150 cursor-pointer select-none ${
         isSelected
           ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs'
@@ -1391,6 +1395,9 @@ function CourseRow({
       onClick={() => {
         c.onEnter?.()
         onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
+      }}
+      onMouseEnter={() => {
+        c.onHover?.()
       }}
       className="hover:bg-surface-2/60 transition-colors cursor-pointer"
     >
@@ -2321,6 +2328,9 @@ export function ColumnView({
         onClick={() => {
           onSelectCourse(c)
           scrollToRight()
+        }}
+        onMouseEnter={() => {
+          c.onHover?.()
         }}
         className={`group flex items-center justify-between px-3 py-2 transition-all cursor-pointer mx-2 my-0.5 rounded-xl ${
           isSelected

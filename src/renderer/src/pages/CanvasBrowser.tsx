@@ -1,3 +1,4 @@
+import { CanvasScanQueue } from '../services/canvas-scan-queue'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useCallback, useEffect, useMemo, useRef, useState, memo, type ReactNode } from 'react'
 import { useAppStore, useEffectiveProgress } from '../store/app'
@@ -458,6 +459,19 @@ export function CanvasBrowser() {
   const scanningFilesInFlightRef = useRef<Set<number>>(new Set())
   const scannedFilesCourseIdsRef = useRef<Set<number>>(new Set())
 
+  // 智能静默后台预扫描管线实例 (2并发, 120ms 防抖)
+  const scanQueueRef = useRef<CanvasScanQueue | null>(null)
+  if (!scanQueueRef.current) {
+    scanQueueRef.current = new CanvasScanQueue(2, 120)
+  }
+
+  // 卸载时清空后台队列
+  useEffect(() => {
+    return () => {
+      scanQueueRef.current?.clear()
+    }
+  }, [])
+
   const doScanFiles = useCallback(async (courseId: number): Promise<void> => {
     if (canvasCourseData[courseId]) return
     if (scanningFilesInFlightRef.current.has(courseId) || scannedFilesCourseIdsRef.current.has(courseId)) return
@@ -551,6 +565,47 @@ export function CanvasBrowser() {
     void loadCourses()
   }, [loadCourses, canvasScanState])
 
+  // ── 智能静默后台自动预扫描管线：当前学期高优先级秒开，历年全量逆序排队 ──
+  useEffect(() => {
+    if (canvasCourses.length === 0) return
+    const queue = scanQueueRef.current
+    if (!queue) return
+
+    // 确定当前优先学期 (若选定特定学期则使用该学期，否则使用最新学期 terms[0])
+    const primaryTerm = selectedTerm !== 'all' ? selectedTerm : terms[0]
+
+    // 1. 将当前学期活跃课程以 high 优先级排入队列 (秒速获取课件与体积)
+    for (const c of canvasCourses) {
+      if (canvasCourseData[c.courseId]) {
+        queue.markCompleted(c.courseId)
+        continue
+      }
+      const isCurrentTerm = (c.term || '未分学期') === primaryTerm
+      if (isCurrentTerm) {
+        queue.enqueue({
+          courseId: c.courseId,
+          priority: 'high',
+          scanFiles: doScanFiles,
+          scanVideos: doClassVideoScan
+        })
+      }
+    }
+
+    // 2. 将历年其余历史课程以 low 优先级排入后台闲时队列
+    for (const c of canvasCourses) {
+      if (canvasCourseData[c.courseId]) continue
+      const isCurrentTerm = (c.term || '未分学期') === primaryTerm
+      if (!isCurrentTerm) {
+        queue.enqueue({
+          courseId: c.courseId,
+          priority: 'low',
+          scanFiles: doScanFiles,
+          scanVideos: doClassVideoScan
+        })
+      }
+    }
+  }, [canvasCourses, selectedTerm, terms, canvasCourseData, doScanFiles, doClassVideoScan])
+
   // ── 完整刷新：停止下载 + 释放已解析链接/选择/扫描数据，重新加载课程列表 ──
   // 与原 loadCourses（仅重拉列表、保留状态）不同，这里把页面回到"最初状态"。
   const onRefresh = useCallback(async (): Promise<void> => {
@@ -561,6 +616,7 @@ export function CanvasBrowser() {
     setCloudLinkedIds({})
     setDownloading(false)
     // 3. 清空所有 Canvas 扫描数据 / 分类选中 / 展开 / 教师 / LTI token / 讲次
+    scanQueueRef.current?.clear()
     resetCanvasScanResults()
     scanningVideoInFlightRef.current.clear()
     scannedVideoCourseIdsRef.current.clear()
@@ -1928,8 +1984,12 @@ export function CanvasBrowser() {
         onToggle: () => toggleCourse(c.courseId),
         onToggleCategory: (catId, on) => toggleCourseCategory(c.courseId, catId, on),
         onEnter: () => {
+          scanQueueRef.current?.promote(c.courseId)
           if (!canvasCourseData[c.courseId] && !scannedFilesCourseIdsRef.current.has(c.courseId)) void doScanFiles(c.courseId)
           if (!canvasLectures[c.courseId] && !scannedVideoCourseIdsRef.current.has(c.courseId)) void doClassVideoScan(c.courseId)
+        },
+        onHover: () => {
+          scanQueueRef.current?.promote(c.courseId)
         },
         isLoading: scanningCourseIds[c.courseId] || scanningVideoCourseIds[c.courseId],
         summary: courseStats && (courseStats.done > 0 || courseStats.active > 0 || courseStats.failed > 0)
