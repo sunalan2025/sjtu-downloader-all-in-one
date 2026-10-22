@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+import { DropdownSelect, type DropdownOption, type DropdownGroup } from '../../../components/widgets'
 import type React from 'react'
 import type { ScheduleWeek, ScheduleEvent, JiaowuScheduleResult } from '@shared/types'
 import { isSafeExternalUrl, cleanParenthesesInTitle } from '@shared/utils'
@@ -78,6 +80,35 @@ export function WeekScheduleView({
   handleCardMouseEnter,
   handleCardMouseLeave
 }: WeekScheduleViewProps) {
+  const currentWeekGroups: DropdownGroup<string>[] = useMemo(() => {
+    const res: DropdownGroup<string>[] = [
+      {
+        label: `${semesterTitle || '秋季学期'} 正序`,
+        options: regularTermWeeks.map(w => ({
+          value: `${w.title || ''}_${w.week}`,
+          label: `${w.week}${w.week === currentWeek ? ' · 当前周' : ''}`
+        }))
+      }
+    ]
+    if (breakWeeks.length > 0) {
+      res.push({
+        label: '假期周次',
+        options: breakWeeks.map(w => ({
+          value: `${w.title || ''}_${w.week}`,
+          label: `${w.title} - ${w.week}`
+        }))
+      })
+    }
+    return res
+  }, [regularTermWeeks, breakWeeks, currentWeek, semesterTitle])
+
+  const jiaowuWeekOptions: DropdownOption<number>[] = useMemo(
+    () => Array.from({ length: 18 }, (_, idx) => idx + 1).map(wNum => ({
+      value: wNum,
+      label: `第 ${wNum} 周`
+    })),
+    []
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -102,31 +133,13 @@ export function WeekScheduleView({
               </button>
 
               {weeks.length > 0 ? (
-                <select
+                <DropdownSelect
                   value={selectedWeekKey}
-                  onChange={e => setSelectedWeekKey(e.target.value)}
-                  className="rounded-xl border border-bd bg-surface-1 pl-3 pr-8 py-1.5 text-xs font-semibold text-text-1 focus:border-accent focus:outline-none cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
-                >
-                  <optgroup label={`${semesterTitle || '秋季学期'} 正序`}>
-                    {regularTermWeeks.map(w => {
-                      const isCur = w.week === currentWeek
-                      return (
-                        <option key={`${w.title}_${w.week}`} value={`${w.title || ''}_${w.week}`}>
-                          {w.week} {isCur ? '· 当前周' : ''}
-                        </option>
-                      )
-                    })}
-                  </optgroup>
-                  {breakWeeks.length > 0 && (
-                    <optgroup label="假期周次">
-                      {breakWeeks.map(w => (
-                        <option key={`${w.title}_${w.week}`} value={`${w.title || ''}_${w.week}`}>
-                          {w.title} - {w.week}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
+                  onChange={setSelectedWeekKey}
+                  groups={currentWeekGroups}
+                  buttonClassName="font-semibold"
+                  title="选择周次"
+                />
               ) : (
                 <span className="text-xs font-semibold text-text-1">本周日程</span>
               )}
@@ -158,17 +171,13 @@ export function WeekScheduleView({
                 ‹ 上一周
               </button>
 
-              <select
+              <DropdownSelect<number>
                 value={selectedJiaowuWeek}
-                onChange={e => setSelectedJiaowuWeek(parseInt(e.target.value, 10))}
-                className="rounded-xl border border-bd bg-surface-1 pl-3 pr-8 py-1.5 text-xs font-semibold text-text-1 focus:border-accent focus:outline-none cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
-              >
-                {Array.from({ length: 18 }, (_, idx) => idx + 1).map(wNum => (
-                  <option key={wNum} value={wNum}>
-                    第 {wNum} 周
-                  </option>
-                ))}
-              </select>
+                onChange={setSelectedJiaowuWeek}
+                options={jiaowuWeekOptions}
+                buttonClassName="font-semibold"
+                title="选择教务周次"
+              />
 
               <button
                 type="button"

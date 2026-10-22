@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+import { DropdownSelect, type DropdownGroup } from '../../../components/widgets'
 interface SemesterOption {
   key: string
   label: string
@@ -50,31 +52,34 @@ export function ScheduleHeaderBar({
   refreshing,
   jiaowuLoading
 }: ScheduleHeaderBarProps) {
+  const semesterGroups: DropdownGroup<string>[] = useMemo(() => [
+    {
+      label: '交我办与 Canvas · 实时同步',
+      options: [
+        { value: 'current', label: '2026-2027-1 · 当前学期实时同步' }
+      ]
+    },
+    {
+      label: '教学信息服务网 · 历年课表',
+      options: semesters.map(s => ({
+        value: s.key,
+        label: s.label
+      }))
+    }
+  ], [semesters])
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 border-b border-bd bg-surface-1/80 px-6 py-3.5 backdrop-blur-md sticky top-0 z-20">
       {/* 左侧：学期选择器 + 视图切换 (周视图 / 学期总览) */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm">🗓️</span>
-          <select
+          <DropdownSelect
             value={selectedSemesterKey}
-            onChange={e => onSemesterChange(e.target.value)}
-            className="rounded-xl border border-bd bg-surface-1 pl-3 pr-8 py-1.5 text-xs font-semibold text-text-1 focus:border-accent focus:outline-none cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
+            onChange={onSemesterChange}
+            groups={semesterGroups}
+            icon="🗓️"
+            buttonClassName="font-semibold"
             title="切换当前学期或历史官方排课"
-          >
-            <optgroup label="交我办与教学平台 · 当前学期实时同步">
-              <option value="current">
-                2026-2027-1 · 当前学期实时同步
-              </option>
-            </optgroup>
-            <optgroup label="教学信息服务网 · 历年官方课表">
-              {semesters.map(s => (
-                <option key={s.key} value={s.key}>
-                  {s.label}
-                </option>
-              ))}
-            </optgroup>
-          </select>
+          />
         </div>
 
         {/* 视图模式分段选择器 (Apple Segmented Control) */}

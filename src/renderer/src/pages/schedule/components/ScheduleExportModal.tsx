@@ -1,3 +1,4 @@
+import { DropdownSelect } from '../../../components/widgets'
 interface ScheduleExportModalProps {
   isOpen: boolean
   onClose: () => void
@@ -102,29 +103,35 @@ export function ScheduleExportModal({
         <div className="grid grid-cols-2 gap-3 text-xs">
           <div>
             <label className="text-2xs text-text-3 block mb-1">上课提前提醒:</label>
-            <select
+            <DropdownSelect<number>
               value={alarmMinutesBefore}
-              onChange={e => setAlarmMinutesBefore(Number(e.target.value))}
-              className="w-full rounded-xl border border-bd bg-surface-2 pl-3 pr-8 py-1.5 text-xs text-text-1 focus:border-accent cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
-            >
-              <option value={10}>提前 10 分钟</option>
-              <option value={20}>提前 20 分钟</option>
-              <option value={30}>提前 30 分钟</option>
-              <option value={60}>提前 1 小时</option>
-            </select>
+              onChange={setAlarmMinutesBefore}
+              options={[
+                { value: 10, label: '提前 10 分钟' },
+                { value: 20, label: '提前 20 分钟' },
+                { value: 30, label: '提前 30 分钟' },
+                { value: 60, label: '提前 1 小时' }
+              ]}
+              className="w-full"
+              buttonClassName="w-full justify-between"
+              title="设置上课提前提醒时间"
+            />
           </div>
 
           <div>
             <label className="text-2xs text-text-3 block mb-1">作业 DDL 提前提醒:</label>
-            <select
+            <DropdownSelect<number>
               value={alarmDdlHoursBefore}
-              onChange={e => setAlarmDdlHoursBefore(Number(e.target.value))}
-              className="w-full rounded-xl border border-bd bg-surface-2 pl-3 pr-8 py-1.5 text-xs text-text-1 focus:border-accent cursor-pointer shadow-2xs hover:border-bd-strong transition-all"
-            >
-              <option value={12}>提前 12 小时</option>
-              <option value={24}>提前 24 小时</option>
-              <option value={48}>提前 2 天</option>
-            </select>
+              onChange={setAlarmDdlHoursBefore}
+              options={[
+                { value: 12, label: '提前 12 小时' },
+                { value: 24, label: '提前 24 小时' },
+                { value: 48, label: '提前 2 天' }
+              ]}
+              className="w-full"
+              buttonClassName="w-full justify-between"
+              title="设置作业截止提前提醒时间"
+            />
           </div>
         </div>
 
