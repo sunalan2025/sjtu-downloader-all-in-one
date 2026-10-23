@@ -1,0 +1,330 @@
+---
+import Icons from './icons/Icons.astro';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+---
+
+<div class={`relative w-full max-w-6xl mx-auto px-2 sm:px-4 ${className}`}>
+  <!-- Glowing Ambient Aura (Backlight Layer) -->
+  <div
+    class="absolute -inset-1 sm:-inset-2 bg-gradient-to-r from-sjtu-navy/35 via-sjtu-blue/30 to-sjtu-cyan/25 rounded-3xl blur-2xl sm:blur-3xl opacity-70 dark:opacity-50 -z-10 pointer-events-none transition-opacity duration-500"
+    aria-hidden="true"
+  ></div>
+
+  <!-- Perspective Window Container -->
+  <div
+    class="relative rounded-2xl sm:rounded-3xl border border-slate-200/90 dark:border-slate-700/80 bg-white/95 dark:bg-[#0c1220]/95 backdrop-blur-2xl shadow-2xl shadow-sjtu-navy/15 dark:shadow-black/70 overflow-hidden text-slate-800 dark:text-slate-100 transition-all duration-300"
+  >
+    <!-- macOS Realistic Title Bar -->
+    <div
+      class="h-11 sm:h-12 px-4 bg-slate-100/90 dark:bg-slate-800/90 border-b border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between select-none"
+    >
+      <!-- Traffic Light Buttons -->
+      <div class="flex items-center gap-2">
+        <span class="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]/50 shadow-inner"></span>
+        <span class="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]/50 shadow-inner"></span>
+        <span class="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]/50 shadow-inner"></span>
+      </div>
+
+      <!-- App Title in Title Bar -->
+      <div class="flex items-center gap-2 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[200px] sm:max-w-none">
+        <div class="w-4 h-4 rounded bg-sjtu-navy text-white flex items-center justify-center text-[10px]">
+          <Icons name="graduation-cap" class="w-3 h-3" />
+        </div>
+        <span>上海交通大学课程下载器 · SJTU Downloader v2.5.0</span>
+      </div>
+
+      <!-- Status Pill in Title Bar -->
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span class="hidden sm:inline">JAccount 统一认证已连接</span>
+          <span class="sm:hidden">已认证</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- App Body (Sidebar + Main Workspace Grid) -->
+    <div class="grid grid-cols-1 md:grid-cols-12 min-h-[460px] sm:min-h-[520px]">
+      <!-- Left Sidebar (Desktop Client Navigation) -->
+      <aside
+        class="hidden md:flex md:col-span-4 lg:col-span-3 flex-col justify-between bg-slate-50/80 dark:bg-slate-900/60 border-r border-slate-200/80 dark:border-slate-800/80 p-4"
+      >
+        <div class="space-y-4">
+          <!-- User Profile / Session Tag -->
+          <div class="p-3 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/60 shadow-sm flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-sjtu-navy to-sjtu-blue text-white flex items-center justify-center font-bold text-sm shadow-sm">
+              SJTU
+            </div>
+            <div class="overflow-hidden">
+              <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                交大师生通行账号
+              </div>
+              <div class="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                已安全连接 Canvas 与云盘
+              </div>
+            </div>
+          </div>
+
+          <!-- Navigation Menus -->
+          <div class="space-y-1">
+            <div class="px-2 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 dark:text-slate-500 uppercase">
+              课程教学平台
+            </div>
+
+            <button
+              type="button"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold bg-sjtu-blue text-white shadow-sm shadow-sjtu-blue/20"
+            >
+              <span class="flex items-center gap-2">
+                <Icons name="book-open" class="w-4 h-4" />
+                <span>Canvas 我的课程</span>
+              </span>
+              <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 text-white font-mono">
+                8
+              </span>
+            </button>
+
+            <button
+              type="button"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 transition-colors"
+            >
+              <span class="flex items-center gap-2">
+                <Icons name="cloud" class="w-4 h-4 text-sjtu-blue" />
+                <span>交大云盘备份</span>
+              </span>
+              <span class="text-[10px] text-slate-400 font-mono">
+                实时同步
+              </span>
+            </button>
+
+            <button
+              type="button"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 transition-colors"
+            >
+              <span class="flex items-center gap-2">
+                <Icons name="video" class="w-4 h-4 text-purple-500" />
+                <span>旁听课程与视频</span>
+              </span>
+              <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
+                12
+              </span>
+            </button>
+          </div>
+
+          <!-- Tasks & Queues -->
+          <div class="space-y-1 pt-2">
+            <div class="px-2 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 dark:text-slate-500 uppercase">
+              传输队列
+            </div>
+
+            <button
+              type="button"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 transition-colors"
+            >
+              <span class="flex items-center gap-2">
+                <Icons name="download" class="w-4 h-4 text-emerald-500" />
+                <span>正在下载</span>
+              </span>
+              <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 font-mono font-semibold">
+                2
+              </span>
+            </button>
+
+            <button
+              type="button"
+              class="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 transition-colors"
+            >
+              <span class="flex items-center gap-2">
+                <Icons name="check" class="w-4 h-4 text-slate-400" />
+                <span>已完成历史</span>
+              </span>
+              <span class="text-[10px] text-slate-400 font-mono">
+                142 讲
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Sidebar Bottom Storage Status -->
+        <div class="p-3 rounded-xl bg-white dark:bg-slate-800/70 border border-slate-200/60 dark:border-slate-700/60 space-y-1.5">
+          <div class="flex items-center justify-between text-[11px]">
+            <span class="text-slate-500 dark:text-slate-400">本地存储空间</span>
+            <span class="font-mono text-slate-700 dark:text-slate-300 font-semibold">184.5 GB 可用</span>
+          </div>
+          <div class="w-full h-1.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-sjtu-blue to-sjtu-cyan w-3/5 rounded-full"></div>
+          </div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-500 truncate font-mono">
+            D:/SJTU-Courses/2025-Fall
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="col-span-1 md:col-span-8 lg:col-span-9 p-4 sm:p-5 flex flex-col justify-between space-y-4">
+        <!-- Top Action / Filter Bar -->
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-2 border-b border-slate-100 dark:border-slate-800">
+          <div class="flex items-center gap-2">
+            <div class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200/70 dark:border-slate-700/60 flex items-center gap-1.5">
+              <span>2025-2026 学年秋季学期</span>
+              <Icons name="chevron-down" class="w-3.5 h-3.5 text-slate-400" />
+            </div>
+            <span class="text-xs text-slate-400 hidden lg:inline">已自动同步 8 门课程</span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <div class="relative flex-1 sm:w-56">
+              <input
+                type="text"
+                readonly
+                value="高等数学"
+                placeholder="搜索课程、课件或视频..."
+                class="w-full px-3 py-1.5 rounded-lg text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 pointer-events-none"
+              />
+            </div>
+            <button
+              type="button"
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-sjtu-navy hover:bg-sjtu-blue transition-colors shadow-sm"
+            >
+              一键下载更新
+            </button>
+          </div>
+        </div>
+
+        <!-- Realistic Course Cards Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+          <!-- Course Card 1: Active Downloading -->
+          <div
+            class="p-4 rounded-xl border-2 border-sjtu-blue/40 bg-blue-50/20 dark:bg-blue-950/20 relative overflow-hidden flex flex-col justify-between space-y-3"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-sjtu-blue text-white">
+                    必修 · 4 学分
+                  </span>
+                  <span class="text-xs font-mono text-slate-400">MATH1201</span>
+                </div>
+                <h4 class="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-1">
+                  高等数学 (A类) (1)
+                </h4>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                  数学科学学院 · 张教授教学组
+                </p>
+              </div>
+
+              <div class="px-2 py-1 rounded-md text-[11px] font-medium bg-blue-100 dark:bg-blue-900/60 text-sjtu-blue dark:text-blue-300 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-sjtu-blue animate-ping"></span>
+                <span>全速下载中</span>
+              </div>
+            </div>
+
+            <!-- Active Download Progress Item -->
+            <div class="p-2.5 rounded-lg bg-white/90 dark:bg-slate-800/90 border border-slate-200/60 dark:border-slate-700/60 space-y-1.5">
+              <div class="flex items-center justify-between text-[11px]">
+                <span class="font-medium text-slate-700 dark:text-slate-300 truncate max-w-[200px]">
+                  第14讲-多重积分与曲面积分.mp4
+                </span>
+                <span class="font-mono text-sjtu-blue font-bold">28.4 MB/s</span>
+              </div>
+              <!-- Glowing Shimmer Progress Bar -->
+              <div class="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden relative">
+                <div
+                  class="h-full bg-gradient-to-r from-sjtu-navy via-sjtu-blue to-sjtu-cyan w-[78%] rounded-full relative"
+                >
+                  <div class="absolute inset-0 bg-white/20 animate-pulse"></div>
+                </div>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                <span>356 MB / 456 MB (78%)</span>
+                <span>剩余 4 秒</span>
+              </div>
+            </div>
+
+            <!-- Card Bottom Meta -->
+            <div class="flex items-center justify-between pt-1 text-xs text-slate-500 dark:text-slate-400">
+              <div class="flex items-center gap-1.5">
+                <Icons name="check" class="w-3.5 h-3.5 text-emerald-500" />
+                <span>已同步 48 份课件 · 32 节录播</span>
+              </div>
+              <span class="text-sjtu-blue font-semibold hover:underline cursor-pointer">
+                课件明细 ›
+              </span>
+            </div>
+          </div>
+
+          <!-- Course Card 2: Completed / Cloud Synced -->
+          <div
+            class="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-800/40 flex flex-col justify-between space-y-3"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400">
+                    专业核心 · 3 学分
+                  </span>
+                  <span class="text-xs font-mono text-slate-400">CS2104</span>
+                </div>
+                <h4 class="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-1">
+                  计算机系统基础 (ICS)
+                </h4>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                  电子信息与电气工程学院 · 教学团队
+                </p>
+              </div>
+
+              <div class="px-2 py-1 rounded-md text-[11px] font-medium bg-emerald-100/70 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <Icons name="check" class="w-3.5 h-3.5" />
+                <span>已最新</span>
+              </div>
+            </div>
+
+            <!-- Course Content Overview -->
+            <div class="p-2.5 rounded-lg bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/50 dark:border-slate-700/50 space-y-1">
+              <div class="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                <span>PPT / PDF 课件讲义</span>
+                <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">24 份 (全部归档)</span>
+              </div>
+              <div class="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                <span>课堂回放高清录播</span>
+                <span class="font-mono font-semibold text-slate-800 dark:text-slate-200">16 讲 (1080P)</span>
+              </div>
+            </div>
+
+            <!-- Card Bottom Meta -->
+            <div class="flex items-center justify-between pt-1 text-xs text-slate-500 dark:text-slate-400">
+              <div class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                <Icons name="cloud" class="w-3.5 h-3.5" />
+                <span>已自动上传备份至交大云盘</span>
+              </div>
+              <span class="text-slate-600 dark:text-slate-300 font-semibold hover:text-sjtu-blue cursor-pointer">
+                打开目录 ›
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- App Bottom Status Footer Bar -->
+        <div class="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 gap-2">
+          <div class="flex items-center gap-3">
+            <span class="inline-flex items-center gap-1 text-slate-600 dark:text-slate-400">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Aria2 高速下载内核已就绪 (16 线程并发)
+            </span>
+            <span class="hidden sm:inline">·</span>
+            <span class="hidden sm:inline">TLS 1.3 校园内网加密专线</span>
+          </div>
+
+          <div class="flex items-center gap-2 font-mono">
+            <span>总速率: <strong class="text-sjtu-blue font-bold">28.4 MB/s</strong></span>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
