@@ -5,6 +5,12 @@
 @tailwind utilities;
 
 @layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border-default);
+  }
+
   html,
   body,
   #root {

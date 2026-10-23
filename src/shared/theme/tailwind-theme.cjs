@@ -20,7 +20,7 @@ module.exports = {
     bd: createColorWithFallback('--border-default', '--color-bd-rgb'),
     'bd-strong': createColorWithFallback('--border-strong', '--color-bd-rgb'),
     accent: {
-      DEFAULT: 'var(--accent)',
+      DEFAULT: createColorWithFallback('--accent', '--color-accent-rgb'),
       light: 'var(--accent-light)',
       dark: 'var(--accent-dark)',
       '5': 'var(--accent-5)',
@@ -36,19 +36,19 @@ module.exports = {
       '85': 'var(--accent-85)',
     },
     cloud: {
-      DEFAULT: 'var(--cloud)',
+      DEFAULT: createColorWithFallback('--cloud', '--color-cloud-rgb'),
       light: 'var(--cloud-light)',
       dim: 'var(--cloud-dim)',
       '25': 'var(--cloud-25)',
       '40': 'var(--cloud-40)',
     },
     success: {
-      DEFAULT: 'var(--success)',
+      DEFAULT: createColorWithFallback('--success', '--color-success-rgb'),
       bg: 'var(--success-bg)',
       ring: 'var(--success-ring)',
     },
     warning: {
-      DEFAULT: 'var(--warning)',
+      DEFAULT: createColorWithFallback('--warning', '--color-warning-rgb'),
       bg: 'var(--warning-bg)',
       ring: 'var(--warning-ring)',
     },
@@ -58,10 +58,14 @@ module.exports = {
       ring: 'var(--info-ring)',
     },
     danger: {
-      DEFAULT: 'var(--danger)',
+      DEFAULT: createColorWithFallback('--danger', '--color-danger-rgb'),
       bg: 'var(--danger-bg)',
       ring: 'var(--danger-ring)',
     },
+    amber: createColorWithFallback('--amber', '--color-amber-rgb'),
+    emerald: createColorWithFallback('--emerald', '--color-emerald-rgb'),
+    sky: createColorWithFallback('--sky', '--color-sky-rgb'),
+    rose: createColorWithFallback('--rose', '--color-rose-rgb'),
     task: {
       done: 'var(--task-done-bg)',
       downloading: 'var(--task-downloading-bg)',
