@@ -1,16 +1,17 @@
 /**
- * Canvas 课程静默后台预扫描管线与优先级调度器
+ * Canvas 课程静默后台预扫描管线与双阶段异步加速调度器
  *
- * 设计特性：
- * 1. 双队列优先级机制：
- *    - highQueue: 当前学期活跃课程、或用户点击/悬停即时插队的课程
- *    - lowQueue: 历年历史课程逆序静默排队
- * 2. 双阶段低开销执行：
- *    - Phase 1: 纯 REST 接口获取课件、作业与文件体积（0 窗口、几十 KB、毫秒级响应）
- *    - Phase 2: 轻量延时单路补充课堂视频录播明细
- * 3. 严格并发控制与防抖：
- *    - 默认并发限制为 2 路，每项任务间隔 150ms 礼貌防抖，杜绝 429 与 CPU/内存峰值
- * 4. 纯静默无感：后台静默执行，UI 卡片就地平滑从“待获取体积”过渡到真实容量与项数
+ * 核心优化特性：
+ * 1. 双阶段异步解耦 (Decoupled Two-Phase Execution)：
+ *    - Phase 1 (极速课件与元数据): 纯 REST 接口并发打满（默认 4 路），零延时响应，
+ *      1~2 秒内瞬间就绪当前学期全部课程的文件列表、作业与体积，UI 卡片瞬间告别“待获取”；
+ *    - Phase 2 (平滑课堂视频与讲次跟进): 视频单路/双路在后台礼貌防抖推进，杜绝网络与 CPU 峰值。
+ * 2. 双队列优先级机制 (High/Low Priority Queues)：
+ *    - highQueue: 当前学期活跃课程，直接插队优先调度；
+ *    - lowQueue: 历年历史课程逆序静默排队。
+ * 3. 毫秒级抢占插队 (Interactive Preemption)：
+ *    - 用户鼠标悬停或点击任意课程卡片时，该课程在 Phase 1 与 Phase 2 均立即抢占队首优先执行。
+ * 4. 纯静默无感：就地平滑局部更新，无弹窗、无刷新、无阻塞。
  */
 
 export interface ScanTaskOptions {
@@ -18,23 +19,41 @@ export interface ScanTaskOptions {
   priority?: 'high' | 'normal' | 'low'
   scanFiles: (courseId: number) => Promise<void>
   scanVideos?: (courseId: number) => Promise<void>
+  onFilesDone?: (courseId: number) => void
   onDone?: (courseId: number) => void
   onError?: (courseId: number, err: unknown) => void
 }
 
+interface InternalTask {
+  options: ScanTaskOptions
+  priority: 'high' | 'normal' | 'low'
+}
+
 export class CanvasScanQueue {
-  private concurrency: number
+  private fileConcurrency: number
+  private videoConcurrency: number
   private delayMs: number
-  private highQueue: ScanTaskOptions[] = []
-  private lowQueue: ScanTaskOptions[] = []
-  private inFlight = new Set<number>()
+
+  // Phase 1: 课件与元数据队列
+  private highFilesQueue: InternalTask[] = []
+  private lowFilesQueue: InternalTask[] = []
+  private fileInFlight = new Set<number>()
+  private runningFileWorkers = 0
+
+  // Phase 2: 课堂视频与讲次队列
+  private highVideosQueue: InternalTask[] = []
+  private lowVideosQueue: InternalTask[] = []
+  private videoInFlight = new Set<number>()
+  private runningVideoWorkers = 0
+
+  // 状态追踪集合
   private completed = new Set<number>()
   private queued = new Set<number>()
-  private runningWorkers = 0
   private aborted = false
 
-  constructor(concurrency = 2, delayMs = 150) {
-    this.concurrency = Math.max(1, concurrency)
+  constructor(concurrency = 4, delayMs = 60, videoConcurrency = 2) {
+    this.fileConcurrency = Math.max(1, concurrency)
+    this.videoConcurrency = Math.max(1, Math.min(concurrency, videoConcurrency))
     this.delayMs = delayMs
   }
 
@@ -44,18 +63,21 @@ export class CanvasScanQueue {
    */
   public enqueue(task: ScanTaskOptions): void {
     const { courseId } = task
-    if (this.completed.has(courseId) || this.inFlight.has(courseId) || this.queued.has(courseId)) {
+    if (this.completed.has(courseId) || this.fileInFlight.has(courseId) || this.videoInFlight.has(courseId) || this.queued.has(courseId)) {
       return
     }
 
     this.queued.add(courseId)
-    if (task.priority === 'high') {
-      this.highQueue.push(task)
+    const priority = task.priority || 'normal'
+    const internalTask: InternalTask = { options: task, priority }
+
+    if (priority === 'high') {
+      this.highFilesQueue.push(internalTask)
     } else {
-      this.lowQueue.push(task)
+      this.lowFilesQueue.push(internalTask)
     }
 
-    this.schedule()
+    this.scheduleFiles()
   }
 
   /**
@@ -63,26 +85,38 @@ export class CanvasScanQueue {
    * 将该课程提升至 highQueue 队首，确保用户当前正在交互的课程立即可用
    */
   public promote(courseId: number): void {
-    if (this.completed.has(courseId) || this.inFlight.has(courseId)) {
-      return
-    }
+    if (this.completed.has(courseId)) return
 
-    // 检查是否在 lowQueue 中
-    const lowIndex = this.lowQueue.findIndex(t => t.courseId === courseId)
-    if (lowIndex >= 0) {
-      const [task] = this.lowQueue.splice(lowIndex, 1)
+    // 1. 若在 files 队列中，提升至 highFilesQueue 队首
+    const lowFileIdx = this.lowFilesQueue.findIndex(t => t.options.courseId === courseId)
+    if (lowFileIdx >= 0) {
+      const [task] = this.lowFilesQueue.splice(lowFileIdx, 1)
       task.priority = 'high'
-      this.highQueue.unshift(task)
-      this.schedule()
-      return
+      this.highFilesQueue.unshift(task)
+      this.scheduleFiles()
+    } else {
+      const highFileIdx = this.highFilesQueue.findIndex(t => t.options.courseId === courseId)
+      if (highFileIdx > 0) {
+        const [task] = this.highFilesQueue.splice(highFileIdx, 1)
+        this.highFilesQueue.unshift(task)
+        this.scheduleFiles()
+      }
     }
 
-    // 若已在 highQueue 中且不在队首，移至队首
-    const highIndex = this.highQueue.findIndex(t => t.courseId === courseId)
-    if (highIndex > 0) {
-      const [task] = this.highQueue.splice(highIndex, 1)
-      this.highQueue.unshift(task)
-      this.schedule()
+    // 2. 若在 videos 队列中，提升至 highVideosQueue 队首
+    const lowVidIdx = this.lowVideosQueue.findIndex(t => t.options.courseId === courseId)
+    if (lowVidIdx >= 0) {
+      const [task] = this.lowVideosQueue.splice(lowVidIdx, 1)
+      task.priority = 'high'
+      this.highVideosQueue.unshift(task)
+      this.scheduleVideos()
+    } else {
+      const highVidIdx = this.highVideosQueue.findIndex(t => t.options.courseId === courseId)
+      if (highVidIdx > 0) {
+        const [task] = this.highVideosQueue.splice(highVidIdx, 1)
+        this.highVideosQueue.unshift(task)
+        this.scheduleVideos()
+      }
     }
   }
 
@@ -91,26 +125,42 @@ export class CanvasScanQueue {
    */
   public clear(): void {
     this.aborted = true
-    this.highQueue = []
-    this.lowQueue = []
+    this.highFilesQueue = []
+    this.lowFilesQueue = []
+    this.highVideosQueue = []
+    this.lowVideosQueue = []
     this.queued.clear()
-    this.inFlight.clear()
+    this.fileInFlight.clear()
+    this.videoInFlight.clear()
     this.completed.clear()
-    this.runningWorkers = 0
+    this.runningFileWorkers = 0
+    this.runningVideoWorkers = 0
   }
 
   /**
    * 是否有任务正在运行或等待中
    */
   public isRunning(): boolean {
-    return this.runningWorkers > 0 || this.highQueue.length > 0 || this.lowQueue.length > 0
+    return (
+      this.runningFileWorkers > 0 ||
+      this.runningVideoWorkers > 0 ||
+      this.highFilesQueue.length > 0 ||
+      this.lowFilesQueue.length > 0 ||
+      this.highVideosQueue.length > 0 ||
+      this.lowVideosQueue.length > 0
+    )
   }
 
   /**
    * 判断课程是否已入队、正在执行或已完成
    */
   public has(courseId: number): boolean {
-    return this.queued.has(courseId) || this.inFlight.has(courseId) || this.completed.has(courseId)
+    return (
+      this.queued.has(courseId) ||
+      this.fileInFlight.has(courseId) ||
+      this.videoInFlight.has(courseId) ||
+      this.completed.has(courseId)
+    )
   }
 
   /**
@@ -119,48 +169,111 @@ export class CanvasScanQueue {
   public markCompleted(courseId: number): void {
     this.completed.add(courseId)
     this.queued.delete(courseId)
-    this.inFlight.delete(courseId)
+    this.fileInFlight.delete(courseId)
+    this.videoInFlight.delete(courseId)
+    this.highFilesQueue = this.highFilesQueue.filter(t => t.options.courseId !== courseId)
+    this.lowFilesQueue = this.lowFilesQueue.filter(t => t.options.courseId !== courseId)
+    this.highVideosQueue = this.highVideosQueue.filter(t => t.options.courseId !== courseId)
+    this.lowVideosQueue = this.lowVideosQueue.filter(t => t.options.courseId !== courseId)
   }
 
-  private schedule(): void {
+  // ══════════════════════════════════════════════════════════
+  // Phase 1 调度（极速课件扫描）
+  // ══════════════════════════════════════════════════════════
+
+  private scheduleFiles(): void {
     this.aborted = false
-    while (this.runningWorkers < this.concurrency && (this.highQueue.length > 0 || this.lowQueue.length > 0)) {
-      const task = this.highQueue.shift() || this.lowQueue.shift()
+    while (
+      this.runningFileWorkers < this.fileConcurrency &&
+      (this.highFilesQueue.length > 0 || this.lowFilesQueue.length > 0)
+    ) {
+      const task = this.highFilesQueue.shift() || this.lowFilesQueue.shift()
       if (!task) break
-      this.queued.delete(task.courseId)
-      this.inFlight.add(task.courseId)
-      this.runningWorkers++
-      void this.executeTask(task)
+      this.fileInFlight.add(task.options.courseId)
+      this.runningFileWorkers++
+      void this.executeFileTask(task)
     }
   }
 
-  private async executeTask(task: ScanTaskOptions): Promise<void> {
-    const { courseId } = task
+  private async executeFileTask(task: InternalTask): Promise<void> {
+    const { courseId } = task.options
     try {
       if (this.aborted) return
 
-      // Phase 1: 毫秒级获取课件、作业与文件体积（纯 REST 请求，极低开销）
-      await task.scanFiles(courseId)
+      // 执行 Phase 1: 毫秒级获取课件与文件体积
+      await task.options.scanFiles(courseId)
+      task.options.onFilesDone?.(courseId)
 
-      // Phase 2: 轻量单路延时补充视频（如果提供了 scanVideos）
-      if (task.scanVideos && !this.aborted) {
-        await task.scanVideos(courseId)
+      // 若有视频任务，无缝交接至 Phase 2 队列推进
+      if (task.options.scanVideos && !this.aborted) {
+        if (task.priority === 'high') {
+          this.highVideosQueue.push(task)
+        } else {
+          this.lowVideosQueue.push(task)
+        }
+        this.scheduleVideos()
+      } else {
+        this.completed.add(courseId)
+        this.queued.delete(courseId)
+        task.options.onDone?.(courseId)
       }
-
-      this.completed.add(courseId)
-      task.onDone?.(courseId)
     } catch (err) {
-      task.onError?.(courseId, err)
+      task.options.onError?.(courseId, err)
     } finally {
-      this.inFlight.delete(courseId)
-      this.runningWorkers--
+      this.fileInFlight.delete(courseId)
+      this.runningFileWorkers--
 
-      if (this.delayMs > 0 && !this.aborted) {
+      // 高优先级课件任务 0 延时，普通/低优先级任务享受轻量防抖
+      if (this.delayMs > 0 && !this.aborted && task.priority !== 'high') {
         await new Promise(resolve => setTimeout(resolve, this.delayMs))
       }
 
       if (!this.aborted) {
-        this.schedule()
+        this.scheduleFiles()
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // Phase 2 调度（静默视频扫描）
+  // ══════════════════════════════════════════════════════════
+
+  private scheduleVideos(): void {
+    if (this.aborted) return
+    while (
+      this.runningVideoWorkers < this.videoConcurrency &&
+      (this.highVideosQueue.length > 0 || this.lowVideosQueue.length > 0)
+    ) {
+      const task = this.highVideosQueue.shift() || this.lowVideosQueue.shift()
+      if (!task) break
+      this.videoInFlight.add(task.options.courseId)
+      this.runningVideoWorkers++
+      void this.executeVideoTask(task)
+    }
+  }
+
+  private async executeVideoTask(task: InternalTask): Promise<void> {
+    const { courseId } = task.options
+    try {
+      if (this.aborted) return
+      if (task.options.scanVideos) {
+        await task.options.scanVideos(courseId)
+      }
+      this.completed.add(courseId)
+      this.queued.delete(courseId)
+      task.options.onDone?.(courseId)
+    } catch (err) {
+      task.options.onError?.(courseId, err)
+    } finally {
+      this.videoInFlight.delete(courseId)
+      this.runningVideoWorkers--
+
+      if (this.delayMs > 0 && !this.aborted && task.priority !== 'high') {
+        await new Promise(resolve => setTimeout(resolve, this.delayMs))
+      }
+
+      if (!this.aborted) {
+        this.scheduleVideos()
       }
     }
   }

@@ -1,10 +1,10 @@
-import { useClickOutside } from '../hooks/useClickOutside'
-import React, { useState, useRef, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import type { DownloadMode } from '@shared/types'
 import { useAppStore } from '../store/app'
 import { Spinner } from './Spinner'
 
-export type VideoPerspective = 'all' | 'teacher' | 'ppt' | 'audio'
+import type { VideoPerspective } from '@shared/types'
+export type { VideoPerspective }
 
 export interface CategorySelectionState {
   files?: boolean
@@ -62,15 +62,22 @@ export interface FloatingCommandIslandProps {
   }
 }
 
+export const PERSPECTIVE_LABELS: Record<VideoPerspective, string> = {
+  all: '双机位同时下载',
+  teacher: '仅教师视角',
+  ppt: '仅PPT投屏',
+  audio: '纯音频 MP3'
+}
+
 export const VIDEO_PERSPECTIVE_OPTIONS: Array<{
   key: VideoPerspective
   label: string
   desc: string
 }> = [
   { key: 'all', label: '双机位同时下载', desc: '包含教师画面与PPT投屏' },
-  { key: 'teacher', label: '仅教师画面', desc: '标准板书与教师全景' },
-  { key: 'ppt', label: '仅PPT投影', desc: '高清讲义与屏幕共享' },
-  { key: 'audio', label: '仅原声音频', desc: '超省空间，随时听课' }
+  { key: 'teacher', label: '仅教师视角', desc: '标准板书与教师全景' },
+  { key: 'ppt', label: '仅PPT投屏', desc: '高清讲义与屏幕共享' },
+  { key: 'audio', label: '纯音频 MP3', desc: '超省空间，随时听课' }
 ]
 
 export const STORAGE_DEST_OPTIONS: Array<{ key: DownloadMode; label: string }> = [
@@ -89,12 +96,12 @@ export function FloatingCommandIsland({
   categorySelection,
   onToggleCategory,
   perspective,
-  onPerspectiveChange,
+  onPerspectiveChange: _onPerspectiveChange,
   downloadMode,
   onDownloadModeChange,
   onStartDownload,
   onClearSelection,
-  defaultPopoverOpen = false,
+  defaultPopoverOpen: _defaultPopoverOpen = false,
   batchProgress
 }: FloatingCommandIslandProps): React.JSX.Element | null {
   // 内部状态（支持受控与非受控）
@@ -104,11 +111,8 @@ export function FloatingCommandIsland({
     assignments: true,
     pptPdf: true
   })
-  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('teacher')
-  const [isPopoverOpen, setIsPopoverOpen] = useState(defaultPopoverOpen)
+  const [internalPerspective] = useState<VideoPerspective>('teacher')
 
-  const popoverRef = useRef<HTMLDivElement>(null)
-  const videoTriggerRef = useRef<HTMLDivElement>(null)
 
   // 确定有效状态
   const activeCategoryState: CategorySelectionState = {
@@ -118,7 +122,9 @@ export function FloatingCommandIsland({
     pptPdf: categorySelection?.pptPdf ?? internalCategorySelection.pptPdf ?? true
   }
 
-  const currentPerspective = perspective ?? internalPerspective
+  const globalPerspective = useAppStore((s) => s.videoPerspectivePreference)
+  const currentPerspective = perspective ?? globalPerspective ?? internalPerspective
+  const perspectiveLabel = PERSPECTIVE_LABELS[currentPerspective] || '仅教师视角'
 
   // 存储模式优先使用 props，无传入时同步 Zustand 全局状态
   const storeDownloadMode = useAppStore((s) => s.downloadMode)
@@ -142,15 +148,6 @@ export function FloatingCommandIsland({
     [onToggleCategory]
   )
 
-  const handlePerspectiveSelect = useCallback(
-    (p: VideoPerspective) => {
-      setInternalPerspective(p)
-      onPerspectiveChange?.(p)
-      setIsPopoverOpen(false)
-    },
-    [onPerspectiveChange]
-  )
-
   const handleDownloadModeChange = useCallback(
     (mode: DownloadMode) => {
       if (onDownloadModeChange) {
@@ -165,13 +162,6 @@ export function FloatingCommandIsland({
   const handleStartDownload = useCallback(() => {
     onStartDownload?.()
   }, [onStartDownload])
-
-  // 点击外部关闭视频机位悬浮菜单
-  useClickOutside(popoverRef, () => setIsPopoverOpen(false), {
-    enabled: isPopoverOpen,
-    ignoreRefs: [videoTriggerRef],
-    eventType: 'pointerdown'
-  })
 
   // 全局快捷键：Enter 立即下载，Esc 关闭浮窗或清空选择。
   // [Bug Fix] 下载进行中禁用 Enter 提交（与页面 onDownload 的 st.downloading 守卫一致），
@@ -193,9 +183,7 @@ export function FloatingCommandIsland({
         e.preventDefault()
         handleStartDownload()
       } else if (e.key === 'Escape') {
-        if (isPopoverOpen) {
-          setIsPopoverOpen(false)
-        } else if (onClearSelection) {
+        if (onClearSelection) {
           e.preventDefault()
           onClearSelection()
         }
@@ -204,7 +192,7 @@ export function FloatingCommandIsland({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleStartDownload, isPopoverOpen, onClearSelection, selectedSummary.totalItems, batchActive, storeDownloading])
+  }, [handleStartDownload, onClearSelection, selectedSummary.totalItems, batchActive, storeDownloading])
 
   // 当没有选中任何项目时平滑隐藏。
   // [Bug Fix] 下载进行中不隐藏：岛的进度环是批量进度的唯一实时展示位（原
@@ -261,76 +249,21 @@ export function FloatingCommandIsland({
           <span>📘 课件 {selectedSummary.filesCount ?? 0}</span>
         </button>
 
-        {/* 视频芯片（带机位弹出菜单） */}
-        <div ref={videoTriggerRef} className="relative inline-flex items-center">
-          <div
-            className={`inline-flex items-center rounded-xl text-xs border transition-all duration-150 ${
-              activeCategoryState.videos
-                ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-                : 'border-black/[0.06] dark:border-white/[0.08] text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-white/[0.04] hover:bg-slate-200/50 dark:hover:bg-white/[0.08]'
-            }`}
-          >
-            <button
-              type="button"
-              role="button"
-              aria-pressed={activeCategoryState.videos}
-              onClick={() => handleToggleCategory('videos')}
-              className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 cursor-pointer"
-            >
-              <span>🎬 视频 {selectedSummary.videoCount ?? 0}</span>
-            </button>
-            <button
-              type="button"
-              role="button"
-              aria-label="选择视频机位"
-              aria-haspopup="menu"
-              aria-expanded={isPopoverOpen}
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsPopoverOpen((prev) => !prev)
-              }}
-              className="pr-2 pl-1 py-1 hover:opacity-80 transition-opacity cursor-pointer text-[11px]"
-            >
-              ▾
-            </button>
-          </div>
-
-          {/* 视频机位快捷悬浮菜单 (Floating Popover) */}
-          {isPopoverOpen && (
-            <div
-              ref={popoverRef}
-              role="menu"
-              aria-label="选择视频机位"
-              className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 z-50 w-56 rounded-2xl border border-bd/80 bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-2xl animate-fadeIn"
-            >
-              <div className="px-2.5 py-1 text-[11px] font-medium text-text-3 border-b border-bd/50 mb-1">
-                选择视频机位 / 音轨
-              </div>
-              {VIDEO_PERSPECTIVE_OPTIONS.map((opt) => {
-                const active = currentPerspective === opt.key
-                return (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    role="menuitem"
-                    onClick={() => handlePerspectiveSelect(opt.key)}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded-xl transition-colors cursor-pointer text-left ${
-                      active
-                        ? 'bg-accent/15 text-accent font-semibold'
-                        : 'text-text-2 hover:text-text-1 hover:bg-surface-2/80'
-                    }`}
-                  >
-                    <div className="flex flex-col">
-                      <span>{opt.label}</span>
-                      <span className="text-[10px] text-text-4 font-normal mt-0.5">{opt.desc}</span>
-                    </div>
-                    {active && <span className="text-accent text-xs font-bold ml-2">✓</span>}
-                  </button>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        {/* 视频芯片（悬停显示当前机位提示，点击切换勾选） */}
+        <button
+          type="button"
+          role="button"
+          aria-pressed={activeCategoryState.videos}
+          onClick={() => handleToggleCategory('videos')}
+          title={`当前默认下载: ${perspectiveLabel}（如需修改请前往「设置 - 课件与多媒体」）`}
+          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
+            activeCategoryState.videos
+              ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
+              : 'border-black/[0.06] dark:border-white/[0.08] text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-white/[0.04] hover:bg-slate-200/50 dark:hover:bg-white/[0.08]'
+          }`}
+        >
+          <span>🎬 视频 {selectedSummary.videoCount ?? 0}</span>
+        </button>
 
         {/* 作业芯片 */}
         <button

@@ -29,6 +29,7 @@ import {
   type CategorySelectionState
 } from './FloatingCommandIsland'
 import { applyVideoPerspectivePreference } from '../download/perspective'
+import { PERSPECTIVE_LABELS } from './FloatingCommandIsland'
 import { computeBatchStats } from '../download/progress'
 export type { VideoPerspective, CategorySelectionState }
 
@@ -1827,18 +1828,21 @@ export function CourseOverviewInspector({
   course,
   category,
   perspective,
-  onPerspectiveChange,
+  onPerspectiveChange: _onPerspectiveChange,
   hasPptPdf,
-  onTogglePptPdf,
+  onTogglePptPdf: _onTogglePptPdf,
   onDownloadCourse
 }: CourseOverviewInspectorProps) {
-  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('teacher')
-  const activePerspective: VideoPerspective = perspective ?? course.perspective ?? internalPerspective
+  const [internalPerspective] = useState<VideoPerspective>('teacher')
+  const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
+  const globalAutoPptPdf = useAppStore(s => s.autoExportPptPdf)
+  const activePerspective: VideoPerspective = perspective ?? course.perspective ?? globalPerspective ?? internalPerspective
+  const perspectiveLabel = PERSPECTIVE_LABELS[activePerspective] || '仅教师视角'
 
   const pptCat = course.categories.find(c => c.id === 'pptPdf' || c.id === 'ppt-pdf')
   const defaultPptPdf = pptCat ? pptCat.state === 'all' : false
-  const [internalPptPdf, setInternalPptPdf] = useState<boolean>(defaultPptPdf)
-  const isPptPdfOn = hasPptPdf ?? course.hasPptPdf ?? (pptCat ? pptCat.state === 'all' : internalPptPdf)
+  const [internalPptPdf] = useState<boolean>(defaultPptPdf)
+  const isPptPdfOn = hasPptPdf ?? course.hasPptPdf ?? (pptCat ? pptCat.state === 'all' : (globalAutoPptPdf ?? internalPptPdf))
 
   const { toast, showToast, hideToast } = useToast(2500)
 
@@ -1856,23 +1860,7 @@ export function CourseOverviewInspector({
     })
   }, [breakdown, activePerspective, isPptPdfOn])
 
-  const handlePerspectiveSelect = (p: VideoPerspective) => {
-    setInternalPerspective(p)
-    // [Bug Fix] audio 档原先被忽略（no-op）。同步全局画质偏好（audio_only ↔ 机位互斥）
-    applyVideoPerspectivePreference(p)
-    onPerspectiveChange?.(p)
-    course.onPerspectiveChange?.(p)
-  }
 
-  const handleTogglePptPdf = () => {
-    const nextVal = !isPptPdfOn
-    setInternalPptPdf(nextVal)
-    if (pptCat) {
-      pptCat.onToggle()
-    }
-    onTogglePptPdf?.(nextVal)
-    course.onTogglePptPdf?.(nextVal)
-  }
 
   const handleDownloadCourse = () => {
     // [Bug Fix] 原实现兜底"未全选则 onToggle + toast 已开始下载全部资源"——在未接
@@ -1894,13 +1882,6 @@ export function CourseOverviewInspector({
     }
     showToast(`已开始下载课程 "${course.name}" 全部资源`, 'success')
   }
-
-  const perspectiveOptions: Array<{ key: VideoPerspective; label: string }> = [
-    { key: 'all', label: '双机位' },
-    { key: 'teacher', label: '仅教师' },
-    { key: 'ppt', label: '仅PPT' },
-    { key: 'audio', label: '仅音频' }
-  ]
 
   return (
     <div
@@ -1982,65 +1963,29 @@ export function CourseOverviewInspector({
         </div>
       </div>
 
-      {/* 录播机位下载偏好单选组（仅当有录播时渲染） */}
-      {breakdown.hasVideos && (
-        <div className="my-2 rounded-xl border border-bd/80 bg-surface-2/40 p-3 shrink-0" data-testid="video-perspective-selector">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-text-2">录播机位偏好</span>
-            <span className="text-2xs text-text-4">已选择: {perspectiveOptions.find(o => o.key === activePerspective)?.label}</span>
+      {/* 偏好状态只读概览（统一在设置页修改） */}
+      <div className="my-2 rounded-xl border border-bd/80 bg-surface-2/40 p-3 space-y-1.5 shrink-0 text-2xs" data-testid="unified-preferences-summary">
+        {breakdown.hasVideos && (
+          <div className="flex items-center justify-between text-text-2">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span>📹</span>
+              <span>默认录播视角</span>
+            </span>
+            <span className="font-semibold text-accent">{perspectiveLabel}</span>
           </div>
-          <div className="grid grid-cols-4 gap-1 p-0.5 rounded-lg bg-surface-3/60 border border-bd/40" role="radiogroup" aria-label="录播机位偏好">
-            {perspectiveOptions.map(opt => {
-              const isSelected = activePerspective === opt.key
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  role="radio"
-                  aria-checked={isSelected}
-                  data-perspective={opt.key}
-                  onClick={() => handlePerspectiveSelect(opt.key)}
-                  className={`py-1.5 px-1 text-center text-xs rounded-md transition-all cursor-pointer font-medium ${
-                    isSelected
-                      ? 'bg-accent text-white shadow-xs font-semibold'
-                      : 'text-text-2 hover:text-text-1 hover:bg-surface-2'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 增值导出快速开关：提取并生成 PPT 讲义 */}
-      <div className="my-2 rounded-xl border border-bd/80 bg-surface-2/40 p-3 flex items-center justify-between gap-3 shrink-0">
-        <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-xs font-semibold text-text-2 flex items-center gap-1.5">
+        )}
+        <div className="flex items-center justify-between text-text-2">
+          <span className="flex items-center gap-1.5 font-medium">
             <span>📑</span>
-            <span>提取并生成 PPT 讲义</span>
+            <span>PPT 讲义自动提取</span>
           </span>
-          <span className="text-2xs text-text-4 mt-0.5 truncate">
-            从视频画面自动去重合成高清 PDF 讲义
+          <span className={`font-semibold ${isPptPdfOn ? 'text-accent' : 'text-text-4'}`}>
+            {isPptPdfOn ? '已开启' : '未开启'}
           </span>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={isPptPdfOn}
-          aria-label="提取并生成 PPT 讲义"
-          onClick={handleTogglePptPdf}
-          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-            isPptPdfOn ? 'bg-accent' : 'bg-surface-4'
-          }`}
-        >
-          <span
-            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-              isPptPdfOn ? 'translate-x-4' : 'translate-x-0'
-            }`}
-          />
-        </button>
+        <div className="pt-1 text-3xs text-text-4 border-t border-bd/30 text-right">
+          如需修改请前往「设置 - 课件与多媒体」
+        </div>
       </div>
 
       {/* 勾选状态指示 */}

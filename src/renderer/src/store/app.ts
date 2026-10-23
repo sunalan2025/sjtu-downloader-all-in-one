@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption } from '@shared/types'
+import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption, VideoPerspective } from '@shared/types'
 import { DEFAULT_NAMING_TEMPLATE } from '@shared/utils'
 
 /** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
@@ -118,6 +118,10 @@ interface AppState {
   namingTemplate: string
   /** 视频下载画质/纯音频选项 */
   videoQualityOption: VideoQualityOption
+  /** 默认录播镜头机位偏好（all/teacher/ppt/audio） */
+  videoPerspectivePreference: VideoPerspective
+  /** 默认提取并合成 PPT 讲义 PDF */
+  autoExportPptPdf: boolean
   /** 已下载历史记录 */
   downloadHistory: DownloadHistoryItem[]
   /** 并发下载数，2-16，会同步到主进程。0 = 自动 */
@@ -330,6 +334,10 @@ interface AppState {
   setConcurrency: (n: number) => void
   /** 切换 PPT 讲义切片原图保存开关 */
   setPptSaveImages: (on: boolean) => void
+  /** 设置默认录播镜头机位偏好 */
+  setVideoPerspectivePreference: (p: VideoPerspective) => void
+  /** 设置默认提取并合成 PPT 讲义 PDF 开关 */
+  setAutoExportPptPdf: (on: boolean) => void
 }
 
 const emptyScanResults = {
@@ -484,6 +492,8 @@ export const useAppStore = create<AppState>()(
       concurrency: 3,
       autoDownloadUpdate: false,
       courseViewMode: 'grid' as CourseViewMode,
+      videoPerspectivePreference: 'teacher' as VideoPerspective,
+      autoExportPptPdf: true,
       canvasGroupByTerm: true,
       canvasSelectedTerm: 'all',
       scheduleSelectedSemesterKey: 'current',
@@ -509,6 +519,17 @@ export const useAppStore = create<AppState>()(
       setLastSetupVersion: lastSetupVersion => set({ lastSetupVersion }),
       setShowSetupWizardModal: showSetupWizardModal => set({ showSetupWizardModal }),
       setPptSaveImages: pptSaveImages => set({ pptSaveImages }),
+      setVideoPerspectivePreference: p =>
+        set(state => ({
+          videoPerspectivePreference: p,
+          videoQualityOption:
+            p === 'audio'
+              ? 'audio_only'
+              : state.videoQualityOption === 'audio_only'
+                ? 'origin'
+                : state.videoQualityOption
+        })),
+      setAutoExportPptPdf: autoExportPptPdf => set({ autoExportPptPdf }),
       setCanvasExportAiTranscript: canvasExportAiTranscript =>
         set({
           canvasExportAiTranscript,
@@ -996,6 +1017,8 @@ export const useAppStore = create<AppState>()(
         maxDownloadSpeedKBps: state.maxDownloadSpeedKBps,
         namingTemplate: state.namingTemplate,
         videoQualityOption: state.videoQualityOption,
+        videoPerspectivePreference: state.videoPerspectivePreference,
+        autoExportPptPdf: state.autoExportPptPdf,
         downloadHistory: state.downloadHistory,
         courseViewMode: state.courseViewMode,
         canvasGroupByTerm: state.canvasGroupByTerm,

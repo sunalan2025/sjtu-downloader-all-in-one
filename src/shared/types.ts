@@ -729,6 +729,9 @@ export interface PptDownloadOpts {
 
 export type VideoQualityOption = 'origin' | '1080p' | '720p' | 'audio_only'
 
+/** 视频录播镜头机位偏好：双机位 / 仅教师 / 仅PPT / 纯音频 */
+export type VideoPerspective = 'all' | 'teacher' | 'ppt' | 'audio'
+
 export interface DownloadHistoryItem {
   taskId: string
   fileName: string

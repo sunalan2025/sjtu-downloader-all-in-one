@@ -36,10 +36,9 @@ describe('UI Z-Index Hierarchy and Layer Mask Guardrails', () => {
     expect(widgetsSource).toContain("open ? 'z-50' : ''")
   })
 
-  it('FloatingCommandIsland camera popup must be fully opaque without bleed-through alpha', () => {
+  it('FloatingCommandIsland does not have bleed-through alpha or popover leak', () => {
     const islandSource = readComponent('src/renderer/src/components/FloatingCommandIsland.tsx')
     expect(islandSource).not.toContain('bg-surface-1/95')
-    expect(islandSource).toContain('bg-surface-1 dark:bg-[#1e1e22]')
   })
 
   it('CourseHoverPopover must be solid and elevated to z-50', () => {

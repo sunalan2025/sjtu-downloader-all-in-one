@@ -243,7 +243,7 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
       expect(html).toContain('课件资料')
     })
 
-    it('对有录播视频的课程渲染录播机位切换控件 [ 双机位 | 仅教师 | 仅PPT | 仅音频 ]', () => {
+    it('对有录播视频的课程渲染偏好状态只读概览并指示当前默认机位', () => {
       const course = createMockCourse()
       const html = renderToStaticMarkup(
         React.createElement(CourseOverviewInspector, {
@@ -253,19 +253,13 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
       )
       const $ = cheerio.load(html)
 
-      const selector = $('[data-testid="video-perspective-selector"]')
-      expect(selector.length).toBe(1)
-      expect(selector.text()).toContain('双机位')
-      expect(selector.text()).toContain('仅教师')
-      expect(selector.text()).toContain('仅PPT')
-      expect(selector.text()).toContain('仅音频')
-
-      // 仅教师当前处于激活态
-      const teacherBtn = $('button[data-perspective="teacher"]')
-      expect(teacherBtn.attr('aria-checked')).toBe('true')
+      const summary = $('[data-testid="unified-preferences-summary"]')
+      expect(summary.length).toBe(1)
+      expect(summary.text()).toContain('默认录播视角')
+      expect(summary.text()).toContain('仅教师视角')
     })
 
-    it('无录播课程不展示录播机位切换控件', () => {
+    it('无录播课程不展示录播机位条目', () => {
       const docCourse = createMockCourse({
         categories: [
           {
@@ -284,56 +278,37 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
         })
       )
       const $ = cheerio.load(html)
-      expect($('[data-testid="video-perspective-selector"]').length).toBe(0)
+      const summary = $('[data-testid="unified-preferences-summary"]')
+      expect(summary.length).toBe(1)
+      expect(summary.text()).not.toContain('默认录播视角')
     })
 
-    it('点击机位切换按钮正确触发 onPerspectiveChange 回调', () => {
+    it('偏好概览正确展示 PPT 讲义自动提取状态与设置提示', () => {
       const course = createMockCourse()
-      const onPerspectiveChange = vi.fn()
-
-      let capturedVNode: any = null
-      function Wrapper() {
-        capturedVNode = CourseOverviewInspector({
+      const html = renderToStaticMarkup(
+        React.createElement(CourseOverviewInspector, {
           course,
-          perspective: 'all',
-          onPerspectiveChange
+          hasPptPdf: true
         })
-        return capturedVNode
-      }
-
-      renderToStaticMarkup(React.createElement(Wrapper))
-
-      const audioButtons = findVNodes(capturedVNode, n => n.props?.['data-perspective'] === 'audio')
-      expect(audioButtons.length).toBe(1)
-      audioButtons[0].props.onClick()
-
-      expect(onPerspectiveChange).toHaveBeenCalledTimes(1)
-      expect(onPerspectiveChange).toHaveBeenCalledWith('audio')
+      )
+      const $ = cheerio.load(html)
+      const summary = $('[data-testid="unified-preferences-summary"]')
+      expect(summary.text()).toContain('PPT 讲义自动提取')
+      expect(summary.text()).toContain('已开启')
+      expect(summary.text()).toContain('如需修改请前往「设置 - 课件与多媒体」')
     })
 
-    it('点击 PPT PDF 讲义提取开关触发 onTogglePptPdf 回调并联动分类 onToggle', () => {
+    it('支持传入 hasPptPdf: false 控制展示状态', () => {
       const course = createMockCourse()
-      const onTogglePptPdf = vi.fn()
-      const pptCat = course.categories.find(c => c.id === 'pptPdf')!
-
-      let capturedVNode: any = null
-      function Wrapper() {
-        capturedVNode = CourseOverviewInspector({
+      const html = renderToStaticMarkup(
+        React.createElement(CourseOverviewInspector, {
           course,
-          hasPptPdf: false,
-          onTogglePptPdf
+          hasPptPdf: false
         })
-        return capturedVNode
-      }
-
-      renderToStaticMarkup(React.createElement(Wrapper))
-
-      const switchButtons = findVNodes(capturedVNode, n => n.props?.role === 'switch')
-      expect(switchButtons.length).toBe(1)
-      switchButtons[0].props.onClick()
-
-      expect(onTogglePptPdf).toHaveBeenCalledWith(true)
-      expect(pptCat.onToggle).toHaveBeenCalled()
+      )
+      const $ = cheerio.load(html)
+      const summary = $('[data-testid="unified-preferences-summary"]')
+      expect(summary.text()).toContain('未开启')
     })
 
     it('点击底部主下载按钮触发 onDownloadCourse 回调并提供 Toast 反馈', () => {
@@ -602,7 +577,7 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
   })
 
   describe('5. NetdiskCourseExplorer 分栏模式端到端属性透传', () => {
-    it('在 viewMode="column" 时，通过 navState 选定课程能够正确呈现第 4 栏检查器并支持机位回调', () => {
+    it('在 viewMode="column" 时，通过 navState 选定课程能够正确呈现第 4 栏检查器并反映机位偏好', () => {
       const course = createMockCourse()
       const onPerspectiveChange = vi.fn()
       const onDownloadCourse = vi.fn()
@@ -624,8 +599,9 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
       const $ = cheerio.load(html)
 
       expect($('[data-testid="course-overview-inspector"]').length).toBe(1)
-      const pptBtn = $('button[data-perspective="ppt"]')
-      expect(pptBtn.attr('aria-checked')).toBe('true')
+      const summary = $('[data-testid="unified-preferences-summary"]')
+      expect(summary.length).toBe(1)
+      expect(summary.text()).toContain('仅PPT投屏')
     })
   })
 })

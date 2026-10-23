@@ -3,13 +3,12 @@ import {
   useAppStore,
   type Theme,
   type WindowCloseAction,
-  type ExitWhenDownloadingPolicy,
-  type CourseViewMode
+  type ExitWhenDownloadingPolicy
 } from '../store/app'
 import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
 import { prefetchCloudConnection } from '../services/prefetch'
-import type { DownloadMode, VideoQualityOption, MaskedCredential } from '@shared/types'
+import type { DownloadMode, VideoQualityOption, VideoPerspective, MaskedCredential } from '@shared/types'
 import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBreadcrumb, normalizeCloudPath, formatBytes } from '../../../shared/utils'
 import pkg from '../../../../package.json'
 
@@ -29,6 +28,10 @@ export function Settings({
   const setMaxDownloadSpeedKBps = useAppStore(s => s.setMaxDownloadSpeedKBps)
   const videoQualityOption = useAppStore(s => s.videoQualityOption)
   const setVideoQualityOption = useAppStore(s => s.setVideoQualityOption)
+  const videoPerspectivePreference = useAppStore(s => s.videoPerspectivePreference)
+  const setVideoPerspectivePreference = useAppStore(s => s.setVideoPerspectivePreference)
+  const autoExportPptPdf = useAppStore(s => s.autoExportPptPdf)
+  const setAutoExportPptPdf = useAppStore(s => s.setAutoExportPptPdf)
   const cloudUserToken = useAppStore(s => s.cloudUserToken)
   const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
   const localDestRoot = useAppStore(s => s.localDestRoot)
@@ -54,8 +57,6 @@ export function Settings({
   const isDefaultLocalPath = !localDestRoot
   const theme = useAppStore(s => s.theme)
   const setTheme = useAppStore(s => s.setTheme)
-  const courseViewMode = useAppStore(s => s.courseViewMode)
-  const setCourseViewMode = useAppStore(s => s.setCourseViewMode)
   const windowCloseAction = useAppStore(s => s.windowCloseAction)
   const setWindowCloseAction = useAppStore(s => s.setWindowCloseAction)
   const exitWhenDownloading = useAppStore(s => s.exitWhenDownloading)
@@ -247,27 +248,7 @@ export function Settings({
                     </div>
                   </div>
 
-                  {/* 行 2：默认网盘浏览视图 */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-text-1">默认网盘浏览视图</div>
-                      <div className="text-xs text-text-3">进入课程页面时默认呈现的排版视图（顶部切换栏可随时临时调整）</div>
-                    </div>
-                    <div className="shrink-0">
-                      <Segmented
-                        size="md"
-                        value={courseViewMode}
-                        onChange={(v) => setCourseViewMode(v as CourseViewMode)}
-                        options={[
-                          { key: 'grid', label: '⊞ 网格大图标' },
-                          { key: 'list', label: '☰ 详细列表' },
-                          { key: 'column', label: '◫ 分栏多级并列' }
-                        ]}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 行 3：Canvas 课程默认分组方式 */}
+                  {/* 行 2：Canvas 课程默认分组方式 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
                       <div className="text-sm font-medium text-text-1">Canvas 课程默认展示方式</div>
@@ -635,6 +616,29 @@ export function Settings({
                     </div>
                   </div>
 
+                  {/* 默认录播镜头视角 */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="text-sm font-medium text-text-1">默认录播镜头视角</div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        下载课堂实录录播时的默认视角。主界面与底栏动作岛将统一遵循此设置，无需逐门课程重复配置
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      <Segmented
+                        size="md"
+                        value={videoPerspectivePreference}
+                        onChange={(v) => setVideoPerspectivePreference(v as VideoPerspective)}
+                        options={[
+                          { key: 'all', label: '📹 双机位同时下载' },
+                          { key: 'teacher', label: '👨‍🏫 仅教师视角' },
+                          { key: 'ppt', label: '📑 仅PPT投屏' },
+                          { key: 'audio', label: '🎵 纯音频 MP3' }
+                        ]}
+                      />
+                    </div>
+                  </div>
+
                   {/* 导出外挂字幕 (.srt) */}
                   <div className="flex items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
@@ -787,15 +791,32 @@ export function Settings({
                       )}
                   </div>
 
-                  {/* 智能 PPT 讲义与幻灯片导出说明 */}
-                  <div className="py-5 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-text-1">📑 PPT 演示幻灯片导出为 PDF 讲义</span>
-                      <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">已就绪</span>
+                  {/* 默认提取并合成 PPT 讲义 */}
+                  <div className="flex items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-1">默认提取并合成 PPT 讲义</span>
+                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">已就绪</span>
+                      </div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        包含课堂录播的课程自动提取演示画面并去重整合为高清 PDF 电子讲义，适合导入 iPad / 平板无纸化批注。无需在每门课程内单独手动开启。
+                      </div>
                     </div>
-                    <div className="text-xs text-text-3 leading-relaxed">
-                      在 Canvas 课程浏览器的「📑 PPT课件」分类中，勾选后下载器会在提取课堂录像演示画面的同时自动整合生成包含全部板书与幻灯片画面的高清矢量 PDF 电子讲义，适合导入 iPad / 平板进行无纸化批注。
-                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={autoExportPptPdf}
+                      onClick={() => setAutoExportPptPdf(!autoExportPptPdf)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
+                        autoExportPptPdf ? 'bg-accent' : 'bg-surface-4'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
+                          autoExportPptPdf ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
                   </div>
 
                   {/* PPT 幻灯片原图保留开关 */}

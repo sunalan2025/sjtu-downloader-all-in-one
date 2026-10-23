@@ -459,10 +459,10 @@ export function CanvasBrowser() {
   const scanningFilesInFlightRef = useRef<Set<number>>(new Set())
   const scannedFilesCourseIdsRef = useRef<Set<number>>(new Set())
 
-  // 智能静默后台预扫描管线实例 (2并发, 120ms 防抖)
+  // 智能静默后台预扫描管线实例 (4并发秒级文件预扫, 2并发后台视频解析)
   const scanQueueRef = useRef<CanvasScanQueue | null>(null)
   if (!scanQueueRef.current) {
-    scanQueueRef.current = new CanvasScanQueue(2, 120)
+    scanQueueRef.current = new CanvasScanQueue(4, 30, 2)
   }
 
   // 卸载时清空后台队列

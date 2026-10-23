@@ -242,13 +242,13 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
     })
   })
 
-  describe('4. 视频机位弹出菜单 (Video Perspective Popover)', () => {
-    it('包含视频机位下拉触发按钮 (aria-haspopup="menu")', () => {
-      const { $ } = renderIsland()
-      const trigger = $('button[aria-label="选择视频机位"]')
-      expect(trigger.length).toBe(1)
-      expect(trigger.attr('aria-haspopup')).toBe('menu')
-      expect(trigger.text().trim()).toBe('▾')
+  describe('4. 视频机位偏好提示与规范化 (Video Perspective Hover Tooltip)', () => {
+    it('视频芯片包含悬停提示信息（指示当前默认机位及前往设置修改的提示）', () => {
+      const { $ } = renderIsland({ perspective: 'teacher' })
+      const videoBtn = $('button[role="button"]:contains("视频")')
+      expect(videoBtn.length).toBe(1)
+      expect(videoBtn.attr('title')).toContain('当前默认下载: 仅教师视角')
+      expect(videoBtn.attr('title')).toContain('如需修改请前往「设置 - 课件与多媒体」')
     })
 
     it('VIDEO_PERSPECTIVE_OPTIONS 导出 4 大标准视角并具备清晰文案', () => {
@@ -257,29 +257,15 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       expect(keys).toEqual(['all', 'teacher', 'ppt', 'audio'])
 
       expect(VIDEO_PERSPECTIVE_OPTIONS[0].label).toBe('双机位同时下载')
-      expect(VIDEO_PERSPECTIVE_OPTIONS[1].label).toBe('仅教师画面')
-      expect(VIDEO_PERSPECTIVE_OPTIONS[2].label).toBe('仅PPT投影')
-      expect(VIDEO_PERSPECTIVE_OPTIONS[3].label).toBe('仅原声音频')
+      expect(VIDEO_PERSPECTIVE_OPTIONS[1].label).toBe('仅教师视角')
+      expect(VIDEO_PERSPECTIVE_OPTIONS[2].label).toBe('仅PPT投屏')
+      expect(VIDEO_PERSPECTIVE_OPTIONS[3].label).toBe('纯音频 MP3')
     })
 
-    it('切换机位时触发 onPerspectiveChange 回调', () => {
-      const onPerspectiveChange = vi.fn()
-      const { vnode } = renderIslandVNode({
-        defaultPopoverOpen: true,
-        onPerspectiveChange
-      })
-
-      // 在 Popover 内查找机位选项菜单项
-      const menuItems = findVNodes(vnode, (n) => n.props?.role === 'menuitem')
-      expect(menuItems.length).toBe(4)
-
-      // 点击 "仅PPT投影"
-      menuItems[2].props.onClick()
-      expect(onPerspectiveChange).toHaveBeenCalledWith('ppt')
-
-      // 点击 "仅原声音频 (M4A)"
-      menuItems[3].props.onClick()
-      expect(onPerspectiveChange).toHaveBeenCalledWith('audio')
+    it('根据传入的 perspective 动态展示对应机位提示', () => {
+      const { $ } = renderIsland({ perspective: 'ppt' })
+      const videoBtn = $('button[role="button"]:contains("视频")')
+      expect(videoBtn.attr('title')).toContain('当前默认下载: 仅PPT投屏')
     })
   })
 
@@ -399,7 +385,7 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       expect($('[role="toolbar"]').length).toBe(1)
       expect($('[role="group"]').length).toBe(1)
       expect($('button[role="button"]').length).toBeGreaterThanOrEqual(6)
-      expect($('button[aria-haspopup="menu"]').length).toBe(1)
+      expect($('button[title*="设置"]').length).toBeGreaterThanOrEqual(1)
     })
   })
 
