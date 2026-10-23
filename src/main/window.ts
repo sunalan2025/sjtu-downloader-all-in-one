@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { getAccountName, getStudentId } from './auth'
 import { getSpeedEma } from './concurrency'
 import { formatBytes, isSafeExternalUrl } from '../shared/utils'
+import { THEME_TOKENS } from '../shared/theme'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -79,7 +80,7 @@ export function createMainWindow(): void {
     center: true,
     autoHideMenuBar: true,
     icon: resolveAppIcon(),
-    backgroundColor: '#f5f7fa',
+    backgroundColor: THEME_TOKENS.dark.surface.base,
     // macOS 用 hiddenInset：保留原生交通灯（红黄绿）并 inset 进内容区，与自绘标题栏融合；
     // Win/Linux 用 hidden：无原生按钮，由 renderer 自绘 Mac 风格交通灯（CaptionButtons）。
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
