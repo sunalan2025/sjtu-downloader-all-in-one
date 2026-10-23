@@ -1,8 +1,6 @@
 ---
 import Icons from './icons/Icons.astro';
 import {
-  REPO_OWNER,
-  REPO_NAME,
   CURRENT_RELEASE_VERSION,
   getAllPlatformMatrix
 } from '../utils/releaseInfo';
@@ -13,27 +11,35 @@ export interface Props {
 
 const { class: className = '' } = Astro.props;
 const currentVersion = `v${CURRENT_RELEASE_VERSION}`;
-const platformAssets = getAllPlatformMatrix(null, CURRENT_RELEASE_VERSION);
+const allAssets = getAllPlatformMatrix(null, CURRENT_RELEASE_VERSION);
+
+// 4 核心平台分发展现：Windows (.exe), Mac ARM64, Mac Intel, Linux
+const platformCards = [
+  allAssets.find((a) => a.id === 'win-exe')!,
+  allAssets.find((a) => a.id === 'mac-arm64')!,
+  allAssets.find((a) => a.id === 'mac-x64')!,
+  allAssets.find((a) => a.id === 'linux-appimage')!
+].filter(Boolean);
 
 const changelogHighlights = [
   {
-    title: '全新支持：官方教务 1~18 周课表同步与 Canvas 作业截止 DDL 联动',
+    title: '官方教务 1~18 周排课同步与 Canvas 作业截止 DDL 预警',
     desc: '直接同步个人学期排课，作业逾期与截止倒计时智能预警，并支持一键导出为通用 ICS 日历文件。'
   },
   {
-    title: 'PPT 讲义自动导出增强',
-    desc: '支持自动抓取课堂视频中的 PPT 演讲切片并合并导出为单份高清 PDF 讲义，并可保留原画质切片图。'
+    title: 'PPT 讲义自动提取与合并导出',
+    desc: '自动抓取课堂视频中的 PPT 演讲切片并合并导出为单份高清 PDF 讲义，并可保留原画质切片图。'
   },
   {
     title: '现代化三重视图自由切换 (网格 / 列表 / 分栏)',
     desc: '全功能支持网格大卡片、详细列表与三栏分栏（Miller Columns）逐级下钻视图，多课程浏览如丝顺滑。'
   },
   {
-    title: '底栏悬浮智能指挥动作岛 (Floating Command Island)',
+    title: '底栏 Apple HIG 悬浮智能指挥动作岛',
     desc: '统一整合下载出口，实时统计多门课程已选分类体积，提供课件、视频、作业与 PPT 芯片一键切换。'
   },
   {
-    title: '硬件安全保险库与防误操作',
+    title: '系统级硬件安全保险库与防误操作',
     desc: '采用 Windows DPAPI / macOS Keychain 原生加密存储，自动填充绝不自动触发表单提交。'
   }
 ];
@@ -42,233 +48,142 @@ const changelogHighlights = [
 <section
   id="download"
   class={`py-20 sm:py-28 relative overflow-hidden ${className}`}
-  aria-label="下载矩阵与环境准入指引"
+  aria-label="下载中心"
 >
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
     <!-- Header -->
-    <div class="text-center max-w-3xl mx-auto mb-14 sm:mb-16">
-      <div
-        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 text-sjtu-blue dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/70 mb-4"
-      >
-        <Icons name="download" class="w-3.5 h-3.5" />
-        <span>全平台下载中心 · 工业级发布保障</span>
-      </div>
-      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-        全平台安装包与<br class="hidden sm:inline" />
-        <span class="bg-gradient-to-r from-sjtu-navy via-sjtu-blue to-sjtu-cyan bg-clip-text text-transparent">
-          环境准入安全指引
-        </span>
+    <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16">
+      <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        全平台安装包
       </h2>
-      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400">
-        当前最新稳定版 <span class="font-mono font-bold text-sjtu-blue dark:text-blue-400">{currentVersion}</span>。全部安装包内置专用 FFmpeg 二进制，免去环境配置，开箱即用。
+      <p class="mt-3 text-base text-slate-600 dark:text-slate-400">
+        最新稳定版 <span class="font-mono font-bold text-sjtu-blue dark:text-blue-400">{currentVersion}</span> · 内置 FFmpeg 免配置 · 支持 SHA-256 校验
       </p>
     </div>
 
-    <!-- 📦 全平台安装包矩阵表格 (支持 SHA-256 复制与直链) -->
-    <div class="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 backdrop-blur-xl shadow-xl overflow-hidden mb-12">
-      <div class="p-6 sm:p-8 border-b border-slate-200/70 dark:border-slate-800/70 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h3 class="text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span>官方二进制安装包列表</span>
-            <span class="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400">
-              Verified Release
-            </span>
-          </h3>
-          <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-            提供 Windows、macOS (Apple Silicon / Intel) 及 Linux 的独立打包，支持 SHA-256 完整性校验。
-          </p>
-        </div>
+    <!-- 4 极简平台卡片 Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+      {
+        platformCards.map((asset) => {
+          const iconName = asset.platform === 'mac' ? 'apple' : asset.platform;
+          return (
+            <div
+              class="group rounded-3xl p-6 sm:p-7 border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 backdrop-blur-xl shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+            >
+              <div>
+                <div class="flex items-center justify-between mb-5">
+                  <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
+                    <Icons name={iconName} class="w-5 h-5" />
+                  </div>
+                  <span class="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-blue-50 dark:bg-blue-950/60 text-sjtu-blue dark:text-blue-300">
+                    {asset.format}
+                  </span>
+                </div>
 
-        <a
-          href={`https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/tag/${currentVersion}`}
-          target="_blank"
-          rel="noopener"
-          class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 transition-colors"
-        >
-          <span>查看 GitHub Release 页面</span>
-          <Icons name="external-link" class="w-3.5 h-3.5" />
-        </a>
-      </div>
+                <h3 class="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
+                  {asset.name}
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  {asset.arch} · 约 {asset.sizeMb} MB
+                </p>
+              </div>
 
-      <div class="overflow-x-auto">
-        <table class="w-full text-left border-collapse text-xs sm:text-sm">
-          <thead>
-            <tr class="border-b border-slate-200/70 dark:border-slate-800/70 bg-slate-50/70 dark:bg-slate-800/40 text-slate-500 font-semibold">
-              <th class="py-4 px-6">系统平台与包格式</th>
-              <th class="py-4 px-6">硬件架构与说明</th>
-              <th class="py-4 px-6">文件体积</th>
-              <th class="py-4 px-6">SHA-256 安全校验</th>
-              <th class="py-4 px-6 text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60">
+              <div class="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80 space-y-3">
+                <a
+                  href={asset.url}
+                  class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-sjtu-blue dark:bg-white dark:hover:bg-blue-400 text-white dark:text-slate-900 transition-colors shadow-sm"
+                >
+                  <Icons name="download" class="w-4 h-4" />
+                  <span>立即下载</span>
+                </a>
+
+                <div class="flex items-center justify-between text-[11px] text-slate-400">
+                  <span class="font-mono truncate max-w-[140px]" title={asset.sha256}>
+                    SHA: {asset.sha256?.substring(0, 10)}...
+                  </span>
+                  <button
+                    type="button"
+                    class="copy-sha-btn text-sjtu-blue hover:underline cursor-pointer font-medium"
+                    data-hash={asset.sha256}
+                  >
+                    复制哈希
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      }
+    </div>
+
+    <!-- 📋 v2.5.0 版本更新日志折叠抽屉 -->
+    <div class="max-w-4xl mx-auto">
+      <details class="group rounded-2xl bg-white/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 shadow-sm transition-all duration-200">
+        <summary class="flex items-center justify-between p-5 cursor-pointer list-none select-none text-left rounded-2xl focus:outline-none">
+          <div class="flex items-center gap-3">
+            <div class="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-sjtu-blue dark:text-blue-300 flex items-center justify-center text-xs font-bold">
+              ✦
+            </div>
+            <div>
+              <span class="text-sm font-bold text-slate-900 dark:text-white">
+                查看 {currentVersion} 详细更新日志 (Changelog)
+              </span>
+              <span class="text-xs text-slate-400 ml-2 hidden sm:inline">全平台架构与特性升级</span>
+            </div>
+          </div>
+          <span class="text-xs text-slate-500 dark:text-slate-400 transition-transform duration-200 group-open:rotate-180">
+            <Icons name="chevron-down" class="w-4 h-4" />
+          </span>
+        </summary>
+        <div class="px-5 pb-5 pt-1 text-xs text-slate-600 dark:text-slate-300 border-t border-slate-100 dark:border-slate-800/60 mt-1">
+          <div class="space-y-3 pt-3">
             {
-              platformAssets.map((asset) => (
-                <tr class="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
-                  <td class="py-4 px-6">
-                    <div class="flex items-center gap-3">
-                      <div class="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 text-slate-700 dark:text-slate-300">
-                        <Icons name={asset.platform} class="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div class="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                          <span>{asset.name}</span>
-                          <span class="px-2 py-0.2 rounded text-[10px] font-mono font-semibold bg-blue-50 dark:bg-blue-950 text-sjtu-blue dark:text-blue-300">
-                            {asset.format}
-                          </span>
-                        </div>
-                        <div class="text-xs text-slate-400 font-mono mt-0.5 truncate max-w-xs">{asset.filename}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td class="py-4 px-6">
-                    <div class="font-medium text-slate-800 dark:text-slate-200">{asset.arch}</div>
-                    <div class="text-xs text-slate-500 mt-0.5">{asset.description}</div>
-                  </td>
-                  <td class="py-4 px-6 font-mono font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                    ~{asset.sizeMb} MB
-                  </td>
-                  <td class="py-4 px-6">
-                    <div class="flex items-center gap-1.5">
-                      <code class="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-[11px] font-mono text-slate-600 dark:text-slate-400 truncate max-w-[120px] sm:max-w-[180px]">
-                        {asset.sha256}
-                      </code>
-                      <button
-                        type="button"
-                        data-sha={asset.sha256}
-                        class="copy-sha-btn p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 transition-colors cursor-pointer"
-                        title="复制完整 SHA-256 校验码"
-                        aria-label="复制 SHA-256 校验码"
-                      >
-                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                      </button>
-                    </div>
-                  </td>
-                  <td class="py-4 px-6 text-right whitespace-nowrap">
-                    <a
-                      href={asset.url}
-                      class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-sjtu-blue hover:bg-blue-600 text-white shadow-sm hover:shadow transition-all"
-                    >
-                      <Icons name="download" class="w-3.5 h-3.5" />
-                      <span>直接下载</span>
-                    </a>
-                  </td>
-                </tr>
+              changelogHighlights.map((log) => (
+                <div class="flex items-start gap-2.5">
+                  <span class="text-sjtu-blue mt-0.5">•</span>
+                  <div>
+                    <div class="font-bold text-slate-800 dark:text-slate-200">{log.title}</div>
+                    <div class="text-slate-500 dark:text-slate-400 mt-0.5">{log.desc}</div>
+                  </div>
+                </div>
               ))
             }
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- 📑 版本更新日志折叠抽屉 (Changelog) -->
-    <div class="rounded-3xl border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl p-6 sm:p-8 mb-12 shadow-md">
-      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h3 class="text-lg font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-          <span>🚀 v2.5.0 最新版本特性与更新日志 (Changelog)</span>
-        </h3>
-        <span class="text-xs text-slate-400">稳定发布版本 · 推荐全员更新</span>
-      </div>
-
-      <div class="space-y-3 text-xs sm:text-sm">
-        {
-          changelogHighlights.map((item) => (
-            <div class="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800/60">
-              <div class="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full bg-sjtu-blue"></span>
-                <span>{item.title}</span>
-              </div>
-              <div class="text-slate-600 dark:text-slate-400 mt-1 pl-3.5 text-xs leading-relaxed">
-                {item.desc}
-              </div>
-            </div>
-          ))
-        }
-      </div>
-    </div>
-
-    <!-- ⚠️ 三大环境准入与核心指引卡片 -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <!-- 卡片 1: 校园网络与 VPN 准入 -->
-      <div
-        class="rounded-3xl p-6 sm:p-7 border border-blue-200/80 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/20 backdrop-blur-xl flex flex-col justify-between"
-      >
-        <div>
-          <div class="flex items-center gap-2.5 text-sjtu-blue dark:text-blue-300 font-bold mb-3">
-            <div class="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/60 flex items-center justify-center">
-              🌐
-            </div>
-            <h4 class="text-base font-bold text-slate-900 dark:text-slate-100">校园网络与 VPN 准入</h4>
           </div>
-          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            因交大教学服务器权限限制，使用过程中<strong>必须连接 SJTU 校园网无线 (SJTU/SJTU-Premium)</strong> 或开通<strong>交大 EasyConnect VPN</strong>。校外直连无法访问内网视频流媒体。
-          </p>
         </div>
-        <div class="mt-4 pt-3 border-t border-blue-200/60 dark:border-blue-900/40 text-[11px] text-blue-800 dark:text-blue-300 font-medium">
-          💡 若遇到认证过期，点击顶栏「刷新 ↻」重新同步凭据即可
-        </div>
-      </div>
-
-      <!-- 卡片 2: Windows SmartScreen 提示说明 -->
-      <div
-        class="rounded-3xl p-6 sm:p-7 border border-amber-200/80 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/20 backdrop-blur-xl flex flex-col justify-between"
-      >
-        <div>
-          <div class="flex items-center gap-2.5 text-amber-600 dark:text-amber-400 font-bold mb-3">
-            <div class="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/60 flex items-center justify-center">
-              🛡️
-            </div>
-            <h4 class="text-base font-bold text-slate-900 dark:text-slate-100">Windows 首次运行提示</h4>
-          </div>
-          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            开源软件未购买商业数字签名，Windows SmartScreen 提示“已保护你的电脑”时，点击<strong>「更多信息」→「仍要运行」</strong>即可。全代码开源，安全透明。
-          </p>
-        </div>
-        <div class="mt-4 pt-3 border-t border-amber-200/60 dark:border-amber-900/40 text-[11px] text-amber-800 dark:text-amber-300 font-medium">
-          💡 macOS 首次打开若提示“未受信任”，右键点击「打开」即可
-        </div>
-      </div>
-
-      <!-- 卡片 3: 内置专用 FFmpeg -->
-      <div
-        class="rounded-3xl p-6 sm:p-7 border border-emerald-200/80 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20 backdrop-blur-xl flex flex-col justify-between"
-      >
-        <div>
-          <div class="flex items-center gap-2.5 text-emerald-600 dark:text-emerald-400 font-bold mb-3">
-            <div class="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 flex items-center justify-center">
-              ⚡
-            </div>
-            <h4 class="text-base font-bold text-slate-900 dark:text-slate-100">内置专用 FFmpeg 引擎</h4>
-          </div>
-          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-            安装包已自包含各系统专用 FFmpeg 动态二进制执行体，无需在操作系统中额外配置 PATH 环境变量或 Python 环境，双击即享超清流自动合并封装。
-          </p>
-        </div>
-        <div class="mt-4 pt-3 border-t border-emerald-200/60 dark:border-emerald-900/40 text-[11px] text-emerald-800 dark:text-emerald-300 font-medium">
-          💡 自动支持教师视角与 PPT 投影视角无损转码合流
-        </div>
-      </div>
+      </details>
     </div>
+  </div>
+
+  <!-- 浮动复制反馈 Toast 气泡 -->
+  <div
+    id="sha-toast"
+    class="fixed bottom-6 right-6 z-50 transform translate-y-24 opacity-0 pointer-events-none transition-all duration-300 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-900 text-xs font-medium shadow-2xl backdrop-blur-md"
+  >
+    <Icons name="check" class="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+    <span>已复制 SHA-256 校验码到剪贴板</span>
   </div>
 </section>
 
 <script>
-  function setupCopyButtons() {
+  function setupShaCopy() {
     const copyBtns = document.querySelectorAll<HTMLButtonElement>('.copy-sha-btn');
+    const toast = document.getElementById('sha-toast');
+
     copyBtns.forEach((btn) => {
       btn.addEventListener('click', async () => {
-        const sha = btn.getAttribute('data-sha');
-        if (!sha) return;
+        const hash = btn.getAttribute('data-hash');
+        if (!hash) return;
 
         try {
-          await navigator.clipboard.writeText(sha);
-          const originalTitle = btn.getAttribute('title') || '';
-          btn.classList.add('text-emerald-500', 'bg-emerald-50', 'dark:bg-emerald-950');
-          btn.setAttribute('title', '已复制 SHA-256 到剪贴板！');
-          setTimeout(() => {
-            btn.classList.remove('text-emerald-500', 'bg-emerald-50', 'dark:bg-emerald-950');
-            btn.setAttribute('title', originalTitle);
-          }, 2000);
+          await navigator.clipboard.writeText(hash);
+          if (toast) {
+            toast.classList.remove('translate-y-24', 'opacity-0', 'pointer-events-none');
+            toast.classList.add('translate-y-0', 'opacity-100');
+            setTimeout(() => {
+              toast.classList.add('translate-y-24', 'opacity-0', 'pointer-events-none');
+              toast.classList.remove('translate-y-0', 'opacity-100');
+            }, 2500);
+          }
         } catch {
           // fallback
         }
@@ -276,6 +191,6 @@ const changelogHighlights = [
     });
   }
 
-  setupCopyButtons();
-  document.addEventListener('astro:page-load', setupCopyButtons);
+  setupShaCopy();
+  document.addEventListener('astro:page-load', setupShaCopy);
 </script>

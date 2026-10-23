@@ -101,7 +101,7 @@ const FALLBACK_VERSION = 'v2.5.0';
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
-          exe
+          125.9 MB
         </span>
       </a>
 
@@ -124,7 +124,7 @@ const FALLBACK_VERSION = 'v2.5.0';
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
-          msi
+          133.3 MB
         </span>
       </a>
 
@@ -148,7 +148,7 @@ const FALLBACK_VERSION = 'v2.5.0';
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
-          arm64
+          135.7 MB
         </span>
       </a>
 
@@ -171,7 +171,7 @@ const FALLBACK_VERSION = 'v2.5.0';
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
-          x64
+          130.5 MB
         </span>
       </a>
 
@@ -195,7 +195,7 @@ const FALLBACK_VERSION = 'v2.5.0';
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
-          AppImage
+          147.5 MB
         </span>
       </a>
 
@@ -225,21 +225,8 @@ const FALLBACK_VERSION = 'v2.5.0';
   </div>
 
   <!-- Micro-trust Indicators (Security, JAccount, Compatibility) -->
-  <div class="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-500 dark:text-slate-400">
-    <div class="inline-flex items-center gap-1.5">
-      <Icons name="shield" class="w-3.5 h-3.5 text-emerald-500" />
-      <span>开源透明 · 绿色无后台后门</span>
-    </div>
-    <span class="hidden sm:inline text-slate-300 dark:text-slate-700">·</span>
-    <div class="inline-flex items-center gap-1.5">
-      <Icons name="sparkles" class="w-3.5 h-3.5 text-amber-500" />
-      <span>深度适配 SJTU JAccount 单点登录</span>
-    </div>
-    <span class="hidden sm:inline text-slate-300 dark:text-slate-700">·</span>
-    <div class="inline-flex items-center gap-1.5">
-      <Icons name="check" class="w-3.5 h-3.5 text-sjtu-blue" />
-      <span>Win 10+ / macOS 11+ / Linux 全支持</span>
-    </div>
+  <div class="mt-4 text-xs text-slate-500 dark:text-slate-400 font-medium text-center">
+    v2.5.0 · 支持 Windows / macOS / Linux · MIT 开源
   </div>
 </div>
 
@@ -340,7 +327,14 @@ const FALLBACK_VERSION = 'v2.5.0';
             }
           };
 
-          updateLink('link-win-exe', (name) => name.endsWith('.exe') && !name.includes('blockmap'));
+          updateLink(
+            'link-win-exe',
+            (name) =>
+              name.endsWith('.exe') &&
+              !name.includes('blockmap') &&
+              !name.includes('elevate') &&
+              !name.includes('ffmpeg')
+          );
           updateLink('link-win-msi', (name) => name.endsWith('.msi') || (name.endsWith('.zip') && name.includes('win')));
           updateLink('link-mac-arm', (name) => name.endsWith('.dmg') && (name.includes('arm64') || name.includes('aarch64')));
           updateLink('link-mac-intel', (name) => name.endsWith('.dmg') && !name.includes('arm64') && !name.includes('aarch64'));

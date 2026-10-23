@@ -35,6 +35,34 @@ describe('resolveDownloadLink', () => {
     expect(macResolved.url).toContain('.dmg');
     expect(macResolved.isFallback).toBe(true);
   });
+
+  it('ignores elevate.exe and ffmpeg.exe and correctly matches the real installer', () => {
+    const mockRelease: GitHubRelease = {
+      tag_name: 'v2.5.0',
+      html_url: 'https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/tag/v2.5.0',
+      assets: [
+        {
+          name: 'elevate.exe',
+          browser_download_url: 'https://github.com/releases/download/v2.5.0/elevate.exe',
+          size: 107520
+        },
+        {
+          name: 'ffmpeg.exe',
+          browser_download_url: 'https://github.com/releases/download/v2.5.0/ffmpeg.exe',
+          size: 82797568
+        },
+        {
+          name: 'sjtu-course-downloader-2.5.0-win-x64.exe',
+          browser_download_url: 'https://github.com/releases/download/v2.5.0/sjtu-course-downloader-2.5.0-win-x64.exe',
+          size: 132032495
+        }
+      ]
+    };
+
+    const resolved = resolveDownloadLink(mockRelease, winOS, '2.5.0');
+    expect(resolved.filename).toBe('sjtu-course-downloader-2.5.0-win-x64.exe');
+    expect(resolved.sizeMb).toBe(125.9);
+  });
 });
 
 describe('getAllPlatformMatrix', () => {

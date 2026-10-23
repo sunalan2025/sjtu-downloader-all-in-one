@@ -1,5 +1,4 @@
 ---
-import Icons from './icons/Icons.astro';
 import SmartDownload from './SmartDownload.astro';
 import AppPreview from './AppPreview.astro';
 
@@ -40,44 +39,21 @@ const { class: className = '' } = Astro.props;
 
     <!-- Eye-catching Headline -->
     <h1
-      class="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.18] sm:leading-[1.16] max-w-5xl"
+      class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.12]"
     >
-      专为上海交通大学师生打造的<br class="hidden sm:inline" />
-      <span class="bg-gradient-to-r from-sjtu-navy via-sjtu-blue to-sjtu-cyan bg-clip-text text-transparent">
-        课程资源与知识归档工具
-      </span>
+      交大课程资源，<span class="bg-gradient-to-r from-sjtu-navy via-sjtu-blue to-sjtu-cyan bg-clip-text text-transparent">一键归档</span>
     </h1>
 
     <!-- Subtitle -->
     <p
-      class="mt-5 sm:mt-6 max-w-3xl text-base sm:text-lg lg:text-xl text-slate-600 dark:text-slate-300 leading-relaxed font-normal"
+      class="mt-4 sm:mt-5 max-w-2xl text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed font-normal"
     >
-      一站式批量下载与备份 Canvas 课件录播、旁听课程视频、好大学在线，深度集成交大云盘双向存储
+      同步 Canvas 课件录播、旁听视频、好大学在线与交大云盘
     </p>
 
     <!-- Smart Download CTA Zone -->
     <div class="mt-8 sm:mt-10 w-full flex justify-center">
       <SmartDownload />
-    </div>
-
-    <!-- Feature Pill Badges -->
-    <div class="mt-8 flex flex-wrap items-center justify-center gap-2 sm:gap-3 max-w-4xl">
-      <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-        <Icons name="book-open" class="w-3.5 h-3.5 text-sjtu-blue" />
-        <span>Canvas 课件录播自动归档</span>
-      </div>
-      <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-        <Icons name="cloud" class="w-3.5 h-3.5 text-emerald-500" />
-        <span>交大云盘一键上传备份</span>
-      </div>
-      <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-        <Icons name="shield" class="w-3.5 h-3.5 text-purple-500" />
-        <span>JAccount 统一安全认证</span>
-      </div>
-      <div class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60">
-        <Icons name="sparkles" class="w-3.5 h-3.5 text-amber-500" />
-        <span>Aria2 16线程超速引擎</span>
-      </div>
     </div>
 
     <!-- Realistic App Mockup Showcase -->

@@ -48,28 +48,28 @@ export const CURRENT_RELEASE_VERSION = '2.5.0';
 export const STATIC_FALLBACK_ASSETS: Record<string, { filename: string; sizeMb: number; sha256: string }> = {
   'win-exe': {
     filename: `sjtu-course-downloader-${CURRENT_RELEASE_VERSION}-win-x64.exe`,
-    sizeMb: 98.4,
-    sha256: 'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0'
+    sizeMb: 125.9,
+    sha256: '1c4365489eb3ba27f11748333e0e5a40ba7476c27ff0086709cb3700ee15e904'
   },
   'win-msi': {
     filename: `sjtu-course-downloader-${CURRENT_RELEASE_VERSION}-win-x64.msi`,
-    sizeMb: 96.8,
-    sha256: 'b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01'
+    sizeMb: 133.3,
+    sha256: 'c29a5932def4498659a933bf261683f1716269576f69c75d157e0c19d8541318'
   },
   'mac-arm64': {
     filename: `sjtu-course-downloader-${CURRENT_RELEASE_VERSION}-mac-arm64.dmg`,
-    sizeMb: 104.2,
-    sha256: 'c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef012'
+    sizeMb: 135.7,
+    sha256: '795e4a9ab75281f8c44fa5af7a33be9284cddf1bed87cb2cd02e33d802220ebd'
   },
   'mac-x64': {
-    filename: `sjtu-course-downloader-${CURRENT_RELEASE_VERSION}-mac-x64.dmg`,
-    sizeMb: 108.6,
-    sha256: 'd4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0123'
+    filename: `sjtu-course-downloader-${CURRENT_RELEASE_VERSION}-mac-arm64.zip`,
+    sizeMb: 130.5,
+    sha256: '450c17f49d8ee3dd2c49b75e4f69ba8317f7af96ef71fa929afabb23151e66f9'
   },
   'linux-appimage': {
     filename: `sjtu-course-downloader-${CURRENT_RELEASE_VERSION}-linux-x86_64.AppImage`,
-    sizeMb: 112.5,
-    sha256: 'e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef01234'
+    sizeMb: 147.5,
+    sha256: 'd769deed0e962133556c1d762c10c374b30a2d660d12c180b85d894cc319e12f'
   }
 };
 
@@ -103,7 +103,11 @@ export function resolveDownloadLink(
 
   if (osInfo.os === 'windows') {
     targetAsset = release.assets.find(
-      (a) => a.name.toLowerCase().endsWith('.exe') && !a.name.toLowerCase().includes('blockmap')
+      (a) =>
+        a.name.toLowerCase().endsWith('.exe') &&
+        !a.name.toLowerCase().includes('blockmap') &&
+        !a.name.toLowerCase().includes('elevate') &&
+        !a.name.toLowerCase().includes('ffmpeg')
     );
   } else if (osInfo.os === 'linux') {
     targetAsset = release.assets.find((a) => a.name.toLowerCase().endsWith('.appimage'));
@@ -168,10 +172,18 @@ export function getAllPlatformMatrix(
     };
   }
 
-  const winExe = findUrl((n) => n.endsWith('.exe') && !n.includes('blockmap'), 'win-exe');
+  const winExe = findUrl(
+    (n) => n.endsWith('.exe') && !n.includes('blockmap') && !n.includes('elevate') && !n.includes('ffmpeg'),
+    'win-exe'
+  );
   const winMsi = findUrl((n) => n.endsWith('.msi'), 'win-msi');
   const macArm = findUrl((n) => n.endsWith('.dmg') && (n.includes('arm64') || n.includes('aarch64')), 'mac-arm64');
-  const macIntel = findUrl((n) => n.endsWith('.dmg') && !n.includes('arm64') && !n.includes('aarch64'), 'mac-x64');
+  const macIntel = findUrl(
+    (n) =>
+      (n.endsWith('.dmg') && !n.includes('arm64') && !n.includes('aarch64')) ||
+      (n.endsWith('.zip') && n.includes('mac')),
+    'mac-x64'
+  );
   const linuxAppImage = findUrl((n) => n.endsWith('.appimage'), 'linux-appimage');
 
   return [
