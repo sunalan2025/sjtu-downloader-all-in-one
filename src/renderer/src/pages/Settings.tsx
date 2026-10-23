@@ -43,6 +43,25 @@ export function Settings({
   const setPrivateWorkerConfig = useAppStore(s => s.setPrivateWorkerConfig)
   const [workerTesting, setWorkerTesting] = useState(false)
   const [workerTestResult, setWorkerTestResult] = useState<PrivateWorkerTestResult | null>(null)
+  const [devWorkerInfo, setDevWorkerInfo] = useState<{ isDev: boolean; devWorkerUrl: string | null } | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    if (typeof window !== 'undefined' && window.api?.getDevWorkerInfo) {
+      window.api.getDevWorkerInfo().then(info => {
+        if (!mounted || !info) return
+        setDevWorkerInfo(info)
+        if (info.isDev && info.devWorkerUrl) {
+          if (!privateWorkerConfig.endpointUrl || privateWorkerConfig.endpointUrl === 'http://127.0.0.1:6880') {
+            setPrivateWorkerConfig({ endpointUrl: info.devWorkerUrl })
+          }
+        }
+      }).catch(() => undefined)
+    }
+    return () => {
+      mounted = false
+    }
+  }, [privateWorkerConfig.endpointUrl, setPrivateWorkerConfig])
 
   const handleTestWorker = async () => {
     if (!window?.api?.testPrivateWorker) return
@@ -1130,6 +1149,16 @@ export function Settings({
 
                     {privateWorkerConfig.enabled && (
                       <div className="rounded-2xl border border-bd/70 bg-surface-2/50 p-4 sm:p-5 space-y-4 animate-in fade-in duration-150">
+                        {devWorkerInfo?.isDev && devWorkerInfo.devWorkerUrl && (
+                          <div className="flex items-center justify-between rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2.5 text-xs text-emerald-700 dark:text-emerald-300">
+                            <div className="flex items-center gap-2">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                              <span className="font-semibold">🟢 开发测试节点已自动就绪</span>
+                              <span className="font-mono text-2xs opacity-80">({devWorkerInfo.devWorkerUrl})</span>
+                            </div>
+                            <span className="text-3xs text-text-4 font-mono select-none">无需敲命令 · 即开即测</span>
+                          </div>
+                        )}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           {/* 节点地址输入 */}
                           <div className="space-y-1.5">
@@ -1209,10 +1238,12 @@ export function Settings({
                         <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 dark:bg-sky-500/10 p-3 text-2xs text-text-3 space-y-1 leading-relaxed">
                           <div className="font-semibold text-text-1 flex items-center gap-1.5">
                             <span>💡</span>
-                            <span>本机极速自测指引</span>
+                            <span>{devWorkerInfo?.isDev ? '开发环境无感调试说明' : '校内自建节点说明'}</span>
                           </div>
                           <p className="pl-5">
-                            在终端项目根目录下运行 <code className="font-mono text-accent bg-surface-2 px-1 py-0.5 rounded border border-bd/60">npm run worker:start</code> 即可一键拉起轻量自测守护进程，默认监听端口为 6880。启动后点击上方「测试服务连接」即可就地验证连通性。
+                            {devWorkerInfo?.isDev
+                              ? '当前处于开发模式，主进程已在后台为您自动托管并启动了测试节点。直接点击上方的「测试服务连接」即可秒连验证，无需开终端运行额外命令！'
+                              : '若需在校园网自建私有节点，可在常开的寝室/实验室机器上使用 Docker 或轻量脚本启动，并在此处填入私有 IP 或穿透域名。'}
                           </p>
                         </div>
                       </div>

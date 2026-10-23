@@ -7,7 +7,13 @@ import type { AddressInfo } from 'node:net'
 import { spawn } from 'node:child_process'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { normalizeWorkerUrl, testPrivateWorker } from '../../src/main/private-worker'
+import {
+  normalizeWorkerUrl,
+  testPrivateWorker,
+  startEmbeddedDevWorker,
+  stopEmbeddedDevWorker,
+  getEmbeddedDevWorkerUrl
+} from '../../src/main/private-worker'
 import { Settings } from '../../src/renderer/src/pages/Settings'
 import { useAppStore } from '../../src/renderer/src/store/app'
 
@@ -64,6 +70,7 @@ describe('PrivateWorker Client & Health Check Suite', () => {
 
   afterAll(async () => {
     await new Promise<void>(resolve => mockServer.close(() => resolve()))
+    await stopEmbeddedDevWorker()
   })
 
   describe('normalizeWorkerUrl', () => {
@@ -118,14 +125,12 @@ describe('PrivateWorker Client & Health Check Suite', () => {
     })
 
     it('连接未开放的端口时提示无法连接', async () => {
-      // 探测未监听的本地随机端口
       const res = await testPrivateWorker('http://127.0.0.1:59999')
       expect(res.success).toBe(false)
       expect(res.error).toContain('无法连接到该服务节点')
     })
 
     it('请求超出时限时返回超时提示', async () => {
-      // 设置超低超时时限 (100ms) 请求 slow 路径
       const res = await testPrivateWorker(
         `http://127.0.0.1:${serverPort}?slow=true`,
         undefined,
@@ -133,6 +138,40 @@ describe('PrivateWorker Client & Health Check Suite', () => {
       )
       expect(res.success).toBe(false)
       expect(res.error).toContain('超时')
+    })
+  })
+
+  describe('EmbeddedDevWorker (开发环境无感自动就绪)', () => {
+    it('能在指定端口范围自动拉起内置服务并响应探测', async () => {
+      await stopEmbeddedDevWorker()
+      const url = await startEmbeddedDevWorker(6871, 6875)
+      expect(url).toBeDefined()
+      expect(getEmbeddedDevWorkerUrl()).toBe(url)
+
+      const probe = await testPrivateWorker(url!)
+      expect(probe.success).toBe(true)
+      expect(probe.serverName).toBe('sjtu-private-worker-dev')
+      expect(probe.version).toBe('1.0.0')
+
+      await stopEmbeddedDevWorker()
+      expect(getEmbeddedDevWorkerUrl()).toBeNull()
+    })
+
+    it('首选端口被占用时自动向后递增自愈', async () => {
+      await stopEmbeddedDevWorker()
+      // 先手动占用 6876 端口
+      const blocker = http.createServer((_, res) => res.end('blocked'))
+      await new Promise<void>(resolve => blocker.listen(6876, '127.0.0.1', () => resolve()))
+
+      try {
+        const url = await startEmbeddedDevWorker(6876, 6879)
+        expect(url).toBe('http://127.0.0.1:6877')
+        const probe = await testPrivateWorker(url!)
+        expect(probe.success).toBe(true)
+      } finally {
+        await stopEmbeddedDevWorker()
+        await new Promise<void>(resolve => blocker.close(() => resolve()))
+      }
     })
   })
 
@@ -171,7 +210,6 @@ describe('PrivateWorker Client & Health Check Suite', () => {
       expect(html).toContain('服务节点地址')
       expect(html).toContain('访问授权密钥 (Token)')
       expect(html).toContain('测试服务连接')
-      expect(html).toContain('npm run worker:start')
     })
   })
 
