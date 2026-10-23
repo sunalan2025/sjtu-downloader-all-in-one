@@ -264,7 +264,7 @@ export function Settings({
     <div className="flex h-full w-full flex-col bg-surface-1">
       <div className="flex flex-1 overflow-hidden">
         {/* 左栏分类导航 */}
-        <aside className="w-52 shrink-0 border-r border-bd/60 bg-surface-1/40 p-3 flex flex-col gap-1 select-none">
+        <aside className="w-52 shrink-0 border-r border-bd bg-surface-1/40 p-3 flex flex-col gap-1 select-none">
           {[
             { id: 'general', label: '⚙️ 常规偏好' },
             { id: 'storage', label: '📦 存储与下载' },
@@ -299,7 +299,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">界面色彩主题、网盘排版视图与客户端关闭响应策略</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 行 1：主题切换 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1">
@@ -396,7 +396,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">自定义课件与视频的存储策略、保存位置及同名冲突处理</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 行 1：存储目标模式 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
@@ -487,7 +487,7 @@ export function Settings({
                               className={`rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
                                 isSelected
                                   ? 'bg-accent text-white shadow-2xs font-semibold'
-                                  : 'bg-surface-2 border border-bd/80 text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-3'
+                                  : 'bg-surface-2 border border-bd text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-3'
                               }`}
                             >
                               {preset.label}
@@ -498,7 +498,7 @@ export function Settings({
                     </div>
 
                     {/* 自定义路径输入与动态路径层级面包屑预览 */}
-                    <div className="rounded-xl border border-bd/60 bg-surface-2/50 p-3 space-y-2.5">
+                    <div className="rounded-xl border border-bd bg-surface-2/50 p-3 space-y-2.5">
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-text-3 shrink-0">自定义路径：</span>
                         <input
@@ -576,7 +576,7 @@ export function Settings({
                     </div>
 
                     {/* 自定义模板输入与动态路径效果预览 */}
-                    <div className="rounded-xl border border-bd/60 bg-surface-2/50 p-3 space-y-2.5">
+                    <div className="rounded-xl border border-bd bg-surface-2/50 p-3 space-y-2.5">
                       {isCustomTemplate && (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
@@ -664,7 +664,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">针对 Canvas 教学平台、旁听课程及好大学在线的音视频偏好</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 仅下载原声音频 */}
                   <div className="flex items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
@@ -861,7 +861,7 @@ export function Settings({
                           className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
                             item.checked
                               ? 'border-accent/60 bg-accent/5 shadow-2xs'
-                              : 'border-bd/70 bg-surface-2/40 hover:border-bd-strong hover:bg-surface-2'
+                              : 'border-bd bg-surface-2/40 hover:border-bd-strong hover:bg-surface-2'
                           }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
@@ -877,7 +877,7 @@ export function Settings({
                           </div>
                           <div
                             className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                              item.checked ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-1'
+                              item.checked ? 'border-accent bg-accent text-white' : 'border-bd bg-surface-1'
                             }`}
                           >
                             {item.checked && (
@@ -962,7 +962,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">精细控制网络吞吐与多任务并行数，支持自定义并发与下载限速</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 并发数 */}
                   <div className="py-5 space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1062,7 +1062,7 @@ export function Settings({
                     </div>
 
                     {isCustomSpeed && (
-                      <div className="rounded-xl border border-bd/70 bg-surface-2/40 p-4 space-y-3">
+                      <div className="rounded-xl border border-bd bg-surface-2/40 p-4 space-y-3">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div className="space-y-0.5">
                             <span className="text-xs font-medium text-text-1">自定义限制速率 · MB/s</span>
@@ -1148,7 +1148,7 @@ export function Settings({
                     </div>
 
                     {privateWorkerConfig.enabled && (
-                      <div className="rounded-2xl border border-bd/70 bg-surface-2/50 p-4 sm:p-5 space-y-4 animate-in fade-in duration-150">
+                      <div className="rounded-2xl border border-bd bg-surface-2/50 p-4 sm:p-5 space-y-4 animate-in fade-in duration-150">
                         {devWorkerInfo?.isDev && devWorkerInfo.devWorkerUrl && (
                           <div className="flex items-center justify-between rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2.5 text-xs text-emerald-700 dark:text-emerald-300">
                             <div className="flex items-center gap-2">
@@ -1198,7 +1198,7 @@ export function Settings({
                         </div>
 
                         {/* 操作栏与测试反馈 */}
-                        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-bd/40">
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-bd">
                           <div className="flex items-center gap-3">
                             <button
                               type="button"
@@ -1265,7 +1265,7 @@ export function Settings({
 
                 {/* 当前登录会话状态卡片 */}
                 {auth?.loggedIn && (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-bd/80 bg-surface-2/60 p-4 shadow-2xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-bd bg-surface-2/60 p-4 shadow-2xs">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-lg">
                         👤
@@ -1309,7 +1309,7 @@ export function Settings({
                 )}
 
                 {/* 交大云盘直连与存储配额卡片 */}
-                <div className="rounded-2xl border border-bd/80 bg-surface-2/60 p-4 shadow-2xs space-y-4">
+                <div className="rounded-2xl border border-bd bg-surface-2/60 p-4 shadow-2xs space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
@@ -1344,7 +1344,7 @@ export function Settings({
 
                   {/* 存储空间配额进度条 */}
                   {cloudSpaceInfo && (
-                    <div className="space-y-2 pt-2 border-t border-bd/40">
+                    <div className="space-y-2 pt-2 border-t border-bd">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-text-3">交大云盘已用空间</span>
                         <span className="font-mono text-text-2 font-medium">
@@ -1361,7 +1361,7 @@ export function Settings({
                   )}
 
                   {/* 云端保存根目录 */}
-                  <div className="flex items-center justify-between text-xs text-text-3 pt-2 border-t border-bd/40">
+                  <div className="flex items-center justify-between text-xs text-text-3 pt-2 border-t border-bd">
                     <span>云盘保存目录：</span>
                     <span className="rounded-lg border border-bd bg-surface-1 px-2.5 py-0.5 font-mono text-2xs text-text-2">
                       /SJTU课程下载
@@ -1385,7 +1385,7 @@ export function Settings({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                    <span className="rounded-xl border border-bd/80 bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 shadow-2xs">
+                    <span className="rounded-xl border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 shadow-2xs">
                       已安全保存 <span className="font-mono font-bold text-accent">{credentials.length}</span> 个账号
                     </span>
                   </div>
@@ -1411,7 +1411,7 @@ export function Settings({
                       <span>正在加载账号...</span>
                     </div>
                   ) : credentials.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-bd/80 bg-surface-2/40 py-12 px-6 text-center space-y-3">
+                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-bd bg-surface-2/40 py-12 px-6 text-center space-y-3">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-3 text-2xl">
                         🔐
                       </div>
@@ -1427,7 +1427,7 @@ export function Settings({
                       {credentials.map(cred => (
                         <div
                           key={cred.id}
-                          className="rounded-2xl border border-bd/80 bg-surface-2/60 p-4 shadow-2xs transition-all hover:border-bd-strong space-y-3"
+                          className="rounded-2xl border border-bd bg-surface-2/60 p-4 shadow-2xs transition-all hover:border-bd-strong space-y-3"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1 min-w-0">
@@ -1471,7 +1471,7 @@ export function Settings({
 
                           {/* 内联编辑别名表单 */}
                           {editingId === cred.id && (
-                            <div className="flex items-center gap-2 pt-2 border-t border-bd/40">
+                            <div className="flex items-center gap-2 pt-2 border-t border-bd">
                               <input
                                 type="text"
                                 value={editingLabel}
@@ -1502,7 +1502,7 @@ export function Settings({
                           )}
 
                           {/* 时间戳展示 */}
-                          <div className="flex items-center gap-4 text-2xs text-text-4 pt-1 border-t border-bd/30">
+                          <div className="flex items-center gap-4 text-2xs text-text-4 pt-1 border-t border-bd">
                             <span>创建时间: {formatDate(cred.createdAt)}</span>
                             <span>•</span>
                             <span>
@@ -1539,7 +1539,7 @@ export function Settings({
                       <p className="text-xs text-text-2 leading-relaxed">
                         确定要清空所有已保存的账号吗？此操作将删除所有本地安全保存的 jAccount 账号与加密密码，清空后登录时将不再提供快捷填充。
                       </p>
-                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd/50">
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd">
                         <button
                           type="button"
                           onClick={() => setShowClearModal(false)}
@@ -1584,7 +1584,7 @@ export function Settings({
                         确定要删除已保存的账号「<strong className="text-text-1">{credToDelete.username}</strong>」
                         {credToDelete.label ? `（${credToDelete.label}）` : ''} 吗？删除后在登录页面将不再自动填充此账号。
                       </p>
-                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd/50">
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd">
                         <button
                           type="button"
                           onClick={() => setCredToDelete(null)}
@@ -1614,7 +1614,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">客户端版本状态、后台自动更新与初始化向导重置</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 版本信息卡片 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1">
@@ -1681,7 +1681,7 @@ export function Settings({
                       onClick={() => {
                         useAppStore.getState().setShowSetupWizardModal(true)
                       }}
-                      className="rounded-xl border border-bd/80 bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-text-2 hover:text-accent hover:border-accent transition-all cursor-pointer shadow-2xs shrink-0"
+                      className="rounded-xl border border-bd bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-text-2 hover:text-accent hover:border-accent transition-all cursor-pointer shadow-2xs shrink-0"
                     >
                       🚀 重新运行设置向导
                     </button>
