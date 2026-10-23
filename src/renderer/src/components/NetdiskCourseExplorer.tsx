@@ -2230,11 +2230,11 @@ export function ColumnView({
   onSelectCategory,
   groupByTerm = true,
   onDownloadSingle,
-  onDownloadCourse,
-  perspective,
-  onPerspectiveChange,
-  hasPptPdf,
-  onTogglePptPdf,
+  onDownloadCourse: _onDownloadCourse,
+  perspective: _perspective,
+  onPerspectiveChange: _onPerspectiveChange,
+  hasPptPdf: _hasPptPdf,
+  onTogglePptPdf: _onTogglePptPdf,
   selectedFileItem: controlledSelectedFile,
   onSelectFileItem,
   hasSelection = false
@@ -2465,8 +2465,12 @@ export function ColumnView({
                 <div
                   key={item.id}
                   onClick={() => {
-                    setSelectedFileItem(item)
-                    scrollToRight()
+                    if (selectedFileItem?.id === item.id) {
+                      setSelectedFileItem(null)
+                    } else {
+                      setSelectedFileItem(item)
+                      scrollToRight()
+                    }
                   }}
                   className={`group flex flex-col px-3 py-2 transition-all cursor-pointer mx-2 my-0.5 rounded-xl ${
                     isActive
@@ -2534,29 +2538,16 @@ export function ColumnView({
         </div>
       )}
 
-      {/* 第 4 栏：自适应动态检查器 (Inspector) */}
-      {activeCourse && (
-        selectedFileItem ? (
-          <FileDetailInspector
-            item={selectedFileItem}
-            course={activeCourse}
-            category={activeCategory}
-            onClose={() => setSelectedFileItem(null)}
-            onDownloadSingle={onDownloadSingle}
-            hasSelection={hasSelection}
-          />
-        ) : (
-          <CourseOverviewInspector
-            course={activeCourse}
-            category={activeCategory}
-            perspective={perspective}
-            onPerspectiveChange={onPerspectiveChange}
-            hasPptPdf={hasPptPdf}
-            onTogglePptPdf={onTogglePptPdf}
-            onDownloadCourse={onDownloadCourse}
-            hasSelection={hasSelection}
-          />
-        )
+      {/* 第 4 栏：课件详情与预览（仅在点击具体课件时滑出展示，无选定文件时保持纯净分栏） */}
+      {activeCourse && selectedFileItem && (
+        <FileDetailInspector
+          item={selectedFileItem}
+          course={activeCourse}
+          category={activeCategory}
+          onClose={() => setSelectedFileItem(null)}
+          onDownloadSingle={onDownloadSingle}
+          hasSelection={hasSelection}
+        />
       )}
     </div>
   )

@@ -481,7 +481,7 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
   })
 
   describe('4. ColumnView 交互流与动态切换联动', () => {
-    it('当只选中课程未选文件时，第 4 栏渲染 CourseOverviewInspector，不为白板', () => {
+    it('当只选中课程未选文件时，保持纯净分栏展开，不渲染冗余 CourseOverviewInspector', () => {
       const course = createMockCourse()
       const html = renderToStaticMarkup(
         React.createElement(ColumnView, {
@@ -493,13 +493,11 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
       )
       const $ = cheerio.load(html)
 
-      expect($('[data-testid="course-overview-inspector"]').length).toBe(1)
+      expect($('[data-testid="course-overview-inspector"]').length).toBe(0)
       expect($('[data-testid="file-detail-inspector"]').length).toBe(0)
-      expect(html).toContain('软件工程与架构设计')
-      expect(html).toContain('预估总容量')
     })
 
-    it('选定分类后，第 3 栏呈现文件流，但彻底移除顶部的侵入性 renderExtra 条', () => {
+    it('选定分类后，第 3 栏呈现文件流，但彻底移除顶部的侵入性 renderExtra 条且不渲染冗余概览', () => {
       const course = createMockCourse()
       const videoCategory = course.categories[1] // 有 renderExtra 属性
       expect(videoCategory.renderExtra).toBeDefined()
@@ -519,8 +517,9 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
       expect($('[data-testid="category-extra-banner"]').length).toBe(0)
       expect(html).not.toContain('分类侵入栏')
 
-      // 4 栏依然正常展示概览
-      expect($('[data-testid="course-overview-inspector"]').length).toBe(1)
+      // 未点击具体文件时，不展示冗余概览
+      expect($('[data-testid="course-overview-inspector"]').length).toBe(0)
+      expect($('[data-testid="file-detail-inspector"]').length).toBe(0)
     })
 
     it('当选中单文件时，第 4 栏动态切换为 FileDetailInspector', () => {
@@ -546,7 +545,7 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
       expect(html).toContain('⬇ 立即下载此文件')
     })
 
-    it('点击文件检查器 ✕ 关闭按钮能将选择状态置空并重回课程概览', () => {
+    it('点击文件检查器 ✕ 关闭按钮能将选择状态置空并收起第 4 栏', () => {
       const course = createMockCourse()
       const category = course.categories[0]
       const selectedFile = category.items[0]
@@ -574,10 +573,39 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
 
       expect(onSelectFileItem).toHaveBeenCalledWith(null)
     })
+
+    it('再次点击已高亮的同一课件项时，自动反选并收起第 4 栏预览', () => {
+      const course = createMockCourse()
+      const category = course.categories[0]
+      const selectedFile = category.items[0]
+      const onSelectFileItem = vi.fn()
+
+      let capturedVNode: any = null
+      function Wrapper() {
+        capturedVNode = ColumnView({
+          courses: [course],
+          activeCourse: course,
+          activeCategory: category,
+          selectedFileItem: selectedFile,
+          onSelectCourse: vi.fn(),
+          onSelectCategory: vi.fn(),
+          onSelectFileItem
+        })
+        return capturedVNode
+      }
+
+      renderToStaticMarkup(React.createElement(Wrapper))
+
+      const fileRows = findVNodes(capturedVNode, n => n.props?.onClick && n.key === selectedFile.id)
+      expect(fileRows.length).toBe(1)
+      fileRows[0].props.onClick()
+
+      expect(onSelectFileItem).toHaveBeenCalledWith(null)
+    })
   })
 
   describe('5. NetdiskCourseExplorer 分栏模式端到端属性透传', () => {
-    it('在 viewMode="column" 时，通过 navState 选定课程能够正确呈现第 4 栏检查器并反映机位偏好', () => {
+    it('在 viewMode="column" 时，通过 navState 选定课程保持纯净分栏，无冗余概览争宠', () => {
       const course = createMockCourse()
       const onPerspectiveChange = vi.fn()
       const onDownloadCourse = vi.fn()
@@ -598,10 +626,8 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
       )
       const $ = cheerio.load(html)
 
-      expect($('[data-testid="course-overview-inspector"]').length).toBe(1)
-      const summary = $('[data-testid="unified-preferences-summary"]')
-      expect(summary.length).toBe(1)
-      expect(summary.text()).toContain('仅PPT投屏')
+      expect($('[data-testid="course-overview-inspector"]').length).toBe(0)
+      expect($('[data-testid="file-detail-inspector"]').length).toBe(0)
     })
 
     it('在 viewMode="column" 且存在多选课程时，自动挂载 FloatingCommandIsland 并提供统一批量下载', () => {
