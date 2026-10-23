@@ -81,7 +81,7 @@ function SegmentedImpl<T extends string>({
     >
       {/* 玻璃滑动指示器：像素级贴合激活按钮 */}
       <span
-        className="pointer-events-none absolute top-0.5 bottom-0.5 rounded-lg bg-surface-1 shadow-2xs border border-bd/40"
+        className="pointer-events-none absolute top-0.5 bottom-0.5 rounded-lg bg-surface-1 shadow-2xs"
         style={{
           transform: `translateX(${ind.left}px)`,
           width: `${ind.width}px`,
