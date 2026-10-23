@@ -1,0 +1,27 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navbar from '../components/Navbar.astro';
+import Hero from '../components/Hero.astro';
+import FeatureMatrix from '../components/FeatureMatrix.astro';
+import SecuritySpec from '../components/SecuritySpec.astro';
+import DownloadTable from '../components/DownloadTable.astro';
+import FaqSection from '../components/FaqSection.astro';
+import Footer from '../components/Footer.astro';
+
+const pageTitle = "上海交通大学课程下载器 (SJTU Course Downloader) — 官方网站与下载中心";
+const pageDescription = "专为上海交通大学师生打造的课程资源与知识归档工具。一站式批量下载与备份 Canvas 课件录播、旁听课程视频、好大学在线，深度集成交大云盘双向存储。";
+---
+
+<Layout title={pageTitle} description={pageDescription}>
+  <div id="top" class="relative min-h-screen flex flex-col bg-white dark:bg-sjtu-dark text-slate-800 dark:text-slate-100 selection:bg-sjtu-blue selection:text-white transition-colors duration-200">
+    <Navbar />
+    <main class="flex-grow">
+      <Hero />
+      <FeatureMatrix />
+      <SecuritySpec />
+      <DownloadTable />
+      <FaqSection />
+    </main>
+    <Footer />
+  </div>
+</Layout>
