@@ -7,7 +7,111 @@
  * 3. 严格遵循私有自建原则，内存敏感凭据用完即焚
  */
 
+import http from 'node:http'
 import type { PrivateWorkerTestResult } from '../shared/types'
+
+let embeddedServer: http.Server | null = null
+let embeddedWorkerUrl: string | null = null
+
+/** 获取当前后台运行的开发测试节点地址 */
+export function getEmbeddedDevWorkerUrl(): string | null {
+  return embeddedWorkerUrl
+}
+
+/** 停止后台运行的开发测试节点 */
+export async function stopEmbeddedDevWorker(): Promise<void> {
+  if (!embeddedServer) return
+  return new Promise(resolve => {
+    embeddedServer?.close(() => {
+      embeddedServer = null
+      embeddedWorkerUrl = null
+      resolve()
+    })
+  })
+}
+
+/**
+ * 在本地自动拉起轻量开发测试中转节点（带端口冲突自动递增自愈机制）
+ */
+export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): Promise<string | null> {
+  if (embeddedServer && embeddedWorkerUrl) {
+    return embeddedWorkerUrl
+  }
+
+  for (let port = startPort; port <= maxPort; port++) {
+    try {
+      const server = http.createServer((req, res) => {
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+          })
+          return res.end()
+        }
+
+        const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+        const pathname = parsedUrl.pathname
+
+        if (pathname === '/health' || pathname === '/') {
+          const body = JSON.stringify({
+            status: 'ok',
+            server: 'sjtu-private-worker-dev',
+            version: '1.0.0',
+            uptimeSeconds: Math.round(process.uptime()),
+            mode: 'embedded-dev'
+          })
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Content-Length': Buffer.byteLength(body)
+          })
+          return res.end(body)
+        }
+
+        if (pathname === '/api/tasks' && req.method === 'POST') {
+          const body = JSON.stringify({
+            ok: true,
+            taskId: `task_dev_${Date.now()}`,
+            message: '开发测试节点已接收任务'
+          })
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Content-Length': Buffer.byteLength(body)
+          })
+          return res.end(body)
+        }
+
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ok: false, error: 'Not Found' }))
+      })
+
+      const started = await new Promise<boolean>(resolve => {
+        server.once('error', (err: { code?: string }) => {
+          if (err.code === 'EADDRINUSE') {
+            resolve(false)
+          } else {
+            resolve(false)
+          }
+        })
+        server.listen(port, '127.0.0.1', () => {
+          resolve(true)
+        })
+      })
+
+      if (started) {
+        embeddedServer = server
+        embeddedWorkerUrl = `http://127.0.0.1:${port}`
+        return embeddedWorkerUrl
+      }
+    } catch {
+      // try next port
+    }
+  }
+
+  return null
+}
 
 export interface PrivateWorkerTaskPayload {
   taskId: string

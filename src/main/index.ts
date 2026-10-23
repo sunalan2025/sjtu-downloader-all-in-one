@@ -69,7 +69,12 @@ import {
   clearAllCredentials,
   getCredentialForFill
 } from './credentials'
-import { testPrivateWorker } from './private-worker'
+import {
+  testPrivateWorker,
+  startEmbeddedDevWorker,
+  stopEmbeddedDevWorker,
+  getEmbeddedDevWorkerUrl
+} from './private-worker'
 import {
   getConcurrency,
   setConcurrency,
@@ -314,6 +319,13 @@ app.whenReady().then(async () => {
 
   // 课表与日程管理 (calendar.sjtu.edu.cn / Canvas DDL)
   registerScheduleHandlers(sjtuSession(), getMainWindow)
+
+  // 开发环境 (npm run dev) 下自动拉起内置测试中转节点，零终端命令即可直接测试
+  if (!app.isPackaged) {
+    startEmbeddedDevWorker().then(url => {
+      if (url) console.log('[dev-worker] 内置开发测试节点已自动就绪:', url)
+    }).catch(() => undefined)
+  }
 
   // 标题栏按钮颜色跟随主题
   ipcMain.handle('app:set-theme', (_e, theme: 'dark' | 'light') => {
@@ -589,6 +601,12 @@ app.whenReady().then(async () => {
   // ─── 校内私有中转服务探测 (Private Worker) ─────────────────────────
   ipcMain.handle('private-worker:test', (_e, payload?: { url?: string; token?: string }) => {
     return testPrivateWorker(payload?.url || '', payload?.token)
+  })
+  ipcMain.handle('private-worker:get-dev-info', () => {
+    return {
+      isDev: !app.isPackaged,
+      devWorkerUrl: getEmbeddedDevWorkerUrl()
+    }
   })
 
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
@@ -1124,6 +1142,9 @@ function cleanupOnQuit(): void {
 
   // 销毁系统托盘
   destroyTray()
+
+  // 停止开发模式下内嵌的测试工作机
+  stopEmbeddedDevWorker().catch(() => undefined)
 
   // 清除网络恢复定时器
   stopNetworkResumeTimer()

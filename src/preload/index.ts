@@ -460,7 +460,10 @@ const api = {
   },
   /** 测试校内私有中转服务的连通性与健康状态 */
   testPrivateWorker: (url: string, token?: string): Promise<PrivateWorkerTestResult> =>
-    ipcRenderer.invoke('private-worker:test', { url, token })
+    ipcRenderer.invoke('private-worker:test', { url, token }),
+  /** 获取开发环境内置测试节点就绪状态 */
+  getDevWorkerInfo: (): Promise<{ isDev: boolean; devWorkerUrl: string | null }> =>
+    ipcRenderer.invoke('private-worker:get-dev-info')
 }
 
 

@@ -921,6 +921,7 @@ export interface WindowApi {
   cloudpan: CloudPanApi
   schedule: ScheduleApi
   testPrivateWorker?: (url: string, token?: string) => Promise<PrivateWorkerTestResult>
+  getDevWorkerInfo?: () => Promise<{ isDev: boolean; devWorkerUrl: string | null }>
   [key: string]: unknown
 }
 
