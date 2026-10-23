@@ -1,5 +1,6 @@
 # 上海交通大学 (SJTU) 课程下载器
 
+[![Website](https://img.shields.io/badge/官网-sjtu.hisunalan.me-004098?style=flat&logo=safari)](https://sjtu.hisunalan.me)
 [![stars](https://img.shields.io/github/stars/sunalan2025/sjtu-downloader-all-in-one?style=social)](https://github.com/sunalan2025/sjtu-downloader-all-in-one)
 [![release](https://img.shields.io/github/v/release/sunalan2025/sjtu-downloader-all-in-one?display_name=tag&include_prereleases)](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases)
 [![license](https://img.shields.io/github/license/sunalan2025/sjtu-downloader-all-in-one)](./LICENSE)
