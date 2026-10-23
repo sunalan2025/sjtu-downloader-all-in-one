@@ -603,5 +603,68 @@ describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
       expect(summary.length).toBe(1)
       expect(summary.text()).toContain('仅PPT投屏')
     })
+
+    it('在 viewMode="column" 且存在多选课程时，自动挂载 FloatingCommandIsland 并提供统一批量下载', () => {
+      const course1 = createMockCourse({ id: 'c1', name: '高等数学', state: 'all' })
+      const course2 = createMockCourse({ id: 'c2', name: '大学物理', state: 'all' })
+      const onStartDownload = vi.fn()
+
+      const html = renderToStaticMarkup(
+        React.createElement(NetdiskCourseExplorer, {
+          courses: [course1, course2],
+          viewMode: 'column',
+          navState: { level: 'root' },
+          onNavigate: vi.fn(),
+          onStartDownload
+        })
+      )
+      const $ = cheerio.load(html)
+
+      // 验证底部动作岛在分栏视图下成功挂载
+      const island = $('div[role="toolbar"]')
+      expect(island.length).toBe(1)
+      expect(island.text()).toContain('2 门课程')
+      expect(island.text()).toContain('立即下载')
+
+      // 验证各栏包含 pb-24 避让内边距
+      const scrollContainers = $('.overflow-y-auto')
+      expect(scrollContainers.toArray().some((el: any) => $(el).hasClass('pb-24'))).toBe(true)
+    })
+
+    it('在 viewMode="column" 且无任何勾选项时，保持纯净不展示底栏动作岛且无 pb-24', () => {
+      const unselectedCourse = createMockCourse({
+        state: 'none',
+        categories: [
+          {
+            id: 'files',
+            name: '课件资料',
+            icon: 'file',
+            state: 'none',
+            onToggle: vi.fn(),
+            items: [
+              {
+                id: 'f-1',
+                name: 'Lecture-01.pdf',
+                selected: false,
+                onToggle: vi.fn()
+              }
+            ]
+          }
+        ]
+      })
+      const html = renderToStaticMarkup(
+        React.createElement(NetdiskCourseExplorer, {
+          courses: [unselectedCourse],
+          viewMode: 'column',
+          navState: { level: 'root' },
+          onNavigate: vi.fn()
+        })
+      )
+      const $ = cheerio.load(html)
+
+      expect($('div[role="toolbar"]').length).toBe(0)
+      const pb24Containers = $('.pb-24')
+      expect(pb24Containers.length).toBe(0)
+    })
   })
 })

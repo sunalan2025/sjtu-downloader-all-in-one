@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   useAppStore,
   type Theme,
@@ -12,11 +12,23 @@ import type { DownloadMode, VideoQualityOption, VideoPerspective, MaskedCredenti
 import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBreadcrumb, normalizeCloudPath, formatBytes } from '../../../shared/utils'
 import pkg from '../../../../package.json'
 
-export function Settings({
-  onLogout
-}: {
+export interface SettingsProps {
   onLogout?: () => void
-}) {
+  initialNav?: string
+  videoQualityOption?: VideoQualityOption
+  videoPerspectivePreference?: VideoPerspective
+  cloudUserToken?: string | null
+  cloudSpaceInfo?: { size: number | string; capacity: number | string } | null
+}
+
+export function Settings({
+  onLogout,
+  initialNav = 'general',
+  videoQualityOption: propVideoQuality,
+  videoPerspectivePreference: propPerspective,
+  cloudUserToken: propCloudToken,
+  cloudSpaceInfo: propCloudSpace
+}: SettingsProps) {
   const auth = useAppStore(s => s.auth)
   const downloadMode = useAppStore(s => s.downloadMode)
   const setDownloadMode = useAppStore(s => s.setDownloadMode)
@@ -26,14 +38,30 @@ export function Settings({
   const setConcurrency = useAppStore(s => s.setConcurrency)
   const maxDownloadSpeedKBps = useAppStore(s => s.maxDownloadSpeedKBps)
   const setMaxDownloadSpeedKBps = useAppStore(s => s.setMaxDownloadSpeedKBps)
-  const videoQualityOption = useAppStore(s => s.videoQualityOption)
+  const storeVideoQuality = useAppStore(s => s.videoQualityOption)
   const setVideoQualityOption = useAppStore(s => s.setVideoQualityOption)
-  const videoPerspectivePreference = useAppStore(s => s.videoPerspectivePreference)
+  const videoQualityOption = propVideoQuality ?? storeVideoQuality
+
+  const storePerspective = useAppStore(s => s.videoPerspectivePreference)
   const setVideoPerspectivePreference = useAppStore(s => s.setVideoPerspectivePreference)
+  const videoPerspectivePreference = propPerspective ?? storePerspective
+
+  const isAudioOnly = videoQualityOption === 'audio_only' || videoPerspectivePreference === 'audio'
+  const handleToggleAudioOnly = useCallback((enabled: boolean) => {
+    if (enabled) {
+      setVideoQualityOption('audio_only')
+      setVideoPerspectivePreference('audio')
+    } else {
+      setVideoQualityOption('origin')
+      setVideoPerspectivePreference('teacher')
+    }
+  }, [setVideoQualityOption, setVideoPerspectivePreference])
   const autoExportPptPdf = useAppStore(s => s.autoExportPptPdf)
   const setAutoExportPptPdf = useAppStore(s => s.setAutoExportPptPdf)
-  const cloudUserToken = useAppStore(s => s.cloudUserToken)
-  const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
+  const storeCloudToken = useAppStore(s => s.cloudUserToken)
+  const cloudUserToken = propCloudToken !== undefined ? propCloudToken : storeCloudToken
+  const storeCloudSpace = useAppStore(s => s.cloudSpaceInfo)
+  const cloudSpaceInfo = propCloudSpace !== undefined ? propCloudSpace : storeCloudSpace
   const localDestRoot = useAppStore(s => s.localDestRoot)
   const setLocalDestRoot = useAppStore(s => s.setLocalDestRoot)
   const cloudDestRoot = useAppStore(s => s.cloudDestRoot)
@@ -88,7 +116,7 @@ export function Settings({
     namingTemplate !== '{course}/{fileName}'
   )
 
-  const [activeNav, setActiveNav] = useState('general')
+  const [activeNav, setActiveNav] = useState(initialNav)
   const [credentials, setCredentials] = useState<MaskedCredential[]>([])
   const [isLoadingCreds, setIsLoadingCreds] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -593,51 +621,88 @@ export function Settings({
                 </div>
 
                 <div className="divide-y divide-bd/50 border-t border-bd/50">
-                  {/* 视频清晰度与提取偏好 */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                  {/* 仅下载原声音频 */}
+                  <div className="flex items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
-                      <div className="text-sm font-medium text-text-1">视频清晰度与提取偏好</div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-1">仅下载原声音频</span>
+                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">省流 90%</span>
+                      </div>
                       <div className="text-xs text-text-3 leading-relaxed">
-                        课堂视频与在线慕课解析时优先获取的分辨率规格，亦可直接提取为纯音频文件
+                        开启后所有课堂视频与录播均仅提取音频文件（MP3 / M4A），不下载视频画面，节省大量存储空间。
                       </div>
                     </div>
-                    <div className="shrink-0">
-                      <Segmented
-                        size="md"
-                        value={videoQualityOption}
-                        onChange={(v) => setVideoQualityOption(v as VideoQualityOption)}
-                        options={[
-                          { key: 'origin', label: '原画高清' },
-                          { key: '1080p', label: '1080P' },
-                          { key: '720p', label: '720P' },
-                          { key: 'audio_only', label: '仅提取音频' }
-                        ]}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isAudioOnly}
+                      onClick={() => handleToggleAudioOnly(!isAudioOnly)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                        isAudioOnly ? 'bg-accent' : 'bg-surface-4'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                          isAudioOnly ? 'translate-x-6' : 'translate-x-1'
+                        }`}
                       />
-                    </div>
+                    </button>
                   </div>
 
-                  {/* 默认录播镜头视角 */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
-                    <div className="space-y-1 max-w-sm">
-                      <div className="text-sm font-medium text-text-1">默认录播镜头视角</div>
-                      <div className="text-xs text-text-3 leading-relaxed">
-                        下载课堂实录录播时的默认视角。主界面与底栏动作岛将统一遵循此设置，无需逐门课程重复配置
+                  {isAudioOnly ? (
+                    <div className="flex items-center gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 my-2 text-xs text-text-2">
+                      <span className="text-base select-none">🎵</span>
+                      <div className="leading-relaxed">
+                        当前已开启<strong className="text-accent font-semibold">仅下载原声音频</strong>模式。下载课堂视频与慕课时将自动提取为音频文件（MP3 / M4A），无需选择画面分辨率与镜头机位。
                       </div>
                     </div>
-                    <div className="shrink-0">
-                      <Segmented
-                        size="md"
-                        value={videoPerspectivePreference}
-                        onChange={(v) => setVideoPerspectivePreference(v as VideoPerspective)}
-                        options={[
-                          { key: 'all', label: '📹 双机位同时下载' },
-                          { key: 'teacher', label: '👨‍🏫 仅教师视角' },
-                          { key: 'ppt', label: '📑 仅PPT投屏' },
-                          { key: 'audio', label: '🎵 纯音频 MP3' }
-                        ]}
-                      />
-                    </div>
-                  </div>
+                  ) : (
+                    <>
+                      {/* 默认视频清晰度 */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                        <div className="space-y-1 max-w-sm">
+                          <div className="text-sm font-medium text-text-1">默认视频清晰度</div>
+                          <div className="text-xs text-text-3 leading-relaxed">
+                            课堂视频与在线慕课解析时优先获取的分辨率规格
+                          </div>
+                        </div>
+                        <div className="shrink-0">
+                          <Segmented
+                            size="md"
+                            value={videoQualityOption}
+                            onChange={(v) => setVideoQualityOption(v as VideoQualityOption)}
+                            options={[
+                              { key: 'origin', label: '原画高清' },
+                              { key: '1080p', label: '1080P' },
+                              { key: '720p', label: '720P' }
+                            ]}
+                          />
+                        </div>
+                      </div>
+
+                      {/* 默认录播镜头视角 */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                        <div className="space-y-1 max-w-sm">
+                          <div className="text-sm font-medium text-text-1">默认录播镜头视角</div>
+                          <div className="text-xs text-text-3 leading-relaxed">
+                            下载课堂实录录播时的默认视角。主界面与底栏动作岛将统一遵循此设置，无需逐门课程重复配置
+                          </div>
+                        </div>
+                        <div className="shrink-0">
+                          <Segmented
+                            size="md"
+                            value={videoPerspectivePreference}
+                            onChange={(v) => setVideoPerspectivePreference(v as VideoPerspective)}
+                            options={[
+                              { key: 'all', label: '📹 双机位同时下载' },
+                              { key: 'teacher', label: '👨‍🏫 仅教师视角' },
+                              { key: 'ppt', label: '📑 仅PPT投屏' }
+                            ]}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
 
                   {/* 导出外挂字幕 (.srt) */}
                   <div className="flex items-center justify-between gap-4 py-5">
@@ -1015,7 +1080,7 @@ export function Settings({
                 <div>
                   <h2 className="text-base font-bold text-text-1">账号与云盘</h2>
                   <p className="mt-1 text-xs text-text-3">
-                    jAccount 统一身份认证登录会话、交大云盘直连集成与系统安全保险库
+                    管理 jAccount 登录状态、交大云盘连接与已保存的账号
                   </p>
                 </div>
 
@@ -1038,11 +1103,11 @@ export function Settings({
                           )}
                           <span className="inline-flex items-center gap-1 rounded-md bg-success-bg px-2 py-0.5 text-2xs font-semibold text-success ring-1 ring-success-ring">
                             <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                            在线会话
+                            已登录
                           </span>
                         </div>
                         <p className="text-xs text-text-3 mt-0.5">
-                          当前会话有效，已建立 Canvas 与交大在线服务安全授权
+                          登录状态有效，已建立交大教学平台授权
                         </p>
                       </div>
                     </div>
@@ -1075,12 +1140,12 @@ export function Settings({
                         </span>
                         {cloudUserToken && (
                           <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">
-                            SSO 单点直连
+                            一键免密连接
                           </span>
                         )}
                       </div>
                       <div className="text-xs text-text-3">
-                        {cloudUserToken ? '会话有效，支持直传分片与秒传备份' : '通过当前 jAccount 统一身份认证一键免密接入云盘'}
+                        {cloudUserToken ? '已连接，下载课件时可直接转存至云盘' : '通过交大统一身份认证一键免密接入云盘'}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -1093,7 +1158,7 @@ export function Settings({
                             : 'bg-accent text-white shadow-xs hover:bg-accent-light'
                         }`}
                       >
-                        {cloudUserToken ? '断开云盘连接' : '一键直连 SSO'}
+                        {cloudUserToken ? '断开云盘连接' : '连接交大云盘'}
                       </button>
                     </div>
                   </div>
@@ -1102,7 +1167,7 @@ export function Settings({
                   {cloudSpaceInfo && (
                     <div className="space-y-2 pt-2 border-t border-bd/40">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-text-3">交大云盘已用存储配额</span>
+                        <span className="text-text-3">交大云盘已用空间</span>
                         <span className="font-mono text-text-2 font-medium">
                           {formatBytes(Number(cloudSpaceInfo.size) || 0)} / {formatBytes(Number(cloudSpaceInfo.capacity) || 0)} · {cloudPercent}%
                         </span>
@@ -1118,7 +1183,7 @@ export function Settings({
 
                   {/* 云端保存根目录 */}
                   <div className="flex items-center justify-between text-xs text-text-3 pt-2 border-t border-bd/40">
-                    <span>云端转存默认根目录：</span>
+                    <span>云盘保存目录：</span>
                     <span className="rounded-lg border border-bd bg-surface-1 px-2.5 py-0.5 font-mono text-2xs text-text-2">
                       /SJTU课程下载
                     </span>
@@ -1133,19 +1198,16 @@ export function Settings({
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-text-1">系统硬件级加密保护中</span>
-                        <span className="rounded-md bg-success-bg px-2 py-0.5 text-2xs font-semibold text-success ring-1 ring-success-ring">
-                          DPAPI / Keychain
-                        </span>
+                        <span className="text-sm font-semibold text-text-1">账号安全加密防护</span>
                       </div>
                       <p className="text-xs text-text-3 mt-0.5">
-                        密码密文由操作系统安全芯片与系统凭据管理器隔离存储，渲染端与网络传输杜绝明文暴露
+                        账号密码采用系统安全芯片隔离存储，全程加密保护，杜绝明文暴露
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
                     <span className="rounded-xl border border-bd/80 bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 shadow-2xs">
-                      已安全保存 <span className="font-mono font-bold text-accent">{credentials.length}</span> 个账号凭据
+                      已安全保存 <span className="font-mono font-bold text-accent">{credentials.length}</span> 个账号
                     </span>
                   </div>
                 </div>
@@ -1153,21 +1215,21 @@ export function Settings({
                 {/* 凭据列表与操作区 */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-text-2">已保存凭据列表</span>
+                    <span className="text-xs font-semibold text-text-2">已保存的账号</span>
                     {credentials.length > 0 && (
                       <button
                         type="button"
                         onClick={() => setShowClearModal(true)}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-1 text-xs font-medium text-danger hover:brightness-110 transition-all cursor-pointer shadow-2xs"
                       >
-                        <span>一键清空全部已保存凭据</span>
+                        <span>清空已保存账号</span>
                       </button>
                     )}
                   </div>
 
                   {isLoadingCreds ? (
                     <div className="flex items-center justify-center py-8 text-xs text-text-3">
-                      <span>正在读取凭据...</span>
+                      <span>正在加载账号...</span>
                     </div>
                   ) : credentials.length === 0 ? (
                     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-bd/80 bg-surface-2/40 py-12 px-6 text-center space-y-3">
@@ -1175,7 +1237,7 @@ export function Settings({
                         🔐
                       </div>
                       <div className="space-y-1">
-                        <div className="text-sm font-medium text-text-1">暂无已保存的账号凭据</div>
+                        <div className="text-sm font-medium text-text-1">暂无已保存的账号</div>
                         <p className="text-xs text-text-3 max-w-md leading-relaxed">
                           在登录页面输入账号密码成功登录后，可自动提示一键保存。
                         </p>
@@ -1221,7 +1283,7 @@ export function Settings({
                                 type="button"
                                 onClick={() => setCredToDelete(cred)}
                                 className="rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-1 text-xs font-medium text-danger hover:brightness-110 transition-all cursor-pointer shadow-2xs"
-                                title="删除此账号的已保存凭据"
+                                title="删除此账号"
                               >
                                 🗑️ 删除
                               </button>
@@ -1291,12 +1353,12 @@ export function Settings({
                           ⚠️
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-text-1">清空全部已保存凭据</h3>
+                          <h3 className="text-sm font-bold text-text-1">清空所有已保存账号</h3>
                           <p className="text-xs text-text-3 mt-0.5">此操作不可撤销</p>
                         </div>
                       </div>
                       <p className="text-xs text-text-2 leading-relaxed">
-                        确定要清空所有已保存的账号凭据吗？此操作将彻底删除所有保存在系统安全保险库中的 jAccount 账号与加密密码，清空后登录时将不再提供自动填充。
+                        确定要清空所有已保存的账号吗？此操作将删除所有本地安全保存的 jAccount 账号与加密密码，清空后登录时将不再提供快捷填充。
                       </p>
                       <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd/50">
                         <button
@@ -1335,13 +1397,13 @@ export function Settings({
                           🗑️
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-text-1">删除账号凭据</h3>
+                          <h3 className="text-sm font-bold text-text-1">删除账号</h3>
                           <p className="text-xs text-text-3 mt-0.5 font-mono">账号: {credToDelete.username}</p>
                         </div>
                       </div>
                       <p className="text-xs text-text-2 leading-relaxed">
-                        确定要删除账号「<strong className="text-text-1">{credToDelete.username}</strong>」
-                        {credToDelete.label ? `（${credToDelete.label}）` : ''} 的已保存凭据吗？删除后在登录页面将不再自动填充此账号。
+                        确定要删除已保存的账号「<strong className="text-text-1">{credToDelete.username}</strong>」
+                        {credToDelete.label ? `（${credToDelete.label}）` : ''} 吗？删除后在登录页面将不再自动填充此账号。
                       </p>
                       <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd/50">
                         <button

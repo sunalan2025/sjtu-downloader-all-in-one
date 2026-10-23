@@ -243,9 +243,9 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
 }: NetdiskCourseExplorerProps) {
   // 当前处于的课程对象
   const currentCourse = useMemo(() => {
-    if (!navState.courseId) return undefined
+    if (!navState?.courseId) return undefined
     return courses.find(c => String(c.id) === String(navState.courseId))
-  }, [courses, navState.courseId])
+  }, [courses, navState?.courseId])
 
   // 当前处于的分类对象
   const currentCategory = useMemo(() => {
@@ -516,10 +516,14 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
       onDownloadCourse(currentCourse)
     } else {
       const selCourses = courses.filter(c => c.state !== 'none')
-      if (selCourses.length === 1 && selCourses[0].onDownload) {
-        selCourses[0].onDownload()
-      } else if (onDownloadCourse && selCourses.length > 0) {
-        onDownloadCourse(selCourses[0])
+      if (selCourses.length > 0) {
+        selCourses.forEach(c => {
+          if (c.onDownload) {
+            c.onDownload()
+          } else if (onDownloadCourse) {
+            onDownloadCourse(c)
+          }
+        })
       }
       // 兜底链末环（courses[0]?.onDownload?.()）删除：单课程下载是 inspector 的职责，
       // 岛是批量提交入口，无回调可用时保持静默而非随机下载列表第一门课。
@@ -595,6 +599,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               onPerspectiveChange={onPerspectiveChange}
               hasPptPdf={hasPptPdf}
               onTogglePptPdf={onTogglePptPdf}
+              hasSelection={selectedStats.totalItems > 0}
             />
           ) : viewMode === 'list' ? (
             <ListView
@@ -633,7 +638,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
       {/* 底部浮动命令动作岛 (非分栏视图下挂载：选中项 > 0 或本轮批量下载进行中)。
           batchProgress 复用已死的 OverallProgressBar 的 batchTaskIds 统计口径
           （both 模式区分下载中/上传中），让批量进度在岛上以进度环实时可见。 */}
-      {viewMode !== 'column' && (selectedStats.totalItems > 0 || storeDownloading) && (
+      {(selectedStats.totalItems > 0 || storeDownloading) && (
         <FloatingCommandIsland
           selectedSummary={{
             courseCount: selectedStats.courseCount,
@@ -1822,6 +1827,7 @@ export interface CourseOverviewInspectorProps {
   hasPptPdf?: boolean
   onTogglePptPdf?: (enabled: boolean) => void
   onDownloadCourse?: (course: NetdiskCourseItem) => void
+  hasSelection?: boolean
 }
 
 export function CourseOverviewInspector({
@@ -1831,7 +1837,8 @@ export function CourseOverviewInspector({
   onPerspectiveChange: _onPerspectiveChange,
   hasPptPdf,
   onTogglePptPdf: _onTogglePptPdf,
-  onDownloadCourse
+  onDownloadCourse,
+  hasSelection
 }: CourseOverviewInspectorProps) {
   const [internalPerspective] = useState<VideoPerspective>('teacher')
   const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
@@ -1886,7 +1893,7 @@ export function CourseOverviewInspector({
   return (
     <div
       data-testid="course-overview-inspector"
-      className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full relative animate-fadeIn"
+      className={`flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full relative animate-fadeIn ${hasSelection ? 'pb-24' : ''}`}
     >
       {/* 顶部标题区 */}
       <div className="pb-3 border-b border-bd/60 shrink-0">
@@ -2020,6 +2027,7 @@ export interface FileDetailInspectorProps {
   category?: NetdiskCategoryItem
   onClose: () => void
   onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  hasSelection?: boolean
 }
 
 export function FileDetailInspector({
@@ -2027,7 +2035,8 @@ export function FileDetailInspector({
   course,
   category,
   onClose,
-  onDownloadSingle
+  onDownloadSingle,
+  hasSelection
 }: FileDetailInspectorProps) {
   const { toast, showToast, hideToast } = useToast(2500)
 
@@ -2057,7 +2066,7 @@ export function FileDetailInspector({
   return (
     <div
       data-testid="file-detail-inspector"
-      className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full relative animate-fadeIn"
+      className={`flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full relative animate-fadeIn ${hasSelection ? 'pb-24' : ''}`}
     >
       {/* 顶部标题区与关闭按钮 */}
       <div className="flex items-center justify-between pb-3 border-b border-bd/60 shrink-0">
@@ -2210,6 +2219,7 @@ export interface ColumnViewProps {
   onTogglePptPdf?: (enabled: boolean) => void
   selectedFileItem?: NetdiskFileItem | null
   onSelectFileItem?: (item: NetdiskFileItem | null) => void
+  hasSelection?: boolean
 }
 
 export function ColumnView({
@@ -2226,7 +2236,8 @@ export function ColumnView({
   hasPptPdf,
   onTogglePptPdf,
   selectedFileItem: controlledSelectedFile,
-  onSelectFileItem
+  onSelectFileItem,
+  hasSelection = false
 }: ColumnViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [internalSelectedFile, setInternalSelectedFile] = useState<NetdiskFileItem | null>(null)
@@ -2325,7 +2336,7 @@ export function ColumnView({
         <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
           <span>全部课程 · {courses.length}</span>
         </div>
-        <div className="flex-1 overflow-y-auto py-2">
+        <div className={`flex-1 overflow-y-auto py-2 ${hasSelection ? 'pb-24' : ''}`}>
           {termGroups ? (
             termGroups.map(group => {
               const termState = getTermTriState(group.items)
@@ -2365,7 +2376,7 @@ export function ColumnView({
           <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
             <span className="truncate">{activeCourse.name} · 分类</span>
           </div>
-          <div className="flex-1 overflow-y-auto py-2">
+          <div className={`flex-1 overflow-y-auto py-2 ${hasSelection ? 'pb-24' : ''}`}>
             {activeCourse.isLoading && (
               <div className="flex items-center justify-center gap-2 p-6 text-xs text-text-3">
                 <Spinner size={14} />
@@ -2447,7 +2458,7 @@ export function ColumnView({
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto py-2">
+          <div className={`flex-1 overflow-y-auto py-2 ${hasSelection ? 'pb-24' : ''}`}>
             {activeCategory.items.map(item => {
               const isActive = selectedFileItem?.id === item.id
               return (
@@ -2532,6 +2543,7 @@ export function ColumnView({
             category={activeCategory}
             onClose={() => setSelectedFileItem(null)}
             onDownloadSingle={onDownloadSingle}
+            hasSelection={hasSelection}
           />
         ) : (
           <CourseOverviewInspector
@@ -2542,6 +2554,7 @@ export function ColumnView({
             hasPptPdf={hasPptPdf}
             onTogglePptPdf={onTogglePptPdf}
             onDownloadCourse={onDownloadCourse}
+            hasSelection={hasSelection}
           />
         )
       )}

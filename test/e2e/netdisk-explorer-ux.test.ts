@@ -476,14 +476,15 @@ describe('NetdiskCourseExplorer UX Redesign Suite (Task 4)', () => {
       expect(html).toContain('立即下载')
     })
 
-    it('在分栏模式 (column) 下，即便有选中项也不渲染动作岛 (由第4栏接管)', () => {
+    it('在分栏模式 (column) 下，全视图体验统一，有选中项时同样居中挂载底栏动作岛', () => {
       const { $ } = renderExplorer({
         viewMode: 'column',
         navState: { level: 'root' }
       })
 
       const island = $('[role="toolbar"][aria-label="下载底栏智能指挥动作岛"]')
-      expect(island.length).toBe(0)
+      expect(island.length).toBe(1)
+      expect(island.text()).toContain('立即下载')
     })
 
     it('点击动作岛中的立即下载主按钮，无缝触发下载回调', () => {
