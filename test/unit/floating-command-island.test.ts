@@ -182,7 +182,7 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
         }
       })
       expect($('button:contains("📘 课件 10")').length).toBe(1)
-      expect($('button:contains("🎬 视频 6")').length).toBe(1)
+      expect($('button:contains("视频 6")').length).toBe(1)
       expect($('button:contains("📝 作业 4")').length).toBe(1)
       expect($('button:contains("📑 PPT讲义 5")').length).toBe(1)
     })
@@ -215,25 +215,25 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       const { vnode } = renderIslandVNode({ onToggleCategory })
 
       // 课件
-      const filesBtn = findVNodes(vnode, (n) => n.props?.children?.props?.children?.[0]?.includes?.('📘 课件') || n.props?.children?.includes?.('📘 课件'))[0]
+      const filesBtn = findVNodes(vnode, (n) => n.type === 'button' && JSON.stringify(n.props?.children).includes('课件'))[0]
       expect(filesBtn).toBeDefined()
       filesBtn.props.onClick()
       expect(onToggleCategory).toHaveBeenCalledWith('files')
 
       // 视频
-      const videoBtn = findVNodes(vnode, (n) => n.props?.children?.props?.children?.[0]?.includes?.('🎬 视频') || n.props?.children?.includes?.('🎬 视频'))[0]
+      const videoBtn = findVNodes(vnode, (n) => n.type === 'button' && JSON.stringify(n.props?.children).includes('视频'))[0]
       expect(videoBtn).toBeDefined()
       videoBtn.props.onClick()
       expect(onToggleCategory).toHaveBeenCalledWith('videos')
 
       // 作业
-      const assignBtn = findVNodes(vnode, (n) => n.props?.children?.props?.children?.[0]?.includes?.('📝 作业') || n.props?.children?.includes?.('📝 作业'))[0]
+      const assignBtn = findVNodes(vnode, (n) => n.type === 'button' && JSON.stringify(n.props?.children).includes('作业'))[0]
       expect(assignBtn).toBeDefined()
       assignBtn.props.onClick()
       expect(onToggleCategory).toHaveBeenCalledWith('assignments')
 
       // PPT
-      const pptBtn = findVNodes(vnode, (n) => n.props?.children?.props?.children?.[0]?.includes?.('📑 PPT讲义') || n.props?.children?.includes?.('📑 PPT讲义'))[0]
+      const pptBtn = findVNodes(vnode, (n) => n.type === 'button' && JSON.stringify(n.props?.children).includes('PPT讲义'))[0]
       expect(pptBtn).toBeDefined()
       pptBtn.props.onClick()
       expect(onToggleCategory).toHaveBeenCalledWith('pptPdf')
@@ -247,7 +247,7 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
       const { $ } = renderIsland({ perspective: 'teacher' })
       const videoBtn = $('button[role="button"]:contains("视频")')
       expect(videoBtn.length).toBe(1)
-      expect(videoBtn.attr('title')).toContain('当前默认下载: 仅教师视角')
+      expect(videoBtn.attr('title')).toContain('当前下载视角: 仅教师视角')
       expect(videoBtn.attr('title')).toContain('如需修改请前往「设置 - 课件与多媒体」')
     })
 
@@ -265,61 +265,29 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
     it('根据传入的 perspective 动态展示对应机位提示', () => {
       const { $ } = renderIsland({ perspective: 'ppt' })
       const videoBtn = $('button[role="button"]:contains("视频")')
-      expect(videoBtn.attr('title')).toContain('当前默认下载: 仅PPT投屏')
+      expect(videoBtn.attr('title')).toContain('当前下载视角: 仅PPT投屏')
+    })
+
+    it('在仅下载原声音频模式下，视频芯片自动适配为音频芯片与专属提示', () => {
+      const { $ } = renderIsland({
+        videoQualityOption: 'audio_only',
+        selectedSummary: {
+          totalItems: 8,
+          formattedSize: '约 180 MB',
+          videoCount: 4
+        }
+      })
+      const audioChip = $('button:contains("原声音频 4")')
+      expect(audioChip.length).toBe(1)
+      expect(audioChip.attr('title')).toContain('当前下载模式: 仅下载原声音频')
     })
   })
 
-  describe('5. 存储目标切换胶囊 (Storage Destination Switcher)', () => {
-    it('正确呈现 STORAGE_DEST_OPTIONS 中的 本地 / 云盘 / 双备份 3 大存储选项', () => {
+  describe('5. 存储目标与机位全局偏好联动 (Storage Destination from Store)', () => {
+    it('底部悬浮窗不再并存重复的存储目标切换按钮，保持清爽纯粹', () => {
       const { $ } = renderIsland({ downloadMode: 'cloud' })
       const destGroup = $('[role="group"][aria-label="存储目标切换"]')
-      expect(destGroup.length).toBe(1)
-
-      const buttons = destGroup.find('button')
-      expect(buttons.length).toBe(3)
-      expect(buttons.eq(0).text()).toContain('📁 本地')
-      expect(buttons.eq(1).text()).toContain('☁️ 云盘')
-      expect(buttons.eq(2).text()).toContain('双备份')
-
-      // cloud 应该处于激活态
-      expect(buttons.eq(1).attr('aria-pressed')).toBe('true')
-      expect(buttons.eq(0).attr('aria-pressed')).toBe('false')
-    })
-
-    it('点击存储模式选项触发 onDownloadModeChange 回调', () => {
-      const onDownloadModeChange = vi.fn()
-      const { vnode } = renderIslandVNode({
-        downloadMode: 'local',
-        onDownloadModeChange
-      })
-
-      const destButtons = findVNodes(
-        vnode,
-        (n) => n.props?.role === 'button' && (n.props?.children === '☁️ 云盘' || n.props?.children === '双备份')
-      )
-      expect(destButtons.length).toBe(2)
-
-      // 点击云盘
-      destButtons[0].props.onClick()
-      expect(onDownloadModeChange).toHaveBeenCalledWith('cloud')
-
-      // 点击双备份
-      destButtons[1].props.onClick()
-      expect(onDownloadModeChange).toHaveBeenCalledWith('both')
-    })
-
-    it('未传递 onDownloadModeChange 时，自动更新 Zustand 全局 store.downloadMode', () => {
-      useAppStore.getState().setDownloadMode('local')
-      const { vnode } = renderIslandVNode({
-        downloadMode: undefined,
-        onDownloadModeChange: undefined
-      })
-
-      const cloudBtn = findVNodes(vnode, (n) => n.props?.children === '☁️ 云盘')[0]
-      expect(cloudBtn).toBeDefined()
-      cloudBtn.props.onClick()
-
-      expect(useAppStore.getState().downloadMode).toBe('cloud')
+      expect(destGroup.length).toBe(0)
     })
   })
 
@@ -383,8 +351,7 @@ describe('FloatingCommandIsland Component Unit Tests', () => {
     it('整体结构具备清晰的角色声明与 ARIA 标记', () => {
       const { $ } = renderIsland()
       expect($('[role="toolbar"]').length).toBe(1)
-      expect($('[role="group"]').length).toBe(1)
-      expect($('button[role="button"]').length).toBeGreaterThanOrEqual(6)
+      expect($('button[role="button"]').length).toBeGreaterThanOrEqual(4)
       expect($('button[title*="设置"]').length).toBeGreaterThanOrEqual(1)
     })
   })

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import type { DownloadMode } from '@shared/types'
+import type { DownloadMode, VideoQualityOption } from '@shared/types'
 import { useAppStore } from '../store/app'
 import { Spinner } from './Spinner'
 
@@ -45,6 +45,8 @@ export interface FloatingCommandIslandProps {
   onStartDownload?: () => void
   /** 清空选择回调 */
   onClearSelection?: () => void
+  /** 视频画质与音频模式偏好（可受控覆盖） */
+  videoQualityOption?: VideoQualityOption
   /** 初始是否展开视频机位悬浮菜单（静态渲染测试与受控场景用；生产挂载方不传） */
   defaultPopoverOpen?: boolean
   /** 本轮批量下载进度（done/downloading/uploading/failed/total 及 inflight 比例和）。
@@ -97,10 +99,11 @@ export function FloatingCommandIsland({
   onToggleCategory,
   perspective,
   onPerspectiveChange: _onPerspectiveChange,
-  downloadMode,
-  onDownloadModeChange,
+  downloadMode: _downloadMode,
+  onDownloadModeChange: _onDownloadModeChange,
   onStartDownload,
   onClearSelection,
+  videoQualityOption: propVideoQuality,
   defaultPopoverOpen: _defaultPopoverOpen = false,
   batchProgress
 }: FloatingCommandIslandProps): React.JSX.Element | null {
@@ -122,13 +125,24 @@ export function FloatingCommandIsland({
     pptPdf: categorySelection?.pptPdf ?? internalCategorySelection.pptPdf ?? true
   }
 
+  const storeVideoQuality = useAppStore((s) => s.videoQualityOption)
+  const videoQualityOption = propVideoQuality ?? storeVideoQuality
   const globalPerspective = useAppStore((s) => s.videoPerspectivePreference)
   const currentPerspective = perspective ?? globalPerspective ?? internalPerspective
+  const isAudioOnly = videoQualityOption === 'audio_only' || currentPerspective === 'audio'
   const perspectiveLabel = PERSPECTIVE_LABELS[currentPerspective] || '仅教师视角'
 
-  // 存储模式优先使用 props，无传入时同步 Zustand 全局状态
-  const storeDownloadMode = useAppStore((s) => s.downloadMode)
-  const currentDownloadMode = downloadMode ?? storeDownloadMode ?? 'local'
+  const videoChipLabel = isAudioOnly
+    ? `🎵 原声音频 ${selectedSummary.videoCount ?? 0}`
+    : currentPerspective === 'teacher'
+    ? `🎬 教师视频 ${selectedSummary.videoCount ?? 0}`
+    : currentPerspective === 'ppt'
+    ? `🎬 PPT视频 ${selectedSummary.videoCount ?? 0}`
+    : `🎬 双机位视频 ${selectedSummary.videoCount ?? 0}`
+
+  const videoChipTitle = isAudioOnly
+    ? '当前下载模式: 仅下载原声音频（如需修改请前往「设置 - 课件与多媒体」）'
+    : `当前下载视角: ${perspectiveLabel}（如需修改请前往「设置 - 课件与多媒体」）`
 
   // 全局下载进行中标志 + 批量进度激活标志（提前声明：快捷键 effect 与隐藏条件都要用）
   const storeDownloading = useAppStore((s) => s.downloading)
@@ -146,17 +160,6 @@ export function FloatingCommandIsland({
       }
     },
     [onToggleCategory]
-  )
-
-  const handleDownloadModeChange = useCallback(
-    (mode: DownloadMode) => {
-      if (onDownloadModeChange) {
-        onDownloadModeChange(mode)
-      } else {
-        useAppStore.getState().setDownloadMode(mode)
-      }
-    },
-    [onDownloadModeChange]
   )
 
   const handleStartDownload = useCallback(() => {
@@ -249,20 +252,20 @@ export function FloatingCommandIsland({
           <span>📘 课件 {selectedSummary.filesCount ?? 0}</span>
         </button>
 
-        {/* 视频芯片（悬停显示当前机位提示，点击切换勾选） */}
+        {/* 视频/音频芯片（悬停显示当前机位/音频提示，点击切换勾选） */}
         <button
           type="button"
           role="button"
           aria-pressed={activeCategoryState.videos}
           onClick={() => handleToggleCategory('videos')}
-          title={`当前默认下载: ${perspectiveLabel}（如需修改请前往「设置 - 课件与多媒体」）`}
+          title={videoChipTitle}
           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
             activeCategoryState.videos
               ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
               : 'border-black/[0.06] dark:border-white/[0.08] text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-white/[0.04] hover:bg-slate-200/50 dark:hover:bg-white/[0.08]'
           }`}
         >
-          <span>🎬 视频 {selectedSummary.videoCount ?? 0}</span>
+          <span>{videoChipLabel}</span>
         </button>
 
         {/* 作业芯片 */}
@@ -294,36 +297,6 @@ export function FloatingCommandIsland({
         >
           <span>📑 PPT讲义 {selectedSummary.pptCount ?? 0}</span>
         </button>
-      </div>
-
-      {/* 分割线 */}
-      <div className="h-4 w-px bg-bd/70 dark:bg-white/10 shrink-0" />
-
-      {/* ③ 右侧存储目标切换胶囊 */}
-      <div
-        role="group"
-        aria-label="存储目标切换"
-        className="inline-flex items-center rounded-xl border border-black/[0.06] dark:border-white/[0.08] bg-slate-200/50 dark:bg-white/[0.06] p-0.5 text-xs select-none whitespace-nowrap shrink-0"
-      >
-        {STORAGE_DEST_OPTIONS.map((dest) => {
-          const isCurrent = currentDownloadMode === dest.key
-          return (
-            <button
-              key={dest.key}
-              type="button"
-              role="button"
-              aria-pressed={isCurrent}
-              onClick={() => handleDownloadModeChange(dest.key)}
-              className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer text-xs ${
-                isCurrent
-                  ? 'bg-white dark:bg-surface-1 text-text-1 font-semibold shadow-2xs'
-                  : 'text-text-3 hover:text-text-2'
-              }`}
-            >
-              {dest.label}
-            </button>
-          )
-        })}
       </div>
 
       {/* 分割线 */}

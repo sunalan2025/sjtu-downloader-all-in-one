@@ -263,6 +263,10 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     return columnActiveCourse.categories.find(cat => cat.id === navState.categoryId)
   }, [columnActiveCourse, navState.categoryId])
 
+  const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
+  const globalVideoQuality = useAppStore(s => s.videoQualityOption)
+  const isAudioOnly = globalVideoQuality === 'audio_only' || globalPerspective === 'audio'
+
   const [sharedPerspective, setSharedPerspective] = useState<VideoPerspective>('teacher')
   const lastEnteredCourseIdRef = useRef<number | string | null>(null)
 
@@ -417,10 +421,14 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
       }
     }
 
+    const effectivePerspective: VideoPerspective = isAudioOnly
+      ? 'audio'
+      : (perspective ?? currentCourse?.perspective ?? globalPerspective ?? 'teacher')
+
     const estimated = estimateResourceSize({
       fileBytes,
       videoCount,
-      perspective: perspective ?? currentCourse?.perspective ?? 'teacher',
+      perspective: effectivePerspective,
       hasAssignments: assignCount > 0,
       assignmentCount: assignCount,
       hasPptPdf: pptCount > 0,
@@ -437,9 +445,10 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
       videoCount,
       assignCount,
       pptCount,
-      isSingleCourse
+      isSingleCourse,
+      effectivePerspective
     }
-  }, [courses, isSingleCourse, currentCourse, perspective])
+  }, [courses, isSingleCourse, currentCourse, perspective, isAudioOnly, globalPerspective])
 
   // 动作岛分类过滤芯片勾选状态
   const categorySelectionState = useMemo<CategorySelectionState>(() => {
@@ -653,7 +662,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
           isSingleCourse={selectedStats.isSingleCourse}
           categorySelection={categorySelectionState}
           onToggleCategory={handleToggleIslandCategory}
-          perspective={perspective ?? currentCourse?.perspective ?? sharedPerspective}
+          perspective={selectedStats.effectivePerspective ?? perspective ?? currentCourse?.perspective ?? sharedPerspective}
           onPerspectiveChange={p => {
             setSharedPerspective(p)
             onPerspectiveChange?.(p)
@@ -790,9 +799,14 @@ export function useCategoryViewLogic(params: CategoryViewLogicParams) {
     return groupCoursesByTerm(courses)
   }, [courses, groupByTerm])
 
+  const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
+  const globalVideoQuality = useAppStore(s => s.videoQualityOption)
+  const isAudioOnly = globalVideoQuality === 'audio_only' || globalPerspective === 'audio'
   const isVideoCat = isVideoCategory(currentCategory)
   const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('all')
-  const activePerspective = perspective ?? currentCourse?.perspective ?? internalPerspective
+  const activePerspective = isAudioOnly
+    ? 'audio'
+    : (perspective ?? currentCourse?.perspective ?? globalPerspective ?? internalPerspective)
 
   const handleFilterPerspectiveChange = useCallback((nextPerspective: VideoPerspective) => {
     setInternalPerspective(nextPerspective)

@@ -397,7 +397,8 @@ export function CanvasBrowser() {
     downloadMode, canvasCourses, canvasScanState, canvasScanMessage,
     canvasCourseData,
     canvasLectures, canvasModuleVideos, canvasCourseCategorySelections,
-    courseViewMode, canvasGroupByTerm, cloudLinkedIds, videoQualityOption
+    courseViewMode, canvasGroupByTerm, cloudLinkedIds, videoQualityOption,
+    videoPerspectivePreference
   } = useAppStore(useShallow(s => ({
     downloadMode: s.downloadMode,
     canvasCourses: s.canvasCourses,
@@ -411,6 +412,7 @@ export function CanvasBrowser() {
     canvasGroupByTerm: s.canvasGroupByTerm,
     cloudLinkedIds: s.cloudLinkedIds,
     videoQualityOption: s.videoQualityOption,
+    videoPerspectivePreference: s.videoPerspectivePreference,
     canvasExportAiTranscript: s.canvasExportAiTranscript
   })))
   const setCourseViewMode = useAppStore(s => s.setCourseViewMode)
@@ -753,12 +755,17 @@ export function CanvasBrowser() {
       for (const f of cd.moduleFiles) files.push(fileTaskId(courseId, f.fileId))
       for (const f of cd.syllabusFiles) files.push(fileTaskId(courseId, f.fileId))
     }
+    const isAudioOnly = videoQualityOption === 'audio_only' || videoPerspectivePreference === 'audio'
     const teacher: string[] = []
     const ppt: string[] = []
     if (lec) for (const l of lec) {
       if (!l.teacher) continue
-      teacher.push(lectureStreamTaskId(courseId, l.lectureNum, 'teacher'))
-      ppt.push(lectureStreamTaskId(courseId, l.lectureNum, 'ppt'))
+      if (isAudioOnly || videoPerspectivePreference === 'teacher' || videoPerspectivePreference === 'all') {
+        teacher.push(lectureStreamTaskId(courseId, l.lectureNum, 'teacher'))
+      }
+      if (!isAudioOnly && (videoPerspectivePreference === 'ppt' || videoPerspectivePreference === 'all')) {
+        ppt.push(lectureStreamTaskId(courseId, l.lectureNum, 'ppt'))
+      }
     }
     const moduleVideo: string[] = []
     if (mv) {
@@ -773,7 +780,7 @@ export function CanvasBrowser() {
       }
     }
     return { files, teacher, ppt, moduleVideo, assignments, all: [...files, ...teacher, ...ppt, ...moduleVideo, ...assignments] }
-  }, [canvasCourseData, canvasLectures, canvasModuleVideos])
+  }, [canvasCourseData, canvasLectures, canvasModuleVideos, videoQualityOption, videoPerspectivePreference])
 
   /** 单课程的五分类态 + pptPdf + 课程级态（纯派生，不依赖 selectedCourseIds） */
   const courseStates = useCallback((courseId: number) => {
@@ -1239,16 +1246,16 @@ export function CanvasBrowser() {
 
         if (cancelRequestedRef.current) return { started: false, taskIds: [], localOnlyTaskIds: [] }
         if (lectures?.length && lti) {
-          const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
-          // 按角色携带意图：只下用户实际勾选的一路（teacher 或 ppt）。
-          // 若为仅提取音频模式，按用户确认的设计：自动跳过无声/重复的 PPT 视角，仅下载教师视角！
+          const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only' || useAppStore.getState().videoPerspectivePreference === 'audio'
+          const pref = useAppStore.getState().videoPerspectivePreference
+          // 按角色携带意图：严格按设置或实际勾选
           const lectureItems: CanvasLectureDownloadItem[] = []
           for (const l of lectures) {
             if (!l.teacher) continue
             const teacherWanted = isAudioOnly
               ? (catSel?.teacher || catSel?.ppt || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'teacher')) || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'ppt')))
-              : (catSel?.teacher || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'teacher')))
-            const pptWanted = isAudioOnly ? false : (catSel?.ppt || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'ppt')))
+              : ((pref === 'teacher' || pref === 'all') && (catSel?.teacher || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'teacher'))))
+            const pptWanted = isAudioOnly ? false : ((pref === 'ppt' || pref === 'all') && (catSel?.ppt || selected.has(lectureStreamTaskId(courseId, l.lectureNum, 'ppt'))))
             if (!teacherWanted && !pptWanted) continue
             lectureItems.push({
               lectureNum: l.lectureNum,
@@ -1750,42 +1757,51 @@ export function CanvasBrowser() {
       }
 
       // 视频/音频项
-      const isAudioOnly = videoQualityOption === 'audio_only'
+      const isAudioOnly = videoQualityOption === 'audio_only' || videoPerspectivePreference === 'audio'
       const videoItems: NetdiskFileItem[] = []
       if (lec) {
         for (const l of lec) {
           if (l.teacher) {
-            const tTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'teacher')
-            videoItems.push({
-              id: tTid,
-              name: isAudioOnly
-                ? `${c.name} - 第${l.lectureNum}讲 教师视角 音频`
-                : `${c.name} - 第${l.lectureNum}讲 教师视角`,
-              date: l.date,
-              type: isAudioOnly ? 'M4A' : 'MP4',
-              selected: selected.has(tTid),
-              onToggle: () => toggleSelect(tTid),
-              onDownloadSingle: () => void handleDownloadSingleVideo(c.courseId, l.lectureNum, 'teacher'),
-              renderExtra: <VideoRowProgress tid={tTid} controllable={true} />
-            })
-            const pTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'ppt')
-            videoItems.push({
-              id: pTid,
-              name: isAudioOnly
-                ? `${c.name} - 第${l.lectureNum}讲 PPT投影视角 无独立音频流`
-                : `${c.name} - 第${l.lectureNum}讲 PPT投影视角`,
-              date: l.date,
-              type: isAudioOnly ? 'DISABLED' : 'MP4',
-              disabled: isAudioOnly,
-              disabledReason: isAudioOnly ? '无独立音频流' : undefined,
-              selected: isAudioOnly ? false : selected.has(pTid),
-              onToggle: () => {
-                if (isAudioOnly) return
-                toggleSelect(pTid)
-              },
-              onDownloadSingle: isAudioOnly ? undefined : () => void handleDownloadSingleVideo(c.courseId, l.lectureNum, 'ppt'),
-              renderExtra: <VideoRowProgress tid={pTid} controllable={true} />
-            })
+            if (isAudioOnly) {
+              const tTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'teacher')
+              videoItems.push({
+                id: tTid,
+                name: `${c.name} - 第${l.lectureNum}讲 原声音频`,
+                date: l.date,
+                type: 'M4A',
+                selected: selected.has(tTid),
+                onToggle: () => toggleSelect(tTid),
+                onDownloadSingle: () => void handleDownloadSingleVideo(c.courseId, l.lectureNum, 'teacher'),
+                renderExtra: <VideoRowProgress tid={tTid} controllable={true} />
+              })
+            } else {
+              if (videoPerspectivePreference === 'teacher' || videoPerspectivePreference === 'all') {
+                const tTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'teacher')
+                videoItems.push({
+                  id: tTid,
+                  name: `${c.name} - 第${l.lectureNum}讲 教师视角`,
+                  date: l.date,
+                  type: 'MP4',
+                  selected: selected.has(tTid),
+                  onToggle: () => toggleSelect(tTid),
+                  onDownloadSingle: () => void handleDownloadSingleVideo(c.courseId, l.lectureNum, 'teacher'),
+                  renderExtra: <VideoRowProgress tid={tTid} controllable={true} />
+                })
+              }
+              if (videoPerspectivePreference === 'ppt' || videoPerspectivePreference === 'all') {
+                const pTid = lectureStreamTaskId(c.courseId, l.lectureNum, 'ppt')
+                videoItems.push({
+                  id: pTid,
+                  name: `${c.name} - 第${l.lectureNum}讲 PPT投影视角`,
+                  date: l.date,
+                  type: 'MP4',
+                  selected: selected.has(pTid),
+                  onToggle: () => toggleSelect(pTid),
+                  onDownloadSingle: () => void handleDownloadSingleVideo(c.courseId, l.lectureNum, 'ppt'),
+                  renderExtra: <VideoRowProgress tid={pTid} controllable={true} />
+                })
+              }
+            }
           }
         }
       }
@@ -1928,15 +1944,40 @@ export function CanvasBrowser() {
           chipKey: 'videos',
           name: isAudioOnly ? '🎵 课堂原声音频' : '🎬 课堂视频',
           icon: isAudioOnly ? 'audio' : 'video',
-          state: (cStates.teacher === 'all' && cStates.ppt === 'all' && cStates.moduleVideo === 'all')
-            ? 'all'
-            : (cStates.teacher === 'none' && cStates.ppt === 'none' && cStates.moduleVideo === 'none')
-              ? 'none'
-              : 'some',
+          state: (() => {
+            const activeStates: TriState[] = []
+            if (isAudioOnly || videoPerspectivePreference === 'teacher' || videoPerspectivePreference === 'all') {
+              activeStates.push(cStates.teacher)
+            }
+            if (!isAudioOnly && (videoPerspectivePreference === 'ppt' || videoPerspectivePreference === 'all')) {
+              activeStates.push(cStates.ppt)
+            }
+            if (tIds.moduleVideo.length > 0) {
+              activeStates.push(cStates.moduleVideo)
+            }
+            if (activeStates.length === 0) return 'none'
+            if (activeStates.every(s => s === 'all')) return 'all'
+            if (activeStates.every(s => s === 'none')) return 'none'
+            return 'some'
+          })(),
           onToggle: () => {
-            const isAll = cStates.teacher === 'all' && cStates.ppt === 'all' && cStates.moduleVideo === 'all'
+            const activeStates: TriState[] = []
+            if (isAudioOnly || videoPerspectivePreference === 'teacher' || videoPerspectivePreference === 'all') {
+              activeStates.push(cStates.teacher)
+            }
+            if (!isAudioOnly && (videoPerspectivePreference === 'ppt' || videoPerspectivePreference === 'all')) {
+              activeStates.push(cStates.ppt)
+            }
+            if (tIds.moduleVideo.length > 0) {
+              activeStates.push(cStates.moduleVideo)
+            }
+            const isAll = activeStates.length > 0 && activeStates.every(s => s === 'all')
             const newOn = !isAll
-            setCanvasCourseCategorySelection(c.courseId, { teacher: newOn, ppt: newOn, moduleVideo: newOn })
+            setCanvasCourseCategorySelection(c.courseId, {
+              teacher: (isAudioOnly || videoPerspectivePreference === 'teacher' || videoPerspectivePreference === 'all') ? newOn : false,
+              ppt: (!isAudioOnly && (videoPerspectivePreference === 'ppt' || videoPerspectivePreference === 'all')) ? newOn : false,
+              moduleVideo: newOn
+            })
             const vIds = [...tIds.teacher, ...tIds.ppt, ...tIds.moduleVideo]
             if (vIds.length > 0) toggleSelectMany(vIds, newOn)
           },
@@ -1995,7 +2036,7 @@ export function CanvasBrowser() {
         summary: courseStats && (courseStats.done > 0 || courseStats.active > 0 || courseStats.failed > 0)
           ? { done: courseStats.done, downloading: courseStats.active, errors: courseStats.failed, inflight: courseStats.inflight, total: courseStats.total }
           : undefined,
-        perspective: catSel?.teacher && !catSel?.ppt ? 'teacher' : (!catSel?.teacher && catSel?.ppt ? 'ppt' : 'all'),
+        perspective: isAudioOnly ? 'audio' : videoPerspectivePreference,
         onPerspectiveChange: p => handleVideoPerspective(c.courseId, p),
         onDownload: () => void onDownload()
       }
@@ -2006,7 +2047,7 @@ export function CanvasBrowser() {
     toggleSelect, toggleSelectMany, setCanvasCourseCategorySelection,
     scanningCourseIds, scanningVideoCourseIds, doScanFiles, doClassVideoScan,
     toggleCourse, toggleCourseCategory, handleVideoPerspective, canvasCourseTaskIds, progressMap, downloadMode, cloudLinkedIds,
-    videoQualityOption, handleDownloadSingleFile, handleDownloadSingleVideo, onDownload
+    videoQualityOption, videoPerspectivePreference, handleDownloadSingleFile, handleDownloadSingleVideo, onDownload
   ])
 
   return (
