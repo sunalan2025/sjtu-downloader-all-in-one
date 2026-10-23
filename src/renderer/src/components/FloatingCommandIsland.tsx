@@ -224,10 +224,10 @@ export function FloatingCommandIsland({
     <div
       role="toolbar"
       aria-label="下载底栏智能指挥动作岛"
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-2.5rem)] w-fit bg-gradient-to-b from-white/95 to-slate-50/90 dark:from-[#242428]/95 dark:to-[#1a1a1d]/95 backdrop-blur-xl border border-black/[0.08] dark:border-[#38383c] shadow-2xl shadow-[0_16px_40px_-8px_rgba(0,0,0,0.18),0_1px_1px_rgba(255,255,255,0.9)_inset] dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl px-3.5 py-2 flex items-center gap-2.5 animate-fadeIn animate-in fade-in slide-in-from-bottom-4 duration-200 select-none overflow-visible"
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[calc(100vw-2.5rem)] w-fit bg-gradient-to-b from-white/95 to-slate-50/90 dark:from-[#242428]/95 dark:to-[#1a1a1d]/95 backdrop-blur-xl border border-bd shadow-2xl shadow-black/20 dark:shadow-[0_20px_50px_rgba(0,0,0,0.5)] rounded-2xl px-3.5 py-2 flex items-center gap-2.5 animate-fadeIn animate-in fade-in slide-in-from-bottom-4 duration-200 select-none overflow-visible"
     >
       {/* ① 左侧信息汇聚胶囊 */}
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100/80 dark:bg-surface-2 border border-black/[0.04] dark:border-bd text-xs text-text-2 shadow-2xs whitespace-nowrap shrink-0">
+      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100/80 dark:bg-surface-2 border border-bd text-xs text-text-2 shadow-2xs whitespace-nowrap shrink-0">
         {onClearSelection && (
           <button
             type="button"
@@ -257,7 +257,7 @@ export function FloatingCommandIsland({
           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
             activeCategoryState.files
               ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-              : 'border-black/[0.06] dark:border-bd text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-surface-2/60 hover:bg-slate-200/50 dark:hover:bg-surface-3'
+              : 'border-bd text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-surface-2/60 hover:bg-slate-200/50 dark:hover:bg-surface-3'
           }`}
         >
           <span>📘 课件 {selectedSummary.filesCount ?? 0}</span>
@@ -273,7 +273,7 @@ export function FloatingCommandIsland({
           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
             activeCategoryState.videos
               ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-              : 'border-black/[0.06] dark:border-bd text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-surface-2/60 hover:bg-slate-200/50 dark:hover:bg-surface-3'
+              : 'border-bd text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-surface-2/60 hover:bg-slate-200/50 dark:hover:bg-surface-3'
           }`}
         >
           <span>{videoChipLabel}</span>
@@ -288,7 +288,7 @@ export function FloatingCommandIsland({
           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
             activeCategoryState.assignments
               ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-              : 'border-black/[0.06] dark:border-bd text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-surface-2/60 hover:bg-slate-200/50 dark:hover:bg-surface-3'
+              : 'border-bd text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-surface-2/60 hover:bg-slate-200/50 dark:hover:bg-surface-3'
           }`}
         >
           <span>📝 作业 {selectedSummary.assignCount ?? 0}</span>
@@ -303,7 +303,7 @@ export function FloatingCommandIsland({
           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
             activeCategoryState.pptPdf
               ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-              : 'border-black/[0.06] dark:border-bd text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-surface-2/60 hover:bg-slate-200/50 dark:hover:bg-surface-3'
+              : 'border-bd text-text-3 hover:text-text-1 bg-slate-100/60 dark:bg-surface-2/60 hover:bg-slate-200/50 dark:hover:bg-surface-3'
           }`}
         >
           <span>📑 PPT讲义 {selectedSummary.pptCount ?? 0}</span>
@@ -318,7 +318,7 @@ export function FloatingCommandIsland({
         <div
           role="status"
           aria-label={`批量下载进度 ${batchProgress.done}/${batchProgress.total}`}
-          className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-slate-100/80 dark:bg-surface-2 border border-black/[0.06] dark:border-bd text-xs select-none whitespace-nowrap shrink-0 shadow-2xs"
+          className="inline-flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-slate-100/80 dark:bg-surface-2 border border-bd text-xs select-none whitespace-nowrap shrink-0 shadow-2xs"
           title={`完成 ${batchProgress.done} / ${batchProgress.total}${batchProgress.downloading > 0 ? ` · 下载中 ${batchProgress.downloading}` : ''}${batchProgress.uploading > 0 ? ` · 上传中 ${batchProgress.uploading}` : ''}${batchProgress.failed > 0 ? ` · 失败 ${batchProgress.failed}` : ''}`}
         >
           {/* 环形进度：done 实心段 + inflight 半透明段，中心 spinner */}

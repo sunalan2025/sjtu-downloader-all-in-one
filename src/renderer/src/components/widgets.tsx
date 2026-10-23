@@ -604,7 +604,7 @@ export function MacOSCircleCheckbox({
       onClick={onClick}
       className={`relative inline-flex items-center justify-center rounded-full transition-all duration-150 cursor-pointer ${wh} ${
         isSelected
-          ? 'bg-accent text-white shadow-2xs scale-100 ring-2 ring-white/60'
+          ? 'bg-accent text-white shadow-2xs scale-100 ring-1 ring-accent/30'
           : 'bg-surface-1/90 border border-bd text-transparent hover:border-accent/80 hover:bg-surface-2 shadow-2xs'
       } ${className}`}
       title={isChecked ? '取消勾选' : '勾选此项'}
