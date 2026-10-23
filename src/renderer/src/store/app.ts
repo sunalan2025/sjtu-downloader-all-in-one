@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
 import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption, VideoPerspective, PrivateWorkerConfig } from '@shared/types'
 import { DEFAULT_NAMING_TEMPLATE } from '@shared/utils'
+import { APP_DEFAULTS } from '@shared/config/defaults'
 
 /** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
 export type Stage = 'welcome' | 'login' | 'browser'
@@ -356,7 +357,7 @@ const emptyScanResults = {
 }
 
 const clampConcurrency = (n: number): number =>
-  Math.max(1, Math.min(16, Math.floor(Number.isFinite(n) ? n : 3) || 3))
+  Math.max(1, Math.min(16, Math.floor(Number.isFinite(n) ? n : APP_DEFAULTS.concurrency) || APP_DEFAULTS.concurrency))
 
 /** both 模式下，把云端进度合并到本地 taskId 对应的条目上；
  *  单任务组件（AngleCell）直接订阅此 selector 即可拿到聚合后的状态。
@@ -487,16 +488,16 @@ export const useAppStore = create<AppState>()(
       cloudSpaceInfo: null,
       cloudConnStatus: 'idle' as 'idle' | 'connecting' | 'error',
       cloudConnMessage: '',
-      downloadMode: 'cloud',
-      fileConflictStrategy: 'skip' as FileConflictStrategy,
-      localDestRoot: '',
-      cloudDestRoot: '/SJTU课程备份',
+      downloadMode: APP_DEFAULTS.downloadMode,
+      fileConflictStrategy: APP_DEFAULTS.fileConflictStrategy,
+      localDestRoot: APP_DEFAULTS.defaultLocalDestRoot,
+      cloudDestRoot: APP_DEFAULTS.defaultCloudDestRoot,
       cloudLinkedIds: {},
       batchTaskIds: [],
-      concurrency: 3,
+      concurrency: APP_DEFAULTS.concurrency,
       autoDownloadUpdate: false,
-      courseViewMode: 'grid' as CourseViewMode,
-      videoPerspectivePreference: 'teacher' as VideoPerspective,
+      courseViewMode: APP_DEFAULTS.courseViewMode,
+      videoPerspectivePreference: APP_DEFAULTS.videoPerspectivePreference,
       autoExportPptPdf: true,
       canvasGroupByTerm: true,
       canvasSelectedTerm: 'all',
@@ -505,8 +506,8 @@ export const useAppStore = create<AppState>()(
       scheduleLayerFilter: { course: true, activity: true, ddl: true },
       scheduleExpandNoonSlot: false,
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
-      windowCloseAction: 'tray' as WindowCloseAction,
-      exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
+      windowCloseAction: APP_DEFAULTS.windowCloseAction,
+      exitWhenDownloading: APP_DEFAULTS.exitWhenDownloadingPolicy,
       hasCompletedInitialSetup: false,
       lastSetupVersion: null,
       showSetupWizardModal: false,
@@ -520,9 +521,7 @@ export const useAppStore = create<AppState>()(
         downloadSubmissions: true
       },
       privateWorkerConfig: {
-        enabled: false,
-        endpointUrl: 'http://127.0.0.1:6880',
-        authToken: ''
+        ...APP_DEFAULTS.privateWorker
       },
       setPrivateWorkerConfig: cfg =>
         set(state => ({
@@ -542,7 +541,7 @@ export const useAppStore = create<AppState>()(
             p === 'audio'
               ? 'audio_only'
               : state.videoQualityOption === 'audio_only'
-                ? 'origin'
+                ? APP_DEFAULTS.videoQualityOption
                 : state.videoQualityOption
         })),
       setAutoExportPptPdf: autoExportPptPdf => set({ autoExportPptPdf }),
@@ -865,9 +864,9 @@ export const useAppStore = create<AppState>()(
           })
         }
       },
-      maxDownloadSpeedKBps: 0,
+      maxDownloadSpeedKBps: APP_DEFAULTS.maxDownloadSpeedKBps,
       namingTemplate: DEFAULT_NAMING_TEMPLATE,
-      videoQualityOption: 'origin',
+      videoQualityOption: APP_DEFAULTS.videoQualityOption,
       downloadHistory: [],
       setMaxDownloadSpeedKBps: n => {
         const val = Math.max(0, n)

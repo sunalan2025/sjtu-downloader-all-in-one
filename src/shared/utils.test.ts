@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { sanitizeFsName, formatPathFromTemplate, formatBytes, buildCloudRemoteSegments } from './utils'
+import { sanitizeFsName, formatPathFromTemplate, formatBytes, buildCloudRemoteSegments, DEFAULT_NAMING_TEMPLATE } from './utils'
+import { APP_DEFAULTS } from './config/defaults'
 import { getDynamicChunkSize } from '../main/cloudpan'
 
 describe('sanitizeFsName', () => {
@@ -41,6 +42,15 @@ describe('getDynamicChunkSize', () => {
 })
 
 describe('formatPathFromTemplate', () => {
+  it('defaults to APP_DEFAULTS.defaultNamingTemplate', () => {
+    expect(DEFAULT_NAMING_TEMPLATE).toBe(APP_DEFAULTS.defaultNamingTemplate)
+    const res = formatPathFromTemplate('', {
+      course: '高等数学',
+      category: '课件',
+      fileName: 'lecture_1.mp4'
+    })
+    expect(res).toBe('高等数学/课件/lecture_1.mp4')
+  })
   it('replaces template variables correctly', () => {
     const res = formatPathFromTemplate('{term}/{course}/{category}/{fileName}', {
       term: '2025-2026-1',

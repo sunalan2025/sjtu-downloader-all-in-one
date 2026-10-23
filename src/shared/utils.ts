@@ -2,6 +2,7 @@
  * 共享工具函数
  */
 import type { DownloadMode } from './types'
+import { APP_DEFAULTS } from './config/defaults'
 
 /** 文件名清洗：替换 Windows/Linux 文件系统非法字符，修剪末尾点与空格，截断至 180 字符 */
 export function sanitizeFsName(name: string): string {
@@ -15,7 +16,7 @@ export function sanitizeFsName(name: string): string {
 }
 
 /** 默认命名模板 */
-export const DEFAULT_NAMING_TEMPLATE = '{term}/{course}/{category}/{fileName}'
+export const DEFAULT_NAMING_TEMPLATE = APP_DEFAULTS.defaultNamingTemplate
 
 /** 根据自定义模板格式化落盘路径 */
 export function formatPathFromTemplate(
@@ -26,15 +27,23 @@ export function formatPathFromTemplate(
     category?: string
     teacher?: string
     fileName: string
+    title?: string
+    ext?: string
   }
 ): string {
   const tpl = template.trim() || DEFAULT_NAMING_TEMPLATE
+  const lastDot = vars.fileName.lastIndexOf('.')
+  const derivedExt = lastDot > 0 ? vars.fileName.slice(lastDot + 1) : ''
+  const derivedTitle = lastDot > 0 ? vars.fileName.slice(0, lastDot) : vars.fileName
+
   const map: Record<string, string> = {
     term: vars.term ? sanitizeFsName(vars.term) : '',
     course: vars.course ? sanitizeFsName(vars.course) : '未命名课程',
     category: vars.category ? sanitizeFsName(vars.category) : '',
     teacher: vars.teacher ? sanitizeFsName(vars.teacher) : '',
-    fileName: sanitizeFsName(vars.fileName)
+    fileName: sanitizeFsName(vars.fileName),
+    title: sanitizeFsName(vars.title ?? derivedTitle),
+    ext: sanitizeFsName(vars.ext ?? derivedExt)
   }
 
   const parts = tpl
