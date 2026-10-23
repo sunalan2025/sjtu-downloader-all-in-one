@@ -30,8 +30,8 @@ export const Toast = memo(function Toast({
   }
 
   const basePos = isWide
-    ? 'absolute bottom-16 left-4 right-4 z-20 flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium backdrop-blur animate-fadeIn'
-    : 'absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-medium backdrop-blur animate-fadeIn select-none'
+    ? 'absolute bottom-16 left-4 right-4 z-[70] flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium backdrop-blur animate-fadeIn'
+    : 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-medium backdrop-blur animate-fadeIn select-none'
 
   return (
     <div

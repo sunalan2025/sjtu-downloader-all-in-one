@@ -45,7 +45,7 @@ export function ScheduleExportModal({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
       <div className="w-full max-w-md rounded-3xl border border-bd bg-surface-1 p-6 shadow-xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
         <div className="flex items-center justify-between border-b border-bd/60 pb-3">
           <h3 className="text-base font-bold text-text-1">🗓️ 导出为标准日历 (.ics)</h3>

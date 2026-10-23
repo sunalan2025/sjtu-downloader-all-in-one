@@ -1073,7 +1073,7 @@ export function CloudPanExplorer() {
         </div>
         <div className="flex items-center gap-2.5 shrink-0">
           {/* 快捷批量选择控件 */}
-          <div ref={cloudPanBatchMenuRef} className="relative inline-flex items-center rounded-xl border border-bd bg-surface-2 shadow-2xs hover:border-bd-strong transition-all select-none">
+          <div ref={cloudPanBatchMenuRef} className={`relative inline-flex items-center rounded-xl border border-bd bg-surface-2 shadow-2xs hover:border-bd-strong transition-all select-none ${cloudPanBatchMenuOpen ? 'z-50' : ''}`}>
             <button
               type="button"
               onClick={handleToggleAll}
@@ -1096,7 +1096,7 @@ export function CloudPanExplorer() {
             </button>
 
             {cloudPanBatchMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-bd bg-surface-1 p-1.5 shadow-xl animate-fadeIn text-xs">
+              <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-bd bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-xl animate-fadeIn text-xs">
                 <div className="px-2.5 py-1 text-2xs font-semibold text-text-3 border-b border-bd/40 mb-1">
                   当前目录快捷勾选 ({displayedItems.length} 项)
                 </div>
@@ -1516,7 +1516,7 @@ export function CloudPanExplorer() {
 
       {/* ─── 模态弹窗 1: 新建文件夹 ─── */}
       {newFolderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setNewFolderOpen(false)} />
           <div className="relative w-[360px] rounded-2xl border border-bd bg-surface-1 p-5 shadow-2xl">
             <h3 className="text-sm font-bold text-text-1 mb-3">📁 新建文件夹</h3>
@@ -1552,7 +1552,7 @@ export function CloudPanExplorer() {
 
       {/* ─── 模态弹窗 2: 重命名 ─── */}
       {renameTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setRenameTarget(null)} />
           <div className="relative w-[360px] rounded-2xl border border-bd bg-surface-1 p-5 shadow-2xl">
             <h3 className="text-sm font-bold text-text-1 mb-3">
@@ -1590,7 +1590,7 @@ export function CloudPanExplorer() {
 
       {/* ─── 模态弹窗 3: 删除确认 ─── */}
       {deleteTargets && deleteTargets.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setDeleteTargets(null)} />
           <div className="relative w-[380px] rounded-2xl border border-bd bg-surface-1 p-5 shadow-2xl text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-warning/15 text-2xl text-warning mb-3">

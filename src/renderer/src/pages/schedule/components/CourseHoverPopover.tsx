@@ -36,7 +36,7 @@ export function CourseHoverPopover({
         left: `${left}px`,
         transform: showAbove ? 'translateY(-100%)' : 'none'
       }}
-      className="fixed z-40 pointer-events-none w-[280px] rounded-2xl border border-bd/80 dark:border-white/15 bg-surface-1/95 dark:bg-[#1c1c1e]/95 backdrop-blur-md p-3.5 shadow-xl transition-all duration-150 animate-in fade-in zoom-in-95"
+      className="fixed z-50 pointer-events-none w-[280px] rounded-2xl border border-bd/80 dark:border-white/15 bg-surface-1 dark:bg-[#1c1c1e] p-3.5 shadow-xl transition-all duration-150 animate-in fade-in zoom-in-95"
     >
       <div className="space-y-2">
         {/* 顶部课程名称与学分徽标 */}

@@ -499,7 +499,7 @@ export function AuditedCourses() {
   return (
     <div className="flex h-full w-full flex-col">
       {/* 顶部粘性操作栏 (搜索 + 刷新 + 已选统计 + 全选 + 立即下载) */}
-      <div className="sticky top-0 z-10 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 px-6 py-2.5 shadow-xs">
+      <div className="sticky top-0 z-30 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 dark:bg-[#1e1e22] px-6 py-2.5 shadow-xs">
         <div className="flex items-center gap-3">
           <div className="relative flex items-center">
             <svg className="pointer-events-none absolute left-3 h-4 w-4 text-text-4" viewBox="0 0 20 20" fill="currentColor">

@@ -112,8 +112,8 @@ export function WeekScheduleView({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 周次导航条 (声明 relative z-30 防止展开抽屉时日历表头漂浮在上方) */}
-      <div className="relative z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-bd bg-surface-2/60 p-3 shadow-2xs backdrop-blur-sm">
+      {/* 周次导航条 (声明 relative z-10 保证下拉弹层高于日历二维网格，且严格低于顶栏 sticky header) */}
+      <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-bd bg-surface-2/60 p-3 shadow-2xs backdrop-blur-sm">
         <div className="flex items-center gap-2">
           {isCurrentMode ? (
             <>

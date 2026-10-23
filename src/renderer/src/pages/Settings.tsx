@@ -1256,7 +1256,7 @@ export function Settings({
                 {/* 一键清空二次确认弹窗 */}
                 {showClearModal && (
                   <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 z-[60] flex items-center justify-center p-4"
                     role="dialog"
                     aria-modal="true"
                   >
@@ -1300,7 +1300,7 @@ export function Settings({
                 {/* 单项删除二次确认弹窗 */}
                 {credToDelete && (
                   <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 z-[60] flex items-center justify-center p-4"
                     role="dialog"
                     aria-modal="true"
                   >

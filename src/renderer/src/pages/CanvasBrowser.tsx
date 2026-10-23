@@ -2012,7 +2012,7 @@ export function CanvasBrowser() {
   return (
     <div className="flex h-full w-full flex-col">
       {/* 顶部粘性操作栏 (对齐设计图：学期下拉 + 搜索框 + 已选统计 + 全选 + 立即下载) */}
-      <div className="sticky top-0 z-10 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 px-6 py-2.5 shadow-xs">
+      <div className="sticky top-0 z-30 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 dark:bg-[#1e1e22] px-6 py-2.5 shadow-xs">
         {/* 左侧：学期选择胶囊 + 搜索框 */}
         <div className="flex items-center gap-3">
           <DropdownSelect
@@ -2074,7 +2074,7 @@ export function CanvasBrowser() {
         <div className="flex items-center gap-3">
 
           {/* 分体全选/分类批量预设选择下拉菜单 */}
-          <div ref={batchMenuRef} className="relative inline-flex items-center rounded-xl border border-bd bg-surface-2 shadow-2xs hover:border-bd-strong transition-all">
+          <div ref={batchMenuRef} className={`relative inline-flex items-center rounded-xl border border-bd bg-surface-2 shadow-2xs hover:border-bd-strong transition-all ${batchMenuOpen ? 'z-50' : ''}`}>
             <button
               type="button"
               onClick={onToggleAll}
@@ -2097,7 +2097,7 @@ export function CanvasBrowser() {
             </button>
 
             {batchMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1.5 w-60 rounded-2xl border border-bd bg-surface-1 p-1.5 shadow-xl animate-fadeIn text-xs">
+              <div className="absolute right-0 top-full z-50 mt-1.5 w-60 rounded-2xl border border-bd bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-xl animate-fadeIn text-xs">
                 <div className="px-2.5 py-1.5 text-2xs font-semibold text-text-3 border-b border-bd/40 mb-1">
                   当前筛选范围批量选择 · {filteredCourses.length} 门课程
                 </div>

@@ -301,7 +301,7 @@ export function FloatingCommandIsland({
               ref={popoverRef}
               role="menu"
               aria-label="选择视频机位"
-              className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 z-50 w-56 rounded-2xl border border-bd/80 bg-surface-1/95 backdrop-blur-xl p-1.5 shadow-2xl animate-fadeIn"
+              className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 z-50 w-56 rounded-2xl border border-bd/80 bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-2xl animate-fadeIn"
             >
               <div className="px-2.5 py-1 text-[11px] font-medium text-text-3 border-b border-bd/50 mb-1">
                 选择视频机位 / 音轨

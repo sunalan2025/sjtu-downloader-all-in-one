@@ -68,7 +68,7 @@ export function ScheduleHeaderBar({
     }
   ], [semesters])
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-bd bg-surface-1/80 px-6 py-3.5 backdrop-blur-md sticky top-0 z-20">
+    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-bd bg-surface-1 dark:bg-[#1e1e22] px-6 py-3.5 shadow-xs sticky top-0 z-40">
       {/* 左侧：学期选择器 + 视图切换 (周视图 / 学期总览) */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">

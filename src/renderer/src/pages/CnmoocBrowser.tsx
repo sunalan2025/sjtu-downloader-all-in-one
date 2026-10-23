@@ -462,7 +462,7 @@ export function CnmoocBrowser() {
   return (
     <div className="flex h-full w-full flex-col">
       {/* 顶部单行置顶操作栏 (对齐设计图：搜索框 + 资源类型筛选 + 统计 + 全选 + 立即下载) */}
-      <div className="sticky top-0 z-10 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 px-6 py-2.5 shadow-xs">
+      <div className="sticky top-0 z-30 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 dark:bg-[#1e1e22] px-6 py-2.5 shadow-xs">
         {/* 左侧：搜索框 + 资源类型筛选胶囊 + 刷新 */}
         <div className="flex items-center gap-3">
           <div className="relative flex items-center">

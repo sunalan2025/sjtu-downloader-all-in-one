@@ -343,7 +343,7 @@ export function DropdownSelect<T extends string | number = string>({
   }
 
   return (
-    <div ref={containerRef} className={`relative inline-block text-left ${className}`} title={title}>
+    <div ref={containerRef} className={`relative inline-block text-left ${open ? 'z-50' : ''} ${className}`} title={title}>
       <button
         type="button"
         disabled={disabled}
@@ -379,7 +379,7 @@ export function DropdownSelect<T extends string | number = string>({
           role="listbox"
           className={`animate-fadeIn absolute ${
             align === 'right' ? 'right-0' : 'left-0'
-          } top-[calc(100%+6px)] z-50 min-w-full w-max max-w-[340px] max-h-72 overflow-y-auto rounded-2xl border border-black/[0.08] dark:border-white/[0.12] bg-surface-1/95 backdrop-blur-xl p-1.5 shadow-2xl ${menuClassName}`}
+          } top-[calc(100%+6px)] z-50 min-w-full w-max max-w-[340px] max-h-72 overflow-y-auto rounded-2xl border border-black/[0.08] dark:border-white/[0.12] bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-2xl ${menuClassName}`}
         >
           {groups && groups.length > 0 ? (
             groups.map((group, gIdx) => (

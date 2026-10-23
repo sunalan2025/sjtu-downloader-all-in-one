@@ -27,7 +27,7 @@ export function UndatedAssignmentsDrawer({
   if (assignments.length === 0) return null
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={containerRef}>
       <button
         type="button"
         onClick={onToggle}
