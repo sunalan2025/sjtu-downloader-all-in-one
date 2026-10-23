@@ -72,7 +72,7 @@ const baseNavState = { level: 'category' as const, courseId: 101, categoryId: 'v
 
 describe('Phase 3 — useCategoryViewLogic (GridView/ListView shared logic)', () => {
   beforeEach(() => {
-    useAppStore.setState({ videoQualityOption: 'origin' })
+    useAppStore.setState({ videoQualityOption: 'origin', downloadMode: 'local' })
   })
 
   it('classifies teacher/ppt perspective items and video categories', () => {

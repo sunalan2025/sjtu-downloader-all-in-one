@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import type { DownloadMode, VideoQualityOption } from '@shared/types'
+import { getDownloadActionLabels } from '@shared/utils'
 import { useAppStore } from '../store/app'
 import { Spinner } from './Spinner'
 
@@ -62,6 +63,8 @@ export interface FloatingCommandIslandProps {
     /** 0..total 的已完成比例和（含小数），让环平滑推进 */
     inflight: number
   }
+  /** 全局下载进行中状态（可由外部受控传入或自同步 store） */
+  storeDownloading?: boolean
 }
 
 export const PERSPECTIVE_LABELS: Record<VideoPerspective, string> = {
@@ -105,7 +108,8 @@ export function FloatingCommandIsland({
   onClearSelection,
   videoQualityOption: propVideoQuality,
   defaultPopoverOpen: _defaultPopoverOpen = false,
-  batchProgress
+  batchProgress,
+  storeDownloading: propStoreDownloading
 }: FloatingCommandIslandProps): React.JSX.Element | null {
   // 内部状态（支持受控与非受控）
   const [internalCategorySelection, setInternalCategorySelection] = useState<CategorySelectionState>({
@@ -144,8 +148,15 @@ export function FloatingCommandIsland({
     ? '当前下载模式: 仅下载原声音频（如需修改请前往「设置 - 课件与多媒体」）'
     : `当前下载视角: ${perspectiveLabel}（如需修改请前往「设置 - 课件与多媒体」）`
 
+  // 存储模式优先使用 props，无传入时同步 Zustand 全局状态
+  const storeDownloadMode = useAppStore((s) => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const currentDownloadMode = _downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
+  const actionLabels = getDownloadActionLabels(currentDownloadMode)
+
   // 全局下载进行中标志 + 批量进度激活标志（提前声明：快捷键 effect 与隐藏条件都要用）
-  const storeDownloading = useAppStore((s) => s.downloading)
+  const globalDownloading = useAppStore((s) => s.downloading)
+  const storeDownloading = propStoreDownloading ?? globalDownloading
   const batchActive = batchProgress !== undefined && batchProgress.total > 0
 
   const handleToggleCategory = useCallback(
@@ -358,14 +369,15 @@ export function FloatingCommandIsland({
         <button
           type="button"
           role="button"
-          aria-label={selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `立即下载 ${selectedSummary.formattedSize}` : `立即下载 · 共 ${selectedSummary.totalItems} 项`}
+          data-testid="floating-cta-download"
+          aria-label={selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `${actionLabels.ctaPrefix} ${selectedSummary.formattedSize}` : `${actionLabels.ctaPrefix} · 共 ${selectedSummary.totalItems} 项`}
           onClick={handleStartDownload}
           disabled={storeDownloading}
           className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-accent to-sky-600 hover:from-accent-dark hover:to-sky-700 active:scale-[0.98] text-white font-semibold text-xs sm:text-sm shadow-md shadow-accent/25 hover:shadow-lg hover:shadow-accent/35 transition-all duration-150 cursor-pointer whitespace-nowrap shrink-0 ${
             storeDownloading ? 'opacity-60 cursor-not-allowed hover:from-accent hover:to-sky-600' : ''
           }`}
         >
-          <span>{storeDownloading ? '下载进行中…' : (selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `立即下载 ${selectedSummary.formattedSize}` : `立即下载 · 共 ${selectedSummary.totalItems} 项`)}</span>
+          <span>{storeDownloading ? actionLabels.inProgressText : (selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `${actionLabels.ctaPrefix} ${selectedSummary.formattedSize}` : `${actionLabels.ctaPrefix} · 共 ${selectedSummary.totalItems} 项`)}</span>
           {!storeDownloading && (
             <span className="inline-flex items-center font-mono text-[11px] opacity-80 ml-0.5">⏎</span>
           )}

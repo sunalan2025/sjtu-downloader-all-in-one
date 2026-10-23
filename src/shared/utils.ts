@@ -1,6 +1,7 @@
 /**
  * 共享工具函数
  */
+import type { DownloadMode } from './types'
 
 /** 文件名清洗：替换 Windows/Linux 文件系统非法字符，修剪末尾点与空格，截断至 180 字符 */
 export function sanitizeFsName(name: string): string {
@@ -418,4 +419,69 @@ export function cleanParenthesesInTitle(title: string): string {
     .replace(/[（(](.*?)[）)]/g, ' $1 ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+export interface DownloadActionLabels {
+  /** 动作动词：'下载' | '上传' | '备份' */
+  verb: string
+  /** 快捷动作标签：'下载' | '上传' | '备份' */
+  quickActionText: string
+  /** 悬浮岛主执行文案前缀：'立即下载' | '立即上传' | '下载并备份至云盘' */
+  ctaPrefix: string
+  /** 详情面板单项主执行文案：'⬇ 立即下载此文件' | '☁️ 立即上传此文件' | '☁️⬇ 下载并备份此文件' */
+  detailActionText: string
+  /** 传输进行中文案：'下载进行中…' | '上传进行中…' | '下载与备份中…' */
+  inProgressText: string
+  /** Toast 成功反馈文案生成器 */
+  toastMessage: (name: string) => string
+  /** Toast 引导勾选反馈文案生成器 */
+  toastPromptMessage: (name: string) => string
+  /** 图标类型标识：'download' | 'upload' | 'both' */
+  iconType: 'download' | 'upload' | 'both'
+}
+
+/**
+ * 传输动作文案与图标单一真相来源
+ * 依据全局存储模式（local / cloud / both），为底栏动作岛、详情面板与悬停按钮提供统一表述。
+ */
+export function getDownloadActionLabels(mode?: DownloadMode): DownloadActionLabels {
+  const currentMode = mode || 'local'
+
+  if (currentMode === 'cloud') {
+    return {
+      verb: '上传',
+      quickActionText: '上传',
+      ctaPrefix: '立即上传',
+      detailActionText: '☁️ 立即上传此文件',
+      inProgressText: '上传进行中…',
+      toastMessage: (name: string) => `已开始上传 "${name}" 至交大云盘`,
+      toastPromptMessage: (name: string) => `已勾选 "${name}"，点击「立即上传」开始传输`,
+      iconType: 'upload'
+    }
+  }
+
+  if (currentMode === 'both') {
+    return {
+      verb: '下载并备份',
+      quickActionText: '备份',
+      ctaPrefix: '下载并备份至云盘',
+      detailActionText: '☁️⬇ 下载并备份此文件',
+      inProgressText: '下载与备份中…',
+      toastMessage: (name: string) => `已开始下载并备份 "${name}" 至交大云盘`,
+      toastPromptMessage: (name: string) => `已勾选 "${name}"，点击「下载并备份至云盘」开始传输`,
+      iconType: 'both'
+    }
+  }
+
+  // 默认 local
+  return {
+    verb: '下载',
+    quickActionText: '下载',
+    ctaPrefix: '立即下载',
+    detailActionText: '⬇ 立即下载此文件',
+    inProgressText: '下载进行中…',
+    toastMessage: (name: string) => `已开始下载 "${name}"`,
+    toastPromptMessage: (name: string) => `已勾选 "${name}"，点击「立即下载」开始传输`,
+    iconType: 'download'
+  }
 }

@@ -18,10 +18,12 @@ import {
 import { Spinner } from './Spinner'
 import { useAppStore } from '../store/app'
 import type { CourseViewMode } from '../store/app'
+import type { DownloadMode } from '@shared/types'
 import {
   groupCoursesByTerm as sharedGroupCoursesByTerm,
   sortAcademicTerms,
-  estimateResourceSize
+  estimateResourceSize,
+  getDownloadActionLabels
 } from '@shared/utils'
 import {
   FloatingCommandIsland,
@@ -139,6 +141,7 @@ export interface NetdiskCourseExplorerProps {
   onPerspectiveChange?: (perspective: VideoPerspective) => void
   hasPptPdf?: boolean
   onTogglePptPdf?: (enabled: boolean) => void
+  downloadMode?: DownloadMode
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -239,8 +242,12 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   perspective,
   onPerspectiveChange,
   hasPptPdf,
-  onTogglePptPdf
+  onTogglePptPdf,
+  downloadMode: _downloadMode
 }: NetdiskCourseExplorerProps) {
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const currentDownloadMode = _downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
   // 当前处于的课程对象
   const currentCourse = useMemo(() => {
     if (!navState?.courseId) return undefined
@@ -609,6 +616,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               hasPptPdf={hasPptPdf}
               onTogglePptPdf={onTogglePptPdf}
               hasSelection={selectedStats.totalItems > 0}
+              downloadMode={currentDownloadMode}
             />
           ) : viewMode === 'list' ? (
             <ListView
@@ -624,6 +632,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               onPerspectiveChange={onPerspectiveChange}
               showToast={showToast}
               hasSelection={selectedStats.totalItems > 0}
+              downloadMode={currentDownloadMode}
             />
           ) : (
             <GridView
@@ -639,6 +648,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               onPerspectiveChange={onPerspectiveChange}
               showToast={showToast}
               hasSelection={selectedStats.totalItems > 0}
+              downloadMode={currentDownloadMode}
             />
           )}
         </div>
@@ -677,6 +687,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
           onStartDownload={handleStartDownload}
           onClearSelection={handleClearSelection}
           batchProgress={batchProgress}
+          downloadMode={currentDownloadMode}
         />
       )}
 
@@ -782,6 +793,7 @@ export interface CategoryViewLogicParams {
   perspective?: VideoPerspective
   onPerspectiveChange?: (perspective: VideoPerspective) => void
   showToast?: (text: string, type?: 'success' | 'info') => void
+  downloadMode?: DownloadMode
 }
 
 export function useCategoryViewLogic(params: CategoryViewLogicParams) {
@@ -802,6 +814,10 @@ export function useCategoryViewLogic(params: CategoryViewLogicParams) {
   const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
   const globalVideoQuality = useAppStore(s => s.videoQualityOption)
   const isAudioOnly = globalVideoQuality === 'audio_only' || globalPerspective === 'audio'
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const activeDownloadMode = params.downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
+  const actionLabels = getDownloadActionLabels(activeDownloadMode)
   const isVideoCat = isVideoCategory(currentCategory)
   const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('all')
   const activePerspective = isAudioOnly
@@ -883,11 +899,11 @@ export function useCategoryViewLogic(params: CategoryViewLogicParams) {
       item.onDownload()
     } else {
       if (!item.selected) item.onToggle()
-      showToast?.(`已勾选 "${item.name}"，点击「立即下载」开始传输`, 'info')
+      showToast?.(actionLabels.toastPromptMessage(item.name), 'info')
       return
     }
-    showToast?.(`已开始下载 "${item.name}"`, 'success')
-  }, [onDownloadSingle, currentCourse, currentCategory, showToast])
+    showToast?.(actionLabels.toastMessage(item.name), 'success')
+  }, [onDownloadSingle, currentCourse, currentCategory, showToast, actionLabels])
 
   return {
     isSelected,
@@ -899,7 +915,8 @@ export function useCategoryViewLogic(params: CategoryViewLogicParams) {
     teacherCount,
     pptCount,
     displayedItems,
-    handleSingleDownload
+    handleSingleDownload,
+    actionLabels
   }
 }
 
@@ -1114,7 +1131,8 @@ export function GridView({
   perspective,
   onPerspectiveChange,
   showToast,
-  hasSelection
+  hasSelection,
+  downloadMode
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
@@ -1128,6 +1146,7 @@ export function GridView({
   onPerspectiveChange?: (perspective: VideoPerspective) => void
   showToast?: (text: string, type?: 'success' | 'info') => void
   hasSelection?: boolean
+  downloadMode?: DownloadMode
 }) {
   const {
     isSelected,
@@ -1139,7 +1158,8 @@ export function GridView({
     teacherCount,
     pptCount,
     displayedItems,
-    handleSingleDownload
+    handleSingleDownload,
+    actionLabels
   } = useCategoryViewLogic({
     courses,
     currentCourse,
@@ -1149,7 +1169,8 @@ export function GridView({
     onDownloadSingle,
     perspective,
     onPerspectiveChange,
-    showToast
+    showToast,
+    downloadMode
   })
 
   // 根目录：展示课程大文件夹网格
@@ -1350,17 +1371,25 @@ export function GridView({
                 <button
                   type="button"
                   data-testid="single-download-btn"
-                  title={`立即下载 ${item.name}`}
+                  title={`${actionLabels.ctaPrefix} ${item.name}`}
                   onClick={e => {
                     e.stopPropagation()
                     handleSingleDownload(item)
                   }}
                   className="opacity-0 group-hover:opacity-100 transition-all absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent text-white text-[11px] font-medium shadow-sm hover:bg-accent-light active:scale-95 cursor-pointer"
                 >
-                  <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
-                  </svg>
-                  <span>下载</span>
+                  {actionLabels.iconType === 'upload' ? (
+                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 19V6m0 0l-4 4m4-4l4 4M4 3h16" />
+                    </svg>
+                  ) : actionLabels.iconType === 'both' ? (
+                    <span className="text-[9px] leading-none">☁️⬇</span>
+                  ) : (
+                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+                    </svg>
+                  )}
+                  <span>{actionLabels.quickActionText}</span>
                 </button>
               )}
 
@@ -1474,7 +1503,8 @@ export function ListView({
   perspective,
   onPerspectiveChange,
   showToast,
-  hasSelection
+  hasSelection,
+  downloadMode
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
@@ -1488,6 +1518,7 @@ export function ListView({
   onPerspectiveChange?: (perspective: VideoPerspective) => void
   showToast?: (text: string, type?: 'success' | 'info') => void
   hasSelection?: boolean
+  downloadMode?: DownloadMode
 }) {
   const {
     isSelected,
@@ -1499,7 +1530,8 @@ export function ListView({
     teacherCount,
     pptCount,
     displayedItems,
-    handleSingleDownload
+    handleSingleDownload,
+    actionLabels
   } = useCategoryViewLogic({
     courses,
     currentCourse,
@@ -1509,7 +1541,8 @@ export function ListView({
     onDownloadSingle,
     perspective,
     onPerspectiveChange,
-    showToast
+    showToast,
+    downloadMode
   })
 
   // 根目录列表
@@ -1720,17 +1753,25 @@ export function ListView({
                         <button
                           type="button"
                           data-testid="single-download-btn"
-                          title={`立即下载 ${item.name}`}
+                          title={`${actionLabels.ctaPrefix} ${item.name}`}
                           onClick={e => {
                             e.stopPropagation()
                             handleSingleDownload(item)
                           }}
                           className="opacity-0 group-hover:opacity-100 transition-all inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent text-white text-[11px] font-medium shadow-xs hover:bg-accent-light active:scale-95 cursor-pointer"
                         >
-                          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
-                          </svg>
-                          <span>下载</span>
+                          {actionLabels.iconType === 'upload' ? (
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 19V6m0 0l-4 4m4-4l4 4M4 3h16" />
+                            </svg>
+                          ) : actionLabels.iconType === 'both' ? (
+                            <span className="text-[10px] leading-none">☁️⬇</span>
+                          ) : (
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+                            </svg>
+                          )}
+                          <span>{actionLabels.quickActionText}</span>
                         </button>
                       )}
                       {item.renderExtra || (
@@ -1842,6 +1883,7 @@ export interface CourseOverviewInspectorProps {
   onTogglePptPdf?: (enabled: boolean) => void
   onDownloadCourse?: (course: NetdiskCourseItem) => void
   hasSelection?: boolean
+  downloadMode?: DownloadMode
 }
 
 export function CourseOverviewInspector({
@@ -1852,11 +1894,16 @@ export function CourseOverviewInspector({
   hasPptPdf,
   onTogglePptPdf: _onTogglePptPdf,
   onDownloadCourse,
-  hasSelection
+  hasSelection,
+  downloadMode: _downloadMode
 }: CourseOverviewInspectorProps) {
   const [internalPerspective] = useState<VideoPerspective>('teacher')
   const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
   const globalAutoPptPdf = useAppStore(s => s.autoExportPptPdf)
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const activeDownloadMode = _downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
+  const actionLabels = getDownloadActionLabels(activeDownloadMode)
   const activePerspective: VideoPerspective = perspective ?? course.perspective ?? globalPerspective ?? internalPerspective
   const perspectiveLabel = PERSPECTIVE_LABELS[activePerspective] || '仅教师视角'
 
@@ -1896,12 +1943,12 @@ export function CourseOverviewInspector({
       showToast(
         course.state === 'all'
           ? `已取消勾选 "${course.name}"`
-          : `已勾选 "${course.name}"，点击「立即下载」开始传输`,
+          : actionLabels.toastPromptMessage(course.name),
         'info'
       )
       return
     }
-    showToast(`已开始下载课程 "${course.name}" 全部资源`, 'success')
+    showToast(actionLabels.toastMessage(course.name), 'success')
   }
 
   return (
@@ -2028,7 +2075,10 @@ export function CourseOverviewInspector({
           onClick={handleDownloadCourse}
           className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98] transition-all cursor-pointer"
         >
-          <span>⬇ 立即下载本门课程全部资源 · {estimated.formattedSize}</span>
+          <span>
+            {actionLabels.iconType === 'both' ? '☁️⬇ ' : actionLabels.iconType === 'upload' ? '☁️ ' : '⬇ '}
+            {actionLabels.iconType === 'both' ? '下载并备份' : actionLabels.ctaPrefix}本门课程全部资源 · {estimated.formattedSize}
+          </span>
         </button>
       </div>
     </div>
@@ -2042,6 +2092,7 @@ export interface FileDetailInspectorProps {
   onClose: () => void
   onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
   hasSelection?: boolean
+  downloadMode?: DownloadMode
 }
 
 export function FileDetailInspector({
@@ -2050,9 +2101,14 @@ export function FileDetailInspector({
   category,
   onClose,
   onDownloadSingle,
-  hasSelection
+  hasSelection,
+  downloadMode: _downloadMode
 }: FileDetailInspectorProps) {
   const { toast, showToast, hideToast } = useToast(2500)
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const activeDownloadMode = _downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
+  const actionLabels = getDownloadActionLabels(activeDownloadMode)
 
   const handleDownloadSingle = () => {
     if (item.disabled) return
@@ -2067,10 +2123,10 @@ export function FileDetailInspector({
       if (!item.selected) {
         item.onToggle()
       }
-      showToast(`已勾选 "${item.name}"，点击「立即下载」开始传输`, 'info')
+      showToast(actionLabels.toastPromptMessage(item.name), 'info')
       return
     }
-    showToast(`已开始下载 "${item.name}"`, 'success')
+    showToast(actionLabels.toastMessage(item.name), 'success')
   }
 
   const ext = item.name.split('.').pop()?.toLowerCase() || ''
@@ -2193,7 +2249,7 @@ export function FileDetailInspector({
               : 'bg-accent text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98]'
           }`}
         >
-          <span>⬇ 立即下载此文件</span>
+          <span>{actionLabels.detailActionText}</span>
         </button>
 
         <button
@@ -2234,6 +2290,7 @@ export interface ColumnViewProps {
   selectedFileItem?: NetdiskFileItem | null
   onSelectFileItem?: (item: NetdiskFileItem | null) => void
   hasSelection?: boolean
+  downloadMode?: DownloadMode
 }
 
 export function ColumnView({
@@ -2251,7 +2308,8 @@ export function ColumnView({
   onTogglePptPdf: _onTogglePptPdf,
   selectedFileItem: controlledSelectedFile,
   onSelectFileItem,
-  hasSelection = false
+  hasSelection = false,
+  downloadMode
 }: ColumnViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [internalSelectedFile, setInternalSelectedFile] = useState<NetdiskFileItem | null>(null)
@@ -2561,6 +2619,7 @@ export function ColumnView({
           onClose={() => setSelectedFileItem(null)}
           onDownloadSingle={onDownloadSingle}
           hasSelection={hasSelection}
+          downloadMode={downloadMode}
         />
       )}
     </div>

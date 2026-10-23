@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import * as cheerio from 'cheerio'
@@ -16,6 +16,7 @@ import {
   type ColumnViewProps
 } from '../../src/renderer/src/components/NetdiskCourseExplorer'
 import { estimateResourceSize, formatBytes } from '../../src/shared/utils'
+import { useAppStore } from '../../src/renderer/src/store/app'
 
 // 递归搜集虚拟 DOM 节点用于点击测试
 function findVNodes(node: any, predicate: (n: any) => boolean): any[] {
@@ -145,6 +146,9 @@ function createMockCourse(overrides: Partial<NetdiskCourseItem> = {}): NetdiskCo
 }
 
 describe('ColumnView Dynamic 4th Column Inspector Suite', () => {
+  beforeEach(() => {
+    useAppStore.getState().setDownloadMode('local')
+  })
   describe('1. 课程资源结构分析与容量计算 (getCourseResourceBreakdown & estimateResourceSize)', () => {
     it('正确解析混合课程的课件、视频、作业与 PPT PDF 属性', () => {
       const course = createMockCourse()
