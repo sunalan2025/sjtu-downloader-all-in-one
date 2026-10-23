@@ -3,42 +3,66 @@ import {
   useAppStore,
   type WindowCloseAction
 } from '../store/app'
-import type { DownloadMode, VideoQualityOption } from '@shared/types'
+import type { DownloadMode, VideoQualityOption, VideoPerspective } from '@shared/types'
 import { formatCloudBreadcrumb, CLOUD_DEST_PRESETS } from '@shared/utils'
 import pkg from '../../../../package.json'
 
-export function SetupWizardModal() {
-  const showSetupWizardModal = useAppStore(s => s.showSetupWizardModal)
+export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: { initialStep?: number; showModal?: boolean } = {}) {
+  const storeShowModal = useAppStore(s => s.showSetupWizardModal)
+  const effectiveShowModal = typeof useAppStore.getState === 'function' ? useAppStore.getState().showSetupWizardModal : storeShowModal
+  const showSetupWizardModal = propShowModal ?? effectiveShowModal ?? storeShowModal
   const setShowSetupWizardModal = useAppStore(s => s.setShowSetupWizardModal)
-  const lastSetupVersion = useAppStore(s => s.lastSetupVersion)
+  const storeLastSetupVersion = useAppStore(s => s.lastSetupVersion)
+  const lastSetupVersion = typeof useAppStore.getState === 'function' ? useAppStore.getState().lastSetupVersion : storeLastSetupVersion
   const setLastSetupVersion = useAppStore(s => s.setLastSetupVersion)
   const setHasCompletedInitialSetup = useAppStore(s => s.setHasCompletedInitialSetup)
 
-  const downloadMode = useAppStore(s => s.downloadMode)
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const downloadMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
   const setDownloadMode = useAppStore(s => s.setDownloadMode)
-  const localDestRoot = useAppStore(s => s.localDestRoot)
+
+  const storeLocalDestRoot = useAppStore(s => s.localDestRoot)
+  const localDestRoot = typeof useAppStore.getState === 'function' ? useAppStore.getState().localDestRoot : storeLocalDestRoot
   const setLocalDestRoot = useAppStore(s => s.setLocalDestRoot)
-  const cloudDestRoot = useAppStore(s => s.cloudDestRoot)
+
+  const storeCloudDestRoot = useAppStore(s => s.cloudDestRoot)
+  const cloudDestRoot = typeof useAppStore.getState === 'function' ? useAppStore.getState().cloudDestRoot : storeCloudDestRoot
   const setCloudDestRoot = useAppStore(s => s.setCloudDestRoot)
-  const videoQualityOption = useAppStore(s => s.videoQualityOption)
+
+  const storeVideoQualityOption = useAppStore(s => s.videoQualityOption)
+  const videoQualityOption = typeof useAppStore.getState === 'function' ? useAppStore.getState().videoQualityOption : storeVideoQualityOption
   const setVideoQualityOption = useAppStore(s => s.setVideoQualityOption)
-  const canvasExportSrt = useAppStore(s => s.canvasExportSrt)
+
+  const storeVideoPerspectivePreference = useAppStore(s => s.videoPerspectivePreference)
+  const videoPerspectivePreference = typeof useAppStore.getState === 'function' ? useAppStore.getState().videoPerspectivePreference : storeVideoPerspectivePreference
+  const setVideoPerspectivePreference = useAppStore(s => s.setVideoPerspectivePreference)
+
+  const storeAutoExportPptPdf = useAppStore(s => s.autoExportPptPdf)
+  const autoExportPptPdf = typeof useAppStore.getState === 'function' ? useAppStore.getState().autoExportPptPdf : storeAutoExportPptPdf
+  const setAutoExportPptPdf = useAppStore(s => s.setAutoExportPptPdf)
+
+  const storeCanvasExportSrt = useAppStore(s => s.canvasExportSrt)
+  const canvasExportSrt = typeof useAppStore.getState === 'function' ? useAppStore.getState().canvasExportSrt : storeCanvasExportSrt
   const setCanvasExportSrt = useAppStore(s => s.setCanvasExportSrt)
-  const canvasExportMarkdown = useAppStore(s => s.canvasExportMarkdown)
+
+  const storeCanvasExportMarkdown = useAppStore(s => s.canvasExportMarkdown)
+  const canvasExportMarkdown = typeof useAppStore.getState === 'function' ? useAppStore.getState().canvasExportMarkdown : storeCanvasExportMarkdown
   const setCanvasExportMarkdown = useAppStore(s => s.setCanvasExportMarkdown)
-  const windowCloseAction = useAppStore(s => s.windowCloseAction)
+
+  const storeWindowCloseAction = useAppStore(s => s.windowCloseAction)
+  const windowCloseAction = typeof useAppStore.getState === 'function' ? useAppStore.getState().windowCloseAction : storeWindowCloseAction
   const setWindowCloseAction = useAppStore(s => s.setWindowCloseAction)
 
   const [defaultDownloadsDir, setDefaultDownloadsDir] = useState<string>('')
-  const [wizardStep, setWizardStep] = useState(1)
+  const [wizardStep, setWizardStep] = useState(initialStep)
   const [wizardDirection, setWizardDirection] = useState<'forward' | 'backward'>('forward')
 
-  const currentVersion = window.api?.version || pkg.version
+  const currentVersion = (typeof window !== 'undefined' && window.api?.version) || pkg.version
   const isUpdate = Boolean(lastSetupVersion && lastSetupVersion !== currentVersion)
 
   useEffect(() => {
     let mounted = true
-    if (window.api?.getDefaultDownloadsDir) {
+    if (typeof window !== 'undefined' && window.api?.getDefaultDownloadsDir) {
       window.api.getDefaultDownloadsDir().then(dir => {
         if (mounted && dir) setDefaultDownloadsDir(dir)
       }).catch(() => undefined)
@@ -53,13 +77,13 @@ export function SetupWizardModal() {
   const resolvedLocalPath = localDestRoot || defaultDownloadsDir
   const isDefaultLocalPath = !localDestRoot
 
-  const TOTAL_STEPS = 5
+  const TOTAL_STEPS = 4
   const STEPS = [
     { id: 1, label: '存储模式', icon: '🎯' },
     { id: 2, label: '保存目录', icon: '📦' },
-    { id: 3, label: '视频画质', icon: '🎬' },
-    { id: 4, label: 'AI 字幕', icon: '📝' },
-    { id: 5, label: '后台保护', icon: '🚪' }
+    { id: 3, label: '课件与辅助', icon: '🎬' },
+
+    { id: 4, label: '后台保护', icon: '🚪' }
   ]
 
   const handleNext = (): void => {
@@ -421,7 +445,7 @@ export function SetupWizardModal() {
               </div>
             )}
 
-            {/* 卡片 3：视频清晰度与提取偏好 */}
+            {/* 卡片 3：课件与学习辅助 */}
             {wizardStep === 3 && (
               <div className="space-y-5">
                 <div className="space-y-1.5">
@@ -429,214 +453,238 @@ export function SetupWizardModal() {
                     <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-accent/10 text-base">
                       🎬
                     </span>
-                    <h2 className="text-base sm:text-lg font-bold text-text-1">视频清晰度与提取偏好</h2>
+                    <h2 className="text-base sm:text-lg font-bold text-text-1">课件与学习辅助</h2>
                   </div>
                   <p className="text-xs text-text-3 leading-relaxed">
-                    课堂实录与在线慕课解析下载时的优先分辨率规格，亦可直接抽取为纯音频随身听。
+                    自定义课堂视频录播的画质规格、镜头机位偏好，并按需开启 PPT 讲义与 AI 复习材料自动导出。
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {[
-                    {
-                      key: 'origin',
-                      icon: '🌟',
-                      title: '原画高清',
-                      desc: '保留录像最高画质与教师板书清晰度，适合大屏幕及高分屏精读复习。',
-                      badge: '推荐'
-                    },
-                    {
-                      key: '1080p',
-                      icon: '🖥️',
-                      title: '1080P 全高清',
-                      desc: '清晰度与文件体积均衡，适合大多数笔记本电脑与平板。'
-                    },
-                    {
-                      key: '720p',
-                      icon: '⚡',
-                      title: '720P 高清',
-                      desc: '下载文件更紧凑，在校园网弱网或便携设备上流畅加载。'
-                    },
-                    {
-                      key: 'audio_only',
-                      icon: '🎧',
-                      title: '仅提取音频 (.m4a)',
-                      desc: '自动抽取 AAC 高保真音频，体积缩小 90%+，随时随身听。',
-                      badge: '省流神器'
-                    }
-                  ].map(opt => {
-                    const selected = videoQualityOption === opt.key
-                    return (
-                      <div
-                        key={opt.key}
-                        onClick={() => setVideoQualityOption(opt.key as VideoQualityOption)}
-                        className={`flex flex-col justify-between rounded-2xl border p-4 cursor-pointer transition-all space-y-2 ${
-                          selected
-                            ? 'border-accent bg-accent/10 shadow-xs'
-                            : 'border-bd/70 bg-surface-2/60 hover:border-bd-strong hover:bg-surface-2'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl select-none">{opt.icon}</span>
-                            <span className={`text-sm font-bold ${selected ? 'text-accent' : 'text-text-1'}`}>
+                {/* 分区 1：视频清晰度偏好 */}
+                <div className="space-y-2.5 rounded-2xl border border-bd/70 bg-surface-2/40 p-4 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-text-2 flex items-center gap-1.5">
+                      <span>🖥️</span>
+                      <span>视频优先清晰度</span>
+                    </span>
+                    <span className="text-2xs text-text-4">优先下载此画质（若无则自动匹配最高可用）</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {[
+                      { key: 'origin', title: '原画高清', desc: '板书最清晰', badge: '推荐' },
+                      { key: '1080p', title: '1080P 全高清', desc: '画质体积均衡' },
+                      { key: '720p', title: '720P 高清', desc: '便携紧凑加载' }
+                    ].map(opt => {
+                      const selected = (videoQualityOption || 'origin') === opt.key
+                      return (
+                        <div
+                          key={opt.key}
+                          onClick={() => setVideoQualityOption(opt.key as VideoQualityOption)}
+                          className={`flex flex-col justify-between rounded-xl border p-3 cursor-pointer transition-all ${
+                            selected
+                              ? 'border-accent bg-accent/10 shadow-2xs'
+                              : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-bold ${selected ? 'text-accent' : 'text-text-1'}`}>
                               {opt.title}
                             </span>
-                          </div>
-                          <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                            selected ? 'border-accent bg-accent text-white' : 'border-bd bg-surface-3'
-                          }`}>
-                            {selected && (
-                              <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
+                            {opt.badge && (
+                              <span className={`rounded-md px-1.5 py-0.2 text-3xs font-semibold ${
+                                selected ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
+                              }`}>
+                                {opt.badge}
+                              </span>
                             )}
                           </div>
+                          <p className="text-3xs text-text-3 mt-1">{opt.desc}</p>
                         </div>
-                        <p className="text-xs text-text-3 leading-relaxed flex-1">{opt.desc}</p>
-                        {opt.badge && (
-                          <span className={`self-start rounded-md px-2 py-0.5 text-2xs font-semibold ${
-                            selected ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
-                          }`}>
-                            {opt.badge}
-                          </span>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* 分区 2：默认录播机位偏好 */}
+                <div className="space-y-2.5 rounded-2xl border border-bd/70 bg-surface-2/40 p-4 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-text-2 flex items-center gap-1.5">
+                      <span>📹</span>
+                      <span>默认录播机位视角</span>
+                    </span>
+                    <span className="text-2xs text-text-4">避免重复下载多机位，节省磁盘与云盘空间</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { key: 'teacher', title: '仅教师视角', desc: '主镜头·450MB/讲', badge: '推荐' },
+                      { key: 'all', title: '双机位录像', desc: '教师+PPT·全保留' },
+                      { key: 'ppt', title: '仅PPT投屏', desc: '纯课件·200MB/讲' },
+                      { key: 'audio', title: '纯音频 MP3', desc: '随身听·45MB/讲', badge: '省流' }
+                    ].map(opt => {
+                      const selected = (videoPerspectivePreference || 'teacher') === opt.key
+                      return (
+                        <div
+                          key={opt.key}
+                          onClick={() => setVideoPerspectivePreference(opt.key as VideoPerspective)}
+                          className={`flex flex-col justify-between rounded-xl border p-2.5 cursor-pointer transition-all ${
+                            selected
+                              ? 'border-accent bg-accent/10 shadow-2xs'
+                              : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-bold ${selected ? 'text-accent' : 'text-text-1'}`}>
+                              {opt.title}
+                            </span>
+                            {opt.badge && (
+                              <span className={`rounded-md px-1.5 py-0.2 text-3xs font-semibold ${
+                                selected ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
+                              }`}>
+                                {opt.badge}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-3xs text-text-3 mt-1">{opt.desc}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* 分区 3：课后复习与学习辅助资料导出 */}
+                <div className="space-y-2.5 rounded-2xl border border-bd/70 bg-surface-2/40 p-4 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-text-2 flex items-center gap-1.5">
+                      <span>📑</span>
+                      <span>学习辅助资料自动生成</span>
+                    </span>
+                    <span className="text-2xs text-text-4">随视频同步处理，支持独立启闭</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {/* 项 1: PPT 讲义自动提取 */}
+                    <div
+                      role="checkbox"
+                      aria-checked={autoExportPptPdf}
+                      tabIndex={0}
+                      onClick={() => setAutoExportPptPdf(!autoExportPptPdf)}
+                      className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
+                        autoExportPptPdf
+                          ? 'border-accent bg-accent/10 shadow-2xs'
+                          : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-xl select-none shrink-0">📑</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-xs font-bold ${autoExportPptPdf ? 'text-accent' : 'text-text-1'}`}>
+                              自动生成 PPT 讲义 PDF
+                            </span>
+                            <span className="rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.2 text-3xs font-semibold border border-emerald-500/20">
+                              复习神器
+                            </span>
+                          </div>
+                          <p className="text-3xs text-text-3 truncate mt-0.5">
+                            自动抓取投屏高清切片，合成为便于做笔记、打印与复习的单份 PDF
+                          </p>
+                        </div>
+                      </div>
+                      <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                        autoExportPptPdf ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-2'
+                      }`}>
+                        {autoExportPptPdf && (
+                          <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
                         )}
                       </div>
-                    )
-                  })}
+                    </div>
+
+                    {/* 项 2: AI 语音外挂字幕 (.srt) */}
+                    <div
+                      role="checkbox"
+                      aria-checked={canvasExportSrt}
+                      tabIndex={0}
+                      onClick={() => setCanvasExportSrt(!canvasExportSrt)}
+                      className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
+                        canvasExportSrt
+                          ? 'border-accent bg-accent/10 shadow-2xs'
+                          : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-xl select-none shrink-0">📺</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-xs font-bold ${canvasExportSrt ? 'text-accent' : 'text-text-1'}`}>
+                              导出外挂字幕 (.srt)
+                            </span>
+                            <span className="rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 px-1.5 py-0.2 text-3xs font-semibold border border-sky-500/20">
+                              播放器直读
+                            </span>
+                          </div>
+                          <p className="text-3xs text-text-3 truncate mt-0.5">
+                            依托交大录播中台 AI 语音识别，生成同名 .srt，双击视频自动挂载
+                          </p>
+                        </div>
+                      </div>
+                      <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                        canvasExportSrt ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-2'
+                      }`}>
+                        {canvasExportSrt && (
+                          <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 项 3: 复习笔记讲义 (.md) */}
+                    <div
+                      role="checkbox"
+                      aria-checked={canvasExportMarkdown}
+                      tabIndex={0}
+                      onClick={() => setCanvasExportMarkdown(!canvasExportMarkdown)}
+                      className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
+                        canvasExportMarkdown
+                          ? 'border-accent bg-accent/10 shadow-2xs'
+                          : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-xl select-none shrink-0">📝</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-xs font-bold ${canvasExportMarkdown ? 'text-accent' : 'text-text-1'}`}>
+                              导出复习讲义笔记 (.md)
+                            </span>
+                            <span className="rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 px-1.5 py-0.2 text-3xs font-semibold border border-purple-500/20">
+                              结构化讲义
+                            </span>
+                          </div>
+                          <p className="text-3xs text-text-3 truncate mt-0.5">
+                            生成结构化 Markdown 讲义，带精确时间戳与章节重点，便于全文检索
+                          </p>
+                        </div>
+                      </div>
+                      <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                        canvasExportMarkdown ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-2'
+                      }`}>
+                        {canvasExportMarkdown && (
+                          <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* 卡片 4：课堂实录 AI 字幕与复习笔记 */}
+            {/* 卡片 4：窗口退出与关闭行为 */}
             {wizardStep === 4 && (
-              <div className="space-y-5">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-accent/10 text-base">
-                      📝
-                    </span>
-                    <h2 className="text-base sm:text-lg font-bold text-text-1">课堂实录 AI 字幕与复习笔记</h2>
-                  </div>
-                  <p className="text-xs text-text-3 leading-relaxed">
-                    依托交大录播中台 AI 语音识别能力，在下载视频时全自动生成文字辅助材料（支持按需独立勾选）。
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3">
-                  {/* 卡片 1: 导出外挂字幕 (.srt) */}
-                  <div
-                    role="checkbox"
-                    aria-checked={canvasExportSrt}
-                    tabIndex={0}
-                    onClick={() => setCanvasExportSrt(!canvasExportSrt)}
-                    onKeyDown={e => {
-                      if (e.key === ' ' || e.key === 'Enter') {
-                        e.preventDefault()
-                        setCanvasExportSrt(!canvasExportSrt)
-                      }
-                    }}
-                    className={`flex items-start gap-4 rounded-2xl border p-4 cursor-pointer transition-all select-none ${
-                      canvasExportSrt
-                        ? 'border-accent bg-accent/10 shadow-xs'
-                        : 'border-bd/70 bg-surface-2/60 hover:border-bd-strong hover:bg-surface-2'
-                    }`}
-                  >
-                    <span className="text-2xl select-none shrink-0 mt-0.5">📺</span>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-bold ${canvasExportSrt ? 'text-accent' : 'text-text-1'}`}>
-                          导出外挂字幕
-                        </span>
-                        <span className={`rounded-md px-2 py-0.5 text-2xs font-semibold ${
-                          canvasExportSrt ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
-                        }`}>
-                          主流播放器直读
-                        </span>
-                      </div>
-                      <p className="text-xs text-text-3 leading-relaxed">
-                        生成独立 .srt 外挂字幕文件，主流播放器双击视频自动挂载，方便回看追溯原话。
-                      </p>
-                    </div>
-                    <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg border mt-0.5 transition-colors ${
-                      canvasExportSrt ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-1'
-                    }`}>
-                      {canvasExportSrt && (
-                        <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 卡片 2: 导出复习笔记 (.md) */}
-                  <div
-                    role="checkbox"
-                    aria-checked={canvasExportMarkdown}
-                    tabIndex={0}
-                    onClick={() => setCanvasExportMarkdown(!canvasExportMarkdown)}
-                    onKeyDown={e => {
-                      if (e.key === ' ' || e.key === 'Enter') {
-                        e.preventDefault()
-                        setCanvasExportMarkdown(!canvasExportMarkdown)
-                      }
-                    }}
-                    className={`flex items-start gap-4 rounded-2xl border p-4 cursor-pointer transition-all select-none ${
-                      canvasExportMarkdown
-                        ? 'border-accent bg-accent/10 shadow-xs'
-                        : 'border-bd/70 bg-surface-2/60 hover:border-bd-strong hover:bg-surface-2'
-                    }`}
-                  >
-                    <span className="text-2xl select-none shrink-0 mt-0.5">📝</span>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-bold ${canvasExportMarkdown ? 'text-accent' : 'text-text-1'}`}>
-                          导出复习讲义笔记
-                        </span>
-                        <span className={`rounded-md px-2 py-0.5 text-2xs font-semibold ${
-                          canvasExportMarkdown ? 'bg-accent text-white' : 'bg-surface-3 text-text-3'
-                        }`}>
-                          结构化讲义
-                        </span>
-                      </div>
-                      <p className="text-xs text-text-3 leading-relaxed">
-                        生成结构化 Markdown 讲义，带精确时间戳与章节重点，便于快速全文检索与复习背诵。
-                      </p>
-                    </div>
-                    <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg border mt-0.5 transition-colors ${
-                      canvasExportMarkdown ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-1'
-                    }`}>
-                      {canvasExportMarkdown && (
-                        <svg className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {!canvasExportSrt && !canvasExportMarkdown ? (
-                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2.5">
-                    <span className="font-semibold select-none">💡 提示：</span>
-                    <span>当前已全部关闭，仅下载视频本体，不生成文本辅助资料，后续可在设置中随时重新开启。</span>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-bd/70 bg-surface-2/60 p-3.5 text-xs text-text-3 flex items-center gap-2.5">
-                    <span className="text-accent font-semibold select-none">💡 提示：</span>
-                    <span>
-                      {canvasExportSrt && canvasExportMarkdown
-                        ? '已同时开启字幕与讲义笔记导出，提供最完备的课后回顾体验。'
-                        : canvasExportSrt
-                          ? '已开启外挂字幕导出，课件视频与字幕将自动同名配套保存。'
-                          : '已开启复习笔记导出，课后可通过 Markdown 笔记快速检索授课内容。'}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 卡片 5：窗口退出与关闭行为 */}
-            {wizardStep === 5 && (
               <div className="space-y-5">
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
