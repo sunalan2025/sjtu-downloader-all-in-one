@@ -6,33 +6,6 @@ export interface Props {
 }
 
 const { class: className = '' } = Astro.props;
-
-const subPillars = [
-  {
-    id: 'audit',
-    title: '旁听视频规整',
-    desc: '按开课日期重排乱序课表，支持双视角合成。',
-    icon: 'video' as const
-  },
-  {
-    id: 'cnmooc',
-    title: '好大学在线归档',
-    desc: '按章节下钻提取视频与讲义，自动过滤无实体测验。',
-    icon: 'graduation-cap' as const
-  },
-  {
-    id: 'schedule',
-    title: '课表与 DDL 预警',
-    desc: '同步 1~18 周课表与作业截止提醒，支持导出 ICS。',
-    icon: 'download' as const
-  },
-  {
-    id: 'cloud',
-    title: '交大云盘直连',
-    desc: '支持本地、云盘或双备份模式，实时显示配额。',
-    icon: 'cloud' as const
-  }
-];
 ---
 
 <section
@@ -52,9 +25,9 @@ const subPillars = [
 
     <!-- 5 核心能力 Bento 现代非对称网格 (左 1 大卡 + 右 4 小卡) -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-      <!-- 左侧大卡 (Canvas 课程同步)：在桌面端跨两行，视觉重心稳固 -->
+      <!-- ① 左侧大卡 (Canvas 课程同步)：在桌面端跨两行，视觉重心稳固 -->
       <div
-        class="md:col-span-2 lg:col-span-1 lg:row-span-2 group rounded-3xl p-8 sm:p-9 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+        class="spotlight-card md:col-span-2 lg:col-span-1 lg:row-span-2 group rounded-3xl p-8 sm:p-9 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
       >
         <div>
           <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-6 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
@@ -68,35 +41,168 @@ const subPillars = [
           <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
             保留树状目录，批量下载课件、大纲与双路超清录播；更可一键将课堂演讲切片自动提取并合并导出为单份高清 PDF 讲义。
           </p>
+
+          <!-- 局部微交互：树状层级微位移（双轨错落 translate3d） -->
+          <div class="mt-6 space-y-2 select-none overflow-hidden">
+            <div class="flex items-center justify-between text-xs px-3.5 py-2.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 transition-transform duration-300 ease-out group-hover:translate-x-1.5">
+              <span class="flex items-center gap-2">
+                <span>📁</span>
+                <span class="font-medium text-slate-800 dark:text-slate-200">讲义与实验指导</span>
+              </span>
+              <span class="text-[11px] font-mono text-slate-400">PDF 合成</span>
+            </div>
+            <div class="flex items-center justify-between text-xs px-3.5 py-2.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/50 text-sjtu-blue dark:text-blue-300 transition-transform duration-300 ease-out group-hover:translate-x-3.5 border border-blue-100/60 dark:border-blue-900/40">
+              <span class="flex items-center gap-2">
+                <span>🎬</span>
+                <span class="font-medium">双路超清录播切片</span>
+              </span>
+              <span class="text-[11px] font-mono text-blue-500 dark:text-blue-300">1080P</span>
+            </div>
+          </div>
         </div>
 
-        <div class="pt-6 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400 dark:text-slate-500 font-medium">
-          Canvas 教学平台 · 核心基座
+        <div class="pt-6 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400 dark:text-slate-500 font-medium flex items-center justify-between">
+          <span>Canvas 教学平台 · 核心基座</span>
+          <span class="text-sjtu-blue group-hover:translate-x-1 transition-transform">›</span>
         </div>
       </div>
 
-      <!-- 右侧 2x2 四小卡 -->
-      {
-        subPillars.map((feature) => (
-          <div
-            class="group rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
-          >
-            <div>
-              <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-5 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
-                <Icons name={feature.icon} class="w-5 h-5" />
-              </div>
-
-              <h3 class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-2">
-                {feature.title}
-              </h3>
-
-              <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
-                {feature.desc}
-              </p>
-            </div>
+      <!-- ② 旁听视频规整 (课次乱序智能纠偏动画) -->
+      <div
+        class="spotlight-card group rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+      >
+        <div>
+          <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-5 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
+            <Icons name="video" class="w-5 h-5" />
           </div>
-        ))
-      }
+
+          <h3 class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-2">
+            旁听视频规整
+          </h3>
+
+          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
+            按开课日期重排乱序课表，支持教师视角与大屏幕 PPT 双视角无缝合成。
+          </p>
+        </div>
+
+        <!-- 局部微交互：课次乱序智能重排 -->
+        <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+          <span class="text-slate-400 text-[11px]">课次乱序智能重排</span>
+          <div class="flex items-center gap-1.5 font-mono text-[11px] select-none">
+            <span class="audit-chip-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all duration-300 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/60 group-hover:text-sjtu-blue dark:group-hover:text-blue-300">01</span>
+            <span class="audit-chip-2 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all duration-300 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/60 group-hover:text-sjtu-blue dark:group-hover:text-blue-300">02</span>
+            <span class="audit-chip-3 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition-all duration-300 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/60 group-hover:text-sjtu-blue dark:group-hover:text-blue-300">03</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ③ 好大学在线归档 -->
+      <div
+        class="spotlight-card group rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+      >
+        <div>
+          <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-5 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
+            <Icons name="graduation-cap" class="w-5 h-5" />
+          </div>
+
+          <h3 class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-2">
+            好大学在线归档
+          </h3>
+
+          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
+            按章节下钻提取视频与讲义，智能识别并自动过滤无下载实体的练习测验。
+          </p>
+        </div>
+
+        <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
+          <span class="text-[11px]">章节层级下钻</span>
+          <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400 group-hover:text-sjtu-blue dark:group-hover:text-blue-300 transition-colors">
+            第 1 单元 › 1.1 堆栈与指针
+          </span>
+        </div>
+      </div>
+
+      <!-- ④ 课表与 DDL 预警 (日历呼吸与 DDL 弹性脉冲) -->
+      <div
+        class="spotlight-card group rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+      >
+        <div>
+          <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-5 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors group-hover:scale-105 transition-transform">
+            <Icons name="download" class="w-5 h-5" />
+          </div>
+
+          <h3 class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-2">
+            课表与 DDL 预警
+          </h3>
+
+          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
+            同步 1~18 周课表与作业截止倒计时提醒，一键导出通用 ICS 日历文件。
+          </p>
+        </div>
+
+        <!-- 局部微交互：DDL 标签弹性跳动与脉冲 -->
+        <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+          <span class="text-slate-400 text-[11px]">作业截止倒计时</span>
+          <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 transition-transform duration-300 group-hover:scale-105 group-hover:shadow-sm">
+            ⏳ 24h 截止预警
+          </span>
+        </div>
+      </div>
+
+      <!-- ⑤ 交大云盘直连 (配额进度条平滑填满动画 20% -> 65%) -->
+      <div
+        class="spotlight-card group rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+      >
+        <div>
+          <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-5 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
+            <Icons name="cloud" class="w-5 h-5" />
+          </div>
+
+          <h3 class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-2">
+            交大云盘直连
+          </h3>
+
+          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
+            支持本地、云盘或双备份模式，免网页端登录直接管理，实时监控存储空间。
+          </p>
+        </div>
+
+        <!-- 局部微交互：云盘容量进度条动态填满 -->
+        <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5 text-xs">
+          <div class="flex items-center justify-between text-[11px] text-slate-400">
+            <span>云端配额自动同步</span>
+            <span class="font-mono text-slate-500 dark:text-slate-400 group-hover:text-sjtu-blue dark:group-hover:text-blue-300 transition-colors">
+              <span class="group-hover:hidden">18.2 GB</span>
+              <span class="hidden group-hover:inline font-bold">65.2 GB</span>
+              <span>/ 100 GB</span>
+            </span>
+          </div>
+          <div class="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-sjtu-navy to-sjtu-blue rounded-full w-[20%] group-hover:w-[65%] transition-all duration-500 ease-out"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </section>
+
+<script>
+  function setupSpotlights() {
+    const cards = document.querySelectorAll<HTMLElement>('.spotlight-card');
+    cards.forEach((card) => {
+      if (card.dataset.spotlightBound) return;
+      card.dataset.spotlightBound = 'true';
+
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        card.style.setProperty('--mouse-x', `${x}px`);
+        card.style.setProperty('--mouse-y', `${y}px`);
+      });
+    });
+  }
+
+  setupSpotlights();
+  document.addEventListener('astro:page-load', setupSpotlights);
+</script>

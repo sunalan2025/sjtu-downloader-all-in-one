@@ -55,7 +55,7 @@ const changelogHighlights = [
     <!-- Header (干净无副标题) -->
     <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
       <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-        全平台安装包
+        下载安装
       </h2>
     </div>
 
@@ -66,7 +66,7 @@ const changelogHighlights = [
           const iconName = asset.platform === 'mac' ? 'apple' : asset.platform;
           return (
             <div
-              class="group rounded-3xl p-6 sm:p-7 border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 backdrop-blur-xl shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+              class="spotlight-card group rounded-3xl p-6 sm:p-7 border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 backdrop-blur-xl shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
             >
               <div>
                 <div class="flex items-center justify-between mb-5">
@@ -180,16 +180,48 @@ const changelogHighlights = [
 
 <script>
   function setupShaCopy() {
+    const cards = document.querySelectorAll<HTMLElement>('#download .spotlight-card');
+    cards.forEach((card) => {
+      if (card.dataset.spotlightBound) return;
+      card.dataset.spotlightBound = 'true';
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        card.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
+        card.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
+      });
+    });
+
     const copyBtns = document.querySelectorAll<HTMLButtonElement>('.copy-sha-btn');
     const toast = document.getElementById('sha-toast');
 
     copyBtns.forEach((btn) => {
+      if (btn.dataset.bound) return;
+      btn.dataset.bound = 'true';
+
       btn.addEventListener('click', async () => {
         const hash = btn.getAttribute('data-hash');
         if (!hash) return;
 
+        const originalText = btn.textContent || '复制哈希';
+
         try {
           await navigator.clipboard.writeText(hash);
+
+          // 原位触觉反馈：切换为翠绿色 ✓ 已复制
+          btn.textContent = '✓ 已复制';
+          btn.classList.add('text-emerald-500', 'font-semibold');
+          btn.classList.remove('text-sjtu-blue', 'text-slate-400');
+
+          setTimeout(() => {
+            btn.textContent = originalText;
+            btn.classList.remove('text-emerald-500', 'font-semibold');
+            if (btn.closest('.border-dashed')) {
+              btn.classList.add('text-slate-400');
+            } else {
+              btn.classList.add('text-sjtu-blue');
+            }
+          }, 2000);
+
           if (toast) {
             toast.classList.remove('translate-y-24', 'opacity-0', 'pointer-events-none');
             toast.classList.add('translate-y-0', 'opacity-100');
