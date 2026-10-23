@@ -1,4 +1,10 @@
 /* global module */
+const createColorWithFallback = (defaultVar, rgbVar) => ({ opacityVariable, opacityValue } = {}) => {
+  if (opacityVariable !== undefined) return `var(${defaultVar})`
+  if (opacityValue !== undefined) return `rgba(var(${rgbVar}), ${opacityValue})`
+  return `var(${defaultVar})`
+}
+
 module.exports = {
   colors: {
     base: 'var(--bg-base)',
@@ -11,8 +17,8 @@ module.exports = {
     'text-3': 'var(--text-tertiary)',
     'text-4': 'var(--text-muted)',
     'text-muted': 'var(--text-muted)',
-    bd: 'var(--border-default)',
-    'bd-strong': 'var(--border-strong)',
+    bd: createColorWithFallback('--border-default', '--color-bd-rgb'),
+    'bd-strong': createColorWithFallback('--border-strong', '--color-bd-rgb'),
     accent: {
       DEFAULT: 'var(--accent)',
       light: 'var(--accent-light)',

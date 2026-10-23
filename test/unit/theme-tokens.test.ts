@@ -24,19 +24,39 @@ describe('Centralized Theme Tokens Contract Suite', () => {
     expect(DARK_THEME.surface.surface4).toBe('#3A3A3C')
   })
 
-  it('should apply dynamic alpha anti-swallowing to dark borders', () => {
-    expect(DARK_THEME.border.default).toContain('120, 120, 128')
-    expect(DARK_THEME.border.default).toContain('0.32')
-    expect(DARK_THEME.border.strong).toContain('120, 120, 128')
-    expect(DARK_THEME.border.strong).toContain('0.36')
+  it('should apply soft graphite border tokens for dark and light themes', () => {
+    expect(DARK_THEME.border.default).toBe('rgba(255, 255, 255, 0.08)')
+    expect(DARK_THEME.border.strong).toBe('rgba(255, 255, 255, 0.14)')
+    expect(LIGHT_THEME.border.default).toBe('rgba(0, 0, 0, 0.08)')
+    expect(LIGHT_THEME.border.strong).toBe('rgba(0, 0, 0, 0.14)')
   })
 
   it('should export valid tailwind color mappings referencing CSS variables', () => {
     expect(tailwindTheme.colors.base).toBe('var(--bg-base)')
     expect(tailwindTheme.colors['surface-1']).toBe('var(--bg-surface-1)')
     expect(tailwindTheme.colors['text-1']).toBe('var(--text-primary)')
-    expect(tailwindTheme.colors.bd).toBe('var(--border-default)')
-    expect(tailwindTheme.colors['bd-strong']).toBe('var(--border-strong)')
     expect(tailwindTheme.colors.accent.DEFAULT).toBe('var(--accent)')
+  })
+
+  it('should provide resilient opacity fallback for bd and bd-strong colors in tailwind', () => {
+    const bdColorFn = tailwindTheme.colors.bd
+    const bdStrongColorFn = tailwindTheme.colors['bd-strong']
+
+    expect(typeof bdColorFn).toBe('function')
+    expect(typeof bdStrongColorFn).toBe('function')
+
+    // Standard border-bd (with opacityVariable): returns var(--border-default)
+    expect(bdColorFn({ opacityVariable: '--tw-border-opacity' })).toBe('var(--border-default)')
+    expect(bdStrongColorFn({ opacityVariable: '--tw-border-opacity' })).toBe('var(--border-strong)')
+
+    // With explicit opacityValue (e.g. border-bd/50): returns rgba(var(--color-bd-rgb), 0.5)
+    expect(bdColorFn({ opacityValue: '0.5' })).toBe('rgba(var(--color-bd-rgb), 0.5)')
+    expect(bdStrongColorFn({ opacityValue: '0.8' })).toBe('rgba(var(--color-bd-rgb), 0.8)')
+
+    // Direct invocation with no params: fallback to direct CSS variable
+    expect(bdColorFn({})).toBe('var(--border-default)')
+    expect(bdStrongColorFn({})).toBe('var(--border-strong)')
+    expect(bdColorFn()).toBe('var(--border-default)')
+    expect(bdStrongColorFn()).toBe('var(--border-strong)')
   })
 })

@@ -61,8 +61,8 @@ export const LIGHT_THEME: ThemePalette = {
     muted: 'rgba(29, 29, 31, 0.20)'
   },
   border: {
-    default: 'rgba(120, 120, 128, 0.16)',
-    strong: 'rgba(120, 120, 128, 0.24)'
+    default: 'rgba(0, 0, 0, 0.08)',
+    strong: 'rgba(0, 0, 0, 0.14)'
   },
   accent: {
     DEFAULT: '#0071E3',
@@ -102,8 +102,8 @@ export const DARK_THEME: ThemePalette = {
     muted: 'rgba(244, 244, 245, 0.20)'
   },
   border: {
-    default: 'rgba(120, 120, 128, 0.32)',
-    strong: 'rgba(120, 120, 128, 0.36)'
+    default: 'rgba(255, 255, 255, 0.08)',
+    strong: 'rgba(255, 255, 255, 0.14)'
   },
   accent: {
     DEFAULT: '#0A84FF',

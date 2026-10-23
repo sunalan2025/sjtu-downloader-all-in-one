@@ -9,8 +9,8 @@
 @property --text-secondary { syntax: '<color>'; inherits: true; initial-value: rgba(244, 244, 245, 0.6); }
 @property --text-tertiary { syntax: '<color>'; inherits: true; initial-value: rgba(244, 244, 245, 0.35); }
 @property --text-muted { syntax: '<color>'; inherits: true; initial-value: rgba(244, 244, 245, 0.2); }
-@property --border-default { syntax: '<color>'; inherits: true; initial-value: rgba(120, 120, 128, 0.32); }
-@property --border-strong { syntax: '<color>'; inherits: true; initial-value: rgba(120, 120, 128, 0.36); }
+@property --border-default { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.08); }
+@property --border-strong { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.14); }
 @property --accent { syntax: '<color>'; inherits: true; initial-value: #0a84ff; }
 @property --accent-light { syntax: '<color>'; inherits: true; initial-value: #409cff; }
 @property --accent-dark { syntax: '<color>'; inherits: true; initial-value: #0064d6; }
@@ -38,8 +38,9 @@
   --text-tertiary: rgba(29, 29, 31, 0.35);
   --text-muted: rgba(29, 29, 31, 0.20);
 
-  --border-default: rgba(120, 120, 128, 0.16);
-  --border-strong: rgba(120, 120, 128, 0.24);
+  --color-bd-rgb: 0, 0, 0;
+  --border-default: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
 
   --accent: #0071E3;
   --accent-light: #409CFF;
@@ -110,8 +111,9 @@
   --text-tertiary: rgba(244, 244, 245, 0.35);
   --text-muted: rgba(244, 244, 245, 0.20);
 
-  --border-default: rgba(120, 120, 128, 0.32);
-  --border-strong: rgba(120, 120, 128, 0.36);
+  --color-bd-rgb: 255, 255, 255;
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
 
   --accent: #0A84FF;
   --accent-light: #409CFF;
