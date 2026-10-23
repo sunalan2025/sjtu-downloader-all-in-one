@@ -21,11 +21,11 @@ export function CourseDetailModal({ course, onClose }: CourseDetailModalProps) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-2xl border border-bd/80 dark:border-white/10 bg-surface-1 shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150"
+        className="w-full max-w-2xl rounded-2xl border border-bd-strong bg-surface-1 shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150"
         onClick={e => e.stopPropagation()}
       >
         {/* 顶栏 Header */}
-        <div className="flex items-start justify-between border-b border-bd/60 dark:border-white/10 px-6 py-4 bg-surface-2/60">
+        <div className="flex items-start justify-between border-b border-bd px-6 py-4 bg-surface-2/60">
           <div className="space-y-1.5 pr-4">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-bold text-text-1 tracking-tight">
@@ -63,7 +63,7 @@ export function CourseDetailModal({ course, onClose }: CourseDetailModalProps) {
         {/* 弹窗内容主体 (可滚动) */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* 核心元信息卡片 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 rounded-xl border border-bd/50 dark:border-white/[0.06] bg-surface-2/40 p-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 rounded-xl border border-bd bg-surface-2/40 p-4 text-xs">
             <div>
               <div className="text-3xs text-text-4 uppercase font-semibold">👨‍🏫 任课教师</div>
               <div className="mt-1 font-medium text-text-1">{course.teachers || '主讲教学团队'}</div>
@@ -94,7 +94,7 @@ export function CourseDetailModal({ course, onClose }: CourseDetailModalProps) {
               <span className="text-3xs text-text-4">按教学周次与日期排序</span>
             </div>
 
-            <div className="max-h-60 overflow-y-auto rounded-xl border border-bd/40 dark:border-white/[0.05] bg-surface-2/30 divide-y divide-bd/30 dark:divide-white/[0.04]">
+            <div className="max-h-60 overflow-y-auto rounded-xl border border-bd bg-surface-2/30 divide-y divide-bd/40">
               {course.scheduleSessions.map((sess, idx) => (
                 <div
                   key={idx}
@@ -178,7 +178,7 @@ export function CourseDetailModal({ course, onClose }: CourseDetailModalProps) {
         </div>
 
         {/* 底栏 Footer */}
-        <div className="flex items-center justify-end border-t border-bd/60 dark:border-white/10 px-6 py-3 bg-surface-2/40">
+        <div className="flex items-center justify-end border-t border-bd px-6 py-3 bg-surface-2/40">
           <button
             type="button"
             onClick={onClose}

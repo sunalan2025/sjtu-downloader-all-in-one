@@ -18,8 +18,8 @@
 @property --text-secondary { syntax: '<color>'; inherits: true; initial-value: #a1a1aa; }
 @property --text-tertiary { syntax: '<color>'; inherits: true; initial-value: #71717a; }
 @property --text-muted { syntax: '<color>'; inherits: true; initial-value: #52525b; }
-@property --border-default { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,0.065); }
-@property --border-strong { syntax: '<color>'; inherits: true; initial-value: rgba(255,255,255,0.13); }
+@property --border-default { syntax: '<color>'; inherits: true; initial-value: #2c2c30; }
+@property --border-strong { syntax: '<color>'; inherits: true; initial-value: #38383c; }
 @property --accent { syntax: '<color>'; inherits: true; initial-value: #0a84ff; }
 @property --accent-light { syntax: '<color>'; inherits: true; initial-value: #69b1ff; }
 @property --accent-dark { syntax: '<color>'; inherits: true; initial-value: #2563eb; }
@@ -168,8 +168,8 @@
   --text-muted: #52525B;
 
   /* Border (Apple 标志性微透描边，杜绝粗糙高对比纯灰边线) */
-  --border-default: rgba(255, 255, 255, 0.065);
-  --border-strong: rgba(255, 255, 255, 0.13);
+  --border-default: #2C2C30;
+  --border-strong: #38383C;
 
   /* Accent (Apple System Blue #0A84FF 防眩光系统蓝) */
   --accent: #0A84FF;

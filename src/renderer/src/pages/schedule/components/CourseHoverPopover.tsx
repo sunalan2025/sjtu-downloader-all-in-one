@@ -36,7 +36,7 @@ export function CourseHoverPopover({
         left: `${left}px`,
         transform: showAbove ? 'translateY(-100%)' : 'none'
       }}
-      className="fixed z-50 pointer-events-none w-[280px] rounded-2xl border border-bd/80 dark:border-white/15 bg-surface-1 dark:bg-[#1c1c1e] p-3.5 shadow-xl transition-all duration-150 animate-in fade-in zoom-in-95"
+      className="fixed z-50 pointer-events-none w-[280px] rounded-2xl border border-bd-strong bg-surface-1 dark:bg-[#1c1c1e] p-3.5 shadow-xl transition-all duration-150 animate-in fade-in zoom-in-95"
     >
       <div className="space-y-2">
         {/* 顶部课程名称与学分徽标 */}
@@ -69,7 +69,7 @@ export function CourseHoverPopover({
         </div>
 
         {/* 详细时间、地点与教师 (完整展示，绝不截断) */}
-        <div className="space-y-1.5 pt-2 border-t border-bd/40 dark:border-white/10 text-xs">
+        <div className="space-y-1.5 pt-2 border-t border-bd text-xs">
           <div className="flex items-start gap-1.5 text-2xs">
             <span className="text-text-4 shrink-0 font-medium">🕒 时间:</span>
             <span className="font-mono text-accent font-medium leading-tight">
@@ -105,7 +105,7 @@ export function CourseHoverPopover({
         </div>
 
         {/* 底部操作提示 */}
-        <div className="pt-1.5 border-t border-bd/30 dark:border-white/5 flex items-center justify-between text-3xs text-text-4">
+        <div className="pt-1.5 border-t border-bd/60 flex items-center justify-between text-3xs text-text-4">
           <span className="text-accent/90 font-medium">💡 点击查看完整课时与作业</span>
           <span>Esc 关闭</span>
         </div>

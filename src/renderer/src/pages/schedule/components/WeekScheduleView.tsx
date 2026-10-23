@@ -217,17 +217,17 @@ export function WeekScheduleView({
       {/* ══════════════════════════════════════════════════════════
          水平严格对齐二维时间网格 (8 列: 时段标尺 96px + 周一至周日)
          ══════════════════════════════════════════════════════════ */}
-      <div className="overflow-x-auto rounded-2xl border border-bd/70 dark:border-white/[0.06] bg-surface-1 shadow-2xs">
+      <div className="overflow-x-auto rounded-2xl border border-bd bg-surface-1 shadow-2xs">
         <div className="min-w-[920px]">
           {/* 1. 顶部星期标头 */}
-          <div className="grid grid-cols-[96px_repeat(7,minmax(0,1fr))] border-b border-bd/50 dark:border-white/[0.05] bg-surface-2/60">
-            <div className="min-w-0 flex items-center justify-center border-r border-bd/50 dark:border-white/[0.05] p-3 text-xs font-semibold text-text-3 select-none">
+          <div className="grid grid-cols-[96px_repeat(7,minmax(0,1fr))] border-b border-bd bg-surface-2/60">
+            <div className="min-w-0 flex items-center justify-center border-r border-bd p-3 text-xs font-semibold text-text-3 select-none">
               时段 \ 星期
             </div>
             {weekDays.map(day => (
               <div
                 key={day.dayIndex}
-                className={`min-w-0 flex flex-col items-center justify-center border-r border-bd/50 dark:border-white/[0.05] p-2.5 last:border-r-0 ${
+                className={`min-w-0 flex flex-col items-center justify-center border-r border-bd p-2.5 last:border-r-0 ${
                   day.isToday ? 'bg-accent/10 text-accent font-semibold' : 'text-text-2'
                 }`}
               >
@@ -248,8 +248,8 @@ export function WeekScheduleView({
 
           {/* 2. 全天安排与作业 DDL 顶置行（仅当本周有全天事件/DDL 时展开） */}
           {hasAnyTopEvents && (
-            <div className="grid grid-cols-[96px_repeat(7,minmax(0,1fr))] border-b border-bd/50 dark:border-white/[0.05] bg-surface-2/30">
-              <div className="min-w-0 flex flex-col items-center justify-center border-r border-bd/50 dark:border-white/[0.05] p-2 text-2xs text-text-3 font-medium select-none">
+            <div className="grid grid-cols-[96px_repeat(7,minmax(0,1fr))] border-b border-bd bg-surface-2/30">
+              <div className="min-w-0 flex flex-col items-center justify-center border-r border-bd p-2 text-2xs text-text-3 font-medium select-none">
                 <span>全天 / 截止</span>
                 <span className="text-3xs text-text-4 font-mono">DDL</span>
               </div>
@@ -258,7 +258,7 @@ export function WeekScheduleView({
                 return (
                   <div
                     key={`top-${day.dateStr}`}
-                    className={`min-w-0 border-r border-bd/50 dark:border-white/[0.05] p-1.5 last:border-r-0 space-y-1 ${
+                    className={`min-w-0 border-r border-bd p-1.5 last:border-r-0 space-y-1 ${
                       day.isToday ? 'bg-accent/[0.03]' : ''
                     }`}
                   >
@@ -331,7 +331,7 @@ export function WeekScheduleView({
                     key={`ruler-${slot.id}`}
                     style={{ gridColumn: 1, gridRow: 3 }}
                     onClick={() => setExpandNoonSlot(true)}
-                    className="min-w-0 flex items-center justify-center border-b border-r border-bd/50 dark:border-white/[0.05] bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer p-1 text-center select-none group"
+                    className="min-w-0 flex items-center justify-center border-b border-r border-bd bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer p-1 text-center select-none group"
                     title="点击展开中午第 5-6 节时段 · 12:00 - 13:40"
                   >
                     <span className="text-3xs text-text-4 font-mono group-hover:text-text-2">
@@ -345,7 +345,7 @@ export function WeekScheduleView({
                 <div
                   key={`ruler-${slot.id}`}
                   style={{ gridColumn: 1, gridRow: slot.id }}
-                  className={`min-w-0 flex flex-col items-center justify-center border-b border-r border-bd/50 dark:border-white/[0.05] bg-surface-2/40 p-2 text-center select-none ${
+                  className={`min-w-0 flex flex-col items-center justify-center border-b border-r border-bd bg-surface-2/40 p-2 text-center select-none ${
                     slot.id === 6 ? 'border-b-0' : ''
                   }`}
                 >
@@ -385,7 +385,7 @@ export function WeekScheduleView({
                       key={`bg-${day.dayIndex}-3`}
                       style={{ gridColumn: day.dayIndex + 2, gridRow: 3 }}
                       onClick={() => setExpandNoonSlot(true)}
-                      className={`min-w-0 border-b border-r border-bd/50 dark:border-white/[0.05] bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer flex items-center justify-center ${
+                      className={`min-w-0 border-b border-r border-bd bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer flex items-center justify-center ${
                         day.dayIndex === 6 ? 'border-r-0' : ''
                       }`}
                       title="点击展开中午第 5-6 节"
@@ -404,7 +404,7 @@ export function WeekScheduleView({
                   <div
                     key={`bg-${day.dayIndex}-${slot.id}`}
                     style={{ gridColumn: day.dayIndex + 2, gridRow: slot.id }}
-                    className={`min-w-0 border-b border-r border-bd/50 dark:border-white/[0.05] p-1.5 transition-colors ${
+                    className={`min-w-0 border-b border-r border-bd p-1.5 transition-colors ${
                       day.dayIndex === 6 ? 'border-r-0' : ''
                     } ${slot.id === 6 ? 'border-b-0' : ''} ${
                       day.isToday ? 'bg-accent/[0.02]' : ''
@@ -581,7 +581,7 @@ export function WeekScheduleView({
                         onClick={() => handleOpenCourseModal(item.title)}
                         onMouseEnter={e => handleCardMouseEnter(item, e)}
                         onMouseLeave={handleCardMouseLeave}
-                        className="group relative h-full flex flex-col justify-between rounded-xl border border-bd/70 dark:border-white/[0.06] bg-surface-1 dark:bg-[#232326] p-2 text-2xs hover:border-accent dark:hover:border-accent/60 hover:shadow-2xs transition-all overflow-hidden flex-1 min-w-0 cursor-pointer"
+                        className="group relative h-full flex flex-col justify-between rounded-xl border border-bd bg-surface-1 dark:bg-[#232326] p-2 text-2xs hover:border-accent dark:hover:border-accent/60 hover:shadow-2xs transition-all overflow-hidden flex-1 min-w-0 cursor-pointer"
                         title="点击查看课程全学期课表明细与教学信息"
                       >
                         <div className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-accent" />

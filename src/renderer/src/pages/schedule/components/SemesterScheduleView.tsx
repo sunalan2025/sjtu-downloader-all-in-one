@@ -248,11 +248,11 @@ export function SemesterScheduleView({
              全学期全景作息网格 (8 列: 时段标尺 96px + 周一至周日)
              与周视图完全一致，直观聚合全学期排课与周次范围！
              ══════════════════════════════════════════ */
-          <div className="overflow-x-auto rounded-2xl border border-bd/70 dark:border-white/[0.06] bg-surface-1 shadow-2xs">
+          <div className="overflow-x-auto rounded-2xl border border-bd bg-surface-1 shadow-2xs">
             <div className="min-w-[920px]">
               {/* 1. 顶部星期标头 (周一至周日) */}
-              <div className="grid grid-cols-[96px_repeat(7,minmax(0,1fr))] border-b border-bd/50 dark:border-white/[0.05] bg-surface-2/60">
-                <div className="min-w-0 flex items-center justify-center border-r border-bd/50 dark:border-white/[0.05] p-3 text-xs font-semibold text-text-3 select-none">
+              <div className="grid grid-cols-[96px_repeat(7,minmax(0,1fr))] border-b border-bd bg-surface-2/60">
+                <div className="min-w-0 flex items-center justify-center border-r border-bd p-3 text-xs font-semibold text-text-3 select-none">
                   时段 \ 星期
                 </div>
                 {[
@@ -266,7 +266,7 @@ export function SemesterScheduleView({
                 ].map(day => (
                   <div
                     key={day.label}
-                    className="min-w-0 flex flex-col items-center justify-center border-r border-bd/50 dark:border-white/[0.05] p-2.5 last:border-r-0 text-text-2"
+                    className="min-w-0 flex flex-col items-center justify-center border-r border-bd p-2.5 last:border-r-0 text-text-2"
                   >
                     <span className="text-xs font-semibold">{day.label}</span>
                     <span className="text-3xs font-mono text-text-3 opacity-70 mt-0.5">
@@ -295,7 +295,7 @@ export function SemesterScheduleView({
                         key={`sem-ruler-${slot.id}`}
                         style={{ gridColumn: 1, gridRow: 3 }}
                         onClick={() => setExpandSemesterNoonSlot(true)}
-                        className="min-w-0 flex items-center justify-center border-b border-r border-bd/50 dark:border-white/[0.05] bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer p-1 text-center select-none group"
+                        className="min-w-0 flex items-center justify-center border-b border-r border-bd bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer p-1 text-center select-none group"
                         title="点击展开中午第 5-6 节时段 · 12:00 - 13:40"
                       >
                         <span className="text-3xs text-text-4 font-mono group-hover:text-text-2">
@@ -309,7 +309,7 @@ export function SemesterScheduleView({
                     <div
                       key={`sem-ruler-${slot.id}`}
                       style={{ gridColumn: 1, gridRow: slot.id }}
-                      className={`min-w-0 flex flex-col items-center justify-center border-b border-r border-bd/50 dark:border-white/[0.05] bg-surface-2/40 p-2 text-center select-none ${
+                      className={`min-w-0 flex flex-col items-center justify-center border-b border-r border-bd bg-surface-2/40 p-2 text-center select-none ${
                         slot.id === 6 ? 'border-b-0' : ''
                       }`}
                     >
@@ -349,7 +349,7 @@ export function SemesterScheduleView({
                           key={`sem-bg-${dayIdx}-3`}
                           style={{ gridColumn: dayIdx + 2, gridRow: 3 }}
                           onClick={() => setExpandSemesterNoonSlot(true)}
-                          className={`min-w-0 border-b border-r border-bd/50 dark:border-white/[0.05] bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer flex items-center justify-center ${
+                          className={`min-w-0 border-b border-r border-bd bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer flex items-center justify-center ${
                             dayIdx === 6 ? 'border-r-0' : ''
                           }`}
                           title="点击展开中午第 5-6 节"
@@ -368,7 +368,7 @@ export function SemesterScheduleView({
                       <div
                         key={`sem-bg-${dayIdx}-${slot.id}`}
                         style={{ gridColumn: dayIdx + 2, gridRow: slot.id }}
-                        className={`min-w-0 border-b border-r border-bd/50 dark:border-white/[0.05] p-1.5 transition-colors ${
+                        className={`min-w-0 border-b border-r border-bd p-1.5 transition-colors ${
                           dayIdx === 6 ? 'border-r-0' : ''
                         } ${slot.id === 6 ? 'border-b-0' : ''} ${
                           isOccupied ? '' : 'hover:bg-surface-2/20'
@@ -416,7 +416,7 @@ export function SemesterScheduleView({
                                 ? 'border-teal-500/30 dark:border-teal-500/35 bg-surface-1 dark:bg-[#182622] hover:border-teal-500/60 hover:shadow-xs'
                                 : isIdeological
                                 ? 'border-sky-500/30 dark:border-sky-500/35 bg-surface-1 dark:bg-[#1a232b] hover:border-sky-500/60 hover:shadow-xs'
-                                : 'border-bd/70 dark:border-white/[0.06] bg-surface-1 dark:bg-[#232326] hover:border-accent dark:hover:border-accent/60 hover:shadow-2xs'
+                                : 'border-bd bg-surface-1 dark:bg-[#232326] hover:border-accent dark:hover:border-accent/60 hover:shadow-2xs'
                             }`}
                             title="点击查看课程全学期课表明细与教学信息"
                           >

@@ -39,8 +39,8 @@ export function UndatedAssignmentsDrawer({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl border border-bd/80 dark:border-white/15 bg-surface-1 dark:bg-[#1c1c1e] p-4 shadow-2xl z-50 transition-all duration-150 animate-in fade-in zoom-in-95 font-sans">
-          <div className="flex items-center justify-between border-b border-bd/50 dark:border-white/10 pb-2.5 mb-3">
+        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 rounded-2xl border border-bd-strong bg-surface-1 dark:bg-[#1c1c1e] p-4 shadow-2xl z-50 transition-all duration-150 animate-in fade-in zoom-in-95 font-sans">
+          <div className="flex items-center justify-between border-b border-bd pb-2.5 mb-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-text-1">📌 未标注日期的作业</span>
               <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-3xs font-semibold text-amber-700 dark:text-amber-400">
