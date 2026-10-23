@@ -12,6 +12,7 @@ export interface Props {
 const { class: className = '' } = Astro.props;
 const currentVersion = `v${CURRENT_RELEASE_VERSION}`;
 const allAssets = getAllPlatformMatrix(null, CURRENT_RELEASE_VERSION);
+const winMsiAsset = allAssets.find((a) => a.id === 'win-msi');
 
 // 4 核心平台分发展现：Windows (.exe), Mac ARM64, Mac Intel, Linux
 const platformCards = [
@@ -51,14 +52,11 @@ const changelogHighlights = [
   aria-label="下载中心"
 >
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <!-- Header -->
-    <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16">
+    <!-- Header (干净无副标题) -->
+    <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
       <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
         全平台安装包
       </h2>
-      <p class="mt-3 text-base text-slate-600 dark:text-slate-400">
-        最新稳定版 <span class="font-mono font-bold text-sjtu-blue dark:text-blue-400">{currentVersion}</span> · 内置 FFmpeg 免配置 · 支持 SHA-256 校验
-      </p>
     </div>
 
     <!-- 4 极简平台卡片 Grid -->
@@ -109,6 +107,22 @@ const changelogHighlights = [
                     复制哈希
                   </button>
                 </div>
+
+                {asset.id === 'win-exe' && winMsiAsset && (
+                  <div class="pt-2 text-[11px] text-slate-500 dark:text-slate-400 border-t border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <a href={winMsiAsset.url} class="text-sjtu-blue hover:underline font-medium truncate max-w-[140px]">
+                      或下载 .msi 便携包 (133.3 MB)
+                    </a>
+                    <button
+                      type="button"
+                      class="copy-sha-btn text-slate-400 hover:text-sjtu-blue cursor-pointer font-medium shrink-0"
+                      data-hash={winMsiAsset.sha256}
+                      title="复制 .msi SHA-256 校验码"
+                    >
+                      复制哈希
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -117,7 +131,7 @@ const changelogHighlights = [
     </div>
 
     <!-- 📋 v2.5.0 版本更新日志折叠抽屉 -->
-    <div class="max-w-4xl mx-auto">
+    <div id="changelog" class="max-w-4xl mx-auto scroll-mt-24">
       <details class="group rounded-2xl bg-white/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 shadow-sm transition-all duration-200">
         <summary class="flex items-center justify-between p-5 cursor-pointer list-none select-none text-left rounded-2xl focus:outline-none">
           <div class="flex items-center gap-3">

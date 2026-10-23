@@ -231,39 +231,61 @@ const mockCourses = [
           </table>
         </div>
 
-        <!-- 三栏分栏 (Miller Columns) 视图容器 -->
+        <!-- 三栏分栏 (Miller Columns) 视图容器 (联动下钻，统一课件与录播双维度) -->
         <div id="canvas-column-view" class="sim-canvas-view hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden text-xs h-[280px] grid grid-cols-3 divide-x divide-slate-200 dark:divide-slate-800">
-          <div class="p-2 space-y-1 overflow-y-auto">
+          <div class="p-2 space-y-1 overflow-y-auto" id="col-courses">
             <div class="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase">课程列表 (已选 3)</div>
-            <div class="p-2 rounded-lg bg-sjtu-blue text-white font-medium flex justify-between">
+            <button
+              type="button"
+              class="col-course-item w-full text-left p-2 rounded-lg bg-sjtu-blue text-white font-medium flex justify-between items-center cursor-pointer text-xs transition-colors"
+              data-course="CSE5001"
+            >
               <span>高级算法设计与分析</span>
               <span>›</span>
-            </div>
-            <div class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">软件工程与系统架构</div>
-            <div class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">操作系统原理与实验</div>
+            </button>
+            <button
+              type="button"
+              class="col-course-item w-full text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium flex justify-between items-center cursor-pointer text-xs transition-colors"
+              data-course="SE3353"
+            >
+              <span>软件工程与系统架构</span>
+              <span>›</span>
+            </button>
+            <button
+              type="button"
+              class="col-course-item w-full text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium flex justify-between items-center cursor-pointer text-xs transition-colors"
+              data-course="CS3502"
+            >
+              <span>操作系统原理与实验</span>
+              <span>›</span>
+            </button>
           </div>
-          <div class="p-2 space-y-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50">
+          <div class="p-2 space-y-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-900/50" id="col-categories">
             <div class="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase">分类目录 (下钻章节)</div>
-            <div class="p-2 rounded-lg bg-slate-200 dark:bg-slate-800 font-medium flex justify-between">
-              <span>📁 课堂讲义与课件资料 (38)</span>
+            <div class="w-full text-left p-2 rounded-lg bg-slate-200 dark:bg-slate-800 font-medium flex justify-between items-center text-xs">
+              <span id="col-cat-slides-text">📁 课堂讲义与课件资料 (38)</span>
               <span>›</span>
             </div>
-            <div class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">🎬 课堂双路超清录播 (16)</div>
-            <div class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300">📝 课程作业与测验附件 (2)</div>
+            <div class="w-full text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium flex justify-between items-center text-xs">
+              <span id="col-cat-videos-text">🎬 课堂双路超清录播 (16)</span>
+              <span>›</span>
+            </div>
           </div>
-          <div class="p-2 space-y-1 overflow-y-auto">
+          <div class="p-2 space-y-1 overflow-y-auto" id="col-files">
             <div class="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase">文件列表 (已勾选全部)</div>
-            <div class="p-1.5 rounded flex items-center justify-between text-[11px] bg-blue-50/60 dark:bg-blue-950/30">
-              <span class="truncate">📄 第01讲_动态规划状态压缩.pdf</span>
-              <span class="text-slate-400 font-mono">14.2 MB</span>
-            </div>
-            <div class="p-1.5 rounded flex items-center justify-between text-[11px] bg-blue-50/60 dark:bg-blue-950/30">
-              <span class="truncate">📄 第02讲_网络流与二分图匹配.pdf</span>
-              <span class="text-slate-400 font-mono">18.6 MB</span>
-            </div>
-            <div class="p-1.5 rounded flex items-center justify-between text-[11px] bg-blue-50/60 dark:bg-blue-950/30">
-              <span class="truncate">📄 第03讲_近似算法与NP完全性.pdf</span>
-              <span class="text-slate-400 font-mono">22.1 MB</span>
+            <div id="col-file-list" class="space-y-1">
+              <div class="p-1.5 rounded flex items-center justify-between text-[11px] bg-blue-50/60 dark:bg-blue-950/30">
+                <span class="truncate">📄 第01讲_动态规划状态压缩.pdf</span>
+                <span class="text-slate-400 font-mono">14.2 MB</span>
+              </div>
+              <div class="p-1.5 rounded flex items-center justify-between text-[11px] bg-blue-50/60 dark:bg-blue-950/30">
+                <span class="truncate">📄 第02讲_网络流与二分图匹配.pdf</span>
+                <span class="text-slate-400 font-mono">18.6 MB</span>
+              </div>
+              <div class="p-1.5 rounded flex items-center justify-between text-[11px] bg-blue-50/60 dark:bg-blue-950/30">
+                <span class="truncate">📄 第03讲_近似算法与NP完全性.pdf</span>
+                <span class="text-slate-400 font-mono">22.1 MB</span>
+              </div>
             </div>
           </div>
         </div>
@@ -473,6 +495,74 @@ const mockCourses = [
             cv.classList.add('hidden');
           }
         });
+      });
+    });
+
+    // 分栏视图课程联动交互
+    const colCourseBtns = document.querySelectorAll<HTMLButtonElement>('.col-course-item');
+    const colCatSlidesText = document.getElementById('col-cat-slides-text');
+    const colCatVideosText = document.getElementById('col-cat-videos-text');
+    const colFileList = document.getElementById('col-file-list');
+
+    const colCourseData: Record<string, { slides: number; videos: number; files: Array<{ name: string; size: string }> }> = {
+      CSE5001: {
+        slides: 38,
+        videos: 16,
+        files: [
+          { name: '📄 第01讲_动态规划状态压缩.pdf', size: '14.2 MB' },
+          { name: '📄 第02讲_网络流与二分图匹配.pdf', size: '18.6 MB' },
+          { name: '📄 第03讲_近似算法与NP完全性.pdf', size: '22.1 MB' }
+        ]
+      },
+      SE3353: {
+        slides: 45,
+        videos: 18,
+        files: [
+          { name: '📄 第01讲_微服务架构设计与领域驱动.pdf', size: '16.8 MB' },
+          { name: '📄 第02讲_容器编排与DevOps实践.pdf', size: '21.4 MB' },
+          { name: '📄 第03讲_高并发系统容灾与高可用.pdf', size: '19.5 MB' }
+        ]
+      },
+      CS3502: {
+        slides: 62,
+        videos: 24,
+        files: [
+          { name: '📄 第01讲_操作系统内核与系统调用.pdf', size: '25.1 MB' },
+          { name: '📄 第02讲_虚拟内存管理与分页机制.pdf', size: '18.9 MB' },
+          { name: '📄 第03讲_分布式一致性Raft算法.pdf', size: '27.3 MB' }
+        ]
+      }
+    };
+
+    colCourseBtns.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const code = btn.getAttribute('data-course');
+        if (!code || !colCourseData[code]) return;
+
+        colCourseBtns.forEach((b) => {
+          b.className = 'col-course-item w-full text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium flex justify-between items-center cursor-pointer text-xs transition-colors';
+        });
+        btn.className = 'col-course-item w-full text-left p-2 rounded-lg bg-sjtu-blue text-white font-medium flex justify-between items-center cursor-pointer text-xs transition-colors';
+
+        const data = colCourseData[code];
+        if (colCatSlidesText) {
+          colCatSlidesText.textContent = `📁 课堂讲义与课件资料 (${data.slides})`;
+        }
+        if (colCatVideosText) {
+          colCatVideosText.textContent = `🎬 课堂双路超清录播 (${data.videos})`;
+        }
+        if (colFileList) {
+          colFileList.innerHTML = data.files
+            .map(
+              (f) => `
+            <div class="p-1.5 rounded flex items-center justify-between text-[11px] bg-blue-50/60 dark:bg-blue-950/30">
+              <span class="truncate">${f.name}</span>
+              <span class="text-slate-400 font-mono">${f.size}</span>
+            </div>
+          `
+            )
+            .join('');
+        }
       });
     });
   }

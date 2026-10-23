@@ -7,13 +7,7 @@ export interface Props {
 
 const { class: className = '' } = Astro.props;
 
-const corePillars = [
-  {
-    id: 'canvas',
-    title: 'Canvas 课程同步',
-    desc: '保留树状目录，批量下载课件、双路录播与大纲。',
-    icon: 'book-open' as const
-  },
+const subPillars = [
   {
     id: 'audit',
     title: '旁听视频规整',
@@ -43,33 +37,52 @@ const corePillars = [
 
 <section
   id="features"
-  class={`py-20 sm:py-28 relative overflow-hidden ${className}`}
-  aria-label="功能特性矩阵"
+  class={`py-20 sm:py-24 relative overflow-hidden ${className}`}
+  aria-label="功能特性"
 >
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <!-- Section Header -->
-    <div class="text-center max-w-2xl mx-auto mb-14 sm:mb-16">
+    <!-- Section Header (干净无副标题) -->
+    <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
       <h2
         class="text-3xl sm:text-4xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight"
       >
         专为交大教学体系打磨
       </h2>
-      <p class="mt-3 text-base text-slate-600 dark:text-slate-400">
-        一站式连接 Canvas、旁听录播、慕课、教务排课与云盘存储
-      </p>
     </div>
 
-    <!-- 5 Core Feature Cards Grid (Roomy 28-32px padding, clean typography, no nested badge boxes) -->
+    <!-- 5 核心能力 Bento 现代非对称网格 (左 1 大卡 + 右 4 小卡) -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+      <!-- 左侧大卡 (Canvas 课程同步)：在桌面端跨两行，视觉重心稳固 -->
+      <div
+        class="md:col-span-2 lg:col-span-1 lg:row-span-2 group rounded-3xl p-8 sm:p-9 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+      >
+        <div>
+          <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-6 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
+            <Icons name="book-open" class="w-6 h-6" />
+          </div>
+
+          <h3 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-3">
+            Canvas 课程全量同步
+          </h3>
+
+          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
+            保留树状目录，批量下载课件、大纲与双路超清录播；更可一键将课堂演讲切片自动提取并合并导出为单份高清 PDF 讲义。
+          </p>
+        </div>
+
+        <div class="pt-6 border-t border-slate-100 dark:border-slate-800/80 text-xs text-slate-400 dark:text-slate-500 font-medium">
+          Canvas 教学平台 · 核心基座
+        </div>
+      </div>
+
+      <!-- 右侧 2x2 四小卡 -->
       {
-        corePillars.map((feature, idx) => (
+        subPillars.map((feature) => (
           <div
-            class={`group rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between ${
-              idx === 0 ? 'md:col-span-2 lg:col-span-1' : ''
-            }`}
+            class="group rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
           >
             <div>
-              <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-6 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
+              <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-5 group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
                 <Icons name={feature.icon} class="w-5 h-5" />
               </div>
 
@@ -84,36 +97,6 @@ const corePillars = [
           </div>
         ))
       }
-
-      <!-- 演示卡片: 现代化三重视图自由切换 -->
-      <div class="rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between">
-        <div>
-          <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-6 text-sm font-mono">
-            ⊞
-          </div>
-          <h3 class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-2">
-            三重视图自由切换
-          </h3>
-          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
-            网格卡片看概况，列表模式看体积，分栏下钻浏览深层目录。
-          </p>
-        </div>
-      </div>
-
-      <!-- 演示卡片: 底栏悬浮动作岛 -->
-      <div class="rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-sm hover:shadow-lg hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between">
-        <div>
-          <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-6">
-            <Icons name="download" class="w-5 h-5" />
-          </div>
-          <h3 class="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-2">
-            底栏悬浮指挥动作岛
-          </h3>
-          <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
-            Apple HIG 交互语言，全局汇聚已选多门课程，一键批量备份。
-          </p>
-        </div>
-      </div>
     </div>
   </div>
 </section>

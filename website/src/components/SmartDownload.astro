@@ -7,13 +7,12 @@ export interface Props {
 }
 
 const { class: className = '' } = Astro.props;
-const FALLBACK_VERSION = 'v2.5.0';
 ---
 
 <div class={`relative w-full max-w-xl mx-auto flex flex-col items-center ${className}`}>
   <!-- Primary Download Actions Row -->
   <div class="w-full flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
-    <!-- Main Smart Download Button -->
+    <!-- Main Smart Download Button (纯粹单行大字，移除内嵌副标题) -->
     <a
       id="smart-download-btn"
       href={DEFAULT_FALLBACK_URL}
@@ -36,13 +35,10 @@ const FALLBACK_VERSION = 'v2.5.0';
         </span>
       </div>
 
-      <!-- Button Text and Version Subtitle -->
-      <div class="flex flex-col text-left">
+      <!-- Button Single-Line Text -->
+      <div class="flex items-center text-left">
         <span id="smart-download-text" class="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
           立即下载 Windows 版 (.exe)
-        </span>
-        <span id="smart-download-meta" class="text-xs text-blue-100/90 font-medium">
-          {FALLBACK_VERSION} 稳定版 · 适用于 Windows 10/11 (64位)
         </span>
       </div>
 
@@ -69,7 +65,7 @@ const FALLBACK_VERSION = 'v2.5.0';
     </button>
   </div>
 
-  <!-- Dropdown Menu / Drawer (All Platforms & Formats) -->
+  <!-- Dropdown Menu / Drawer (All Platforms & Formats，精简小字，干脆利落) -->
   <div
     id="platform-dropdown-menu"
     class="hidden absolute top-full left-0 right-0 mt-3 p-4 sm:p-5 rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-slate-200 dark:border-slate-800 shadow-2xl z-30 animate-in fade-in slide-in-from-top-2 duration-200"
@@ -91,13 +87,8 @@ const FALLBACK_VERSION = 'v2.5.0';
           <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-sjtu-navy dark:text-blue-400 group-hover:scale-105 transition-transform">
             <Icons name="windows" class="w-4 h-4" />
           </div>
-          <div class="text-left">
-            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
-              Windows 安装包 (.exe)
-            </div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">
-              推荐 Win 10 / 11 64位系统
-            </div>
+          <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
+            Windows 安装包 (.exe)
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
@@ -114,13 +105,8 @@ const FALLBACK_VERSION = 'v2.5.0';
           <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-sjtu-navy dark:text-blue-400 group-hover:scale-105 transition-transform">
             <Icons name="windows" class="w-4 h-4" />
           </div>
-          <div class="text-left">
-            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
-              Windows 便携 / MSI (.msi)
-            </div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">
-              免管理员权限 / 专用机房
-            </div>
+          <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
+            Windows 便携 / MSI (.msi)
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
@@ -138,13 +124,8 @@ const FALLBACK_VERSION = 'v2.5.0';
           <div class="p-2 rounded-lg bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200 group-hover:scale-105 transition-transform">
             <Icons name="apple" class="w-4 h-4" />
           </div>
-          <div class="text-left">
-            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
-              macOS Apple Silicon (.dmg)
-            </div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">
-              专为 M1/M2/M3/M4 原生加速
-            </div>
+          <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
+            macOS Apple Silicon (.dmg)
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
@@ -161,13 +142,8 @@ const FALLBACK_VERSION = 'v2.5.0';
           <div class="p-2 rounded-lg bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200 group-hover:scale-105 transition-transform">
             <Icons name="apple" class="w-4 h-4" />
           </div>
-          <div class="text-left">
-            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
-              macOS Intel 芯片 (.dmg)
-            </div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">
-              适用 Intel 架构 Mac 设备
-            </div>
+          <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
+            macOS Intel 芯片 (.dmg)
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
@@ -185,13 +161,8 @@ const FALLBACK_VERSION = 'v2.5.0';
           <div class="p-2 rounded-lg bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 group-hover:scale-105 transition-transform">
             <Icons name="linux" class="w-4 h-4" />
           </div>
-          <div class="text-left">
-            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
-              Linux 通用镜像 (.AppImage)
-            </div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">
-              适用 Ubuntu, Debian, Fedora, Arch
-            </div>
+          <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
+            Linux 通用镜像 (.AppImage)
           </div>
         </div>
         <span class="asset-size-badge text-[11px] font-mono px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300">
@@ -210,13 +181,8 @@ const FALLBACK_VERSION = 'v2.5.0';
           <div class="p-2 rounded-lg bg-purple-100 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 group-hover:scale-105 transition-transform">
             <Icons name="github" class="w-4 h-4" />
           </div>
-          <div class="text-left">
-            <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
-              历史版本与更新日志
-            </div>
-            <div class="text-xs text-slate-500 dark:text-slate-400">
-              前往 GitHub Releases 查看全部发布记录
-            </div>
+          <div class="text-sm font-semibold text-slate-800 dark:text-slate-100 group-hover:text-sjtu-blue transition-colors">
+            历史版本与更新记录
           </div>
         </div>
         <Icons name="external-link" class="w-4 h-4 text-slate-400 group-hover:text-sjtu-blue transition-colors" />
@@ -224,9 +190,9 @@ const FALLBACK_VERSION = 'v2.5.0';
     </div>
   </div>
 
-  <!-- Micro-trust Indicators (Security, JAccount, Compatibility) -->
-  <div class="mt-4 text-xs text-slate-500 dark:text-slate-400 font-medium text-center">
-    v2.5.0 · 支持 Windows / macOS / Linux · MIT 开源
+  <!-- Micro-trust Indicators (体积与支持平台合并为单行纯文本) -->
+  <div id="smart-download-subtext" class="mt-4 text-xs text-slate-500 dark:text-slate-400 font-medium text-center">
+    约 125.9 MB · 支持 Windows / macOS / Linux · MIT 开源
   </div>
 </div>
 
@@ -237,12 +203,12 @@ const FALLBACK_VERSION = 'v2.5.0';
   function initSmartDownload() {
     const downloadBtn = document.getElementById('smart-download-btn') as HTMLAnchorElement | null;
     const downloadText = document.getElementById('smart-download-text');
-    const downloadMeta = document.getElementById('smart-download-meta');
+    const downloadSubtext = document.getElementById('smart-download-subtext');
     const dropdownBtn = document.getElementById('platform-dropdown-btn') as HTMLButtonElement | null;
     const dropdownMenu = document.getElementById('platform-dropdown-menu');
     const dropdownIcon = document.getElementById('platform-dropdown-icon');
 
-    if (!downloadBtn || !downloadText || !downloadMeta) return;
+    if (!downloadBtn || !downloadText) return;
 
     // 1. Detect OS
     const osInfo: ClientOSInfo = detectClientOS(navigator.userAgent);
@@ -262,29 +228,31 @@ const FALLBACK_VERSION = 'v2.5.0';
 
     // Dynamic initial text based on detected OS
     let defaultLabel = 'Windows 版 (.exe)';
-    let defaultMeta = 'v2.5.0 稳定版 · 适用于 Windows 10/11 (64位)';
+    let defaultSize = '125.9';
 
     if (osInfo.os === 'mac') {
       showIcon(iconApple);
       const archLabel = osInfo.arch === 'arm64' ? 'Apple Silicon' : 'Intel 芯片';
       defaultLabel = `macOS 版 (${archLabel} .dmg)`;
-      defaultMeta = `v2.5.0 稳定版 · 适用于 macOS 11+ (${archLabel})`;
+      defaultSize = osInfo.arch === 'arm64' ? '135.7' : '130.5';
     } else if (osInfo.os === 'linux') {
       showIcon(iconLinux);
       defaultLabel = 'Linux 版 (.AppImage)';
-      defaultMeta = 'v2.5.0 稳定版 · 适用于主流 Linux 64位系统';
+      defaultSize = '147.5';
     } else if (osInfo.os === 'windows') {
       showIcon(iconWindows);
       defaultLabel = 'Windows 版 (.exe)';
-      defaultMeta = 'v2.5.0 稳定版 · 适用于 Windows 10/11 (64位)';
+      defaultSize = '125.9';
     } else {
       showIcon(iconDefault);
       defaultLabel = '客户端 (选择适用平台)';
-      defaultMeta = 'v2.5.0 稳定版 · 支持 Windows / macOS / Linux';
+      defaultSize = '125.9';
     }
 
     downloadText.textContent = `立即下载 ${defaultLabel}`;
-    downloadMeta.textContent = defaultMeta;
+    if (downloadSubtext) {
+      downloadSubtext.textContent = `约 ${defaultSize} MB · 支持 Windows / macOS / Linux · MIT 开源`;
+    }
 
     // 2. Quietly Fetch GitHub Latest Release
     fetch('https://api.github.com/repos/sunalan2025/sjtu-downloader-all-in-one/releases/latest')
@@ -300,15 +268,9 @@ const FALLBACK_VERSION = 'v2.5.0';
           downloadBtn.href = resolved.url;
         }
 
-        const sizeText = resolved.sizeMb ? ` · 约 ${resolved.sizeMb} MB` : '';
-        const sysText =
-          osInfo.os === 'mac'
-            ? `macOS 11+ (${osInfo.arch === 'arm64' ? 'Apple Silicon' : 'Intel'})`
-            : osInfo.os === 'linux'
-              ? 'Linux 64位'
-              : 'Windows 10/11 (64位)';
-
-        downloadMeta.textContent = `最新 ${resolved.version}${sizeText} · 适用于 ${sysText}`;
+        if (downloadSubtext && resolved.sizeMb) {
+          downloadSubtext.textContent = `约 ${resolved.sizeMb} MB · 支持 Windows / macOS / Linux · MIT 开源`;
+        }
 
         // Update dropdown links with real asset URLs and sizes if present
         if (release.assets && release.assets.length > 0) {
@@ -337,7 +299,7 @@ const FALLBACK_VERSION = 'v2.5.0';
           );
           updateLink('link-win-msi', (name) => name.endsWith('.msi') || (name.endsWith('.zip') && name.includes('win')));
           updateLink('link-mac-arm', (name) => name.endsWith('.dmg') && (name.includes('arm64') || name.includes('aarch64')));
-          updateLink('link-mac-intel', (name) => name.endsWith('.dmg') && !name.includes('arm64') && !name.includes('aarch64'));
+          updateLink('link-mac-intel', (name) => (name.endsWith('.dmg') && !name.includes('arm64') && !name.includes('aarch64')) || (name.endsWith('.zip') && name.includes('mac')));
           updateLink('link-linux-appimage', (name) => name.endsWith('.appimage'));
         }
       })
