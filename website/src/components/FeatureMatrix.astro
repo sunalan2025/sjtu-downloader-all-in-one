@@ -7,7 +7,7 @@ export interface Props {
 
 const { class: className = '' } = Astro.props;
 
-const features = [
+const corePillars = [
   {
     id: 'canvas',
     title: 'Canvas 教学全量提取',
@@ -17,12 +17,12 @@ const features = [
     glowColor: 'group-hover:bg-blue-500/10',
     tagColor: 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200/60 dark:border-blue-800/60',
     description:
-      '保留原始课件树状层级，自动归集各教学周附件与大纲补漏文件，支持“教师讲课”与“课件讲义”双路超清录播混流，更可将 PPT 课件导出为单份 PDF 讲义，方便随时批注温习。',
+      '完整保留原始课件树状层级，自动合并模块补漏资料与教学大纲附件。录播支持教师与 PPT 投影视角双路超清流，更可将课堂演讲切片自动提取并合并导出为单份高清 PDF 讲义与字幕。',
     highlights: [
       '原始课件树状层级完整保留，杜绝混乱平铺',
       '教学大纲与模块补漏附件智能自动归集',
-      '课堂录播提供“教师视角”与“课件视角”双路超清流',
-      'PPT 课件导出为单份 PDF 讲义，批注复习更高效'
+      '课堂录播提供教师视角与 PPT 投影视角双路超清视频流',
+      'PPT 课件导出为单份 PDF 讲义，支持导出 AI 字幕与大纲'
     ]
   },
   {
@@ -34,12 +34,12 @@ const features = [
     glowColor: 'group-hover:bg-purple-500/10',
     tagColor: 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200/60 dark:border-purple-800/60',
     description:
-      '突破教务选课时间限制，一键同步已选旁听课程。精准纠偏教务系统课次乱序问题，按开课真实日期轴规整排序，单选讲次或整门课程批量高速下载自由切换。',
+      '一键同步已选旁听课程的全部讲次。深度纠偏官方教务系统课次乱序问题，按开课真实日期时间轴重新递增归整标号，支持单选讲次或整门课程批量高速多线程下载。',
     highlights: [
-      '一键同步已选旁听课程，免去逐门手动检索',
-      '纠偏教务系统课次乱序，按真实开课日期归整排序',
-      '单选讲次与整门课程批量高速下载按需随选',
-      '精准匹配教师分段录播，无缝拼接与音画对齐'
+      '一键同步已选旁听课程，免去逐门手动翻查检索',
+      '纠偏教务系统课次乱序，按真实开课日期归整标号',
+      '教师视角与 PPT 投影视角自由单选或批量下载',
+      '内置专用 FFmpeg 二进制，自动音画封装与切片整合'
     ]
   },
   {
@@ -51,29 +51,46 @@ const features = [
     glowColor: 'group-hover:bg-cyan-500/10',
     tagColor: 'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300 border-cyan-200/60 dark:border-cyan-800/60',
     description:
-      '深度适配好大学在线上海交大优质慕课资源。支持章节知识点树状层级下钻，智能过滤无下载实体的练习测验，杜绝空文件夹与冗余无用项，只沉淀精炼教学干货。',
+      '深度适配好大学在线上海交大优质慕课资源。按章节与单元树状层级整齐下钻，智能过滤无下载实体的练习测验，杜绝空文件夹与无效项，沉淀纯粹教学干货。',
     highlights: [
-      '章节单元知识点树状层级下钻解析与归类',
-      '智能过滤无下载实体的练习测验，杜绝空白干扰',
-      '随堂拓展课件与超清视频一体化提取归档',
-      '离线学习友好，构建个人永久高质量课程库'
+      '章节与单元层级树状结构清晰下钻与分类',
+      '智能过滤无下载实体的随堂练习题与在线测验',
+      '随堂拓展课件资料与超清教学视频一体化归档',
+      '离线备考友好，轻松沉淀个人专属永久知识库'
+    ]
+  },
+  {
+    id: 'schedule',
+    title: '课表与日程管理',
+    badge: '教务系统 + Canvas DDL',
+    icon: 'download' as const,
+    gradient: 'from-amber-600 to-orange-600',
+    glowColor: 'group-hover:bg-amber-500/10',
+    tagColor: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200/60 dark:border-amber-800/60',
+    description:
+      '不仅是下载工具，更是学业助手。实时同步官方教务系统 1~18 周全学期排课，自动聚合 Canvas 作业截止日期（DDL）并附带四态预警提示，支持一键导出为通用 ICS 日历与 Excel 课表。',
+    highlights: [
+      '同步教务系统 1~18 周排课日历，教室节次一目了然',
+      'Canvas 作业截止 DDL 联动，即将截止与逾期实时预警',
+      '一键导出为通用 ICS 日历文件，无缝导入手机与电脑日历',
+      '支持导出格式工整的 Excel 课程表便于离线查阅'
     ]
   },
   {
     id: 'cloud',
-    title: '交大云盘深度集成',
+    title: '交大云盘全功能深度集成',
     badge: '云端双向存储',
     icon: 'cloud' as const,
     gradient: 'from-emerald-600 to-teal-600',
     glowColor: 'group-hover:bg-emerald-500/10',
     tagColor: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-800/60',
     description:
-      '直连交大云盘（pan.sjtu.edu.cn），免网页端登录直接管理。灵活提供“仅本地保存”、“仅上传云盘”与“本地与交大云盘双备份”三种模式，更享存储空间实时监控。',
+      '直连交大云盘（pan.sjtu.edu.cn），无需打开浏览器即可管理云端文件。支持仅本地保存、仅上传云盘（不占本地磁盘）以及本地与交大云盘双备份三种模式，云端配额实时掌握。',
     highlights: [
-      '提供“仅本地”、“仅上传”与“本地与交大云盘双备份”',
+      '支持“仅本地”、“仅上传”与“本地与交大云盘双备份”',
       '免网页端登录直接管理，单点登录快速绑定',
       '云盘存储空间实时监控，配额近限智能预警',
-      '云端文件夹重命名、新建与回收站直接操作'
+      '云端新建文件夹、重命名、移入回收站与文件直传拉回'
     ]
   }
 ];
@@ -97,72 +114,116 @@ const features = [
         class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 text-sjtu-blue dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/70 mb-4"
       >
         <Icons name="sparkles" class="w-3.5 h-3.5" />
-        <span>核心特性矩阵</span>
+        <span>五大核心支柱 · 完整功能矩阵</span>
       </div>
-      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-        专为交大教学场景设计的<br class="hidden sm:inline" />
-        <span class="bg-gradient-to-r from-sjtu-navy via-sjtu-blue to-sjtu-cyan bg-clip-text text-transparent">
-          四大核心能力
-        </span>
+
+      <h2
+        class="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight"
+      >
+        专为交大教学体系量身打磨
       </h2>
-      <p class="mt-4 sm:mt-5 text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed font-normal">
-        深度适配上海交通大学 Canvas、旁听课程、好大学在线与交大云盘，打造流畅高效的课程知识归档体验
+
+      <p class="mt-4 text-base sm:text-lg text-slate-600 dark:text-slate-400 leading-relaxed">
+        告别繁琐的手动单个另存与时序混乱。一站式连接 Canvas、旁听录播、慕课、教务排课与云盘存储，打造极致丝滑的学业资源管理闭环。
       </p>
     </div>
 
-    <!-- 2x2 Feature Cards Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
+    <!-- 5 Core Feature Cards Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
       {
-        features.map((feature) => (
+        corePillars.map((feature, idx) => (
           <div
-            class={`group relative rounded-2xl p-6 sm:p-8 bg-slate-50/70 dark:bg-sjtu-night/60 border border-slate-200/80 dark:border-slate-800/80 backdrop-blur-sm shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between overflow-hidden`}
+            class={`group relative rounded-3xl p-7 sm:p-8 border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/50 backdrop-blur-xl shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 flex flex-col justify-between overflow-hidden ${
+              idx === 0 ? 'md:col-span-2 lg:col-span-1' : ''
+            }`}
           >
-            <!-- Dynamic Hover Glow Background -->
+            <!-- Top Gradient Border Highlight -->
             <div
-              class={`absolute inset-0 transition-opacity duration-300 opacity-0 group-hover:opacity-100 pointer-events-none -z-10 ${feature.glowColor}`}
-              aria-hidden="true"
+              class={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${feature.gradient} opacity-80 group-hover:opacity-100 transition-opacity`}
+            />
+
+            <!-- Background Micro Glow on Hover -->
+            <div
+              class={`absolute inset-0 rounded-3xl transition-colors duration-300 -z-10 ${feature.glowColor}`}
             />
 
             <div>
-              <!-- Card Header: Icon & Category Badge -->
-              <div class="flex items-center justify-between mb-5">
+              <!-- Icon & Badge Header -->
+              <div class="flex items-center justify-between mb-6">
                 <div
-                  class={`w-12 h-12 rounded-xl bg-gradient-to-br ${feature.gradient} text-white flex items-center justify-center shadow-md shadow-sjtu-blue/10 group-hover:scale-105 transition-transform duration-200`}
+                  class={`w-12 h-12 rounded-2xl bg-gradient-to-br ${feature.gradient} text-white flex items-center justify-center shadow-md shadow-sjtu-blue/20 group-hover:scale-105 transition-transform`}
                 >
-                  <Icons name={feature.icon} class="w-6 h-6 text-white" />
+                  <Icons name={feature.icon} class="w-6 h-6" />
                 </div>
+
                 <span
-                  class={`text-xs font-semibold px-2.5 py-1 rounded-full border ${feature.tagColor}`}
+                  class={`px-3 py-1 rounded-full text-xs font-semibold border ${feature.tagColor}`}
                 >
                   {feature.badge}
                 </span>
               </div>
 
               <!-- Title & Description -->
-              <h3 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight mb-3 group-hover:text-sjtu-blue dark:group-hover:text-blue-400 transition-colors">
+              <h3 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight mb-3">
                 {feature.title}
               </h3>
-              <p class="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed mb-6">
+
+              <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-6">
                 {feature.description}
               </p>
             </div>
 
-            <!-- Highlights Checklist -->
-            <div class="pt-5 border-t border-slate-200/70 dark:border-slate-800/70">
-              <ul class="space-y-2.5 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
-                {feature.highlights.map((point) => (
-                  <li class="flex items-start gap-2.5">
-                    <span class="flex-shrink-0 mt-0.5 p-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-sjtu-blue dark:text-blue-400">
-                      <Icons name="check" class="w-3.5 h-3.5" />
-                    </span>
-                    <span class="leading-snug">{point}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <!-- Feature Bullet List -->
+            <ul class="space-y-2.5 pt-4 border-t border-slate-100 dark:border-slate-800/80 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
+              {feature.highlights.map((item) => (
+                <li class="flex items-start gap-2">
+                  <span class="text-sjtu-blue dark:text-blue-400 mt-0.5 shrink-0">
+                    <Icons name="check" class="w-4 h-4" />
+                  </span>
+                  <span class="leading-snug">{item}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         ))
       }
+    </div>
+
+    <!-- 🌟 客户端双王牌交互演示横幅 (三重视图 + 悬浮指挥动作岛) -->
+    <div class="mt-12 sm:mt-16 grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+      <!-- 演示卡片 1: 三重视图切换 -->
+      <div class="rounded-3xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-blue-50/50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900/80 dark:to-slate-800/60 p-6 sm:p-8 flex flex-col justify-between">
+        <div>
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/60 text-sjtu-blue dark:text-blue-300 mb-3">
+            <span>⊞ 网格 · ☰ 列表 · ◫ 分栏</span>
+          </div>
+          <h3 class="text-xl font-bold text-slate-900 dark:text-slate-100">现代化三重视图自由切换</h3>
+          <p class="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
+            满足不同场景的查阅习惯：大网格卡片一目了然看概况；列表模式精准掌握体积与更新日期；三栏分栏（Miller Columns）逐级层级下钻，文件流转高效顺畅。
+          </p>
+        </div>
+        <div class="mt-6 flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span>在上方客户端仿真器中点击右侧视图按钮即可实机预览</span>
+        </div>
+      </div>
+
+      <!-- 演示卡片 2: Apple HIG 悬浮指挥动作岛 -->
+      <div class="rounded-3xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900/80 dark:to-slate-800/60 p-6 sm:p-8 flex flex-col justify-between">
+        <div>
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 mb-3">
+            <span>Apple HIG 交互语言</span>
+          </div>
+          <h3 class="text-xl font-bold text-slate-900 dark:text-slate-100">底栏悬浮智能指挥动作岛</h3>
+          <p class="text-sm text-slate-600 dark:text-slate-400 mt-2 leading-relaxed">
+            告别传统工具界面到处散落的下载按钮。全局唯一的底栏悬浮指挥动作岛，实时汇聚已选多门课程的分类资源与体积，点选芯片自由组合，配合流速进度环优雅推进。
+          </p>
+        </div>
+        <div class="mt-6 flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+          <span class="w-2 h-2 rounded-full bg-sjtu-blue"></span>
+          <span>支持多课程跨门类一键批量打包与双备份</span>
+        </div>
+      </div>
     </div>
   </div>
 </section>

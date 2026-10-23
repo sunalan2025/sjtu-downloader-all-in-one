@@ -3,6 +3,8 @@ export type IconName =
   | 'Windows'
   | 'apple'
   | 'Apple'
+  | 'mac'
+  | 'Mac'
   | 'linux'
   | 'Linux'
   | 'download'
