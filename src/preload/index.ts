@@ -34,7 +34,8 @@ import type {
   JiaowuScheduleResult,
   IcsExportOptions,
   ScheduleEvent,
-  IcsExportResult
+  IcsExportResult,
+  PrivateWorkerTestResult
 } from '../shared/types'
 
 import pkg from '../../package.json'
@@ -456,7 +457,10 @@ const api = {
       ipcRenderer.invoke('schedule:fetch-jiaowu', xnm, xqm),
     exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]): Promise<IcsExportResult> =>
       ipcRenderer.invoke('schedule:export-ics', options, events)
-  }
+  },
+  /** 测试校内私有中转服务的连通性与健康状态 */
+  testPrivateWorker: (url: string, token?: string): Promise<PrivateWorkerTestResult> =>
+    ipcRenderer.invoke('private-worker:test', { url, token })
 }
 
 

@@ -897,10 +897,30 @@ export interface ScheduleApi {
   exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]) => Promise<IcsExportResult>
 }
 
+/** 校内私有中转服务配置 */
+export interface PrivateWorkerConfig {
+  /** 是否启用私有中转代传 */
+  enabled: boolean
+  /** 服务节点地址，如 http://127.0.0.1:6880 */
+  endpointUrl: string
+  /** 访问授权密钥 (Token)，选填 */
+  authToken?: string
+}
+
+/** 私有中转服务连接测试结果 */
+export interface PrivateWorkerTestResult {
+  success: boolean
+  latencyMs?: number
+  version?: string
+  serverName?: string
+  error?: string
+}
+
 export interface WindowApi {
   credentials: CredentialsApi
   cloudpan: CloudPanApi
   schedule: ScheduleApi
+  testPrivateWorker?: (url: string, token?: string) => Promise<PrivateWorkerTestResult>
   [key: string]: unknown
 }
 

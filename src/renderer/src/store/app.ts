@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption, VideoPerspective } from '@shared/types'
+import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption, VideoPerspective, PrivateWorkerConfig } from '@shared/types'
 import { DEFAULT_NAMING_TEMPLATE } from '@shared/utils'
 
 /** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
@@ -162,6 +162,10 @@ interface AppState {
   canvasExportMarkdown: boolean
   /** Canvas 课程作业与提交归档导出选项 */
   canvasAssignmentOptions: CanvasAssignmentExportOptions
+  /** 校内私有中转服务配置（实验性） */
+  privateWorkerConfig: PrivateWorkerConfig
+  /** 更新校内私有中转服务配置 */
+  setPrivateWorkerConfig: (cfg: Partial<PrivateWorkerConfig>) => void
   // setters
   /** 切换 AI 字幕与逐字稿导出开关（向下兼容向导与旧设置，联动更新 srt 和 markdown） */
   setCanvasExportAiTranscript: (on: boolean) => void
@@ -515,6 +519,18 @@ export const useAppStore = create<AppState>()(
         downloadAttachments: true,
         downloadSubmissions: true
       },
+      privateWorkerConfig: {
+        enabled: false,
+        endpointUrl: 'http://127.0.0.1:6880',
+        authToken: ''
+      },
+      setPrivateWorkerConfig: cfg =>
+        set(state => ({
+          privateWorkerConfig: {
+            ...state.privateWorkerConfig,
+            ...cfg
+          }
+        })),
       setHasCompletedInitialSetup: hasCompletedInitialSetup => set({ hasCompletedInitialSetup }),
       setLastSetupVersion: lastSetupVersion => set({ lastSetupVersion }),
       setShowSetupWizardModal: showSetupWizardModal => set({ showSetupWizardModal }),
@@ -1037,7 +1053,8 @@ export const useAppStore = create<AppState>()(
         canvasExportAiTranscript: state.canvasExportAiTranscript,
         canvasExportSrt: state.canvasExportSrt,
         canvasExportMarkdown: state.canvasExportMarkdown,
-        canvasAssignmentOptions: state.canvasAssignmentOptions
+        canvasAssignmentOptions: state.canvasAssignmentOptions,
+        privateWorkerConfig: state.privateWorkerConfig
       })
     }
   )

@@ -33,7 +33,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,mjs}\"",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "worker:start": "node scripts/private-worker-daemon.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",

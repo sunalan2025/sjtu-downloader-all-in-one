@@ -8,7 +8,7 @@ import {
 import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
 import { prefetchCloudConnection } from '../services/prefetch'
-import type { DownloadMode, VideoQualityOption, VideoPerspective, MaskedCredential } from '@shared/types'
+import type { DownloadMode, VideoQualityOption, VideoPerspective, MaskedCredential, PrivateWorkerTestResult } from '@shared/types'
 import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBreadcrumb, normalizeCloudPath, formatBytes } from '../../../shared/utils'
 import pkg from '../../../../package.json'
 
@@ -38,6 +38,31 @@ export function Settings({
   const setConcurrency = useAppStore(s => s.setConcurrency)
   const maxDownloadSpeedKBps = useAppStore(s => s.maxDownloadSpeedKBps)
   const setMaxDownloadSpeedKBps = useAppStore(s => s.setMaxDownloadSpeedKBps)
+  const storePrivateWorkerConfig = useAppStore(s => s.privateWorkerConfig)
+  const privateWorkerConfig = typeof useAppStore.getState === 'function' ? useAppStore.getState().privateWorkerConfig : storePrivateWorkerConfig
+  const setPrivateWorkerConfig = useAppStore(s => s.setPrivateWorkerConfig)
+  const [workerTesting, setWorkerTesting] = useState(false)
+  const [workerTestResult, setWorkerTestResult] = useState<PrivateWorkerTestResult | null>(null)
+
+  const handleTestWorker = async () => {
+    if (!window?.api?.testPrivateWorker) return
+    setWorkerTesting(true)
+    setWorkerTestResult(null)
+    try {
+      const res = await window.api.testPrivateWorker(
+        privateWorkerConfig.endpointUrl,
+        privateWorkerConfig.authToken
+      )
+      setWorkerTestResult(res)
+    } catch (err) {
+      setWorkerTestResult({
+        success: false,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    } finally {
+      setWorkerTesting(false)
+    }
+  }
   const storeVideoQuality = useAppStore(s => s.videoQualityOption)
   const setVideoQualityOption = useAppStore(s => s.setVideoQualityOption)
   const videoQualityOption = propVideoQuality ?? storeVideoQuality
@@ -1066,6 +1091,129 @@ export function Settings({
                             className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-surface-4 accent-accent"
                           />
                           <span className="text-2xs text-text-3 shrink-0 font-mono">100 MB/s</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {/* 校内私有中转服务（实验性） */}
+                  <div className="py-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1 max-w-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-text-1">校内私有中转服务（实验性）</span>
+                          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent border border-accent/20">免本地流量</span>
+                        </div>
+                        <div className="text-xs text-text-3 leading-relaxed">
+                          将云盘上传任务委托给校内私有工作机（如寝室 Linux、实验室主机）执行，实现本地 0 流量消耗与千兆对等内网加速
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={privateWorkerConfig.enabled}
+                        onClick={() => {
+                          setPrivateWorkerConfig({ enabled: !privateWorkerConfig.enabled })
+                          setWorkerTestResult(null)
+                        }}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                          privateWorkerConfig.enabled ? 'bg-accent' : 'bg-surface-4'
+                        }`}
+                        title="开启或关闭校内私有中转代传扩展"
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                            privateWorkerConfig.enabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {privateWorkerConfig.enabled && (
+                      <div className="rounded-2xl border border-bd/70 bg-surface-2/50 p-4 sm:p-5 space-y-4 animate-in fade-in duration-150">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* 节点地址输入 */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-medium text-text-2">服务节点地址</span>
+                              <span className="text-3xs text-text-4">支持内网 IP 或穿透域名</span>
+                            </div>
+                            <input
+                              type="text"
+                              value={privateWorkerConfig.endpointUrl}
+                              onChange={e => {
+                                setPrivateWorkerConfig({ endpointUrl: e.target.value })
+                                setWorkerTestResult(null)
+                              }}
+                              placeholder="http://127.0.0.1:6880"
+                              className="w-full rounded-xl border border-bd bg-surface-1 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+                            />
+                          </div>
+
+                          {/* 授权密钥输入 */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-medium text-text-2">访问授权密钥 (Token)</span>
+                              <span className="text-3xs text-text-4">选填 · 节点鉴权密码</span>
+                            </div>
+                            <input
+                              type="password"
+                              value={privateWorkerConfig.authToken || ''}
+                              onChange={e => {
+                                setPrivateWorkerConfig({ authToken: e.target.value })
+                                setWorkerTestResult(null)
+                              }}
+                              placeholder="可选，若服务配置了密钥请输入"
+                              className="w-full rounded-xl border border-bd bg-surface-1 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+                            />
+                          </div>
+                        </div>
+
+                        {/* 操作栏与测试反馈 */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-bd/40">
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={handleTestWorker}
+                              disabled={workerTesting || !privateWorkerConfig.endpointUrl.trim()}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-semibold text-text-1 shadow-2xs hover:bg-surface-2 active:scale-98 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <span>{workerTesting ? '⏳' : '⚡'}</span>
+                              <span>{workerTesting ? '正在探测服务...' : '测试服务连接'}</span>
+                            </button>
+
+                            {workerTestResult && (
+                              <div className="flex items-center gap-2 text-xs animate-in fade-in duration-150">
+                                {workerTestResult.success ? (
+                                  <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                                    <span>✓ 连接成功</span>
+                                    <span className="font-mono text-2xs bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold">
+                                      {workerTestResult.latencyMs}ms · v{workerTestResult.version}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 text-rose-500 font-medium max-w-sm sm:max-w-md">
+                                    <span>✕</span>
+                                    <span className="truncate" title={workerTestResult.error}>{workerTestResult.error}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-3xs text-text-4 font-mono select-none">
+                            单租户私有架构 · 凭证内存即焚
+                          </div>
+                        </div>
+
+                        {/* 本机极速自测说明 */}
+                        <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 dark:bg-sky-500/10 p-3 text-2xs text-text-3 space-y-1 leading-relaxed">
+                          <div className="font-semibold text-text-1 flex items-center gap-1.5">
+                            <span>💡</span>
+                            <span>本机极速自测指引</span>
+                          </div>
+                          <p className="pl-5">
+                            在终端项目根目录下运行 <code className="font-mono text-accent bg-surface-2 px-1 py-0.5 rounded border border-bd/60">npm run worker:start</code> 即可一键拉起轻量自测守护进程，默认监听端口为 6880。启动后点击上方「测试服务连接」即可就地验证连通性。
+                          </p>
                         </div>
                       </div>
                     )}

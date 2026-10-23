@@ -69,6 +69,7 @@ import {
   clearAllCredentials,
   getCredentialForFill
 } from './credentials'
+import { testPrivateWorker } from './private-worker'
 import {
   getConcurrency,
   setConcurrency,
@@ -584,6 +585,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('credentials:delete', (_e, id) => deleteCredential(id))
   ipcMain.handle('credentials:clear-all', () => clearAllCredentials())
   ipcMain.handle('credentials:get-fill-data', (_e, id) => getCredentialForFill(id))
+
+  // ─── 校内私有中转服务探测 (Private Worker) ─────────────────────────
+  ipcMain.handle('private-worker:test', (_e, payload?: { url?: string; token?: string }) => {
+    return testPrivateWorker(payload?.url || '', payload?.token)
+  })
 
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
     // 类似于好大学在线的 ensureCnmoocLogin，发起扫描前主动确保持有有效 JWT
