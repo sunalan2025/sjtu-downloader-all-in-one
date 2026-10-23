@@ -1,0 +1,168 @@
+---
+import Icons from './icons/Icons.astro';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+
+const features = [
+  {
+    id: 'canvas',
+    title: 'Canvas 教学全量提取',
+    badge: 'Canvas 教学平台',
+    icon: 'book-open' as const,
+    gradient: 'from-blue-600 to-indigo-600',
+    glowColor: 'group-hover:bg-blue-500/10',
+    tagColor: 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200/60 dark:border-blue-800/60',
+    description:
+      '保留原始课件树状层级，自动归集各教学周附件与大纲补漏文件，支持“教师讲课”与“课件讲义”双路超清录播混流，更可将 PPT 课件导出为单份 PDF 讲义，方便随时批注温习。',
+    highlights: [
+      '原始课件树状层级完整保留，杜绝混乱平铺',
+      '教学大纲与模块补漏附件智能自动归集',
+      '课堂录播提供“教师视角”与“课件视角”双路超清流',
+      'PPT 课件导出为单份 PDF 讲义，批注复习更高效'
+    ]
+  },
+  {
+    id: 'audit',
+    title: '旁听课程视频规整',
+    badge: '交大旁听系统',
+    icon: 'video' as const,
+    gradient: 'from-violet-600 to-purple-600',
+    glowColor: 'group-hover:bg-purple-500/10',
+    tagColor: 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200/60 dark:border-purple-800/60',
+    description:
+      '突破教务选课时间限制，一键同步已选旁听课程。精准纠偏教务系统课次乱序问题，按开课真实日期轴规整排序，单选讲次或整门课程批量高速下载自由切换。',
+    highlights: [
+      '一键同步已选旁听课程，免去逐门手动检索',
+      '纠偏教务系统课次乱序，按真实开课日期归整排序',
+      '单选讲次与整门课程批量高速下载按需随选',
+      '精准匹配教师分段录播，无缝拼接与音画对齐'
+    ]
+  },
+  {
+    id: 'cnmooc',
+    title: '好大学在线 (CNMOOC)',
+    badge: '优质慕课归档',
+    icon: 'graduation-cap' as const,
+    gradient: 'from-cyan-600 to-teal-600',
+    glowColor: 'group-hover:bg-cyan-500/10',
+    tagColor: 'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300 border-cyan-200/60 dark:border-cyan-800/60',
+    description:
+      '深度适配好大学在线上海交大优质慕课资源。支持章节知识点树状层级下钻，智能过滤无下载实体的练习测验，杜绝空文件夹与冗余无用项，只沉淀精炼教学干货。',
+    highlights: [
+      '章节单元知识点树状层级下钻解析与归类',
+      '智能过滤无下载实体的练习测验，杜绝空白干扰',
+      '随堂拓展课件与超清视频一体化提取归档',
+      '离线学习友好，构建个人永久高质量课程库'
+    ]
+  },
+  {
+    id: 'cloud',
+    title: '交大云盘深度集成',
+    badge: '云端双向存储',
+    icon: 'cloud' as const,
+    gradient: 'from-emerald-600 to-teal-600',
+    glowColor: 'group-hover:bg-emerald-500/10',
+    tagColor: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-800/60',
+    description:
+      '直连交大云盘（pan.sjtu.edu.cn），免网页端登录直接管理。灵活提供“仅本地保存”、“仅上传云盘”与“本地与交大云盘双备份”三种模式，更享存储空间实时监控。',
+    highlights: [
+      '提供“仅本地”、“仅上传”与“本地与交大云盘双备份”',
+      '免网页端登录直接管理，单点登录快速绑定',
+      '云盘存储空间实时监控，配额近限智能预警',
+      '云端文件夹重命名、新建与回收站直接操作'
+    ]
+  }
+];
+---
+
+<section
+  id="features"
+  class={`py-20 sm:py-28 relative overflow-hidden ${className}`}
+  aria-label="功能特性矩阵"
+>
+  <!-- Decorative Background Glow -->
+  <div
+    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-7xl h-[500px] bg-gradient-to-tr from-sjtu-blue/5 via-sjtu-cyan/5 to-transparent blur-3xl pointer-events-none -z-10"
+    aria-hidden="true"
+  ></div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Section Header -->
+    <div class="text-center max-w-3xl mx-auto mb-14 sm:mb-20">
+      <div
+        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 text-sjtu-blue dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/70 mb-4"
+      >
+        <Icons name="sparkles" class="w-3.5 h-3.5" />
+        <span>核心特性矩阵</span>
+      </div>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        专为交大教学场景设计的<br class="hidden sm:inline" />
+        <span class="bg-gradient-to-r from-sjtu-navy via-sjtu-blue to-sjtu-cyan bg-clip-text text-transparent">
+          四大核心能力
+        </span>
+      </h2>
+      <p class="mt-4 sm:mt-5 text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed font-normal">
+        深度适配上海交通大学 Canvas、旁听课程、好大学在线与交大云盘，打造流畅高效的课程知识归档体验
+      </p>
+    </div>
+
+    <!-- 2x2 Feature Cards Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
+      {
+        features.map((feature) => (
+          <div
+            class={`group relative rounded-2xl p-6 sm:p-8 bg-slate-50/70 dark:bg-sjtu-night/60 border border-slate-200/80 dark:border-slate-800/80 backdrop-blur-sm shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between overflow-hidden`}
+          >
+            <!-- Dynamic Hover Glow Background -->
+            <div
+              class={`absolute inset-0 transition-opacity duration-300 opacity-0 group-hover:opacity-100 pointer-events-none -z-10 ${feature.glowColor}`}
+              aria-hidden="true"
+            />
+
+            <div>
+              <!-- Card Header: Icon & Category Badge -->
+              <div class="flex items-center justify-between mb-5">
+                <div
+                  class={`w-12 h-12 rounded-xl bg-gradient-to-br ${feature.gradient} text-white flex items-center justify-center shadow-md shadow-sjtu-blue/10 group-hover:scale-105 transition-transform duration-200`}
+                >
+                  <Icons name={feature.icon} class="w-6 h-6 text-white" />
+                </div>
+                <span
+                  class={`text-xs font-semibold px-2.5 py-1 rounded-full border ${feature.tagColor}`}
+                >
+                  {feature.badge}
+                </span>
+              </div>
+
+              <!-- Title & Description -->
+              <h3 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight mb-3 group-hover:text-sjtu-blue dark:group-hover:text-blue-400 transition-colors">
+                {feature.title}
+              </h3>
+              <p class="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed mb-6">
+                {feature.description}
+              </p>
+            </div>
+
+            <!-- Highlights Checklist -->
+            <div class="pt-5 border-t border-slate-200/70 dark:border-slate-800/70">
+              <ul class="space-y-2.5 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
+                {feature.highlights.map((point) => (
+                  <li class="flex items-start gap-2.5">
+                    <span class="flex-shrink-0 mt-0.5 p-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-sjtu-blue dark:text-blue-400">
+                      <Icons name="check" class="w-3.5 h-3.5" />
+                    </span>
+                    <span class="leading-snug">{point}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

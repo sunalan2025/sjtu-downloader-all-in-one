@@ -1,0 +1,177 @@
+---
+import Icons from './icons/Icons.astro';
+import { REPO_OWNER, REPO_NAME } from '../utils/releaseInfo';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+
+const repoUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}`;
+const issuesUrl = `${repoUrl}/issues`;
+---
+
+<footer
+  class={`bg-white dark:bg-sjtu-dark border-t border-slate-200/80 dark:border-slate-800/80 text-slate-600 dark:text-slate-400 transition-colors duration-200 ${className}`}
+  aria-label="页脚版权与开源信息"
+>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-8 lg:gap-12">
+      <!-- Col 1: Brand Info -->
+      <div class="md:col-span-2">
+        <a
+          href="#top"
+          class="inline-flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-sjtu-blue rounded-lg mb-4"
+        >
+          <div
+            class="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-sjtu-navy to-sjtu-blue text-white shadow-sm group-hover:scale-105 transition-transform duration-200"
+          >
+            <Icons name="graduation-cap" class="w-4 h-4 text-white" />
+          </div>
+          <span class="font-bold text-base tracking-tight text-slate-900 dark:text-white group-hover:text-sjtu-blue transition-colors">
+            上海交通大学课程下载器
+          </span>
+        </a>
+        <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-md">
+          专为上海交通大学师生打造的课程资源与知识归档工具。一站式批量下载与备份 Canvas 课件录播、旁听课程视频、好大学在线，深度集成交大云盘双向存储。
+        </p>
+
+        <!-- Open Source Badge & License -->
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700/70">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            MIT License 开源授权
+          </span>
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700/70">
+            纯个人业余开源开发
+          </span>
+        </div>
+      </div>
+
+      <!-- Col 2: Fast Navigation -->
+      <div>
+        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-white mb-3">
+          快速导航
+        </h4>
+        <ul class="space-y-2 text-xs sm:text-sm">
+          <li>
+            <a
+              href="#features"
+              class="hover:text-sjtu-blue dark:hover:text-white transition-colors"
+            >
+              核心特性矩阵
+            </a>
+          </li>
+          <li>
+            <a
+              href="#security"
+              class="hover:text-sjtu-blue dark:hover:text-white transition-colors"
+            >
+              系统安全保障
+            </a>
+          </li>
+          <li>
+            <a
+              href="#download"
+              class="hover:text-sjtu-blue dark:hover:text-white transition-colors"
+            >
+              全平台安装包
+            </a>
+          </li>
+          <li>
+            <a
+              href="#faq"
+              class="hover:text-sjtu-blue dark:hover:text-white transition-colors"
+            >
+              常见问题 FAQ
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Col 3: Community & External Links -->
+      <div>
+        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-white mb-3">
+          开源社区与支持
+        </h4>
+        <ul class="space-y-2 text-xs sm:text-sm">
+          <li>
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 hover:text-sjtu-blue dark:hover:text-white transition-colors"
+            >
+              <Icons name="github" class="w-3.5 h-3.5" />
+              <span>GitHub 源码仓库</span>
+            </a>
+          </li>
+          <li>
+            <a
+              href={issuesUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 hover:text-sjtu-blue dark:hover:text-white transition-colors"
+            >
+              <span>提交建议或缺陷反馈</span>
+              <Icons name="external-link" class="w-3 h-3" />
+            </a>
+          </li>
+          <li>
+            <a
+              href={`${repoUrl}/releases`}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 hover:text-sjtu-blue dark:hover:text-white transition-colors"
+            >
+              <span>全部历史版本 Releases</span>
+            </a>
+          </li>
+          <li>
+            <a
+              href="https://hisunalan.me"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 hover:text-sjtu-blue dark:hover:text-white transition-colors"
+            >
+              <span>开发者主页 (hisunalan.me)</span>
+              <Icons name="external-link" class="w-3 h-3" />
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Community Tribute & Disclaimer Box -->
+    <div class="mt-10 pt-8 border-t border-slate-200/70 dark:border-slate-800/70">
+      <div class="rounded-xl p-4 sm:p-5 bg-slate-50 dark:bg-sjtu-night/40 border border-slate-200/60 dark:border-slate-800/60 text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+        <p class="font-semibold text-slate-700 dark:text-slate-300 mb-1">
+          免责声明与社区致敬：
+        </p>
+        <p>
+          本项目为个人课余独立开源开发，仅供上海交通大学在校师生学习交流与教学研究归档使用。本工具所下载的教学课件与录播视频知识产权均归原任课教师及上海交通大学所有，严禁将下载资源用于商业营利或未获授权的公开发布传播。
+        </p>
+        <p class="mt-2 text-slate-400 dark:text-slate-500">
+          向上海交通大学开源社区、网络信息中心及全体为数字化教学默默贡献力量的师生致敬！
+        </p>
+      </div>
+
+      <!-- Copyright Bar -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
+        <p>
+          © 2024-2026 sunalan2025 (Alan Sun). Released under the MIT License.
+        </p>
+        <div class="flex items-center gap-4">
+          <a
+            href="#top"
+            class="hover:text-sjtu-blue dark:hover:text-blue-400 transition-colors inline-flex items-center gap-1"
+          >
+            <span>回到顶部</span>
+            <Icons name="chevron-down" class="w-3.5 h-3.5 rotate-180" />
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>

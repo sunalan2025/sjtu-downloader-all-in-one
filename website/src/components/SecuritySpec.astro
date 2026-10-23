@@ -1,0 +1,168 @@
+---
+import Icons from './icons/Icons.astro';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+
+const securityPillars = [
+  {
+    title: '操作系统原生硬件保险库',
+    badge: '磁盘零明文',
+    tag: 'Windows DPAPI / macOS Keychain',
+    description:
+      '采用操作系统原生硬件安全加密服务（Windows DPAPI 与 macOS Keychain Services），用户 JAccount 凭据与云盘令牌均经过系统主密钥层层加锁，本地磁盘零明文，杜绝任何第三方恶意进程越权窥探。',
+    icon: 'shield' as const,
+    gradient: 'from-blue-600 to-indigo-600',
+    points: [
+      '凭据加密密钥与当前操作系统登录账户绑定，换机无法解密',
+      '无本地配置明文文件，绝不在日志或缓存中输出敏感账号密码',
+      '支持凭据安全别名管理，多账号随时一键无痕注销与切换'
+    ]
+  },
+  {
+    title: '安全防误操作：绝不自动提交表单',
+    badge: '严格人工确认',
+    tag: '零越权交互',
+    description:
+      '安全自动填充机制仅将已解密的用户名和密码填入对应输入框，坚决不自动触发表单提交。充分保障师生核对信息的充裕时间，从机制底层天然兼容 JAccount 二次安全验证（2FA）与图形验证码。',
+    icon: 'sparkles' as const,
+    gradient: 'from-purple-600 to-pink-600',
+    points: [
+      '仅做安全字段回填，表单提交权永远 100% 掌握在用户手中',
+      '完美兼容交我办扫码登录、短信动态码及硬件安全密钥验证',
+      '严格限制 Web 页面作用域，杜绝钓鱼网页与未知脚本劫持'
+    ]
+  },
+  {
+    title: '动态并发调度与智能跳过同名文件',
+    badge: '极速稳健传输',
+    tag: '1~16 档多线程 / 断点续传',
+    description:
+      '集成高性能下载调度引擎，支持 1~16 档动态并发调节与带宽限速流控。下载前自动比对本地与云端文件哈希与尺寸，智能跳过已有同名文件，省时省校园网流量，彻底告别重复下载。',
+    icon: 'check' as const,
+    gradient: 'from-emerald-600 to-teal-600',
+    points: [
+      '智能跳过已有同名文件，自动比对文件指纹与完整度',
+      '1~16 档多线程灵活调优，支持全速狂飙与办公静默限速',
+      '毫秒级断点续传与网络自愈重试，遇网络抖动不掉队'
+    ]
+  }
+];
+---
+
+<section
+  id="security"
+  class={`py-20 sm:py-28 relative overflow-hidden bg-slate-50/50 dark:bg-sjtu-night/30 border-y border-slate-200/60 dark:border-slate-800/60 ${className}`}
+  aria-label="系统安全与工程硬实力"
+>
+  <!-- Background Glow & Mesh -->
+  <div
+    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-6xl h-[450px] bg-gradient-to-r from-sjtu-blue/10 via-purple-500/5 to-sjtu-cyan/10 blur-3xl pointer-events-none -z-10"
+    aria-hidden="true"
+  ></div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Header -->
+    <div class="text-center max-w-3xl mx-auto mb-14 sm:mb-20">
+      <div
+        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/70 mb-4"
+      >
+        <Icons name="shield" class="w-3.5 h-3.5" />
+        <span>系统级安全背书</span>
+      </div>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        恪守隐私底线的<br class="hidden sm:inline" />
+        <span class="bg-gradient-to-r from-sjtu-blue via-purple-600 to-sjtu-cyan bg-clip-text text-transparent">
+          工程架构与安全保障
+        </span>
+      </h2>
+      <p class="mt-4 sm:mt-5 text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed font-normal">
+        专为高校严苛隐私要求设计，零明文凭据存储、绝不自动触发表单提交、多线程智能流控
+      </p>
+    </div>
+
+    <!-- 3 Pillars Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
+      {
+        securityPillars.map((pillar) => (
+          <div
+            class="group relative rounded-2xl p-6 sm:p-8 bg-white dark:bg-sjtu-dark/90 border border-slate-200/80 dark:border-slate-800/80 shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between"
+          >
+            <div>
+              <!-- Top Pill & Category -->
+              <div class="flex items-center justify-between mb-5">
+                <div
+                  class={`w-12 h-12 rounded-xl bg-gradient-to-br ${pillar.gradient} text-white flex items-center justify-center shadow-md shadow-sjtu-blue/10 group-hover:scale-105 transition-transform duration-200`}
+                >
+                  <Icons name={pillar.icon} class="w-6 h-6 text-white" />
+                </div>
+                <div class="flex flex-col items-end gap-1">
+                  <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                    {pillar.badge}
+                  </span>
+                  <span class="text-[11px] font-mono text-slate-400 dark:text-slate-500">
+                    {pillar.tag}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Title & Desc -->
+              <h3 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight mb-3 group-hover:text-sjtu-blue dark:group-hover:text-blue-400 transition-colors">
+                {pillar.title}
+              </h3>
+              <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-6">
+                {pillar.description}
+              </p>
+            </div>
+
+            <!-- Bullet Points -->
+            <div class="pt-5 border-t border-slate-100 dark:border-slate-800/70">
+              <ul class="space-y-2.5 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+                {pillar.points.map((point) => (
+                  <li class="flex items-start gap-2.5">
+                    <span class="flex-shrink-0 mt-0.5 p-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+                      <Icons name="check" class="w-3.5 h-3.5" />
+                    </span>
+                    <span class="leading-snug">{point}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+
+    <!-- Security Principle Summary Banner -->
+    <div
+      class="mt-10 sm:mt-12 rounded-2xl p-6 sm:p-8 bg-gradient-to-r from-blue-900/10 via-sjtu-navy/10 to-transparent dark:from-blue-950/40 dark:via-sjtu-night/50 border border-blue-200/60 dark:border-blue-900/40 flex flex-col md:flex-row items-center justify-between gap-6"
+    >
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-sjtu-navy/10 dark:bg-white/10 flex items-center justify-center flex-shrink-0 text-sjtu-navy dark:text-blue-300">
+          <Icons name="shield" class="w-6 h-6" />
+        </div>
+        <div>
+          <h4 class="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+            100% 开源透明 · 严格遵循上海交通大学网络与信息安全规范
+          </h4>
+          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-1">
+            所有核心网络交互、加密存储与下载协议源码在 GitHub 完全公开，无任何闭源后门或外部遥测收集。
+          </p>
+        </div>
+      </div>
+      <a
+        href="https://github.com/sunalan2025/sjtu-downloader-all-in-one"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-white dark:bg-slate-800 text-slate-800 dark:text-white border border-slate-200 dark:border-slate-700 shadow-sm hover:border-sjtu-blue hover:text-sjtu-blue dark:hover:text-blue-400 transition-colors whitespace-nowrap"
+      >
+        <Icons name="github" class="w-4 h-4" />
+        <span>审计 GitHub 源代码</span>
+        <Icons name="external-link" class="w-3.5 h-3.5 opacity-60" />
+      </a>
+    </div>
+  </div>
+</section>

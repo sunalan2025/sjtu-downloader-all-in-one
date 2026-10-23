@@ -1,0 +1,266 @@
+---
+import Icons from './icons/Icons.astro';
+import { REPO_OWNER, REPO_NAME } from '../utils/releaseInfo';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+
+const currentVersion = 'v2.5.0';
+const releaseBaseUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
+
+const platforms = [
+  {
+    name: 'Windows',
+    icon: 'windows' as const,
+    systemReq: 'Windows 10 / 11 (64-bit)',
+    badgeColor: 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+    packages: [
+      {
+        format: '.exe 安装包',
+        filename: `sjtu-course-downloader-${currentVersion.replace('v', '')}-win-x64.exe`,
+        tag: '官方推荐',
+        isPrimary: true,
+        desc: '便携一键安装向导，桌面与开始菜单快捷方式自动创建，开箱即用。'
+      },
+      {
+        format: '.msi 系统包',
+        filename: `sjtu-course-downloader-${currentVersion.replace('v', '')}-win-x64.msi`,
+        tag: '企业与机房',
+        isPrimary: false,
+        desc: '标准 Windows Installer 格式，支持实验室、机房批量静默部署与组策略下发。'
+      }
+    ]
+  },
+  {
+    name: 'macOS',
+    icon: 'apple' as const,
+    systemReq: 'macOS 11.0 Big Sur 或更高版本',
+    badgeColor: 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+    packages: [
+      {
+        format: 'Apple Silicon (.dmg)',
+        filename: `sjtu-course-downloader-${currentVersion.replace('v', '')}-mac-arm64.dmg`,
+        tag: 'M 系列芯片推荐',
+        isPrimary: true,
+        desc: '专为 Apple Silicon 原生优化（M1 / M2 / M3 / M4 系列），功耗极低、秒速启动。'
+      },
+      {
+        format: 'Intel 架构 (.dmg)',
+        filename: `sjtu-course-downloader-${currentVersion.replace('v', '')}-mac-x64.dmg`,
+        tag: 'x86_64',
+        isPrimary: false,
+        desc: '经典 Intel 处理器 Mac 机型专属构建包，兼容性全面且稳定。'
+      },
+      {
+        format: '绿色免安装 (.zip)',
+        filename: `sjtu-course-downloader-${currentVersion.replace('v', '')}-mac-universal.zip`,
+        tag: '便携解压即用',
+        isPrimary: false,
+        desc: '直接解压即可运行，无需挂载磁盘镜像，方便移动存储携带。'
+      }
+    ]
+  },
+  {
+    name: 'Linux',
+    icon: 'linux' as const,
+    systemReq: '主流 64 位发行版 (GLIBC 2.28+)',
+    badgeColor: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+    packages: [
+      {
+        format: '.AppImage',
+        filename: `sjtu-course-downloader-${currentVersion.replace('v', '')}-linux-x86_64.AppImage`,
+        tag: '独立免安装',
+        isPrimary: true,
+        desc: '全环境自包含独立运行包，开箱即用，支持 Ubuntu / Debian / Fedora / Arch / openSUSE。'
+      }
+    ]
+  }
+];
+---
+
+<section
+  id="download"
+  class={`py-20 sm:py-28 relative overflow-hidden ${className}`}
+  aria-label="下载矩阵与环境准入指引"
+>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Header -->
+    <div class="text-center max-w-3xl mx-auto mb-14 sm:mb-16">
+      <div
+        class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/70 text-sjtu-blue dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/70 mb-4"
+      >
+        <Icons name="download" class="w-3.5 h-3.5" />
+        <span>全平台下载中心</span>
+      </div>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        全平台安装包与<br class="hidden sm:inline" />
+        <span class="bg-gradient-to-r from-sjtu-navy via-sjtu-blue to-sjtu-cyan bg-clip-text text-transparent">
+          适用环境矩阵
+        </span>
+      </h2>
+      <p class="mt-4 sm:mt-5 text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed font-normal">
+        跨 Windows、macOS (Apple Silicon / Intel) 与 Linux 全平台原生支持，内置专用解码引擎开箱即用
+      </p>
+    </div>
+
+    <!-- 3 Operating System Cards Matrix -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 mb-14">
+      {
+        platforms.map((platform) => (
+          <div class="flex flex-col rounded-2xl bg-slate-50/70 dark:bg-sjtu-night/60 border border-slate-200/80 dark:border-slate-800/80 shadow-sm overflow-hidden hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-colors">
+            <!-- Platform Header -->
+            <div class="p-5 sm:p-6 border-b border-slate-200/70 dark:border-slate-800/70 bg-white/70 dark:bg-sjtu-dark/60 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white flex items-center justify-center">
+                  <Icons name={platform.icon} class="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 class="text-lg font-bold text-slate-900 dark:text-white">
+                    {platform.name}
+                  </h3>
+                  <span class="text-xs text-slate-500 dark:text-slate-400">
+                    {platform.systemReq}
+                  </span>
+                </div>
+              </div>
+              <span class={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${platform.badgeColor}`}>
+                {currentVersion}
+              </span>
+            </div>
+
+            <!-- Package Options List -->
+            <div class="p-5 sm:p-6 flex-1 flex flex-col justify-between gap-4">
+              <div class="space-y-4">
+                {platform.packages.map((pkg) => (
+                  <div class="p-3.5 rounded-xl bg-white dark:bg-sjtu-dark/80 border border-slate-200/70 dark:border-slate-800/70 hover:border-sjtu-blue/50 dark:hover:border-blue-700/60 transition-colors">
+                    <div class="flex items-center justify-between gap-2 mb-1.5">
+                      <span class="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        {pkg.format}
+                      </span>
+                      <span
+                        class={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                          pkg.isPrimary
+                            ? 'bg-blue-100 dark:bg-blue-900/60 text-sjtu-blue dark:text-blue-300 font-semibold'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        {pkg.tag}
+                      </span>
+                    </div>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
+                      {pkg.desc}
+                    </p>
+                    <a
+                      href={releaseBaseUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class={`inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-lg text-xs font-semibold transition-all duration-200 ${
+                        pkg.isPrimary
+                          ? 'bg-gradient-to-r from-sjtu-navy to-sjtu-blue text-white shadow-sm hover:shadow-md hover:opacity-95'
+                          : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200'
+                      }`}
+                    >
+                      <Icons name="download" class="w-3.5 h-3.5" />
+                      <span>下载 {pkg.format}</span>
+                    </a>
+                  </div>
+                ))}
+              </div>
+
+              <!-- SHA256 hint -->
+              <div class="pt-2 text-center">
+                <a
+                  href={`${releaseBaseUrl}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-[11px] text-slate-400 hover:text-sjtu-blue dark:hover:text-blue-400 transition-colors inline-flex items-center gap-1"
+                >
+                  <span>查看 SHA-256 校验和与完整 Release 资产</span>
+                  <Icons name="external-link" class="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+
+    <!-- 3 Essential Guidelines / Pre-flight Advisory Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Advisory 1: SJTU VPN Network Requirement -->
+      <div
+        class="rounded-2xl p-5 sm:p-6 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/40 flex flex-col justify-between"
+      >
+        <div>
+          <div class="flex items-center gap-2.5 text-amber-800 dark:text-amber-300 font-bold text-sm sm:text-base mb-2.5">
+            <span class="p-1 rounded-lg bg-amber-200/60 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300">
+              <Icons name="shield" class="w-4 h-4" />
+            </span>
+            <span>校园网络环境与 VPN 准入核心提示</span>
+          </div>
+          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            根据交大网络安全策略，Canvas 课堂录播及部分校内系统受校园网边界保护。<strong class="text-slate-900 dark:text-white">校外网络（家用宽带/移动热点）必须连接交大 EasyConnect VPN</strong>（vpn.sjtu.edu.cn）；在校内请连接 <code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-[11px] font-mono">SJTU</code> 或 <code class="px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-[11px] font-mono">SJTU-Premium</code>。
+          </p>
+        </div>
+        <div class="mt-4 pt-3 border-t border-amber-200/60 dark:border-amber-800/30">
+          <a
+            href="https://net.sjtu.edu.cn"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-xs font-semibold text-amber-800 dark:text-amber-300 hover:underline inline-flex items-center gap-1"
+          >
+            <span>交大网络信息中心 VPN 指南</span>
+            <Icons name="external-link" class="w-3 h-3" />
+          </a>
+        </div>
+      </div>
+
+      <!-- Advisory 2: Windows SmartScreen Guide -->
+      <div
+        class="rounded-2xl p-5 sm:p-6 bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-800/40 flex flex-col justify-between"
+      >
+        <div>
+          <div class="flex items-center gap-2.5 text-blue-900 dark:text-blue-300 font-bold text-sm sm:text-base mb-2.5">
+            <span class="p-1 rounded-lg bg-blue-200/60 dark:bg-blue-900/60 text-sjtu-blue dark:text-blue-300">
+              <Icons name="sparkles" class="w-4 h-4" />
+            </span>
+            <span>Windows SmartScreen 提示应对指南</span>
+          </div>
+          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            因安装包由开源独立自签发布，Windows 首次运行可能出现“Windows 已保护你的电脑”提示。请点击界面上的<strong class="text-slate-900 dark:text-white">「更多信息」</strong>，然后点击<strong class="text-slate-900 dark:text-white">「仍要运行」</strong>即可。代码 100% 开源无后门，请安心运行。
+          </p>
+        </div>
+        <div class="mt-4 pt-3 border-t border-blue-200/60 dark:border-blue-800/30">
+          <span class="text-xs font-semibold text-sjtu-blue dark:text-blue-300">
+            仅首次启动需要确认 · 后续启动不再提示
+          </span>
+        </div>
+      </div>
+
+      <!-- Advisory 3: Built-in FFmpeg Instruction -->
+      <div
+        class="rounded-2xl p-5 sm:p-6 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 flex flex-col justify-between"
+      >
+        <div>
+          <div class="flex items-center gap-2.5 text-emerald-900 dark:text-emerald-300 font-bold text-sm sm:text-base mb-2.5">
+            <span class="p-1 rounded-lg bg-emerald-200/60 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+              <Icons name="video" class="w-4 h-4" />
+            </span>
+            <span>内置专版 FFmpeg 音视频引擎</span>
+          </div>
+          <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            安装包已全量内置各平台专用的 FFmpeg 媒体处理程序，用于录播流合成、音画同步与课件格式转换。<strong class="text-slate-900 dark:text-white">无需手动在系统中安装任何额外依赖或配置复杂的环境变量</strong>，装完即用。
+          </p>
+        </div>
+        <div class="mt-4 pt-3 border-t border-emerald-200/60 dark:border-emerald-800/30">
+          <span class="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+            零多余环境配置 · 真正的开箱即用
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
