@@ -105,7 +105,7 @@ export function CourseHoverPopover({
         </div>
 
         {/* 底部操作提示 */}
-        <div className="pt-1.5 border-t border-bd/60 flex items-center justify-between text-3xs text-text-4">
+        <div className="pt-1.5 border-t border-bd flex items-center justify-between text-3xs text-text-4">
           <span className="text-accent/90 font-medium">💡 点击查看完整课时与作业</span>
           <span>Esc 关闭</span>
         </div>

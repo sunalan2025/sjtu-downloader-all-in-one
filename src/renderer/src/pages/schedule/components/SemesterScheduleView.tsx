@@ -477,7 +477,7 @@ export function SemesterScheduleView({
                               </div>
 
                               {/* 底部学分与详情链接 */}
-                              <div className="flex items-center justify-between pt-1 border-t border-bd/20 text-3xs text-text-4">
+                              <div className="flex items-center justify-between pt-1 border-t border-bd text-3xs text-text-4">
                                 <span>
                                   {item.xf ? `⭐ ${item.xf} 学分` : item.badge || '选修排课'}
                                 </span>
@@ -557,7 +557,7 @@ export function SemesterScheduleView({
                       </div>
                     </div>
 
-                    <div className="mt-4 border-t border-bd/40 pt-3">
+                    <div className="mt-4 border-t border-bd pt-3">
                       <button
                         type="button"
                         onClick={() => toggleCourseExpand(c.courseName)}
@@ -574,7 +574,7 @@ export function SemesterScheduleView({
                           {c.events.map((ev, idx) => (
                             <div
                               key={ev.id}
-                              className="flex items-center justify-between py-1 px-1.5 text-2xs border-b border-bd/20 last:border-0"
+                              className="flex items-center justify-between py-1 px-1.5 text-2xs border-b border-bd last:border-0"
                             >
                               <span className="font-medium text-text-2">第 {idx + 1} 讲</span>
                               <span className="font-mono text-text-3">
@@ -651,7 +651,7 @@ export function SemesterScheduleView({
                     </div>
                   </div>
 
-                  <div className="mt-4 border-t border-bd/40 pt-3 text-2xs text-text-3 space-y-1">
+                  <div className="mt-4 border-t border-bd pt-3 text-2xs text-text-3 space-y-1">
                     <div className="font-mono text-accent">🗓️ {c.periodAndWeeks}</div>
                     {c.jxbmc && <div className="truncate opacity-75">班级: {c.jxbmc}</div>}
                   </div>

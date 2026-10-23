@@ -322,13 +322,13 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
   return (
     <div className="space-y-2">
       {hasLectures && onSelectPerspective && !isAudioOnly && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-2/60 px-2.5 py-1.5 border border-bd/40 text-xs select-none">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-2/60 px-2.5 py-1.5 border border-bd text-xs select-none">
           <span className="text-2xs font-semibold text-text-3">🎬 视角筛选</span>
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => onSelectPerspective('all')}
-              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+              className="rounded-md border border-bd bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
               title="同时勾选教师视角与 PPT 投屏"
             >
               全选
@@ -336,7 +336,7 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
             <button
               type="button"
               onClick={() => onSelectPerspective('teacher')}
-              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+              className="rounded-md border border-bd bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
               title="仅勾选教师机位画面与音频"
             >
               仅教师
@@ -344,7 +344,7 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
             <button
               type="button"
               onClick={() => onSelectPerspective('ppt')}
-              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+              className="rounded-md border border-bd bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
               title="仅勾选 PPT 幻灯片屏幕投屏"
             >
               仅 PPT
@@ -353,7 +353,7 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
             <button
               type="button"
               onClick={() => onSelectPerspective('audio')}
-              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
+              className="rounded-md border border-bd bg-surface-1 px-2 py-0.5 text-2xs text-text-2 hover:border-accent hover:text-accent transition-colors cursor-pointer"
               title="切换为仅提取原声音频：自动只选教师视角，PPT 投屏无独立音频流将被禁用"
             >
               仅音频
@@ -361,7 +361,7 @@ const VideoCategoryExtra = memo(function VideoCategoryExtra({
             <button
               type="button"
               onClick={() => onSelectPerspective('none')}
-              className="rounded-md border border-bd/60 bg-surface-1 px-2 py-0.5 text-2xs text-warning/80 hover:border-warning hover:text-warning transition-colors cursor-pointer"
+              className="rounded-md border border-bd bg-surface-1 px-2 py-0.5 text-2xs text-warning/80 hover:border-warning hover:text-warning transition-colors cursor-pointer"
               title="取消该课程全部视频勾选"
             >
               清空
@@ -2125,7 +2125,7 @@ export function CanvasBrowser() {
               <TriCheckbox state={courseTriState} size="sm" />
               <span>{courseTriState === 'all' ? '取消全选' : '全选所有课程'}</span>
             </button>
-            <div className="h-4 w-px bg-bd/70" />
+            <div className="h-4 w-px bg-bd" />
             <button
               type="button"
               onClick={() => setBatchMenuOpen(prev => !prev)}
@@ -2139,7 +2139,7 @@ export function CanvasBrowser() {
 
             {batchMenuOpen && (
               <div className="absolute right-0 top-full z-50 mt-1.5 w-60 rounded-2xl border border-bd bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-xl animate-fadeIn text-xs">
-                <div className="px-2.5 py-1.5 text-2xs font-semibold text-text-3 border-b border-bd/40 mb-1">
+                <div className="px-2.5 py-1.5 text-2xs font-semibold text-text-3 border-b border-bd mb-1">
                   当前筛选范围批量选择 · {filteredCourses.length} 门课程
                 </div>
                 <button
@@ -2240,7 +2240,7 @@ export function CanvasBrowser() {
                     <div className="text-2xs text-text-3">勾选演示幻灯片讲义</div>
                   </div>
                 </button>
-                <div className="my-1 border-t border-bd/40" />
+                <div className="my-1 border-t border-bd" />
                 <button
                   type="button"
                   onClick={() => {

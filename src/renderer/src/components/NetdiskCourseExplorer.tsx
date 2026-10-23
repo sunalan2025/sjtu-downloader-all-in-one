@@ -553,7 +553,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   return (
     <div className="flex h-full w-full flex-col relative">
       {/* 顶部面包屑与层级回退条 */}
-      <div className="flex items-center justify-between border-b border-bd/70 bg-surface-1/60 px-4 py-2 backdrop-blur">
+      <div className="flex items-center justify-between border-b border-bd bg-surface-1/60 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-3">
           {viewMode !== 'column' && navState.level !== 'root' && (
             <button
@@ -940,7 +940,7 @@ export function VideoPerspectiveFilterPills({
       role="radiogroup"
       aria-label="视频视角筛选"
       data-testid="video-filter-pills"
-      className="inline-flex items-center rounded-lg border border-bd/80 bg-surface-2/60 p-0.5 text-xs select-none shadow-2xs"
+      className="inline-flex items-center rounded-lg border border-bd bg-surface-2/60 p-0.5 text-xs select-none shadow-2xs"
     >
       <button
         type="button"
@@ -1183,7 +1183,7 @@ export function GridView({
               const termState = getTermTriState(group.items)
               return (
                 <div key={group.term} className="space-y-3">
-                  <div className="flex items-center justify-between border-b border-bd/60 pb-2 px-1">
+                  <div className="flex items-center justify-between border-b border-bd pb-2 px-1">
                     <div className="flex items-center gap-2.5">
                       <span
                         role="checkbox"
@@ -1559,14 +1559,14 @@ export function ListView({
               <th className="py-2.5 px-4 font-semibold text-right">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-bd/50">
+          <tbody className="divide-y divide-bd">
             {termGroups ? (
               termGroups.map(group => {
                 const termState = getTermTriState(group.items)
                 return (
                   <Fragment key={group.term}>
                     <tr className="bg-surface-2/70 font-semibold text-text-2">
-                      <td colSpan={5} className="py-2 px-4 border-y border-bd/40">
+                      <td colSpan={5} className="py-2 px-4 border-y border-bd">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <span
@@ -1630,7 +1630,7 @@ export function ListView({
               <th className="py-2.5 px-4 font-semibold text-right">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-bd/50">
+          <tbody className="divide-y divide-bd">
             {currentCourse.categories.map(cat => (
               <tr
                 key={cat.id}
@@ -1701,7 +1701,7 @@ export function ListView({
                 <th className="py-2.5 px-4 font-semibold text-right">状态 / 操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-bd/50">
+            <tbody className="divide-y divide-bd">
               {displayedItems.map(item => (
                 <tr
                   key={item.id}
@@ -1732,7 +1732,7 @@ export function ListView({
                         {item.name}
                       </span>
                       {item.disabledReason && (
-                        <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                        <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd font-sans">
                           {item.disabledReason}
                         </span>
                       )}
@@ -1954,26 +1954,26 @@ export function CourseOverviewInspector({
   return (
     <div
       data-testid="course-overview-inspector"
-      className={`flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full relative animate-fadeIn ${hasSelection ? 'pb-24' : ''}`}
+      className={`flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd select-none h-full relative animate-fadeIn ${hasSelection ? 'pb-24' : ''}`}
     >
       {/* 顶部标题区 */}
-      <div className="pb-3 border-b border-bd/60 shrink-0">
+      <div className="pb-3 border-b border-bd shrink-0">
         <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
           <span className="text-2xs font-semibold text-accent bg-accent/10 px-2 py-0.5 rounded-full border border-accent/20">
             {category ? '分类与课程概览' : '课程概览'}
           </span>
           {course.term && (
-            <span className="text-2xs font-mono text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd/40">
+            <span className="text-2xs font-mono text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd">
               {course.term}
             </span>
           )}
           {course.code && (
-            <span className="text-2xs font-mono text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd/40">
+            <span className="text-2xs font-mono text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd">
               {course.code}
             </span>
           )}
           {course.teacher && (
-            <span className="text-2xs text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd/40">
+            <span className="text-2xs text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd">
               👨‍🏫 {course.teacher}
             </span>
           )}
@@ -1996,14 +1996,14 @@ export function CourseOverviewInspector({
       </div>
 
       {/* 资源结构与容量预估卡片 */}
-      <div className="my-3 rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 space-y-2 shrink-0 shadow-2xs">
+      <div className="my-3 rounded-xl border border-bd bg-surface-2/60 p-3.5 space-y-2 shrink-0 shadow-2xs">
         <div className="flex items-center justify-between text-xs">
           <span className="text-text-3 font-medium">预估总容量</span>
           <span className="font-mono text-sm font-bold text-accent" data-testid="course-estimated-size">
             {estimated.formattedSize}
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-bd/40 text-xs">
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-bd text-xs">
           <div className="flex flex-col">
             <span className="text-text-4 text-2xs">课件资料</span>
             <span className="text-text-1 font-mono font-semibold">
@@ -2032,7 +2032,7 @@ export function CourseOverviewInspector({
       </div>
 
       {/* 偏好状态只读概览（统一在设置页修改） */}
-      <div className="my-2 rounded-xl border border-bd/80 bg-surface-2/40 p-3 space-y-1.5 shrink-0 text-2xs" data-testid="unified-preferences-summary">
+      <div className="my-2 rounded-xl border border-bd bg-surface-2/40 p-3 space-y-1.5 shrink-0 text-2xs" data-testid="unified-preferences-summary">
         {breakdown.hasVideos && (
           <div className="flex items-center justify-between text-text-2">
             <span className="flex items-center gap-1.5 font-medium">
@@ -2051,7 +2051,7 @@ export function CourseOverviewInspector({
             {isPptPdfOn ? '已开启' : '未开启'}
           </span>
         </div>
-        <div className="pt-1 text-3xs text-text-4 border-t border-bd/30 text-right">
+        <div className="pt-1 text-3xs text-text-4 border-t border-bd text-right">
           如需修改请前往「设置 - 课件与多媒体」
         </div>
       </div>
@@ -2136,10 +2136,10 @@ export function FileDetailInspector({
   return (
     <div
       data-testid="file-detail-inspector"
-      className={`flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full relative animate-fadeIn ${hasSelection ? 'pb-24' : ''}`}
+      className={`flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd select-none h-full relative animate-fadeIn ${hasSelection ? 'pb-24' : ''}`}
     >
       {/* 顶部标题区与关闭按钮 */}
-      <div className="flex items-center justify-between pb-3 border-b border-bd/60 shrink-0">
+      <div className="flex items-center justify-between pb-3 border-b border-bd shrink-0">
         <span className="text-xs font-bold text-text-2">课件详情与预览</span>
         <button
           type="button"
@@ -2163,14 +2163,14 @@ export function FileDetailInspector({
             </div>
           </div>
         ) : isAudio ? (
-          <div className="w-full rounded-xl bg-surface-2 p-5 flex flex-col items-center border border-bd/60 shadow-xs">
+          <div className="w-full rounded-xl bg-surface-2 p-5 flex flex-col items-center border border-bd shadow-xs">
             <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-2 shadow-inner">
               🎵
             </div>
             <span className="text-xs font-medium text-text-2">音频课件</span>
           </div>
         ) : (
-          <div className="w-full rounded-xl bg-surface-2/60 p-6 flex flex-col items-center justify-center border border-bd/60 shadow-xs">
+          <div className="w-full rounded-xl bg-surface-2/60 p-6 flex flex-col items-center justify-center border border-bd shadow-xs">
             <div className="scale-125 mb-2">
               <FileTypeBadge filename={item.name} type={item.type} />
             </div>
@@ -2187,7 +2187,7 @@ export function FileDetailInspector({
       </h3>
 
       {/* 详细元数据表 */}
-      <div className="w-full rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40 space-y-2 mb-4 shrink-0 shadow-2xs">
+      <div className="w-full rounded-xl border border-bd bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd space-y-2 mb-4 shrink-0 shadow-2xs">
         {course?.name && (
           <div className="flex justify-between py-1">
             <span className="text-text-3">所属课程</span>
@@ -2227,7 +2227,7 @@ export function FileDetailInspector({
       </div>
 
       {item.renderExtra && (
-        <div className="w-full mb-4 p-3 rounded-xl bg-surface-2/50 border border-bd/50 text-xs shrink-0">
+        <div className="w-full mb-4 p-3 rounded-xl bg-surface-2/50 border border-bd text-xs shrink-0">
           <div className="text-2xs font-semibold text-text-3 mb-1.5 uppercase tracking-wider">资源属性</div>
           {item.renderExtra}
         </div>
@@ -2261,7 +2261,7 @@ export function FileDetailInspector({
           }}
           className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-medium border transition-all cursor-pointer ${
             item.disabled
-              ? 'border-bd/40 bg-surface-2 text-text-4 cursor-not-allowed opacity-60'
+              ? 'border-bd bg-surface-2 text-text-4 cursor-not-allowed opacity-60'
               : item.selected
               ? 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/20'
               : 'border-bd bg-surface-2 text-text-2 hover:bg-surface-3 hover:text-text-1'
@@ -2401,11 +2401,11 @@ export function ColumnView({
   return (
     <div
       ref={containerRef}
-      className="flex h-full w-full flex-row overflow-x-auto divide-x divide-bd/60 rounded-2xl border border-bd bg-surface-1 shadow-card select-none scroll-smooth"
+      className="flex h-full w-full flex-row overflow-x-auto divide-x divide-bd rounded-2xl border border-bd bg-surface-1 shadow-card select-none scroll-smooth"
     >
       {/* 第 1 栏：课程列表 */}
       <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full">
-        <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
+        <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
           <span>全部课程 · {courses.length}</span>
         </div>
         <div className={`flex-1 overflow-y-auto py-2 ${hasSelection ? 'pb-24' : ''}`}>
@@ -2414,7 +2414,7 @@ export function ColumnView({
               const termState = getTermTriState(group.items)
               return (
                 <div key={group.term} className="mb-2">
-                  <div className="sticky top-0 z-10 flex items-center justify-between border-y border-bd/40 bg-surface-2/95 px-3 py-1 text-2xs font-semibold text-text-3 backdrop-blur-xs select-none">
+                  <div className="sticky top-0 z-10 flex items-center justify-between border-y border-bd bg-surface-2/95 px-3 py-1 text-2xs font-semibold text-text-3 backdrop-blur-xs select-none">
                     <div className="flex items-center gap-2 min-w-0">
                       <span
                         role="checkbox"
@@ -2445,7 +2445,7 @@ export function ColumnView({
       {/* 第 2 栏：二级资源分类（严格单层步进：仅在选定课程后滑出展示） */}
       {activeCourse && (
         <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full animate-fadeIn">
-          <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
+          <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
             <span className="truncate">{activeCourse.name} · 分类</span>
           </div>
           <div className={`flex-1 overflow-y-auto py-2 ${hasSelection ? 'pb-24' : ''}`}>
@@ -2509,7 +2509,7 @@ export function ColumnView({
       {/* 第 3 栏：选定分类内的文件流（已彻底移除顶部侵入性 renderExtra） */}
       {activeCourse && activeCategory && (
         <div className="flex w-72 md:w-80 shrink-0 flex-col bg-surface-1/40 h-full transition-all animate-fadeIn">
-          <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
+          <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <span
                 role="checkbox"
@@ -2579,7 +2579,7 @@ export function ColumnView({
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
                       {item.disabledReason ? (
-                        <span className="rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                        <span className="rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd font-sans">
                           {item.disabledReason}
                         </span>
                       ) : item.size ? (

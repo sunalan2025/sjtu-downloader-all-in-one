@@ -122,7 +122,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
   const renderCloudDestRootCard = (badgeText: string) => {
     const breadcrumb = formatCloudBreadcrumb(cloudDestRoot)
     return (
-      <div className="space-y-3 rounded-2xl border border-bd/70 bg-surface-2/60 p-5 shadow-2xs">
+      <div className="space-y-3 rounded-2xl border border-bd bg-surface-2/60 p-5 shadow-2xs">
         <div className="flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
             <span className="text-base select-none">☁️</span>
@@ -147,7 +147,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                 className={`rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
                   isSelected
                     ? 'bg-accent text-white shadow-2xs font-semibold'
-                    : 'bg-surface-1 border border-bd/80 text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-2'
+                    : 'bg-surface-1 border border-bd text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-2'
                 }`}
               >
                 {preset.label}
@@ -169,13 +169,13 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
               value={cloudDestRoot}
               onChange={e => setCloudDestRoot(e.target.value)}
               placeholder="/SJTU课程备份"
-              className="w-full rounded-xl border border-bd/80 bg-surface-1 pl-10 pr-4 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+              className="w-full rounded-xl border border-bd bg-surface-1 pl-10 pr-4 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 focus:border-accent focus:outline-hidden focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
             />
           </div>
         </div>
 
         {/* 实时面包屑预览 */}
-        <div className="rounded-xl bg-surface-1 border border-bd/60 p-3 text-2xs space-y-1">
+        <div className="rounded-xl bg-surface-1 border border-bd p-3 text-2xs space-y-1">
           <div className="flex items-center gap-1.5 text-text-4 font-medium select-none">
             <span>🧭</span>
             <span>路径层级实时预览</span>
@@ -190,9 +190,9 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 sm:p-6 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl border border-bd/80 bg-surface-1 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl border border-bd bg-surface-1 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
         {/* 顶部 Header */}
-        <div className="border-b border-bd/60 bg-surface-2/40 px-6 sm:px-8 pt-6 pb-5 space-y-2.5">
+        <div className="border-b border-bd bg-surface-2/40 px-6 sm:px-8 pt-6 pb-5 space-y-2.5">
           <div className="flex items-center justify-between">
             <div className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-3 py-1 text-xs font-semibold text-accent border border-accent/20">
               <span>{isUpdate ? `🚀 版本更新偏好确认 · v${currentVersion}` : '✨ 首次使用向导'}</span>
@@ -272,7 +272,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                         className={`flex items-start gap-4 rounded-2xl border p-4 cursor-pointer transition-all ${
                           selected
                             ? 'border-accent bg-accent/10 shadow-xs'
-                            : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                            : 'border-bd bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
                         }`}
                       >
                         <span className="text-2xl select-none shrink-0 mt-0.5">{opt.icon}</span>
@@ -337,12 +337,12 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                     {/* 交大云盘保存目录（主要配置卡片） */}
                     {renderCloudDestRootCard('主保存路径')}
 
-                    <div className="space-y-3 rounded-2xl border border-bd/70 bg-surface-2/60 p-5 shadow-2xs">
+                    <div className="space-y-3 rounded-2xl border border-bd bg-surface-2/60 p-5 shadow-2xs">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-text-2">本地缓冲与备用路径</span>
                         <span className="text-2xs text-text-4">用于切片处理或网络降级备用</span>
                       </div>
-                      <div className="flex items-center gap-3 rounded-xl border border-bd/80 bg-surface-1 px-4 py-3 font-mono text-xs text-text-1">
+                      <div className="flex items-center gap-3 rounded-xl border border-bd bg-surface-1 px-4 py-3 font-mono text-xs text-text-1">
                         <span className="text-lg select-none">📁</span>
                         <span className="truncate flex-1 font-medium" title={resolvedLocalPath || '系统默认下载目录'}>
                           {resolvedLocalPath || '系统默认下载目录（Downloads）'}
@@ -393,12 +393,12 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                       </p>
                     </div>
 
-                    <div className="space-y-3 rounded-2xl border border-bd/70 bg-surface-2/60 p-5 shadow-2xs">
+                    <div className="space-y-3 rounded-2xl border border-bd bg-surface-2/60 p-5 shadow-2xs">
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-text-2">本地保存路径</span>
                         <span className="text-2xs text-text-4">自动按学期与课程分类归档</span>
                       </div>
-                      <div className="flex items-center gap-3 rounded-xl border border-bd/80 bg-surface-1 px-4 py-3 font-mono text-xs text-text-1">
+                      <div className="flex items-center gap-3 rounded-xl border border-bd bg-surface-1 px-4 py-3 font-mono text-xs text-text-1">
                         <span className="text-lg select-none">📁</span>
                         <span className="truncate flex-1 font-medium" title={resolvedLocalPath || '系统默认下载目录'}>
                           {resolvedLocalPath || '系统默认下载目录（Downloads）'}
@@ -461,7 +461,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                 </div>
 
                 {/* 分区 1：视频清晰度偏好 */}
-                <div className="space-y-2.5 rounded-2xl border border-bd/70 bg-surface-2/40 p-4 shadow-2xs">
+                <div className="space-y-2.5 rounded-2xl border border-bd bg-surface-2/40 p-4 shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-text-2 flex items-center gap-1.5">
                       <span>🖥️</span>
@@ -483,7 +483,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                           className={`flex flex-col justify-between rounded-xl border p-3 cursor-pointer transition-all ${
                             selected
                               ? 'border-accent bg-accent/10 shadow-2xs'
-                              : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                              : 'border-bd bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
                           }`}
                         >
                           <div className="flex items-center justify-between">
@@ -506,7 +506,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                 </div>
 
                 {/* 分区 2：默认录播机位偏好 */}
-                <div className="space-y-2.5 rounded-2xl border border-bd/70 bg-surface-2/40 p-4 shadow-2xs">
+                <div className="space-y-2.5 rounded-2xl border border-bd bg-surface-2/40 p-4 shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-text-2 flex items-center gap-1.5">
                       <span>📹</span>
@@ -529,7 +529,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                           className={`flex flex-col justify-between rounded-xl border p-2.5 cursor-pointer transition-all ${
                             selected
                               ? 'border-accent bg-accent/10 shadow-2xs'
-                              : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                              : 'border-bd bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
                           }`}
                         >
                           <div className="flex items-center justify-between">
@@ -552,7 +552,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                 </div>
 
                 {/* 分区 3：课后复习与学习辅助资料导出 */}
-                <div className="space-y-2.5 rounded-2xl border border-bd/70 bg-surface-2/40 p-4 shadow-2xs">
+                <div className="space-y-2.5 rounded-2xl border border-bd bg-surface-2/40 p-4 shadow-2xs">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-text-2 flex items-center gap-1.5">
                       <span>📑</span>
@@ -571,7 +571,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                       className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
                         autoExportPptPdf
                           ? 'border-accent bg-accent/10 shadow-2xs'
-                          : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                          : 'border-bd bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -591,7 +591,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                         </div>
                       </div>
                       <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                        autoExportPptPdf ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-2'
+                        autoExportPptPdf ? 'border-accent bg-accent text-white' : 'border-bd bg-surface-2'
                       }`}>
                         {autoExportPptPdf && (
                           <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
@@ -610,7 +610,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                       className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
                         canvasExportSrt
                           ? 'border-accent bg-accent/10 shadow-2xs'
-                          : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                          : 'border-bd bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -630,7 +630,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                         </div>
                       </div>
                       <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                        canvasExportSrt ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-2'
+                        canvasExportSrt ? 'border-accent bg-accent text-white' : 'border-bd bg-surface-2'
                       }`}>
                         {canvasExportSrt && (
                           <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
@@ -649,7 +649,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                       className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
                         canvasExportMarkdown
                           ? 'border-accent bg-accent/10 shadow-2xs'
-                          : 'border-bd/70 bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
+                          : 'border-bd bg-surface-1 hover:border-bd-strong hover:bg-surface-2/60'
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -669,7 +669,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                         </div>
                       </div>
                       <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                        canvasExportMarkdown ? 'border-accent bg-accent text-white' : 'border-bd/80 bg-surface-2'
+                        canvasExportMarkdown ? 'border-accent bg-accent text-white' : 'border-bd bg-surface-2'
                       }`}>
                         {canvasExportMarkdown && (
                           <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
@@ -728,7 +728,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
                         className={`flex items-start gap-4 rounded-2xl border p-4 cursor-pointer transition-all ${
                           selected
                             ? 'border-accent bg-accent/10 shadow-xs'
-                            : 'border-bd/70 bg-surface-2/60 hover:border-bd-strong hover:bg-surface-2'
+                            : 'border-bd bg-surface-2/60 hover:border-bd-strong hover:bg-surface-2'
                         }`}
                       >
                         <span className="text-2xl select-none shrink-0 mt-0.5">{opt.icon}</span>
@@ -766,7 +766,7 @@ export function SetupWizardModal({ initialStep = 1, showModal: propShowModal }: 
         </div>
 
         {/* 底部 Footer 导航栏 */}
-        <div className="flex items-center justify-between border-t border-bd/60 bg-surface-2/40 px-6 sm:px-8 py-4">
+        <div className="flex items-center justify-between border-t border-bd bg-surface-2/40 px-6 sm:px-8 py-4">
           <div className="min-w-[100px]">
             {wizardStep > 1 && (
               <button

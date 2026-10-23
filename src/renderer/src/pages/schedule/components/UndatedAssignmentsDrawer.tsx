@@ -62,7 +62,7 @@ export function UndatedAssignmentsDrawer({
             {assignments.map(item => (
               <div
                 key={item.id}
-                className="rounded-xl border border-bd/60 bg-surface-2/40 p-2.5 text-xs space-y-1.5"
+                className="rounded-xl border border-bd bg-surface-2/40 p-2.5 text-xs space-y-1.5"
               >
                 <div className="flex items-start justify-between gap-2">
                   <span className="font-semibold text-text-1 text-2xs line-clamp-2 leading-snug">

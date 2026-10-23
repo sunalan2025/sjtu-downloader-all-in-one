@@ -310,7 +310,7 @@ function CloudPanMillerColumns({
   return (
     <div className="flex h-full w-full flex-col rounded-2xl border border-bd bg-surface-1 shadow-card select-none overflow-hidden">
       {/* 顶部分栏全局控制栏 (Miller Columns Global Bar) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bd/60 bg-surface-2/60 px-4 py-2 text-xs select-none shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bd bg-surface-2/60 px-4 py-2 text-xs select-none shrink-0">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-text-2 flex items-center gap-1.5">
             <span>📊</span>
@@ -319,7 +319,7 @@ function CloudPanMillerColumns({
               {columns.length} 级列
             </span>
           </span>
-          <div className="h-3 w-px bg-bd/60 hidden sm:block" />
+          <div className="h-3 w-px bg-bd hidden sm:block" />
           <span className="text-2xs text-text-4 font-mono truncate max-w-xs hidden sm:inline" title={`/${columns.map(c => c.name).filter(Boolean).join('/')}`}>
             /{columns.map(c => c.name).filter(Boolean).join('/')}
           </span>
@@ -356,12 +356,12 @@ function CloudPanMillerColumns({
       {/* 横向平铺多级分栏主体 */}
       <div
         ref={containerRef}
-        className="flex flex-1 w-full flex-row overflow-x-auto divide-x divide-bd/60 scroll-smooth"
+        className="flex flex-1 w-full flex-row overflow-x-auto divide-x divide-bd scroll-smooth"
       >
         {columns.map((col, colIdx) => (
           <div key={`${col.path.join('/') || 'root'}-${colIdx}`} className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full">
             {/* 每列顶栏：显示该层名称与项目计数 */}
-            <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/40 px-3.5 text-xs font-semibold text-text-2 select-none shrink-0">
+            <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-3.5 text-xs font-semibold text-text-2 select-none shrink-0">
               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                 <span>{col.path.length === 0 ? '🏠' : '📁'}</span>
                 <span className="truncate font-semibold" title={col.name}>{col.name}</span>
@@ -456,8 +456,8 @@ function CloudPanMillerColumns({
 
         {/* 最右侧：文件大预览与元数据卡片 (Preview Column) */}
         {previewFile && (
-          <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none">
-            <div className="flex items-center justify-between pb-3 border-b border-bd/60">
+          <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd select-none">
+            <div className="flex items-center justify-between pb-3 border-b border-bd">
               <span className="text-xs font-bold text-text-2">文件详情与预览</span>
               <button
                 type="button"
@@ -504,7 +504,7 @@ function CloudPanMillerColumns({
 
                 if (isAudio) {
                   return (
-                    <div className="w-full rounded-xl bg-surface-2 p-4 flex flex-col items-center border border-bd/60 shadow-xs">
+                    <div className="w-full rounded-xl bg-surface-2 p-4 flex flex-col items-center border border-bd shadow-xs">
                       <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-3 shadow-inner">
                         🎵
                       </div>
@@ -527,7 +527,7 @@ function CloudPanMillerColumns({
 
                 if (isImage && previewUrl) {
                   return (
-                    <div className="w-full rounded-xl overflow-hidden bg-surface-2 border border-bd/60 flex items-center justify-center max-h-56">
+                    <div className="w-full rounded-xl overflow-hidden bg-surface-2 border border-bd flex items-center justify-center max-h-56">
                       <img src={previewUrl} alt={previewFile.item.name} className="max-h-56 object-contain" />
                     </div>
                   )
@@ -535,7 +535,7 @@ function CloudPanMillerColumns({
 
                 return (
                   <div className="flex justify-center py-4">
-                    <div className="p-5 rounded-2xl bg-surface-2 border border-bd/60 shadow-inner">
+                    <div className="p-5 rounded-2xl bg-surface-2 border border-bd shadow-inner">
                       {getFileIcon(previewFile.item, true)}
                     </div>
                   </div>
@@ -547,7 +547,7 @@ function CloudPanMillerColumns({
               {previewFile.item.name}
             </h3>
 
-            <div className="w-full rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40 space-y-2 mb-4">
+            <div className="w-full rounded-xl border border-bd bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd space-y-2 mb-4">
               <div className="flex justify-between py-1">
                 <span className="text-text-3">类型</span>
                 <span className="font-mono text-text-1 uppercase">
@@ -992,7 +992,7 @@ export function CloudPanExplorer() {
           <span className="text-base font-bold text-text-1">☁️ 交大云盘资源管理器</span>
           {quota && (
             <div
-              className="hidden md:flex items-center gap-2 rounded-xl border border-bd/80 bg-surface-1 px-2.5 py-1 text-2xs text-text-2 shadow-2xs"
+              className="hidden md:flex items-center gap-2 rounded-xl border border-bd bg-surface-1 px-2.5 py-1 text-2xs text-text-2 shadow-2xs"
               title={`容量已用: ${quota.usedStr}，总容量: ${quota.totalStr}`}
             >
               <span>已用 {quota.usedStr} / {quota.totalStr} ({quota.pct}%)</span>
@@ -1067,7 +1067,7 @@ export function CloudPanExplorer() {
       </header>
 
       {/* 路径导航条与本地搜索 */}
-      <div className="flex items-center justify-between border-b border-bd/60 bg-surface-1 px-6 py-2">
+      <div className="flex items-center justify-between border-b border-bd bg-surface-1 px-6 py-2">
         <div className="flex-1 overflow-x-auto pr-4">
           <BreadcrumbBar items={breadcrumbItems} onNavigate={handleBreadcrumbNavigate} />
         </div>
@@ -1083,7 +1083,7 @@ export function CloudPanExplorer() {
               <TriCheckbox state={cloudPanTriState} size="sm" />
               <span>全选</span>
             </button>
-            <div className="h-3.5 w-px bg-bd/70" />
+            <div className="h-3.5 w-px bg-bd" />
             <button
               type="button"
               onClick={() => setCloudPanBatchMenuOpen(prev => !prev)}
@@ -1097,7 +1097,7 @@ export function CloudPanExplorer() {
 
             {cloudPanBatchMenuOpen && (
               <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-bd bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-xl animate-fadeIn text-xs">
-                <div className="px-2.5 py-1 text-2xs font-semibold text-text-3 border-b border-bd/40 mb-1">
+                <div className="px-2.5 py-1 text-2xs font-semibold text-text-3 border-b border-bd mb-1">
                   当前目录快捷勾选 ({displayedItems.length} 项)
                 </div>
                 <button
@@ -1156,7 +1156,7 @@ export function CloudPanExplorer() {
                     <div className="text-2xs text-text-3">包含文件夹与文件</div>
                   </div>
                 </button>
-                <div className="my-1 border-t border-bd/40" />
+                <div className="my-1 border-t border-bd" />
                 <button
                   type="button"
                   onClick={() => {
@@ -1356,7 +1356,7 @@ export function CloudPanExplorer() {
         ) : (
           /* 详细列表表格视图 */
           <div className="overflow-hidden rounded-2xl border border-bd bg-surface-2 shadow-2xs pb-20">
-            <div className="grid grid-cols-12 items-center border-b border-bd/70 bg-surface-3/50 px-4 py-2.5 text-xs font-semibold text-text-3">
+            <div className="grid grid-cols-12 items-center border-b border-bd bg-surface-3/50 px-4 py-2.5 text-xs font-semibold text-text-3">
               <div className="col-span-6 flex items-center gap-3">
                 <input
                   type="checkbox"
@@ -1371,7 +1371,7 @@ export function CloudPanExplorer() {
               <div className="col-span-2 text-right pr-2">操作</div>
             </div>
 
-            <div className="divide-y divide-bd/40">
+            <div className="divide-y divide-bd">
               {displayedItems.map(item => {
                 const isSelected = selectedNames.has(item.name)
                 return (

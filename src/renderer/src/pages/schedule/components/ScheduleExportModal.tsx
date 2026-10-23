@@ -47,7 +47,7 @@ export function ScheduleExportModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
       <div className="w-full max-w-md rounded-3xl border border-bd bg-surface-1 p-6 shadow-xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
-        <div className="flex items-center justify-between border-b border-bd/60 pb-3">
+        <div className="flex items-center justify-between border-b border-bd pb-3">
           <h3 className="text-base font-bold text-text-1">🗓️ 导出为标准日历 (.ics)</h3>
           <button
             type="button"
@@ -62,7 +62,7 @@ export function ScheduleExportModal({
           导出的 RFC 5545 iCalendar 文件原生支持 Apple Calendar、Outlook、Google 日历及 Android 手机日历同步。
         </p>
 
-        <div className="space-y-3 rounded-2xl bg-surface-2/60 p-4 border border-bd/60 text-xs">
+        <div className="space-y-3 rounded-2xl bg-surface-2/60 p-4 border border-bd text-xs">
           <label className="flex items-center gap-2.5 cursor-pointer">
             <input
               type="checkbox"

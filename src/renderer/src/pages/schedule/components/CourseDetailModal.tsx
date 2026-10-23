@@ -94,7 +94,7 @@ export function CourseDetailModal({ course, onClose }: CourseDetailModalProps) {
               <span className="text-3xs text-text-4">按教学周次与日期排序</span>
             </div>
 
-            <div className="max-h-60 overflow-y-auto rounded-xl border border-bd bg-surface-2/30 divide-y divide-bd/40">
+            <div className="max-h-60 overflow-y-auto rounded-xl border border-bd bg-surface-2/30 divide-y divide-bd">
               {course.scheduleSessions.map((sess, idx) => (
                 <div
                   key={idx}

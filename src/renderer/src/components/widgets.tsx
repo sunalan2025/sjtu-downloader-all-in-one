@@ -93,7 +93,7 @@ export function ItemCheckbox({
       }}
       className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-all duration-150 ${
         disabled
-          ? 'cursor-not-allowed opacity-40 border-bd/40 bg-surface-2'
+          ? 'cursor-not-allowed opacity-40 border-bd bg-surface-2'
           : checked
             ? 'cursor-pointer border-accent bg-accent text-white shadow-2xs'
             : 'cursor-pointer border-bd-strong bg-surface-1 hover:border-text-3'
@@ -383,7 +383,7 @@ export function DropdownSelect<T extends string | number = string>({
         >
           {groups && groups.length > 0 ? (
             groups.map((group, gIdx) => (
-              <div key={group.label} className={gIdx > 0 ? 'mt-1 pt-1 border-t border-bd/60' : ''}>
+              <div key={group.label} className={gIdx > 0 ? 'mt-1 pt-1 border-t border-bd' : ''}>
                 <div className="px-3 py-1 text-3xs font-semibold text-text-4 select-none tracking-wider uppercase">
                   {group.label}
                 </div>
