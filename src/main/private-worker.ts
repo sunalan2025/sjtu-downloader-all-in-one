@@ -14,21 +14,29 @@ import type {
   PrivateWorkerTestResult,
   PrivateWorkerTunnelConfig,
   PrivateWorkerTaskPayload,
-  PrivateWorkerTaskResponse
+  PrivateWorkerTaskResponse,
+  PrivateWorkerTaskRecord,
+  PrivateWorkerTaskQueryResponse
 } from '../shared/types'
 import { startSshTunnel } from './ssh-tunnel'
 import { isAllowedSjtuUrl } from './download-engine/domain-guard'
 
-export type { PrivateWorkerTaskPayload, PrivateWorkerTaskResponse }
+export type {
+  PrivateWorkerTaskPayload,
+  PrivateWorkerTaskResponse,
+  PrivateWorkerTaskRecord,
+  PrivateWorkerTaskQueryResponse
+}
 
 /**
  * 判断当前任务批次是否应当完全委托给校内私有中转机在远端脱机执行
  * 规则：
  * 1. 私有中转服务已启用且配置了有效的节点地址；
- * 2. 仅当中转目标模式为「保存在中转服务器本地磁盘」(server_local) 且下载模式为 'cloud' 时，
- *    全权委托远端工作机承接直接在服务器本地磁盘落盘（存到中转机磁盘，不存交大云盘）；
- * 3. 当目标为转存至交大云盘（cloudpan）或落地到本机电脑（local）时，不脱机委托，
- *    而是由下载器的真实落盘/上传引擎承接（底层全量网络流通过 Worker /api/proxy 流式中转代理，真实落盘或上传到云盘）。
+ * 2. 只要目标下载模式为 cloud，均委托给远端工作机承接：
+ *    - 若 storageMode 为 'server_local'，中转机就地落盘在服务器本地磁盘；
+ *    - 若 storageMode 为 'cloudpan'，中转机在远端直连下载并直传至交大云盘；
+ *    两者在本地电脑上均仅接收状态与进度心跳，实现真正的 0 本机视频流消耗。
+ * 3. 当用户选择存入本机电脑（local 模式）时，由本地下载引擎承接落盘，底层网络请求经由 Worker /api/proxy 流式代理中继。
  */
 export function isWorkerDelegated(
   mode?: DownloadMode,
@@ -38,8 +46,8 @@ export function isWorkerDelegated(
     return false
   }
 
-  // 仅当用户明确配置中转目标为「保存在中转服务器本地磁盘」且为云端/服务器模式时，由远端工作机承接就地落盘
-  if (privateWorker.storageMode === 'server_local' && mode === 'cloud') {
+  // 只要目标下载模式为 cloud，均委托给远端工作机承接（cloudpan 直传云盘 或 server_local 就地落盘）
+  if (mode === 'cloud') {
     return true
   }
 
@@ -68,6 +76,7 @@ export function wrapWorkerProxyUrl(rawUrl: string, privateWorker?: PrivateWorker
 
 let embeddedServer: http.Server | null = null
 let embeddedWorkerUrl: string | null = null
+const devTasks = new Map<string, PrivateWorkerTaskRecord>()
 
 /** 获取当前后台运行的开发测试节点地址 */
 export function getEmbeddedDevWorkerUrl(): string | null {
@@ -77,6 +86,7 @@ export function getEmbeddedDevWorkerUrl(): string | null {
 /** 停止后台运行的开发测试节点 */
 export async function stopEmbeddedDevWorker(): Promise<void> {
   if (!embeddedServer) return
+  devTasks.clear()
   return new Promise(resolve => {
     embeddedServer?.close(() => {
       embeddedServer = null
@@ -135,13 +145,26 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
               const payload = JSON.parse(rawBody || '{}') as Partial<PrivateWorkerTaskPayload>
               const taskId = payload.taskId || `task_dev_${Date.now()}`
               const isLocal = payload.storageMode === 'server_local'
+              const targetPath = isLocal
+                ? `${payload.serverDownloadDir || '~/downloads'}/${payload.courseName || '未分类'}/${payload.fileName || 'file'}`
+                : (payload.destPath || '')
+
+              devTasks.set(taskId, {
+                taskId,
+                fileName: payload.fileName || 'unknown',
+                storageMode: payload.storageMode || 'cloudpan',
+                status: 'completed',
+                receivedBytes: payload.fileSize || 1024,
+                totalBytes: payload.fileSize || 1024,
+                speed: 1048576,
+                targetPath
+              })
+
               const body = JSON.stringify({
                 ok: true,
                 taskId,
                 storageMode: payload.storageMode || 'cloudpan',
-                targetPath: isLocal
-                  ? `${payload.serverDownloadDir || '~/downloads'}/${payload.courseName || '未分类'}/${payload.fileName || 'file'}`
-                  : (payload.destPath || ''),
+                targetPath,
                 message: isLocal
                   ? '开发测试节点已接收任务，将保存在中转服务器本地磁盘'
                   : '开发测试节点已接收任务，将转存至交大云盘'
@@ -158,6 +181,37 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
             }
           })
           return
+        }
+
+        if (pathname.startsWith('/api/tasks/')) {
+          const isCancel = pathname.endsWith('/cancel') || req.method === 'DELETE'
+          const taskId = pathname.replace('/api/tasks/', '').replace(/\/cancel$/, '')
+          const task = devTasks.get(taskId)
+
+          if (isCancel) {
+            if (task) task.status = 'cancelled'
+            const body = JSON.stringify({ ok: true, message: '任务已取消' })
+            res.writeHead(200, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Access-Control-Allow-Origin': '*',
+              'Content-Length': Buffer.byteLength(body)
+            })
+            return res.end(body)
+          }
+
+          if (req.method === 'GET') {
+            if (!task) {
+              res.writeHead(404, { 'Content-Type': 'application/json' })
+              return res.end(JSON.stringify({ ok: false, error: '任务不存在' }))
+            }
+            const body = JSON.stringify({ ok: true, task })
+            res.writeHead(200, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Access-Control-Allow-Origin': '*',
+              'Content-Length': Buffer.byteLength(body)
+            })
+            return res.end(body)
+          }
         }
 
         if (pathname === '/api/proxy' && req.method === 'GET') {
@@ -460,6 +514,125 @@ export async function testPrivateWorker(
       latencyMs,
       error: `连接失败：${errMessage}`
     }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 查询私有中转服务上特定任务的执行状态与实时传输进度
+ */
+export async function queryPrivateWorkerTask(
+  workerUrl: string,
+  taskId: string,
+  token?: string,
+  timeoutMs = 5000
+): Promise<PrivateWorkerTaskQueryResponse> {
+  const normalized = normalizeWorkerUrl(workerUrl)
+  if (!normalized || !taskId) {
+    return { ok: false, error: '参数无效' }
+  }
+
+  let endpoint = ''
+  try {
+    const urlObj = new URL(normalized)
+    urlObj.pathname = `/api/tasks/${encodeURIComponent(taskId)}`
+    endpoint = urlObj.toString()
+  } catch {
+    return { ok: false, error: '中转服务节点地址格式无效' }
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (token && token.trim()) {
+    headers['Authorization'] = `Bearer ${token.trim()}`
+  }
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers,
+      signal: controller.signal
+    })
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, error: '授权失败：访问密钥不匹配或已失效' }
+    }
+    if (res.status === 404) {
+      return { ok: false, error: '任务不存在' }
+    }
+    if (!res.ok) {
+      return { ok: false, error: `查询任务状态失败: HTTP ${res.status}` }
+    }
+
+    const data = (await res.json()) as { ok: boolean; task?: PrivateWorkerTaskRecord; error?: string }
+    return {
+      ok: Boolean(data.ok),
+      task: data.task,
+      error: data.error
+    }
+  } catch (err: unknown) {
+    const errMessage = err instanceof Error ? err.message : String(err)
+    if (errMessage.includes('aborted') || (err as { name?: string })?.name === 'AbortError') {
+      return { ok: false, error: '查询中转任务超时' }
+    }
+    return { ok: false, error: `查询中转任务异常: ${errMessage}` }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 请求私有中转服务取消特定任务
+ */
+export async function cancelPrivateWorkerTask(
+  workerUrl: string,
+  taskId: string,
+  token?: string,
+  timeoutMs = 5000
+): Promise<{ ok: boolean; message?: string; error?: string }> {
+  const normalized = normalizeWorkerUrl(workerUrl)
+  if (!normalized || !taskId) {
+    return { ok: false, error: '参数无效' }
+  }
+
+  let endpoint = ''
+  try {
+    const urlObj = new URL(normalized)
+    urlObj.pathname = `/api/tasks/${encodeURIComponent(taskId)}`
+    endpoint = urlObj.toString()
+  } catch {
+    return { ok: false, error: '中转服务节点地址格式无效' }
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (token && token.trim()) {
+    headers['Authorization'] = `Bearer ${token.trim()}`
+  }
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'DELETE',
+      headers,
+      signal: controller.signal
+    })
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, error: '授权失败：访问密钥不匹配或已失效' }
+    }
+
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string }
+    return {
+      ok: Boolean(data.ok),
+      message: data.message,
+      error: data.error
+    }
+  } catch (err: unknown) {
+    const errMessage = err instanceof Error ? err.message : String(err)
+    return { ok: false, error: `取消中转任务异常: ${errMessage}` }
   } finally {
     clearTimeout(timer)
   }

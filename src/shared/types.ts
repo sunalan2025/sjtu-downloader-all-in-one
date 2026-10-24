@@ -964,6 +964,26 @@ export interface PrivateWorkerTaskResponse {
   receivedBytes?: number
 }
 
+/** 校内私有中转服务任务查询记录 */
+export interface PrivateWorkerTaskRecord {
+  taskId: string
+  fileName?: string
+  storageMode?: PrivateWorkerStorageMode
+  status: 'queued' | 'downloading' | 'uploading' | 'completed' | 'failed' | 'cancelled'
+  receivedBytes?: number
+  totalBytes?: number
+  speed?: number
+  targetPath?: string
+  error?: string
+}
+
+/** 校内私有中转服务任务查询响应 */
+export interface PrivateWorkerTaskQueryResponse {
+  ok: boolean
+  task?: PrivateWorkerTaskRecord
+  error?: string
+}
+
 /** SSH 隧道实时运行状态 */
 export interface SshTunnelStatus {
   running: boolean
