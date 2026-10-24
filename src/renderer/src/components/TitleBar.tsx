@@ -1,3 +1,4 @@
+import { useClickOutside } from '../hooks/useClickOutside'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, type Theme } from '../store/app'
 import { Segmented, type SegmentedOption } from './Segmented'
@@ -11,6 +12,11 @@ function applyTheme(theme: Theme): void {
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : theme
   document.documentElement.setAttribute('data-theme', resolved)
+  if (resolved === 'dark') {
+    document.documentElement.classList.add('dark')
+  } else {
+    document.documentElement.classList.remove('dark')
+  }
   window.api.setTheme(resolved).catch(() => undefined)
 }
 
@@ -137,8 +143,8 @@ export function TitleBar({
               activeTab === 'cloudpan'
                 ? 'bg-accent text-white border-accent shadow-glow-sm'
                 : cloudUserToken
-                  ? 'border-bd/80 bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
-                  : 'border-bd/80 bg-surface-2 text-text-3 hover:bg-surface-1 hover:border-bd-strong hover:text-text-2'
+                  ? 'border-bd bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
+                  : 'border-bd bg-surface-2 text-text-3 hover:bg-surface-1 hover:border-bd-strong hover:text-text-2'
             }`}
             title={
               !cloudUserToken
@@ -214,7 +220,7 @@ export function TitleBar({
             className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all shadow-2xs cursor-pointer ${
               activeTab === 'settings'
                 ? 'bg-accent text-white border-accent shadow-glow-sm'
-                : 'border-bd/80 bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
+                : 'border-bd bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
             }`}
             title="全局设置与偏好"
           >
@@ -339,14 +345,7 @@ function UpdateBadge() {
     return () => { offP(); offR(); offF() }
   }, [])
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: globalThis.MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
+  useClickOutside(ref, () => setOpen(false), { enabled: open })
 
   if (!info?.hasUpdate || !info.latestVersion) return null
 

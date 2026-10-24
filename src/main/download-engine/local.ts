@@ -4,8 +4,7 @@
 // 调度器与 cloud 调度器通过 concurrency 的 reschedule 回调联动，不互相 import。
 // AIMD note* 在 data 事件 / finally 里调用，喂入 concurrency 模块。
 
-import { request as httpsRequest, Agent as HttpsAgent } from 'node:https'
-import type { IncomingMessage } from 'node:http'
+import { Agent as HttpsAgent } from 'node:https'
 import { createWriteStream, mkdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -18,8 +17,7 @@ export const sharedDownloadAgent = new HttpsAgent({
   timeout: 60000
 })
 
-import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState } from '../../shared/types'
-import { interceptDownloadRedirect } from './domain-guard'
+import { type DownloadState } from '../../shared/types'
 import {
   assertDownloadIntegrity,
   verifyDownloadIntegrity,
@@ -35,12 +33,6 @@ import {
   pendingLocalIds,
   pausedLocalIds,
   conflictStrategyByTask,
-  canvasCookiesByTask,
-  cnmoocCookiesByTask,
-  CANVAS_HOST,
-  CANVAS_RL_MAX_RETRIES,
-  canvasRlBackoffMs,
-  isCnmoocCookieHost,
   scheduleCleanupTask,
   resolveDirectUrl,
   destroyLocalHandles,
@@ -49,6 +41,7 @@ import {
   sharedActiveCount,
   isHlsStreamTask
 } from './shared'
+import { cdnFetchOnce, type CdnFetchContext, type CdnFetchCallbacks } from './cdn-fetch'
 import { downloadHlsVideo, extractAudioFromVideo } from '../canvas/hls-download'
 import { sjtuSession } from '../session'
 import {
@@ -96,7 +89,7 @@ export function scheduleNext(): void {
       console.error('[runTask] unhandled rejection:', sanitizeForLog(err instanceof Error ? err.message : err))
       t.state = 'error'
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: t.received, total: t.total, message: '内部错误' })
-      scheduleCleanupTask(t.spec.taskId, false)
+      destroyLocalHandles(t, 'internal error')
     }).finally(() => {
       active.delete(spec.taskId)
       t.req = undefined
@@ -212,7 +205,13 @@ async function runTask(t: TaskRuntime): Promise<void> {
           noteNetworkError()
           console.warn(`[download] ${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES})`)
           emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: t.received, total: t.total, message: `${errLabel}，${delay / 1000}s 后重试 (${attempt + 1}/${MAX_DL_RETRIES})` })
-          await new Promise(r => setTimeout(r, delay))
+          await new Promise<void>(resolve => {
+            const timer = setTimeout(() => {
+              t.retryTimers.delete(timer)
+              resolve()
+            }, delay)
+            t.retryTimers.add(timer)
+          })
           if (t.state !== 'downloading') throw retryErr // 等待期间被 pause/cancel
           continue
         }
@@ -293,6 +292,7 @@ async function runTask(t: TaskRuntime): Promise<void> {
       /* ignore */
     }
     t.state = 'error'
+    destroyLocalHandles(t, 'download error')
     const msg = extractErrorMessage(err, '下载失败')
     emitProgress({
       taskId: t.spec.taskId,
@@ -301,13 +301,15 @@ async function runTask(t: TaskRuntime): Promise<void> {
       total: t.total,
       message: msg.slice(0, 240)
     })
-    scheduleCleanupTask(t.spec.taskId, false)
   }
 }
 
 /** 真正的 HTTP 流式下载；支持手动重定向、Range 续传、写流 backpressure。
  *  完全绕开 Chromium 网络栈：之前用 sjtuSession.fetch / net.request 都被 Chromium
- *  按 cross-origin 直接 BLOCKED_BY_CLIENT。Node 的 https 不做 CORS 也不阻拦。 */
+ *  按 cross-origin 直接 BLOCKED_BY_CLIENT。Node 的 https 不做 CORS 也不阻拦。
+ *  [Phase 2] fetchOnce 的公共骨架（cookie 注入 / 重定向拦截 / 限流重试 / total 解析）
+ *  抽取到 cdn-fetch.ts；本函数只保留本地特有部分：.part 续传探测、200 回退清
+ *  .part、写流背压与限速。 */
 function downloadStream(t: TaskRuntime): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     // 续传探测：part 文件已存在且 size>0 → 发 Range
@@ -321,8 +323,8 @@ function downloadStream(t: TaskRuntime): Promise<void> {
     t.received = resumeFrom
 
     let settled = false
-    // Canvas 下载端点限流重试计数（429/403，仅 oc.sjtu.edu.cn 这一跳）
-    let rlRetries = 0
+    // Canvas 下载端点限流重试计数（429/403，仅 oc.sjtu.edu.cn 这一跳；跨 fetchOnce 共享）
+    const rlRetries = { count: 0 }
     const fail = (e: Error): void => {
       if (settled) return
       settled = true
@@ -343,216 +345,126 @@ function downloadStream(t: TaskRuntime): Promise<void> {
       reject(new Error('cancelled'))
     }
 
-    const fetchOnce = (url: string, depth: number): void => {
-      if (depth > 5) {
-        fail(new Error(`重定向过多：${depth}`))
-        return
-      }
-      let u: URL
-      try {
-        u = new URL(url)
-      } catch {
-        fail(new Error(`URL 解析失败：${url.slice(0, 120)}`))
-        return
-      }
-      const headers: Record<string, string> = {
-        Accept: '*/*',
-        // CDN 校验 Referer / UA — 没带会 403。
-        Referer: `${V_SJTU_ORIGIN}/jy-application-resmgr-ui/`,
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
-      }
-      if (resumeFrom > 0) headers.Range = `bytes=${resumeFrom}-`
-      // Canvas 文件：仅在 oc.sjtu.edu.cn 这一跳注入会话 cookie + oc.sjtu Referer，
-      // 让 node:https 从 /files/{id}/download 跟随 302 到 s3 预签名直链。
-      // 跟随到 s3.jcloud 时不带 cookie（签名直链自包含，且避免把 Canvas cookie 泄漏给第三方域）。
-      const canvasCookie = canvasCookiesByTask.get(t.spec.taskId)
-      if (canvasCookie && u.hostname === CANVAS_HOST) {
-        headers.Cookie = canvasCookie
-        headers.Referer = `${CANVAS_BASE_URL}/`
-      }
-      // 好大学在线：仅对 cnmooc.sjtu.cn 及其子域（含 static.cnmooc 课件）注入会话 cookie。
-      // 与 Canvas 互斥（任务来源单一），视频 CDN 直链不在 cnmooc 域 → 不注入。
-      const cnmoocCookie = cnmoocCookiesByTask.get(t.spec.taskId)
-      if (cnmoocCookie && isCnmoocCookieHost(u.hostname)) {
-        headers.Cookie = cnmoocCookie
-        headers.Referer = `${CNMOOC_BASE_URL}/`
-      }
-
-      const req = httpsRequest(
-        {
-          method: 'GET',
-          host: u.hostname,
-          port: u.port || 443,
-          path: `${u.pathname}${u.search}`,
-          headers,
-          agent: sharedDownloadAgent
-        },
-        (resp: IncomingMessage) => {
-          t.resp = resp
-          const status = resp.statusCode || 0
-          // 跟随重定向：严格强制 SJTU 域名隔离，防止凭证/流量外泄与会话过期下载 HTML (R2-F3)
-          if (status >= 300 && status < 400 && resp.headers.location) {
-            resp.resume()
-            const intercept = interceptDownloadRedirect(resp.headers.location, url)
-            if (intercept.action === 'abort') {
-              fail(new Error(intercept.reason || '重定向被拦截'))
-              return
-            }
-
-            fetchOnce(intercept.nextUrl || resp.headers.location, depth + 1)
-            return
+    const ctx: CdnFetchContext = {
+      taskId: t.spec.taskId,
+      get state() { return t.state },
+      retryTimers: t.retryTimers,
+      get received() { return t.received },
+      get total() { return t.total },
+      getRangeFrom: () => resumeFrom,
+      agent: sharedDownloadAgent
+    }
+    const cb: CdnFetchCallbacks = {
+      fail,
+      // 2xx 但带 Range 且 CDN 返回 200（不支持续传）：把现有 .part 丢掉重头来
+      onHeaders: (_resp, status) => {
+        if (resumeFrom > 0 && status === 200) {
+          try {
+            unlinkSync(t.partPath)
+          } catch {
+            /* ignore */
           }
+          resumeFrom = 0
+          t.received = 0
+        }
+        return true
+      },
+      onResponse: (resp, total, status) => {
+        t.total = total
+        emitProgress({
+          taskId: t.spec.taskId,
+          state: 'downloading',
+          received: t.received,
+          total: t.total
+        })
 
-          // CDN 不支持 range：把现有 .part 丢掉重头来
-          if (resumeFrom > 0 && status === 200) {
+        const ws = createWriteStream(
+          t.partPath,
+          status === 206 ? { flags: 'a' } : { flags: 'w' }
+        )
+        t.ws = ws
+        ws.on('error', fail)
+
+        let lastEmit = 0
+        let isPausedByLimiter = false
+        let isPausedByDrain = false
+
+        resp.on('data', (chunk: Buffer) => {
+          // 用户已点 pause/cancel：req.destroy 异步生效前，缓冲区里的 data 事件
+          // 还会继续触发。这里直接干掉 resp，避免把刚 emit 的 paused 状态覆盖回 downloading。
+          const s = t.state as DownloadState
+          if (s === 'paused' || s === 'cancelled') {
             try {
-              unlinkSync(t.partPath)
+              resp.destroy()
             } catch {
               /* ignore */
             }
-            resumeFrom = 0
-            t.received = 0
-          }
-
-          if (status < 200 || status >= 300) {
-            // 对任何 SJTU 域名的 429 (Too Many Requests) 进行指数退避重试；
-            // 403 仅对 oc.sjtu 限流进行重试（S3 的 403 是签名/权限永久错误，不重试）
-            const isRateLimited = status === 429 || (status === 403 && u.hostname === CANVAS_HOST)
-            let bodyHead = ''
-            resp.on('data', (c: Buffer) => {
-              if (bodyHead.length < 200) bodyHead += c.toString('utf8', 0, 200)
-            })
-            resp.on('end', () => {
-              if (isRateLimited && rlRetries < CANVAS_RL_MAX_RETRIES && t.state === 'downloading') {
-                rlRetries++
-                const raHdr = resp.headers['retry-after']
-                const raStr = Array.isArray(raHdr) ? raHdr[0] : raHdr
-                const delay = canvasRlBackoffMs(raStr, rlRetries)
-                emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: t.received, total: t.total, message: `文件下载被限流(${status})，${Math.round(delay / 1000)}s 后重试 (${rlRetries}/${CANVAS_RL_MAX_RETRIES})` })
-                const rlTimer = setTimeout(() => {
-                  t.retryTimers.delete(rlTimer)
-                  if (t.state === 'downloading') fetchOnce(url, depth)
-                }, delay)
-                t.retryTimers.add(rlTimer)
-                return
-              }
-              fail(
-                new Error(
-                  `HTTP ${status} ${resp.statusMessage || ''} — ${bodyHead.slice(0, 200)}`.trim()
-                )
-              )
-            })
-            // BUG FIX: missing error handler on non-200 response body stream.
-            // Without this, a network error during body collection would be an unhandled
-            // 'error' event on the stream, crashing the process.
-            resp.on('error', fail)
             return
           }
+          t.received += chunk.length
+          noteDownloadBytes(chunk.length)
 
-          // 计算 total
-          const lenHdr = resp.headers['content-length']
-          const cl = Number(Array.isArray(lenHdr) ? lenHdr[0] : lenHdr) || 0
-          if (status === 206) {
-            // Content-Range: bytes start-end/total
-            const cr = resp.headers['content-range']
-            const crStr = Array.isArray(cr) ? cr[0] : cr
-            const m = crStr ? /\/(\d+)$/.exec(crStr) : null
-            t.total = m ? Number(m[1]) : resumeFrom + cl || 0
-          } else {
-            t.total = cl
+          // 限速流控：若令牌不足，暂停可读流并在定时器到期后恢复
+          const delay = globalSpeedLimiter.acquireDelay(chunk.length)
+          if (delay > 0) {
+            isPausedByLimiter = true
+            resp.pause()
+            const timer = setTimeout(() => {
+              t.retryTimers.delete(timer)
+              isPausedByLimiter = false
+              if (!isPausedByDrain && !resp.destroyed && t.state === 'downloading') {
+                resp.resume()
+              }
+            }, delay)
+            t.retryTimers.add(timer)
           }
 
-          emitProgress({
-            taskId: t.spec.taskId,
-            state: 'downloading',
-            received: t.received,
-            total: t.total
-          })
-
-          const ws = createWriteStream(
-            t.partPath,
-            status === 206 ? { flags: 'a' } : { flags: 'w' }
-          )
-          t.ws = ws
-          ws.on('error', fail)
-
-          let lastEmit = 0
-          let isPausedByLimiter = false
-          let isPausedByDrain = false
-
-          resp.on('data', (chunk: Buffer) => {
-            // 用户已点 pause/cancel：req.destroy 异步生效前，缓冲区里的 data 事件
-            // 还会继续触发。这里直接干掉 resp，避免把刚 emit 的 paused 状态覆盖回 downloading。
-            const s = t.state as DownloadState
-            if (s === 'paused' || s === 'cancelled') {
-              try {
-                resp.destroy()
-              } catch {
-                /* ignore */
+          // 磁盘写入背压：缓冲区满时暂停流，drain 后恢复
+          if (!ws.write(chunk)) {
+            isPausedByDrain = true
+            resp.pause()
+            ws.once('drain', () => {
+              isPausedByDrain = false
+              if (!isPausedByLimiter && !resp.destroyed && t.state === 'downloading') {
+                resp.resume()
               }
-              return
-            }
-            t.received += chunk.length
-            noteDownloadBytes(chunk.length)
+            })
+          }
 
-            // 限速流控：若令牌不足，暂停可读流并在定时器到期后恢复
-            const delay = globalSpeedLimiter.acquireDelay(chunk.length)
-            if (delay > 0) {
-              isPausedByLimiter = true
-              resp.pause()
-              const timer = setTimeout(() => {
-                t.retryTimers.delete(timer)
-                isPausedByLimiter = false
-                if (!isPausedByDrain && !resp.destroyed && t.state === 'downloading') {
-                  resp.resume()
-                }
-              }, delay)
-              t.retryTimers.add(timer)
-            }
-
-            // 磁盘写入背压：缓冲区满时暂停流，drain 后恢复
-            if (!ws.write(chunk)) {
-              isPausedByDrain = true
-              resp.pause()
-              ws.once('drain', () => {
-                isPausedByDrain = false
-                if (!isPausedByLimiter && !resp.destroyed && t.state === 'downloading') {
-                  resp.resume()
-                }
-              })
-            }
-
-            const now = Date.now()
-            if (now - lastEmit > 2000) {
-              lastEmit = now
-              emitProgress({
-                taskId: t.spec.taskId,
-                state: 'downloading',
-                received: t.received,
-                total: t.total
-              })
-            }
-          })
-          resp.on('end', () => {
-            // resp 被 cancelTask/pauseTask destroy 后仍可能触发 end；
-            // 此时 ok() 会导致 runTask 误走 renameSync 干扰新 TaskRuntime
-            if (!resp.destroyed) ws.end(() => ok())
-          })
-          resp.on('error', fail)
-        }
-      )
-      t.req = req
-      req.setTimeout(60000, () => {
-        req.destroy(new Error('请求超时（60s）'))
-      })
-      req.on('error', fail)
-      req.end()
+          const now = Date.now()
+          if (now - lastEmit > 250) {
+            lastEmit = now
+            emitProgress({
+              taskId: t.spec.taskId,
+              state: 'downloading',
+              received: t.received,
+              total: t.total
+            })
+          }
+        })
+        resp.on('end', () => {
+          // resp 被 cancelTask/pauseTask destroy 后仍可能触发 end；
+          // 此时 ok() 会导致 runTask 误走 renameSync 干扰新 TaskRuntime
+          if (!resp.destroyed) ws.end(() => ok())
+        })
+        resp.on('error', fail)
+      },
+      onRequest: (req) => {
+        t.req = req
+        req.setTimeout(60000, () => {
+          req.destroy(new Error('请求超时（60s）'))
+        })
+        req.on('error', fail)
+      },
+      onRespAttached: (resp) => {
+        t.resp = resp
+      }
     }
 
-    fetchOnce(t.spec.url, 0)
+    cdnFetchOnce(t.spec.url, 0, rlRetries, ctx, cb)
   })
 }
+
 
 // ─── 任务级控制 ─────────────────────────────────────────────────
 
@@ -574,7 +486,7 @@ function pauseTaskCore(id: string): void {
   // 已 materialize 的活跃/错误任务
   const t = tasks.get(id)
   if (t) {
-    if (t.state !== 'downloading' && t.state !== 'pending' && t.state !== 'error') return
+    if (t.state !== 'downloading' && t.state !== 'pending') return
     const wasActive = active.has(id)
     t.state = 'paused'
     active.delete(id)
@@ -619,6 +531,7 @@ function cancelTaskCore(id: string): void {
       try { unlinkSync(t.partPath) } catch { /* ignore */ }
     }
     tasks.delete(id)
+    scheduleCleanupTask(id, false)
     return
   }
   // pending 或 paused 队列里 → 移除
@@ -628,6 +541,7 @@ function cancelTaskCore(id: string): void {
     emitProgress({ taskId: id, state: 'cancelled', received: 0, total: 0, message: '已取消' })
     pendingLocalIds.delete(id)
     pausedLocalIds.delete(id)
+    scheduleCleanupTask(id, false)
   }
 }
 

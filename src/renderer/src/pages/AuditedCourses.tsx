@@ -3,6 +3,9 @@ import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/ap
 import { useShallow } from 'zustand/shallow'
 import { Spinner } from '../components/Spinner'
 import { useDownloadCompletion } from '../hooks/useSharedBrowserHooks'
+import { submitDownloadBatch } from '../download/submit'
+import { auditedTaskId } from '../download/taskIds'
+import { computeBatchStats } from '../download/progress'
 import type {
   AuditCourseDetail,
   AuditCourseItem,
@@ -16,7 +19,6 @@ import {
   ProgressBar,
   NetdiskViewModeSwitch,
   TaskCtrlButtons,
-  TriCheckbox,
   triStateFromCount
 } from '../components/DownloadUI'
 import {
@@ -61,13 +63,33 @@ const AuditedItemProgress = memo(function AuditedItemProgress({
 })
 
 export function AuditedCourses() {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const toggleSelect = useCallback((taskId: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }, [])
+  const toggleSelectMany = useCallback((taskIds: string[], on: boolean) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      for (const id of taskIds) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
   // PERF: batch related primitive selectors with useShallow to reduce selector calls per render
   const {
-    setAuth, setStage, scanState, scanMessage, courses, tasksByCourse, selected,
-    downloadMode, localDestRoot,
+    setAuth, setStage, scanState, scanMessage, courses, tasksByCourse,
+    downloadMode,
     cloudLinkedIds, downloading, setScan, setCourses, setTasksForCourse,
-    resetScanResults, setSelected, toggleSelect, toggleSelectMany,
-    setCloudLinkedIds, setDownloading, applyProgress,
+    resetScanResults,
+    setDownloading,
     courseViewMode, setCourseViewMode,
     videoQualityOption
   } = useAppStore(useShallow(s => ({
@@ -77,21 +99,14 @@ export function AuditedCourses() {
     scanMessage: s.scanMessage,
     courses: s.courses,
     tasksByCourse: s.tasksByCourse,
-    selected: s.selected,
     downloadMode: s.downloadMode,
-    localDestRoot: s.localDestRoot,
     cloudLinkedIds: s.cloudLinkedIds,
     downloading: s.downloading,
     setScan: s.setScan,
     setCourses: s.setCourses,
     setTasksForCourse: s.setTasksForCourse,
     resetScanResults: s.resetScanResults,
-    setSelected: s.setSelected,
-    toggleSelect: s.toggleSelect,
-    toggleSelectMany: s.toggleSelectMany,
-    setCloudLinkedIds: s.setCloudLinkedIds,
     setDownloading: s.setDownloading,
-    applyProgress: s.applyProgress,
     courseViewMode: s.courseViewMode,
     setCourseViewMode: s.setCourseViewMode,
     videoQualityOption: s.videoQualityOption
@@ -126,7 +141,6 @@ export function AuditedCourses() {
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasksKey])
-  const total = allTasks.length
   const selectedCount = selected.size
 
   // 选中任务的 id 列表 —— 喂给 useDownloadStats 做编码统计，
@@ -256,13 +270,6 @@ export function AuditedCourses() {
     toggleSelectMany(ids, on)
   }, [downloading, toggleSelectMany])
 
-  const onToggleAll = (): void => {
-    if (downloading) return
-    if (selectedCount === total && total > 0) setSelected(new Set())
-    else setSelected(new Set(allTasks.map(t => t.taskId)))
-  }
-
-
   const onDownload = async (): Promise<void> => {
     if (selectedCount === 0 || downloading) return
 
@@ -282,11 +289,15 @@ export function AuditedCourses() {
 
     // 构建需要处理的任务 spec：跳过已完全完成的（本地 done 且云端 done）
     const curProgress = useAppStore.getState().progress
+    const curDownloadMode = useAppStore.getState().downloadMode
+    const curLinked = useAppStore.getState().cloudLinkedIds
     const specs: DownloadTaskSpec[] = []
     for (const items of byLecture.values()) {
       for (const t of items) {
         const localDone = curProgress[t.taskId]?.state === 'done' || curProgress[t.taskId]?.state === 'skipped'
-        const cloudId = cloudLinkedIds[t.taskId]
+        // [Bug Fix] 仅 both 模式查镜像映射：cloudLinkedIds 残留历史批次的陈旧
+        // 映射会让单模式批次误判 cloudDone、把未完成任务当成已完成而跳过
+        const cloudId = curDownloadMode === 'both' ? curLinked[t.taskId] : undefined
         const cloudDone = !cloudId
           || curProgress[cloudId]?.state === 'done'
           || curProgress[cloudId]?.state === 'skipped'
@@ -296,13 +307,6 @@ export function AuditedCourses() {
         if (isAudioOnly && t.angle === 3) continue
         const finalFileName = isAudioOnly ? t.fileName.replace(/\.mp4$/, '.m4a') : t.fileName
 
-        applyProgress({
-          taskId: t.taskId,
-          state: 'pending',
-          received: 0,
-          total: 0,
-          message: '等待解析直链…'
-        })
         specs.push({
           taskId: t.taskId,
           url: '',
@@ -317,42 +321,15 @@ export function AuditedCourses() {
 
     if (specs.length === 0) return
     setDownloading(true)
-    // 记入本轮提交集，供 OverallProgressBar 精准统计 total/active
-    useAppStore.getState().addBatchTaskIds(specs.map(s => s.taskId))
 
-    if (downloadMode === 'both') {
-      const mapping: Record<string, string> = { ...cloudLinkedIds }
-      for (const spec of specs) mapping[spec.taskId] = spec.taskId + '_cloud'
-      setCloudLinkedIds(mapping)
-    } else {
-      setCloudLinkedIds({})
-    }
-
-    // BUG FIX: wrap IPC call in try/catch. If the main process throws or IPC fails,
-    // the promise rejection would otherwise be unhandled, leaving downloading=true permanently.
-    let result: { ok: boolean; error?: string }
-    try {
-      result = await window.api.download.start('', specs, {
-        mode: downloadMode,
-        conflictStrategy: useAppStore.getState().fileConflictStrategy,
-        localDestRoot: downloadMode !== 'cloud' ? localDestRoot : undefined,
-        namingTemplate: useAppStore.getState().namingTemplate
-      })
-    } catch (err) {
-      result = { ok: false, error: err instanceof Error ? err.message : 'IPC 通信失败' }
-    }
+    // [Phase 1] 提交编排收口到领域层 submitDownloadBatch：占位 pending、
+    // batchTaskIds、both 镜像、IPC 启动与失败回滚统一处理。
+    const result = await submitDownloadBatch(specs, {
+      isBothMode: downloadMode === 'both',
+      existingCloudLinkedIds: curLinked
+    })
     if (!result.ok) {
       setDownloading(false)
-      setCloudLinkedIds({})
-      for (const spec of specs) {
-        applyProgress({
-          taskId: spec.taskId,
-          state: 'error',
-          received: 0,
-          total: 0,
-          message: result.error || '下载启动失败'
-        })
-      }
     }
   }
 
@@ -446,6 +423,7 @@ export function AuditedCourses() {
       const categories: NetdiskCategoryItem[] = [
         {
           id: 'teacher',
+          chipKey: 'videos',
           name: isAudioOnly ? '🎵 教师原声音频 (M4A)' : '👨‍🏫 教师实录 (MP4)',
           icon: isAudioOnly ? 'audio' : 'video',
           state: triStateFromCount(teacherSelCount, teacherTasks.length),
@@ -458,6 +436,7 @@ export function AuditedCourses() {
         },
         {
           id: 'ppt',
+          chipKey: 'videos',
           name: isAudioOnly ? '📑 课堂PPT实录 (无独立音频)' : '📑 课堂PPT实录 (MP4)',
           icon: 'presentation',
           state: isAudioOnly ? 'none' : triStateFromCount(pptSelCount, pptTasks.length),
@@ -473,37 +452,19 @@ export function AuditedCourses() {
         }
       ]
 
-      // 统计进度
-      let done = 0, downloadingCount = 0, errors = 0, inflight = 0
-      for (const t of tasks) {
-        const prog = progressMap[t.taskId]
-        const st = prog?.state
-        const cloudId = isBothMode ? cloudLinkedIds[t.taskId] : undefined
-        const cloudSt = cloudId ? progressMap[cloudId]?.state : undefined
-
-        // 未进入下载队列的非活动任务不计入任何进度
-        if (!st && !cloudSt) continue
-
-        const localDone = st === 'done' || st === 'skipped'
-        if (isBothMode) {
-          const cloudDone = cloudSt === 'done' || cloudSt === 'skipped' || cloudSt === 'cancelled'
-          const isLocalFinal = localDone || st === 'error' || st === 'cancelled'
-          const isCloudFinal = !cloudId || cloudDone || cloudSt === 'error'
-          if (localDone && (cloudDone || !cloudId)) done++
-          else if (st === 'error' || cloudSt === 'error') errors++
-          else if (!isLocalFinal || !isCloudFinal) {
-            downloadingCount++
-            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-            else if (localDone) inflight += 1
-          }
-        } else {
-          if (localDone) done++
-          else if (st === 'error') errors++
-          else if (st === 'downloading' || st === 'pending' || st === 'paused') {
-            downloadingCount++
-            if (st === 'downloading' && prog && prog.total > 0) inflight += Math.min(1, prog.received / prog.total)
-          }
-        }
+      // 统计进度（[Phase 1] 收口到领域层 computeBatchStats，消除与 Canvas/Cnmooc 的三份手抄）
+      let stats: ReturnType<typeof computeBatchStats> | undefined
+      if (tasks.length > 0) {
+        stats = computeBatchStats(
+          tasks.map(t => t.taskId),
+          progressMap,
+          isBothMode ? cloudLinkedIds : {},
+          isBothMode
+        )
+        // 未进入下载队列的任务不计入任何进度（与原实现语义一致：无进度条目的任务静默）
+        const started = tasks.some(t => progressMap[t.taskId] !== undefined
+          || (isBothMode && cloudLinkedIds[t.taskId] && progressMap[cloudLinkedIds[t.taskId]] !== undefined))
+        if (!started) stats = undefined
       }
 
       return {
@@ -518,8 +479,8 @@ export function AuditedCourses() {
         onToggle: () => {
           onToggleMany(taskIds, triState !== 'all')
         },
-        summary: (done > 0 || downloadingCount > 0 || errors > 0) && tasks.length > 0
-          ? { done, downloading: downloadingCount, errors, inflight, total: tasks.length }
+        summary: stats && (stats.done > 0 || stats.active > 0 || stats.failed > 0)
+          ? { done: stats.done, downloading: stats.active, errors: stats.failed, inflight: stats.inflight, total: stats.total }
           : undefined
       }
     })
@@ -538,7 +499,7 @@ export function AuditedCourses() {
   return (
     <div className="flex h-full w-full flex-col">
       {/* 顶部粘性操作栏 (搜索 + 刷新 + 已选统计 + 全选 + 立即下载) */}
-      <div className="sticky top-0 z-10 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 px-6 py-2.5 shadow-xs">
+      <div className="sticky top-0 z-30 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 dark:bg-[#1e1e22] px-6 py-2.5 shadow-xs">
         <div className="flex items-center gap-3">
           <div className="relative flex items-center">
             <svg className="pointer-events-none absolute left-3 h-4 w-4 text-text-4" viewBox="0 0 20 20" fill="currentColor">
@@ -576,21 +537,8 @@ export function AuditedCourses() {
           )}
         </div>
 
+        {/* 右侧：下载控制 */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-text-2">
-            <span className="text-accent font-bold">☑</span>
-            <span>已选 {selectedCount} / {total} 节视频</span>
-          </div>
-
-          <button
-            type="button"
-            onClick={onToggleAll}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-bd bg-surface-2 px-3.5 text-xs font-medium text-text-1 hover:border-bd-strong hover:bg-surface-1 transition-all shadow-2xs cursor-pointer"
-          >
-            <TriCheckbox state={triStateFromCount(selectedCount, total)} size="sm" />
-            <span>已选全部</span>
-          </button>
-
           {downloading && (
             <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
               <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
@@ -598,18 +546,6 @@ export function AuditedCourses() {
               <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
             </div>
           )}
-
-          <button
-            type="button"
-            onClick={onDownload}
-            disabled={selectedCount === 0 || downloading}
-            className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-5 text-xs font-semibold text-white shadow-glow-sm transition-all hover:scale-[1.02] hover:bg-accent-light active:scale-[0.98] disabled:scale-100 disabled:cursor-not-allowed disabled:bg-surface-2 disabled:text-text-4 disabled:shadow-none disabled:opacity-60 cursor-pointer"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
-            </svg>
-            <span>{downloading ? '进行中…' : `立即下载 (${selectedCount})`}</span>
-          </button>
         </div>
       </div>
 
@@ -631,6 +567,7 @@ export function AuditedCourses() {
             viewMode={courseViewMode}
             navState={navState}
             onNavigate={setNavState}
+            onStartDownload={() => void onDownload()}
           />
         )}
       </div>
@@ -754,7 +691,8 @@ function buildTasksForCourse(course: Course, detail: AuditCourseDetail): VideoTa
       [3, 'PPT']
     ] as const) {
       out.push({
-        taskId: `${course.id}_${e.id}_${angle}`,
+        // [Phase 1] taskId 生成收口到领域层工厂（原字符串拼接的 1/12 处）
+        taskId: auditedTaskId(course.id, e.id, angle),
         courseId: course.id,
         videoId: e.id,
         refId: e.refId,

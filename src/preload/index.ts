@@ -5,6 +5,7 @@ import type {
   AuditCourseItem,
   AuthStatus,
   CanvasAssignmentItem,
+  CanvasAssignmentExportOptions,
   CanvasCourse,
   CanvasDownloadTaskSpec,
   CanvasFileItem,
@@ -33,7 +34,8 @@ import type {
   JiaowuScheduleResult,
   IcsExportOptions,
   ScheduleEvent,
-  IcsExportResult
+  IcsExportResult,
+  PrivateWorkerTestResult
 } from '../shared/types'
 
 import pkg from '../../package.json'
@@ -138,7 +140,7 @@ const api = {
   },
   download: {
     /** 提交一批下载任务，支持 local/cloud/both 三种模式 */
-    start: (destRoot: string, tasks: DownloadTaskSpec[], options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string }): Promise<{ ok: boolean; error?: string }> =>
+    start: (destRoot: string, tasks: DownloadTaskSpec[], options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string; cloudDestRoot?: string }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('download:start', destRoot, tasks, options),
     /** 暂停单个任务（本地+云端同时尝试） */
     pause: (taskId: string): Promise<{ ok: boolean }> =>
@@ -161,10 +163,17 @@ const api = {
     /** 设置全局下载限速 (KB/s，0 = 不限速) */
     setSpeedLimit: (limitKBps: number): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke('download:set-speed-limit', limitKBps),
+    /** 获取主进程最新下载进度快照（渲染端重载或初始化时拉取） */
+    getSnapshot: (): Promise<DownloadProgress[]> =>
+      ipcRenderer.invoke('download:get-snapshot'),
+    /** 清除主进程中已完成或已取消的历史快照 */
+    clearFinishedSnapshots: (): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('download:clear-finished-snapshots'),
+    /** 删除单条历史快照（含其 _cloud 镜像）；与渲染端删除单条历史记录联动 */
+    deleteSnapshot: (taskId: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('download:delete-snapshot', taskId),
     /** 订阅下载进度变化事件，返回取消订阅函数 */
     onProgress: (cb: (p: DownloadProgress) => void) => subscribe<DownloadProgress>('download:progress', cb),
-    /** 订阅并发数变化事件（自动模式下），返回取消订阅函数 */
-    onConcurrencyChanged: (cb: (n: number) => void) => subscribe<number>('download:concurrency-changed', cb),
     /** 订阅实时传输速度事件（下行/上行 bytes/s，1s 推送），返回取消订阅函数 */
     onTransferSpeed: (cb: (s: TransferSpeed) => void) => subscribe<TransferSpeed>('transfer:speed', cb)
   },
@@ -291,9 +300,10 @@ const api = {
       cloudUserToken?: string,
       conflictStrategy?: FileConflictStrategy,
       qualityOption?: number | string,
-      term?: string
+      term?: string,
+      cloudDestRoot?: string
     ): Promise<{ ok: boolean; skipped?: boolean; path?: string; format?: string; cloudPath?: string; error?: string }> =>
-      ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot, taskId, cloudUserToken, conflictStrategy, qualityOption, term),
+      ipcRenderer.invoke('canvas:download-module-video-now', courseName, iframeUrl, baseName, destRoot, taskId, cloudUserToken, conflictStrategy, qualityOption, term, cloudDestRoot),
     /** 下载指定讲次列表（按 lectureItems 按需解析流直链） */
     downloadLectures: (
       courseName: string,
@@ -317,6 +327,7 @@ const api = {
       destRoot: string
       term?: string
       conflictStrategy?: FileConflictStrategy
+      options?: CanvasAssignmentExportOptions
     }): Promise<{
       ok: boolean
       results?: Array<{ assignmentName: string; ok: boolean; path?: string; error?: string }>
@@ -405,6 +416,7 @@ const api = {
       term?: string
       videoSession?: { beginTime: string; teacher: string; classroom: string }
       saveImages?: boolean
+      cloudDestRoot?: string
     }): Promise<{ ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download', opts),
     /** 批量下载多讲 PPT 课件（可选云盘上传）。进度事件 canvas:ppt-progress 带 taskId，
@@ -418,6 +430,7 @@ const api = {
       conflictStrategy?: FileConflictStrategy
       term?: string
       saveImages?: boolean
+      cloudDestRoot?: string
     }): Promise<{ ok: boolean; results?: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }>; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download-batch', opts),
     /** 订阅 PPT 下载进度事件（含 taskId，用于映射到 UI 进度条） */
@@ -444,7 +457,13 @@ const api = {
       ipcRenderer.invoke('schedule:fetch-jiaowu', xnm, xqm),
     exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]): Promise<IcsExportResult> =>
       ipcRenderer.invoke('schedule:export-ics', options, events)
-  }
+  },
+  /** 测试校内私有中转服务的连通性与健康状态 */
+  testPrivateWorker: (url: string, token?: string): Promise<PrivateWorkerTestResult> =>
+    ipcRenderer.invoke('private-worker:test', { url, token }),
+  /** 获取开发环境内置测试节点就绪状态 */
+  getDevWorkerInfo: (): Promise<{ isDev: boolean; devWorkerUrl: string | null }> =>
+    ipcRenderer.invoke('private-worker:get-dev-info')
 }
 
 

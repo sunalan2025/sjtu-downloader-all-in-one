@@ -1,0 +1,80 @@
+---
+import { REPO_OWNER, REPO_NAME } from '../utils/releaseInfo';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+
+const repoUrl = `https://github.com/${REPO_OWNER}/${REPO_NAME}`;
+const issuesUrl = `${repoUrl}/issues`;
+const releasesUrl = `${repoUrl}/releases`;
+const personalUrl = 'https://hisunalan.me';
+---
+
+<footer
+  class={`bg-white dark:bg-sjtu-dark border-t border-slate-200/80 dark:border-slate-800/80 text-slate-500 dark:text-slate-400 text-xs transition-colors duration-200 ${className}`}
+  aria-label="页脚版权与开源信息"
+>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+    <div class="flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-left">
+      <!-- Left: Brand & Disclaimer -->
+      <div class="space-y-1.5 max-w-2xl">
+        <div class="flex items-center justify-center md:justify-start gap-2 font-bold text-slate-900 dark:text-slate-100 text-sm">
+          <span>交大课程下载器</span>
+          <span class="text-slate-300 dark:text-slate-700">·</span>
+          <span class="font-normal text-xs text-slate-500 dark:text-slate-400">SJTU Course Downloader</span>
+        </div>
+        <p class="leading-relaxed text-[11px] text-slate-500 dark:text-slate-400">
+          个人独立开源项目，仅供在校师生学习交流与教学研究归档使用。课件与录播知识产权归任课教师及上海交通大学所有。
+        </p>
+        <p class="text-[11px] text-slate-400 dark:text-slate-500">
+          © 2024-2026 sunalan2025. Released under the MIT License.
+        </p>
+      </div>
+
+      <!-- Right: Clean Links & Back to Top -->
+      <div class="flex flex-wrap items-center justify-center md:justify-end gap-x-5 gap-y-2 text-xs font-medium shrink-0">
+        <a
+          href={repoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-sjtu-blue dark:hover:text-blue-400 transition-colors"
+        >
+          GitHub 源码
+        </a>
+        <a
+          href={issuesUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-sjtu-blue dark:hover:text-blue-400 transition-colors"
+        >
+          Issue 反馈
+        </a>
+        <a
+          href={releasesUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-sjtu-blue dark:hover:text-blue-400 transition-colors"
+        >
+          更新日志
+        </a>
+        <a
+          href={personalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-sjtu-blue dark:hover:text-blue-400 transition-colors"
+        >
+          个人主页
+        </a>
+        <a
+          href="#top"
+          class="hover:text-sjtu-blue dark:hover:text-blue-400 transition-colors inline-flex items-center gap-1 pl-2 border-l border-slate-200 dark:border-slate-800"
+        >
+          <span>顶部 ↑</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</footer>

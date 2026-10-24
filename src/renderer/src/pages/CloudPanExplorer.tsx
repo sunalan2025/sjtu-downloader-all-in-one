@@ -1,3 +1,6 @@
+import { useToast } from '../hooks/useToast'
+import { Toast } from '../components/Toast'
+import { useClickOutside } from '../hooks/useClickOutside'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '../store/app'
 import { BreadcrumbBar, type BreadcrumbItem } from '../components/BreadcrumbBar'
@@ -12,10 +15,6 @@ import {
 import { Spinner } from '../components/Spinner'
 import { formatBytes, buildAncestorPathChain, formatDate } from '@shared/utils'
 import type { CloudPanItem } from '@shared/types'
-
-interface CloudPanExplorerProps {
-  onBack?: () => void
-}
 
 function getFileIcon(item: CloudPanItem, isLarge = false) {
   const sizeClass = isLarge ? 'h-14 w-14 text-3xl' : 'h-10 w-10 text-xl'
@@ -311,7 +310,7 @@ function CloudPanMillerColumns({
   return (
     <div className="flex h-full w-full flex-col rounded-2xl border border-bd bg-surface-1 shadow-card select-none overflow-hidden">
       {/* 顶部分栏全局控制栏 (Miller Columns Global Bar) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bd/60 bg-surface-2/60 px-4 py-2 text-xs select-none shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-bd bg-surface-2/60 px-4 py-2 text-xs select-none shrink-0">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-text-2 flex items-center gap-1.5">
             <span>📊</span>
@@ -320,7 +319,7 @@ function CloudPanMillerColumns({
               {columns.length} 级列
             </span>
           </span>
-          <div className="h-3 w-px bg-bd/60 hidden sm:block" />
+          <div className="h-3 w-px bg-bd hidden sm:block" />
           <span className="text-2xs text-text-4 font-mono truncate max-w-xs hidden sm:inline" title={`/${columns.map(c => c.name).filter(Boolean).join('/')}`}>
             /{columns.map(c => c.name).filter(Boolean).join('/')}
           </span>
@@ -357,12 +356,12 @@ function CloudPanMillerColumns({
       {/* 横向平铺多级分栏主体 */}
       <div
         ref={containerRef}
-        className="flex flex-1 w-full flex-row overflow-x-auto divide-x divide-bd/60 scroll-smooth"
+        className="flex flex-1 w-full flex-row overflow-x-auto divide-x divide-bd scroll-smooth"
       >
         {columns.map((col, colIdx) => (
           <div key={`${col.path.join('/') || 'root'}-${colIdx}`} className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full">
             {/* 每列顶栏：显示该层名称与项目计数 */}
-            <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/40 px-3.5 text-xs font-semibold text-text-2 select-none shrink-0">
+            <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/40 px-3.5 text-xs font-semibold text-text-2 select-none shrink-0">
               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                 <span>{col.path.length === 0 ? '🏠' : '📁'}</span>
                 <span className="truncate font-semibold" title={col.name}>{col.name}</span>
@@ -457,8 +456,8 @@ function CloudPanMillerColumns({
 
         {/* 最右侧：文件大预览与元数据卡片 (Preview Column) */}
         {previewFile && (
-          <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none">
-            <div className="flex items-center justify-between pb-3 border-b border-bd/60">
+          <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd select-none">
+            <div className="flex items-center justify-between pb-3 border-b border-bd">
               <span className="text-xs font-bold text-text-2">文件详情与预览</span>
               <button
                 type="button"
@@ -505,7 +504,7 @@ function CloudPanMillerColumns({
 
                 if (isAudio) {
                   return (
-                    <div className="w-full rounded-xl bg-surface-2 p-4 flex flex-col items-center border border-bd/60 shadow-xs">
+                    <div className="w-full rounded-xl bg-surface-2 p-4 flex flex-col items-center border border-bd shadow-xs">
                       <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-3 shadow-inner">
                         🎵
                       </div>
@@ -528,7 +527,7 @@ function CloudPanMillerColumns({
 
                 if (isImage && previewUrl) {
                   return (
-                    <div className="w-full rounded-xl overflow-hidden bg-surface-2 border border-bd/60 flex items-center justify-center max-h-56">
+                    <div className="w-full rounded-xl overflow-hidden bg-surface-2 border border-bd flex items-center justify-center max-h-56">
                       <img src={previewUrl} alt={previewFile.item.name} className="max-h-56 object-contain" />
                     </div>
                   )
@@ -536,7 +535,7 @@ function CloudPanMillerColumns({
 
                 return (
                   <div className="flex justify-center py-4">
-                    <div className="p-5 rounded-2xl bg-surface-2 border border-bd/60 shadow-inner">
+                    <div className="p-5 rounded-2xl bg-surface-2 border border-bd shadow-inner">
                       {getFileIcon(previewFile.item, true)}
                     </div>
                   </div>
@@ -548,7 +547,7 @@ function CloudPanMillerColumns({
               {previewFile.item.name}
             </h3>
 
-            <div className="w-full rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40 space-y-2 mb-4">
+            <div className="w-full rounded-xl border border-bd bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd space-y-2 mb-4">
               <div className="flex justify-between py-1">
                 <span className="text-text-3">类型</span>
                 <span className="font-mono text-text-1 uppercase">
@@ -615,7 +614,7 @@ function CloudPanMillerColumns({
   )
 }
 
-export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}) {
+export function CloudPanExplorer() {
   const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
   const setCloudSpaceInfo = useAppStore(s => s.setCloudSpaceInfo)
   const localDestRoot = useAppStore(s => s.localDestRoot)
@@ -630,25 +629,9 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set())
   const [cloudPanBatchMenuOpen, setCloudPanBatchMenuOpen] = useState(false)
   const cloudPanBatchMenuRef = useRef<HTMLDivElement>(null)
-  const [toastMsg, setToastMsg] = useState<{ text: string; type: 'info' | 'success' | 'error' } | null>(null)
+  const { toast: toastMsg, showToast, hideToast } = useToast(3500)
 
-  useEffect(() => {
-    if (!cloudPanBatchMenuOpen) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (cloudPanBatchMenuRef.current && !cloudPanBatchMenuRef.current.contains(e.target as Node)) {
-        setCloudPanBatchMenuOpen(false)
-      }
-    }
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setCloudPanBatchMenuOpen(false)
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [cloudPanBatchMenuOpen])
+  useClickOutside(cloudPanBatchMenuRef, () => setCloudPanBatchMenuOpen(false), { enabled: cloudPanBatchMenuOpen })
 
   // 模态弹窗状态
   const [newFolderOpen, setNewFolderOpen] = useState(false)
@@ -662,16 +645,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
   const [deleteTargets, setDeleteTargets] = useState<CloudPanItem[] | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  // 弹窗提示通知
-  const showToast = useCallback((text: string, type: 'info' | 'success' | 'error' = 'info') => {
-    setToastMsg({ text, type })
-  }, [])
-
-  useEffect(() => {
-    if (!toastMsg) return
-    const timer = setTimeout(() => setToastMsg(null), 3500)
-    return () => clearTimeout(timer)
-  }, [toastMsg])
+  // 弹窗提示通知已统一由 useToast hook 接管
 
   // 配额容量计算
   const quota = useMemo(() => {
@@ -1018,7 +992,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
           <span className="text-base font-bold text-text-1">☁️ 交大云盘资源管理器</span>
           {quota && (
             <div
-              className="hidden md:flex items-center gap-2 rounded-xl border border-bd/80 bg-surface-1 px-2.5 py-1 text-2xs text-text-2 shadow-2xs"
+              className="hidden md:flex items-center gap-2 rounded-xl border border-bd bg-surface-1 px-2.5 py-1 text-2xs text-text-2 shadow-2xs"
               title={`容量已用: ${quota.usedStr}，总容量: ${quota.totalStr}`}
             >
               <span>已用 {quota.usedStr} / {quota.totalStr} ({quota.pct}%)</span>
@@ -1093,13 +1067,13 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
       </header>
 
       {/* 路径导航条与本地搜索 */}
-      <div className="flex items-center justify-between border-b border-bd/60 bg-surface-1 px-6 py-2">
+      <div className="flex items-center justify-between border-b border-bd bg-surface-1 px-6 py-2">
         <div className="flex-1 overflow-x-auto pr-4">
           <BreadcrumbBar items={breadcrumbItems} onNavigate={handleBreadcrumbNavigate} />
         </div>
         <div className="flex items-center gap-2.5 shrink-0">
           {/* 快捷批量选择控件 */}
-          <div ref={cloudPanBatchMenuRef} className="relative inline-flex items-center rounded-xl border border-bd bg-surface-2 shadow-2xs hover:border-bd-strong transition-all select-none">
+          <div ref={cloudPanBatchMenuRef} className={`relative inline-flex items-center rounded-xl border border-bd bg-surface-2 shadow-2xs hover:border-bd-strong transition-all select-none ${cloudPanBatchMenuOpen ? 'z-50' : ''}`}>
             <button
               type="button"
               onClick={handleToggleAll}
@@ -1109,7 +1083,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
               <TriCheckbox state={cloudPanTriState} size="sm" />
               <span>全选</span>
             </button>
-            <div className="h-3.5 w-px bg-bd/70" />
+            <div className="h-3.5 w-px bg-bd" />
             <button
               type="button"
               onClick={() => setCloudPanBatchMenuOpen(prev => !prev)}
@@ -1122,8 +1096,8 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
             </button>
 
             {cloudPanBatchMenuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-bd bg-surface-1 p-1.5 shadow-xl animate-fadeIn text-xs">
-                <div className="px-2.5 py-1 text-2xs font-semibold text-text-3 border-b border-bd/40 mb-1">
+              <div className="absolute right-0 top-full z-50 mt-1.5 w-52 rounded-2xl border border-bd bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-xl animate-fadeIn text-xs">
+                <div className="px-2.5 py-1 text-2xs font-semibold text-text-3 border-b border-bd mb-1">
                   当前目录快捷勾选 ({displayedItems.length} 项)
                 </div>
                 <button
@@ -1182,7 +1156,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
                     <div className="text-2xs text-text-3">包含文件夹与文件</div>
                   </div>
                 </button>
-                <div className="my-1 border-t border-bd/40" />
+                <div className="my-1 border-t border-bd" />
                 <button
                   type="button"
                   onClick={() => {
@@ -1212,22 +1186,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
       </div>
 
       {/* 提示消息 Floating Toast */}
-      {toastMsg && (
-        <div className="fixed top-16 right-6 z-50 animate-fadeIn">
-          <div
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-medium shadow-xl border backdrop-blur-md ${
-              toastMsg.type === 'success'
-                ? 'bg-success/15 border-success/30 text-success'
-                : toastMsg.type === 'error'
-                  ? 'bg-warning/15 border-warning/30 text-warning'
-                  : 'bg-surface-1/90 border-bd text-text-1'
-            }`}
-          >
-            <span>{toastMsg.type === 'success' ? '✅' : toastMsg.type === 'error' ? '⚠️' : 'ℹ️'}</span>
-            <span>{toastMsg.text}</span>
-          </div>
-        </div>
-      )}
+      <Toast toast={toastMsg} onClose={hideToast} className="fixed top-16 right-6" />
 
       {/* 主视图内容区域 */}
       <main className={`relative flex-1 p-4 md:p-6 ${courseViewMode === 'column' ? 'overflow-hidden flex flex-col pb-20' : 'overflow-y-auto'}`}>
@@ -1397,7 +1356,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
         ) : (
           /* 详细列表表格视图 */
           <div className="overflow-hidden rounded-2xl border border-bd bg-surface-2 shadow-2xs pb-20">
-            <div className="grid grid-cols-12 items-center border-b border-bd/70 bg-surface-3/50 px-4 py-2.5 text-xs font-semibold text-text-3">
+            <div className="grid grid-cols-12 items-center border-b border-bd bg-surface-3/50 px-4 py-2.5 text-xs font-semibold text-text-3">
               <div className="col-span-6 flex items-center gap-3">
                 <input
                   type="checkbox"
@@ -1412,7 +1371,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
               <div className="col-span-2 text-right pr-2">操作</div>
             </div>
 
-            <div className="divide-y divide-bd/40">
+            <div className="divide-y divide-bd">
               {displayedItems.map(item => {
                 const isSelected = selectedNames.has(item.name)
                 return (
@@ -1557,7 +1516,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
 
       {/* ─── 模态弹窗 1: 新建文件夹 ─── */}
       {newFolderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setNewFolderOpen(false)} />
           <div className="relative w-[360px] rounded-2xl border border-bd bg-surface-1 p-5 shadow-2xl">
             <h3 className="text-sm font-bold text-text-1 mb-3">📁 新建文件夹</h3>
@@ -1593,7 +1552,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
 
       {/* ─── 模态弹窗 2: 重命名 ─── */}
       {renameTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setRenameTarget(null)} />
           <div className="relative w-[360px] rounded-2xl border border-bd bg-surface-1 p-5 shadow-2xl">
             <h3 className="text-sm font-bold text-text-1 mb-3">
@@ -1631,7 +1590,7 @@ export function CloudPanExplorer({ onBack: _onBack }: CloudPanExplorerProps = {}
 
       {/* ─── 模态弹窗 3: 删除确认 ─── */}
       {deleteTargets && deleteTargets.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center animate-fadeIn" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-xs" onClick={() => setDeleteTargets(null)} />
           <div className="relative w-[380px] rounded-2xl border border-bd bg-surface-1 p-5 shadow-2xl text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-warning/15 text-2xl text-warning mb-3">

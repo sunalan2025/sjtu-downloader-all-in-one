@@ -258,6 +258,8 @@ export interface DownloadTaskSpec {
   fileName: string
   /** 交大云盘 UserToken；存在时走云盘上传而非本地下载 */
   cloudUserToken?: string
+  /** 交大云盘目标保存根目录（如 '/SJTU课程备份' 或 '/'） */
+  cloudDestRoot?: string
   /** vod-info 资源 id，用于按需解析直链（lazy resolution） */
   refId?: number
   /** 视角：0=教师, 3=PPT */
@@ -286,6 +288,10 @@ export interface DownloadProgress {
   state: DownloadState
   received: number
   total: number
+  /** 文件名（由 spec 传递，供 UI 稳定展示，避免从临时路径猜文件名） */
+  fileName?: string
+  /** 课程名（供 UI 分类与展示） */
+  courseName?: string
   /** 落盘文件最终绝对路径（done/skipped 时有；仅云端模式下无此字段） */
   filePath?: string
   /** 云盘最终绝对路径（done/skipped 且涉及云盘/both 模式时有） */
@@ -591,6 +597,23 @@ export interface CanvasTranscriptExportOptions {
   exportMarkdown?: boolean
 }
 
+/** Canvas 课程作业与提交归档导出选项 */
+export interface CanvasAssignmentExportOptions {
+  exportMarkdown: boolean
+  downloadAttachments: boolean
+  downloadSubmissions: boolean
+}
+
+/** 单文件/条目即时直下载调度参数结构 */
+export interface SingleDownloadPayload {
+  id: string
+  type: 'file' | 'video' | 'assignment'
+  name: string
+  courseId: number
+  url?: string
+  size?: number
+}
+
 /** 渲染端顶部 tab */
 export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'schedule' | 'transfer' | 'settings' | 'cloudpan'
 
@@ -706,6 +729,9 @@ export interface PptDownloadOpts {
 
 export type VideoQualityOption = 'origin' | '1080p' | '720p' | 'audio_only'
 
+/** 视频录播镜头机位偏好：双机位 / 仅教师 / 仅PPT / 纯音频 */
+export type VideoPerspective = 'all' | 'teacher' | 'ppt' | 'audio'
+
 export interface DownloadHistoryItem {
   taskId: string
   fileName: string
@@ -788,6 +814,7 @@ export interface ScheduleEvent {
   score?: number | null
   pointsPossible?: number | null
   htmlUrl?: string
+  isLockAtDeadline?: boolean // 标记该截止时间是否由 lock_at（锁定/关闭时间）继承而来（如大学物理等未设置 due_at 的课程）
   // 日历类别（如 "课程", "会议", "私人"）
   calendarName?: string
   // 教务排课与大课扩展
@@ -870,10 +897,31 @@ export interface ScheduleApi {
   exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]) => Promise<IcsExportResult>
 }
 
+/** 校内私有中转服务配置 */
+export interface PrivateWorkerConfig {
+  /** 是否启用私有中转代传 */
+  enabled: boolean
+  /** 服务节点地址，如 http://127.0.0.1:6880 */
+  endpointUrl: string
+  /** 访问授权密钥 (Token)，选填 */
+  authToken?: string
+}
+
+/** 私有中转服务连接测试结果 */
+export interface PrivateWorkerTestResult {
+  success: boolean
+  latencyMs?: number
+  version?: string
+  serverName?: string
+  error?: string
+}
+
 export interface WindowApi {
   credentials: CredentialsApi
   cloudpan: CloudPanApi
   schedule: ScheduleApi
+  testPrivateWorker?: (url: string, token?: string) => Promise<PrivateWorkerTestResult>
+  getDevWorkerInfo?: () => Promise<{ isDev: boolean; devWorkerUrl: string | null }>
   [key: string]: unknown
 }
 

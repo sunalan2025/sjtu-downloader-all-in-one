@@ -18,7 +18,8 @@ export default tseslint.config(
       '**/*.config.{js,mjs,ts,cjs}',
       'src/**/*.test.ts',
       'test/**',
-      'src/test/**'
+      'src/test/**',
+      'website/**'
     ]
   },
   js.configs.recommended,

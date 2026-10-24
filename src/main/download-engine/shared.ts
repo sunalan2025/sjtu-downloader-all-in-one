@@ -277,7 +277,6 @@ export async function resolveDirectUrl(
       t.state = 'error'
       const msg = err instanceof Error ? err.message : String(err)
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-      scheduleCleanupTask(t.spec.taskId, isCloud)
       return false
     }
   }
@@ -346,7 +345,6 @@ export async function resolveDirectUrl(
           t.state = 'error'
           const msg = err instanceof Error ? err.message : String(err)
           emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-          scheduleCleanupTask(t.spec.taskId, isCloud)
           return false
         }
       }
@@ -377,7 +375,6 @@ export async function resolveDirectUrl(
         t.state = 'error'
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-        scheduleCleanupTask(t.spec.taskId, isCloud)
         return false
       }
     }
@@ -416,7 +413,6 @@ export async function resolveDirectUrl(
         if (!t.spec.url) {
           t.state = 'error'
           emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-          scheduleCleanupTask(t.spec.taskId, isCloud)
           return false
         }
       }
@@ -442,7 +438,6 @@ export async function resolveDirectUrl(
         t.state = 'error'
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-        scheduleCleanupTask(t.spec.taskId, isCloud)
         return false
       }
     }
@@ -466,7 +461,6 @@ export async function resolveDirectUrl(
         t.state = 'error'
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-        scheduleCleanupTask(t.spec.taskId, isCloud)
         return false
       }
     }
@@ -492,7 +486,6 @@ export async function resolveDirectUrl(
       t.state = 'error'
       const msg = err instanceof Error ? err.message : String(err)
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-      scheduleCleanupTask(t.spec.taskId, isCloud)
       return false
     }
   }

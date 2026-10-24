@@ -1,0 +1,187 @@
+/* ─── 主题过渡与 CSS 属性类型注册 ─── */
+@property --bg-base { syntax: '<color>'; inherits: true; initial-value: #161618; }
+@property --bg-surface-1 { syntax: '<color>'; inherits: true; initial-value: #1e1e22; }
+@property --bg-surface-2 { syntax: '<color>'; inherits: true; initial-value: #26262a; }
+@property --bg-surface-3 { syntax: '<color>'; inherits: true; initial-value: #303036; }
+@property --bg-surface-4 { syntax: '<color>'; inherits: true; initial-value: #3a3a3c; }
+@property --bg-body { syntax: '<color>'; inherits: true; initial-value: #161618; }
+@property --text-primary { syntax: '<color>'; inherits: true; initial-value: rgba(244, 244, 245, 1); }
+@property --text-secondary { syntax: '<color>'; inherits: true; initial-value: rgba(244, 244, 245, 0.6); }
+@property --text-tertiary { syntax: '<color>'; inherits: true; initial-value: rgba(244, 244, 245, 0.35); }
+@property --text-muted { syntax: '<color>'; inherits: true; initial-value: rgba(244, 244, 245, 0.2); }
+@property --border-default { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.08); }
+@property --border-strong { syntax: '<color>'; inherits: true; initial-value: rgba(255, 255, 255, 0.14); }
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #0a84ff; }
+@property --accent-light { syntax: '<color>'; inherits: true; initial-value: #409cff; }
+@property --accent-dark { syntax: '<color>'; inherits: true; initial-value: #0064d6; }
+@property --cloud { syntax: '<color>'; inherits: true; initial-value: #0a84ff; }
+@property --cloud-light { syntax: '<color>'; inherits: true; initial-value: #5ac8fa; }
+@property --success { syntax: '<color>'; inherits: true; initial-value: #30d158; }
+@property --warning { syntax: '<color>'; inherits: true; initial-value: #ff9f0a; }
+@property --danger { syntax: '<color>'; inherits: true; initial-value: #ff453a; }
+@property --info { syntax: '<color>'; inherits: true; initial-value: #0a84ff; }
+
+/* ─── 浅色模式 (Light Theme) ─── */
+:root,
+[data-theme='light'] {
+  --bg-base: #F2F2F7;
+  --bg-surface-1: #FFFFFF;
+  --bg-surface-2: #EBEBF0;
+  --bg-surface-3: rgba(0, 0, 0, 0.04);
+  --bg-surface-4: #D1D1D6;
+  --bg-body: #F2F2F7;
+  --bg-body-accent-1: rgba(0, 113, 227, 0.03);
+  --bg-body-accent-2: rgba(0, 113, 227, 0.01);
+
+  --text-primary: rgba(29, 29, 31, 1.0);
+  --text-secondary: rgba(29, 29, 31, 0.60);
+  --text-tertiary: rgba(29, 29, 31, 0.35);
+  --text-muted: rgba(29, 29, 31, 0.20);
+
+  --color-bd-rgb: 0, 0, 0;
+  --color-accent-rgb: 0, 113, 227;
+  --color-cloud-rgb: 0, 113, 227;
+  --color-success-rgb: 52, 199, 89;
+  --color-warning-rgb: 255, 149, 0;
+  --color-danger-rgb: 255, 59, 48;
+  --color-amber-rgb: 255, 149, 0;
+  --color-emerald-rgb: 52, 199, 89;
+  --color-sky-rgb: 0, 113, 227;
+  --color-rose-rgb: 255, 59, 48;
+  --border-default: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.14);
+
+  --accent: #0071E3;
+  --accent-light: #409CFF;
+  --accent-dark: #0058B6;
+  --accent-5: rgba(0, 113, 227, 0.05);
+  --accent-10: rgba(0, 113, 227, 0.10);
+  --accent-15: rgba(0, 113, 227, 0.15);
+  --accent-20: rgba(0, 113, 227, 0.20);
+  --accent-25: rgba(0, 113, 227, 0.25);
+  --accent-30: rgba(0, 113, 227, 0.30);
+  --accent-40: rgba(0, 113, 227, 0.40);
+  --accent-50: rgba(0, 113, 227, 0.50);
+  --accent-60: rgba(0, 113, 227, 0.60);
+  --accent-80: rgba(0, 113, 227, 0.80);
+  --accent-85: rgba(0, 113, 227, 0.85);
+
+  --cloud: #0071E3;
+  --cloud-light: #5AC8FA;
+  --cloud-dim: rgba(0, 113, 227, 0.07);
+  --cloud-25: rgba(0, 113, 227, 0.15);
+  --cloud-40: rgba(0, 113, 227, 0.25);
+
+  --emerald: #34C759;
+  --amber: #FF9500;
+  --rose: #FF3B30;
+  --sky: #0071E3;
+
+  --success: #34C759;
+  --success-bg: rgba(52, 199, 89, 0.10);
+  --success-ring: rgba(52, 199, 89, 0.22);
+  --warning: #FF9500;
+  --warning-bg: rgba(255, 149, 0, 0.10);
+  --warning-ring: rgba(255, 149, 0, 0.22);
+  --info: #0071E3;
+  --info-bg: rgba(0, 113, 227, 0.08);
+  --info-ring: rgba(0, 113, 227, 0.20);
+  --danger: #FF3B30;
+  --danger-bg: rgba(255, 59, 48, 0.08);
+  --danger-ring: rgba(255, 59, 48, 0.20);
+
+  --task-done-bg: #E8F8EE;
+  --task-downloading-bg: #EBF3FF;
+  --task-paused-bg: #FFF4E5;
+  --task-error-bg: #FEECEB;
+  --queue: #86868B;
+
+  --progress-track: #E5E5EA;
+  --selection-bg: rgba(0, 113, 227, 0.15);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.16);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+
+  color-scheme: light;
+}
+
+/* ─── 深色模式 (Dark Theme - 知乎 & Apple HIG 规范化) ─── */
+[data-theme='dark'] {
+  --bg-base: #161618;
+  --bg-surface-1: #1E1E22;
+  --bg-surface-2: #26262A;
+  --bg-surface-3: #303036;
+  --bg-surface-4: #3A3A3C;
+  --bg-body: #161618;
+  --bg-body-accent-1: rgba(10, 132, 255, 0.04);
+  --bg-body-accent-2: rgba(10, 132, 255, 0.02);
+
+  --text-primary: rgba(244, 244, 245, 1.0);
+  --text-secondary: rgba(244, 244, 245, 0.60);
+  --text-tertiary: rgba(244, 244, 245, 0.35);
+  --text-muted: rgba(244, 244, 245, 0.20);
+
+  --color-bd-rgb: 255, 255, 255;
+  --color-accent-rgb: 10, 132, 255;
+  --color-cloud-rgb: 10, 132, 255;
+  --color-success-rgb: 48, 209, 88;
+  --color-warning-rgb: 255, 159, 10;
+  --color-danger-rgb: 255, 69, 58;
+  --color-amber-rgb: 255, 159, 10;
+  --color-emerald-rgb: 48, 209, 88;
+  --color-sky-rgb: 10, 132, 255;
+  --color-rose-rgb: 255, 69, 58;
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --accent: #0A84FF;
+  --accent-light: #409CFF;
+  --accent-dark: #0064D6;
+  --accent-5: rgba(10, 132, 255, 0.05);
+  --accent-10: rgba(10, 132, 255, 0.10);
+  --accent-15: rgba(10, 132, 255, 0.15);
+  --accent-20: rgba(10, 132, 255, 0.20);
+  --accent-25: rgba(10, 132, 255, 0.25);
+  --accent-30: rgba(10, 132, 255, 0.30);
+  --accent-40: rgba(10, 132, 255, 0.40);
+  --accent-50: rgba(10, 132, 255, 0.50);
+  --accent-60: rgba(10, 132, 255, 0.60);
+  --accent-80: rgba(10, 132, 255, 0.80);
+  --accent-85: rgba(10, 132, 255, 0.85);
+
+  --cloud: #0A84FF;
+  --cloud-light: #5AC8FA;
+  --cloud-dim: rgba(10, 132, 255, 0.10);
+  --cloud-25: rgba(10, 132, 255, 0.25);
+  --cloud-40: rgba(10, 132, 255, 0.40);
+
+  --emerald: #30D158;
+  --amber: #FF9F0A;
+  --rose: #FF453A;
+  --sky: #0A84FF;
+
+  --success: #30D158;
+  --success-bg: rgba(48, 209, 88, 0.12);
+  --success-ring: rgba(48, 209, 88, 0.24);
+  --warning: #FF9F0A;
+  --warning-bg: rgba(255, 159, 10, 0.12);
+  --warning-ring: rgba(255, 159, 10, 0.24);
+  --info: #0A84FF;
+  --info-bg: rgba(10, 132, 255, 0.10);
+  --info-ring: rgba(10, 132, 255, 0.22);
+  --danger: #FF453A;
+  --danger-bg: rgba(255, 69, 58, 0.12);
+  --danger-ring: rgba(255, 69, 58, 0.24);
+
+  --task-done-bg: #1A2E28;
+  --task-downloading-bg: #1F2937;
+  --task-paused-bg: #2E2316;
+  --task-error-bg: #2E1F1F;
+  --queue: #71717A;
+
+  --progress-track: #26262A;
+  --selection-bg: rgba(10, 132, 255, 0.25);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+
+  color-scheme: dark;
+}

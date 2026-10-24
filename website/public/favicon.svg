@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <!-- Background Brand Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#002B70" />
+      <stop offset="55%" stop-color="#004098" />
+      <stop offset="100%" stop-color="#165DFF" />
+    </linearGradient>
+
+    <!-- Radial Top-Left Highlight Glow -->
+    <radialGradient id="highlightGlow" cx="25%" cy="20%" r="65%">
+      <stop offset="0%" stop-color="#00D2D3" stop-opacity="0.32" />
+      <stop offset="60%" stop-color="#165DFF" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#002B70" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Drop Shadow for Foreground Emblem -->
+    <filter id="emblemShadow" x="-10%" y="-10%" width="120%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#001840" flood-opacity="0.5" />
+    </filter>
+  </defs>
+
+  <!-- Base Squircle Container -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bgGrad)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="2" />
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#highlightGlow)" />
+
+  <!-- Subtle Shield Watermark Contour in Background -->
+  <path
+    d="M64 18 L98 32 C98 68 64 96 64 96 C64 96 30 68 30 32 Z"
+    fill="none"
+    stroke="rgba(255, 255, 255, 0.12)"
+    stroke-width="2.5"
+    stroke-linejoin="round"
+  />
+
+  <!-- Main Emblem Group with Shadow -->
+  <g filter="url(#emblemShadow)">
+    <!-- Academic Cap Diamond (Mortarboard) -->
+    <polygon points="64,26 102,43 64,60 26,43" fill="#FFFFFF" />
+    <!-- Mortarboard Lower Edge Bevel -->
+    <polygon points="64,60 102,43 102,47 64,64 26,47 26,43" fill="#DDE4EF" />
+
+    <!-- Skull Cap Headband Arc -->
+    <path
+      d="M38 50 V63 C38 73 90 73 90 63 V50"
+      fill="none"
+      stroke="#FFFFFF"
+      stroke-width="4.5"
+      stroke-linecap="round"
+    />
+
+    <!-- Cap Tassel in SJTU Cyan -->
+    <path
+      d="M98 45 V66 C98 69 95 72 92 74"
+      fill="none"
+      stroke="#00D2D3"
+      stroke-width="3"
+      stroke-linecap="round"
+    />
+    <circle cx="92" cy="76" r="3" fill="#00D2D3" />
+
+    <!-- Download Arrow in Vibrant Cyan -->
+    <path
+      d="M64 68 V86"
+      stroke="#00D2D3"
+      stroke-width="5"
+      stroke-linecap="round"
+    />
+    <polyline
+      points="52 80 64 92 76 80"
+      fill="none"
+      stroke="#00D2D3"
+      stroke-width="5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+
+    <!-- Archive Tray / Storage Base Bracket in White -->
+    <path
+      d="M42 96 V102 C42 105.3 44.7 108 48 108 H80 C83.3 108 86 105.3 86 102 V96"
+      fill="none"
+      stroke="#FFFFFF"
+      stroke-width="4.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>

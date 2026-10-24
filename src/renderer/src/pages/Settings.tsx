@@ -1,25 +1,34 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   useAppStore,
   type Theme,
   type WindowCloseAction,
-  type ExitWhenDownloadingPolicy,
-  type CourseViewMode
+  type ExitWhenDownloadingPolicy
 } from '../store/app'
 import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
 import { prefetchCloudConnection } from '../services/prefetch'
-import type { DownloadMode, VideoQualityOption, MaskedCredential } from '@shared/types'
-import { formatPathFromTemplate, formatDate } from '../../../shared/utils'
+import type { DownloadMode, VideoQualityOption, VideoPerspective, MaskedCredential, PrivateWorkerTestResult } from '@shared/types'
+import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBreadcrumb, normalizeCloudPath, formatBytes } from '../../../shared/utils'
 import pkg from '../../../../package.json'
 
-export function Settings({
-  onBack: _onBack,
-  onLogout
-}: {
-  onBack?: () => void
+export interface SettingsProps {
   onLogout?: () => void
-}) {
+  initialNav?: string
+  videoQualityOption?: VideoQualityOption
+  videoPerspectivePreference?: VideoPerspective
+  cloudUserToken?: string | null
+  cloudSpaceInfo?: { size: number | string; capacity: number | string } | null
+}
+
+export function Settings({
+  onLogout,
+  initialNav = 'general',
+  videoQualityOption: propVideoQuality,
+  videoPerspectivePreference: propPerspective,
+  cloudUserToken: propCloudToken,
+  cloudSpaceInfo: propCloudSpace
+}: SettingsProps) {
   const auth = useAppStore(s => s.auth)
   const downloadMode = useAppStore(s => s.downloadMode)
   const setDownloadMode = useAppStore(s => s.setDownloadMode)
@@ -29,12 +38,78 @@ export function Settings({
   const setConcurrency = useAppStore(s => s.setConcurrency)
   const maxDownloadSpeedKBps = useAppStore(s => s.maxDownloadSpeedKBps)
   const setMaxDownloadSpeedKBps = useAppStore(s => s.setMaxDownloadSpeedKBps)
-  const videoQualityOption = useAppStore(s => s.videoQualityOption)
+  const storePrivateWorkerConfig = useAppStore(s => s.privateWorkerConfig)
+  const privateWorkerConfig = typeof useAppStore.getState === 'function' ? useAppStore.getState().privateWorkerConfig : storePrivateWorkerConfig
+  const setPrivateWorkerConfig = useAppStore(s => s.setPrivateWorkerConfig)
+  const [workerTesting, setWorkerTesting] = useState(false)
+  const [workerTestResult, setWorkerTestResult] = useState<PrivateWorkerTestResult | null>(null)
+  const [devWorkerInfo, setDevWorkerInfo] = useState<{ isDev: boolean; devWorkerUrl: string | null } | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    if (typeof window !== 'undefined' && window.api?.getDevWorkerInfo) {
+      window.api.getDevWorkerInfo().then(info => {
+        if (!mounted || !info) return
+        setDevWorkerInfo(info)
+        if (info.isDev && info.devWorkerUrl) {
+          if (!privateWorkerConfig.endpointUrl || privateWorkerConfig.endpointUrl === 'http://127.0.0.1:6880') {
+            setPrivateWorkerConfig({ endpointUrl: info.devWorkerUrl })
+          }
+        }
+      }).catch(() => undefined)
+    }
+    return () => {
+      mounted = false
+    }
+  }, [privateWorkerConfig.endpointUrl, setPrivateWorkerConfig])
+
+  const handleTestWorker = async () => {
+    if (!window?.api?.testPrivateWorker) return
+    setWorkerTesting(true)
+    setWorkerTestResult(null)
+    try {
+      const res = await window.api.testPrivateWorker(
+        privateWorkerConfig.endpointUrl,
+        privateWorkerConfig.authToken
+      )
+      setWorkerTestResult(res)
+    } catch (err) {
+      setWorkerTestResult({
+        success: false,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    } finally {
+      setWorkerTesting(false)
+    }
+  }
+  const storeVideoQuality = useAppStore(s => s.videoQualityOption)
   const setVideoQualityOption = useAppStore(s => s.setVideoQualityOption)
-  const cloudUserToken = useAppStore(s => s.cloudUserToken)
-  const cloudSpaceInfo = useAppStore(s => s.cloudSpaceInfo)
+  const videoQualityOption = propVideoQuality ?? storeVideoQuality
+
+  const storePerspective = useAppStore(s => s.videoPerspectivePreference)
+  const setVideoPerspectivePreference = useAppStore(s => s.setVideoPerspectivePreference)
+  const videoPerspectivePreference = propPerspective ?? storePerspective
+
+  const isAudioOnly = videoQualityOption === 'audio_only' || videoPerspectivePreference === 'audio'
+  const handleToggleAudioOnly = useCallback((enabled: boolean) => {
+    if (enabled) {
+      setVideoQualityOption('audio_only')
+      setVideoPerspectivePreference('audio')
+    } else {
+      setVideoQualityOption('origin')
+      setVideoPerspectivePreference('teacher')
+    }
+  }, [setVideoQualityOption, setVideoPerspectivePreference])
+  const autoExportPptPdf = useAppStore(s => s.autoExportPptPdf)
+  const setAutoExportPptPdf = useAppStore(s => s.setAutoExportPptPdf)
+  const storeCloudToken = useAppStore(s => s.cloudUserToken)
+  const cloudUserToken = propCloudToken !== undefined ? propCloudToken : storeCloudToken
+  const storeCloudSpace = useAppStore(s => s.cloudSpaceInfo)
+  const cloudSpaceInfo = propCloudSpace !== undefined ? propCloudSpace : storeCloudSpace
   const localDestRoot = useAppStore(s => s.localDestRoot)
   const setLocalDestRoot = useAppStore(s => s.setLocalDestRoot)
+  const cloudDestRoot = useAppStore(s => s.cloudDestRoot)
+  const setCloudDestRoot = useAppStore(s => s.setCloudDestRoot)
 
   const [defaultDownloadsDir, setDefaultDownloadsDir] = useState<string>('')
 
@@ -54,8 +129,6 @@ export function Settings({
   const isDefaultLocalPath = !localDestRoot
   const theme = useAppStore(s => s.theme)
   const setTheme = useAppStore(s => s.setTheme)
-  const courseViewMode = useAppStore(s => s.courseViewMode)
-  const setCourseViewMode = useAppStore(s => s.setCourseViewMode)
   const windowCloseAction = useAppStore(s => s.windowCloseAction)
   const setWindowCloseAction = useAppStore(s => s.setWindowCloseAction)
   const exitWhenDownloading = useAppStore(s => s.exitWhenDownloading)
@@ -66,8 +139,12 @@ export function Settings({
   const setCanvasGroupByTerm = useAppStore(s => s.setCanvasGroupByTerm)
   const pptSaveImages = useAppStore(s => s.pptSaveImages)
   const setPptSaveImages = useAppStore(s => s.setPptSaveImages)
-  const canvasExportAiTranscript = useAppStore(s => s.canvasExportAiTranscript)
-  const setCanvasExportAiTranscript = useAppStore(s => s.setCanvasExportAiTranscript)
+  const canvasExportSrt = useAppStore(s => s.canvasExportSrt)
+  const setCanvasExportSrt = useAppStore(s => s.setCanvasExportSrt)
+  const canvasExportMarkdown = useAppStore(s => s.canvasExportMarkdown)
+  const setCanvasExportMarkdown = useAppStore(s => s.setCanvasExportMarkdown)
+  const canvasAssignmentOptions = useAppStore(s => s.canvasAssignmentOptions)
+  const setCanvasAssignmentOptions = useAppStore(s => s.setCanvasAssignmentOptions)
   const autoDownloadUpdate = useAppStore(s => s.autoDownloadUpdate)
   const setAutoDownloadUpdate = useAppStore(s => s.setAutoDownloadUpdate)
 
@@ -83,7 +160,7 @@ export function Settings({
     namingTemplate !== '{course}/{fileName}'
   )
 
-  const [activeNav, setActiveNav] = useState('general')
+  const [activeNav, setActiveNav] = useState(initialNav)
   const [credentials, setCredentials] = useState<MaskedCredential[]>([])
   const [isLoadingCreds, setIsLoadingCreds] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -187,7 +264,7 @@ export function Settings({
     <div className="flex h-full w-full flex-col bg-surface-1">
       <div className="flex flex-1 overflow-hidden">
         {/* 左栏分类导航 */}
-        <aside className="w-52 shrink-0 border-r border-bd/60 bg-surface-1/40 p-3 flex flex-col gap-1 select-none">
+        <aside className="w-52 shrink-0 border-r border-bd bg-surface-1/40 p-3 flex flex-col gap-1 select-none">
           {[
             { id: 'general', label: '⚙️ 常规偏好' },
             { id: 'storage', label: '📦 存储与下载' },
@@ -212,7 +289,7 @@ export function Settings({
         </aside>
 
         {/* 右栏内容 */}
-        <main className="flex-1 overflow-y-auto px-10 py-8">
+        <main className="flex-1 overflow-y-auto px-10 pt-8 pb-24">
           <div className="mx-auto max-w-2xl">
             {/* 1. 常规偏好 */}
             {activeNav === 'general' && (
@@ -222,7 +299,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">界面色彩主题、网盘排版视图与客户端关闭响应策略</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 行 1：主题切换 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1">
@@ -243,27 +320,7 @@ export function Settings({
                     </div>
                   </div>
 
-                  {/* 行 2：默认网盘浏览视图 */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-text-1">默认网盘浏览视图</div>
-                      <div className="text-xs text-text-3">进入课程页面时默认呈现的排版视图（顶部切换栏可随时临时调整）</div>
-                    </div>
-                    <div className="shrink-0">
-                      <Segmented
-                        size="md"
-                        value={courseViewMode}
-                        onChange={(v) => setCourseViewMode(v as CourseViewMode)}
-                        options={[
-                          { key: 'grid', label: '⊞ 网格大图标 (推荐)' },
-                          { key: 'list', label: '☰ 详细列表' },
-                          { key: 'column', label: '◫ 分栏多级并列' }
-                        ]}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 行 3：Canvas 课程默认分组方式 */}
+                  {/* 行 2：Canvas 课程默认分组方式 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
                       <div className="text-sm font-medium text-text-1">Canvas 课程默认展示方式</div>
@@ -277,7 +334,7 @@ export function Settings({
                         value={canvasGroupByTerm ? 'term' : 'flat'}
                         onChange={(v) => setCanvasGroupByTerm(v === 'term')}
                         options={[
-                          { key: 'term', label: '🗂️ 按学期分栏折叠 (推荐)' },
+                          { key: 'term', label: '🗂️ 按学期分栏折叠' },
                           { key: 'flat', label: '📄 平铺全部课程' }
                         ]}
                       />
@@ -298,7 +355,7 @@ export function Settings({
                         value={windowCloseAction}
                         onChange={(v) => setWindowCloseAction(v as WindowCloseAction)}
                         options={[
-                          { key: 'tray', label: '最小化到系统托盘 (推荐)' },
+                          { key: 'tray', label: '最小化到系统托盘' },
                           { key: 'taskbar', label: '最小化到任务栏' },
                           { key: 'quit', label: '彻底退出应用' }
                         ]}
@@ -320,7 +377,7 @@ export function Settings({
                         value={exitWhenDownloading}
                         onChange={(v) => setExitWhenDownloading(v as ExitWhenDownloadingPolicy)}
                         options={[
-                          { key: 'prompt', label: '始终弹窗询问确认 (推荐)' },
+                          { key: 'prompt', label: '始终弹窗询问确认' },
                           { key: 'background', label: '自动转入托盘继续下载' },
                           { key: 'pause_quit', label: '自动暂停任务并退出应用' }
                         ]}
@@ -339,7 +396,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">自定义课件与视频的存储策略、保存位置及同名冲突处理</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 行 1：存储目标模式 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
@@ -376,7 +433,7 @@ export function Settings({
                         )}
                       </div>
                       <div className="truncate font-mono text-xs text-text-3" title={resolvedLocalPath || '系统默认下载目录'}>
-                        {resolvedLocalPath || '系统默认下载目录（Downloads）'}
+                        {resolvedLocalPath || '系统默认下载目录'}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -399,6 +456,75 @@ export function Settings({
                       >
                         打开所在目录 ↗
                       </button>
+                    </div>
+                  </div>
+
+                  {/* 行：交大云盘保存目录 */}
+                  <div className="py-5 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="space-y-1 max-w-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-text-1">交大云盘保存目录</span>
+                          {cloudDestRoot === '/SJTU课程备份' && (
+                            <span className="rounded-md bg-accent/10 text-accent px-1.5 py-0.5 text-3xs font-semibold border border-accent/20">
+                              默认预设
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-text-3 leading-relaxed">
+                          云盘直传或双备份模式下，教学资源在交大云盘个人空间中归档存放的顶层目录
+                        </div>
+                      </div>
+                      {/* 快捷切换胶囊 */}
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        {CLOUD_DEST_PRESETS.map(preset => {
+                          const isSelected = (cloudDestRoot || '/SJTU课程备份') === preset.value
+                          return (
+                            <button
+                              key={preset.value}
+                              type="button"
+                              onClick={() => setCloudDestRoot(preset.value)}
+                              className={`rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-accent text-white shadow-2xs font-semibold'
+                                  : 'bg-surface-2 border border-bd text-text-3 hover:text-text-1 hover:border-bd-strong hover:bg-surface-3'
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 自定义路径输入与动态路径层级面包屑预览 */}
+                    <div className="rounded-xl border border-bd bg-surface-2/50 p-3 space-y-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text-3 shrink-0">自定义路径：</span>
+                        <input
+                          type="text"
+                          value={cloudDestRoot}
+                          onChange={e => setCloudDestRoot(e.target.value)}
+                          onBlur={() => setCloudDestRoot(normalizeCloudPath(cloudDestRoot))}
+                          placeholder="/SJTU课程备份"
+                          className="flex-1 rounded-xl border border-bd bg-surface-1 px-3 py-1.5 text-xs font-mono text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-2 focus:ring-accent/15 transition-all"
+                        />
+                        {cloudDestRoot !== '/SJTU课程备份' && (
+                          <button
+                            type="button"
+                            onClick={() => setCloudDestRoot('/SJTU课程备份')}
+                            className="text-2xs text-text-3 hover:text-accent cursor-pointer"
+                          >
+                            恢复默认
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-2xs text-text-3 flex items-center gap-1.5 font-mono">
+                        <span className="text-accent select-none font-sans font-medium">☁️ 路径层级实时预览：</span>
+                        <span className="truncate text-text-2 font-mono" title={formatCloudBreadcrumb(cloudDestRoot)}>
+                          {formatCloudBreadcrumb(cloudDestRoot)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -440,7 +566,7 @@ export function Settings({
                             }
                           }}
                           options={[
-                            { key: 'full', label: '学期/课程/分类 (推荐)' },
+                            { key: 'full', label: '学期/课程/分类' },
                             { key: 'course_cat', label: '课程/分类' },
                             { key: 'flat', label: '紧凑扁平' },
                             { key: 'custom', label: '自定义…' }
@@ -450,7 +576,7 @@ export function Settings({
                     </div>
 
                     {/* 自定义模板输入与动态路径效果预览 */}
-                    <div className="rounded-xl border border-bd/60 bg-surface-2/50 p-3 space-y-2.5">
+                    <div className="rounded-xl border border-bd bg-surface-2/50 p-3 space-y-2.5">
                       {isCustomTemplate && (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
@@ -474,7 +600,7 @@ export function Settings({
                             </button>
                           </div>
                           <div className="flex flex-wrap items-center gap-1.5 text-2xs text-text-4">
-                            <span>可用占位符 (点击插入)：</span>
+                            <span>可用占位符：</span>
                             {['{term}', '{course}', '{category}', '{fileName}'].map(tag => (
                               <button
                                 key={tag}
@@ -520,7 +646,7 @@ export function Settings({
                         value={fileConflictStrategy}
                         onChange={(v) => setFileConflictStrategy(v as any)}
                         options={[
-                          { key: 'skip', label: '智能跳过 (推荐)' },
+                          { key: 'skip', label: '智能跳过' },
                           { key: 'overwrite', label: '覆盖更新' }
                         ]}
                       />
@@ -538,65 +664,268 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">针对 Canvas 教学平台、旁听课程及好大学在线的音视频偏好</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
-                  {/* 视频清晰度与提取偏好 */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
-                    <div className="space-y-1 max-w-sm">
-                      <div className="text-sm font-medium text-text-1">视频清晰度与提取偏好</div>
-                      <div className="text-xs text-text-3 leading-relaxed">
-                        课堂视频与在线慕课解析时优先获取的分辨率规格，亦可直接提取为纯音频文件
-                      </div>
-                    </div>
-                    <div className="shrink-0">
-                      <Segmented
-                        size="md"
-                        value={videoQualityOption}
-                        onChange={(v) => setVideoQualityOption(v as VideoQualityOption)}
-                        options={[
-                          { key: 'origin', label: '原画高清 (推荐)' },
-                          { key: '1080p', label: '1080P' },
-                          { key: '720p', label: '720P' },
-                          { key: 'audio_only', label: '仅提取音频' }
-                        ]}
-                      />
-                    </div>
-                  </div>
-
-                  {/* 课堂实录 AI 字幕与逐字稿笔记同步导出总开关 */}
+                <div className="divide-y divide-bd border-t border-bd">
+                  {/* 仅下载原声音频 */}
                   <div className="flex items-center justify-between gap-4 py-5">
                     <div className="space-y-1 max-w-sm">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-text-1">同步导出 AI 字幕 (.srt) 与逐字稿笔记 (.md)</span>
-                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">全局生效</span>
+                        <span className="text-sm font-medium text-text-1">仅下载原声音频</span>
+                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">省流 90%</span>
                       </div>
                       <div className="text-xs text-text-3 leading-relaxed">
-                        下载课堂实录视频时，自动提取交大录播中台 AI 语音识别 (ASR) 文本，在同级目录生成本地播放器可自动匹配加载的同名独立字幕 (.srt) 与包含时间轴定位的 Markdown 复习笔记。
+                        开启后所有课堂视频与录播均仅提取音频文件（MP3 / M4A），不下载视频画面，节省大量存储空间。
                       </div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => setCanvasExportAiTranscript(!canvasExportAiTranscript)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
-                        canvasExportAiTranscript ? 'bg-accent' : 'bg-surface-4'
+                      role="switch"
+                      aria-checked={isAudioOnly}
+                      onClick={() => handleToggleAudioOnly(!isAudioOnly)}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                        isAudioOnly ? 'bg-accent' : 'bg-surface-4'
                       }`}
                     >
                       <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
-                          canvasExportAiTranscript ? 'translate-x-4' : 'translate-x-0'
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                          isAudioOnly ? 'translate-x-6' : 'translate-x-1'
                         }`}
                       />
                     </button>
                   </div>
 
-                  {/* 智能 PPT 讲义与幻灯片导出说明 */}
-                  <div className="py-5 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-text-1">📑 PPT 演示幻灯片导出为 PDF 讲义</span>
-                      <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">已就绪</span>
+                  {isAudioOnly ? (
+                    <div className="flex items-center gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3 my-2 text-xs text-text-2">
+                      <span className="text-base select-none">🎵</span>
+                      <div className="leading-relaxed">
+                        当前已开启<strong className="text-accent font-semibold">仅下载原声音频</strong>模式。下载课堂视频与慕课时将自动提取为音频文件（MP3 / M4A），无需选择画面分辨率与镜头机位。
+                      </div>
                     </div>
-                    <div className="text-xs text-text-3 leading-relaxed">
-                      在 Canvas 课程浏览器的「📑 PPT课件 (PDF)」分类中，勾选后下载器会在提取课堂录像演示画面的同时自动整合生成包含全部板书与幻灯片画面的高清矢量 PDF 电子讲义，适合导入 iPad / 平板进行无纸化批注。
+                  ) : (
+                    <>
+                      {/* 默认视频清晰度 */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                        <div className="space-y-1 max-w-sm">
+                          <div className="text-sm font-medium text-text-1">默认视频清晰度</div>
+                          <div className="text-xs text-text-3 leading-relaxed">
+                            课堂视频与在线慕课解析时优先获取的分辨率规格
+                          </div>
+                        </div>
+                        <div className="shrink-0">
+                          <Segmented
+                            size="md"
+                            value={videoQualityOption}
+                            onChange={(v) => setVideoQualityOption(v as VideoQualityOption)}
+                            options={[
+                              { key: 'origin', label: '原画高清' },
+                              { key: '1080p', label: '1080P' },
+                              { key: '720p', label: '720P' }
+                            ]}
+                          />
+                        </div>
+                      </div>
+
+                      {/* 默认录播镜头视角 */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
+                        <div className="space-y-1 max-w-sm">
+                          <div className="text-sm font-medium text-text-1">默认录播镜头视角</div>
+                          <div className="text-xs text-text-3 leading-relaxed">
+                            下载课堂实录录播时的默认视角。主界面与底栏动作岛将统一遵循此设置，无需逐门课程重复配置
+                          </div>
+                        </div>
+                        <div className="shrink-0">
+                          <Segmented
+                            size="md"
+                            value={videoPerspectivePreference}
+                            onChange={(v) => setVideoPerspectivePreference(v as VideoPerspective)}
+                            options={[
+                              { key: 'all', label: '📹 双机位同时下载' },
+                              { key: 'teacher', label: '👨‍🏫 仅教师视角' },
+                              { key: 'ppt', label: '📑 仅PPT投屏' }
+                            ]}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* 导出外挂字幕 (.srt) */}
+                  <div className="flex items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-1">导出外挂字幕</span>
+
+                      </div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        下载课堂实录时，提取录播中台 AI 语音识别文本并生成同名 .srt 字幕，主流播放器双击视频自动加载。
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={canvasExportSrt}
+                      onClick={() => setCanvasExportSrt(!canvasExportSrt)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
+                        canvasExportSrt ? 'bg-accent' : 'bg-surface-4'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
+                          canvasExportSrt ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* 导出复习笔记 (.md) */}
+                  <div className="flex items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-1">导出复习讲义笔记</span>
+
+                      </div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        生成包含精确时间戳跳转标记与段落纲要的 Markdown 复习讲义，便于全文搜索与知识回顾。
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={canvasExportMarkdown}
+                      onClick={() => setCanvasExportMarkdown(!canvasExportMarkdown)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
+                        canvasExportMarkdown ? 'bg-accent' : 'bg-surface-4'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
+                          canvasExportMarkdown ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {/* Canvas 作业归档偏好 */}
+                  <div className="py-5 space-y-3">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-1">Canvas 作业归档偏好</span>
+
+                      </div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        批量下载课程作业与实验任务时包含的具体文件明细
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2.5">
+                      {[
+                        {
+                          key: 'exportMarkdown' as const,
+                          icon: '📋',
+                          title: '作业说明文档',
+                          desc: '包含作业题目要求、起止时间与教师评语',
+                          checked: !!canvasAssignmentOptions.exportMarkdown
+                        },
+                        {
+                          key: 'downloadAttachments' as const,
+                          icon: '📎',
+                          title: '题目附件与资料',
+                          desc: '教师上传的实验模板、参考数据集与大作业说明附件',
+                          checked: !!canvasAssignmentOptions.downloadAttachments
+                        },
+                        {
+                          key: 'downloadSubmissions' as const,
+                          icon: '📦',
+                          title: '本人提交原件历史',
+                          desc: '学生本人过往提交的代码包、实验报告原件与附件',
+                          checked: !!canvasAssignmentOptions.downloadSubmissions
+                        }
+                      ].map(item => (
+                        <div
+                          key={item.key}
+                          role="checkbox"
+                          aria-checked={item.checked}
+                          tabIndex={0}
+                          onClick={() =>
+                            setCanvasAssignmentOptions({
+                              [item.key]: !item.checked
+                            })
+                          }
+                          onKeyDown={e => {
+                            if (e.key === ' ' || e.key === 'Enter') {
+                              e.preventDefault()
+                              setCanvasAssignmentOptions({
+                                [item.key]: !item.checked
+                              })
+                            }
+                          }}
+                          className={`flex items-center justify-between gap-3 rounded-xl border p-3 cursor-pointer transition-all select-none ${
+                            item.checked
+                              ? 'border-accent/60 bg-accent/5 shadow-2xs'
+                              : 'border-bd bg-surface-2/40 hover:border-bd-strong hover:bg-surface-2'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="text-xl select-none shrink-0">{item.icon}</span>
+                            <div className="space-y-0.5 min-w-0">
+                              <div className={`text-xs font-semibold truncate ${item.checked ? 'text-accent' : 'text-text-1'}`}>
+                                {item.title}
+                              </div>
+                              <div className="text-2xs text-text-3 truncate">
+                                {item.desc}
+                              </div>
+                            </div>
+                          </div>
+                          <div
+                            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                              item.checked ? 'border-accent bg-accent text-white' : 'border-bd bg-surface-1'
+                            }`}
+                          >
+                            {item.checked && (
+                              <svg className="h-2.5 w-2.5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {!canvasAssignmentOptions.exportMarkdown &&
+                      !canvasAssignmentOptions.downloadAttachments &&
+                      !canvasAssignmentOptions.downloadSubmissions && (
+                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                          <span className="font-semibold select-none shrink-0">💡 温和提示：</span>
+                          <span>未勾选任何内容时将仅创建作业文件夹结构</span>
+                        </div>
+                      )}
+                  </div>
+
+                  {/* 默认提取并合成 PPT 讲义 */}
+                  <div className="flex items-center justify-between gap-4 py-5">
+                    <div className="space-y-1 max-w-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-text-1">默认提取并合成 PPT 讲义</span>
+                        <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">已就绪</span>
+                      </div>
+                      <div className="text-xs text-text-3 leading-relaxed">
+                        包含课堂录播的课程自动提取演示画面并去重整合为高清 PDF 电子讲义，适合导入 iPad / 平板无纸化批注。无需在每门课程内单独手动开启。
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={autoExportPptPdf}
+                      onClick={() => setAutoExportPptPdf(!autoExportPptPdf)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
+                        autoExportPptPdf ? 'bg-accent' : 'bg-surface-4'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
+                          autoExportPptPdf ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
                   </div>
 
                   {/* PPT 幻灯片原图保留开关 */}
@@ -633,7 +962,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">精细控制网络吞吐与多任务并行数，支持自定义并发与下载限速</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 并发数 */}
                   <div className="py-5 space-y-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -655,7 +984,7 @@ export function Settings({
                                 : 'bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-1'
                             }`}
                           >
-                            {p}{p === 3 ? ' (推荐)' : ''}
+                            {p}
                           </button>
                         ))}
                       </div>
@@ -721,7 +1050,7 @@ export function Settings({
                             }
                           }}
                           options={[
-                            { key: '0', label: '不限速 (推荐)' },
+                            { key: '0', label: '不限速' },
                             { key: '5120', label: '5 MB/s' },
                             { key: '10240', label: '10 MB/s' },
                             { key: '25600', label: '25 MB/s' },
@@ -733,10 +1062,10 @@ export function Settings({
                     </div>
 
                     {isCustomSpeed && (
-                      <div className="rounded-xl border border-bd/70 bg-surface-2/40 p-4 space-y-3">
+                      <div className="rounded-xl border border-bd bg-surface-2/40 p-4 space-y-3">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                           <div className="space-y-0.5">
-                            <span className="text-xs font-medium text-text-1">自定义限制速率 (MB/s)</span>
+                            <span className="text-xs font-medium text-text-1">自定义限制速率 · MB/s</span>
                             <p className="text-2xs text-text-3">支持键入任意大小或拖动滑块连续调节</p>
                           </div>
                           <div className="flex items-center gap-2">
@@ -760,7 +1089,7 @@ export function Settings({
                               <span className="ml-1 text-xs text-text-3 select-none">MB/s</span>
                             </div>
                             <span className="text-2xs text-text-4 font-mono">
-                              (约 {Math.round((maxDownloadSpeedKBps * 8) / 1000)} Mbps)
+                              约 {Math.round((maxDownloadSpeedKBps * 8) / 1000)} Mbps
                             </span>
                           </div>
                         </div>
@@ -785,6 +1114,141 @@ export function Settings({
                       </div>
                     )}
                   </div>
+                  {/* 校内私有中转服务（实验性） */}
+                  <div className="py-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1 max-w-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-text-1">校内私有中转服务（实验性）</span>
+                          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent border border-accent/20">免本地流量</span>
+                        </div>
+                        <div className="text-xs text-text-3 leading-relaxed">
+                          将云盘上传任务委托给校内私有工作机（如寝室 Linux、实验室主机）执行，实现本地 0 流量消耗与千兆对等内网加速
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={privateWorkerConfig.enabled}
+                        onClick={() => {
+                          setPrivateWorkerConfig({ enabled: !privateWorkerConfig.enabled })
+                          setWorkerTestResult(null)
+                        }}
+                        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                          privateWorkerConfig.enabled ? 'bg-accent' : 'bg-surface-4'
+                        }`}
+                        title="开启或关闭校内私有中转代传扩展"
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-xs transition-transform ${
+                            privateWorkerConfig.enabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {privateWorkerConfig.enabled && (
+                      <div className="rounded-2xl border border-bd bg-surface-2/50 p-4 sm:p-5 space-y-4 animate-in fade-in duration-150">
+                        {devWorkerInfo?.isDev && devWorkerInfo.devWorkerUrl && (
+                          <div className="flex items-center justify-between rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2.5 text-xs text-emerald-700 dark:text-emerald-300">
+                            <div className="flex items-center gap-2">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                              <span className="font-semibold">🟢 开发测试节点已自动就绪</span>
+                              <span className="font-mono text-2xs opacity-80">({devWorkerInfo.devWorkerUrl})</span>
+                            </div>
+                            <span className="text-3xs text-text-4 font-mono select-none">无需敲命令 · 即开即测</span>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* 节点地址输入 */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-medium text-text-2">服务节点地址</span>
+                              <span className="text-3xs text-text-4">支持内网 IP 或穿透域名</span>
+                            </div>
+                            <input
+                              type="text"
+                              value={privateWorkerConfig.endpointUrl}
+                              onChange={e => {
+                                setPrivateWorkerConfig({ endpointUrl: e.target.value })
+                                setWorkerTestResult(null)
+                              }}
+                              placeholder="http://127.0.0.1:6880"
+                              className="w-full rounded-xl border border-bd bg-surface-1 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+                            />
+                          </div>
+
+                          {/* 授权密钥输入 */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-medium text-text-2">访问授权密钥 (Token)</span>
+                              <span className="text-3xs text-text-4">选填 · 节点鉴权密码</span>
+                            </div>
+                            <input
+                              type="password"
+                              value={privateWorkerConfig.authToken || ''}
+                              onChange={e => {
+                                setPrivateWorkerConfig({ authToken: e.target.value })
+                                setWorkerTestResult(null)
+                              }}
+                              placeholder="可选，若服务配置了密钥请输入"
+                              className="w-full rounded-xl border border-bd bg-surface-1 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+                            />
+                          </div>
+                        </div>
+
+                        {/* 操作栏与测试反馈 */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-bd">
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={handleTestWorker}
+                              disabled={workerTesting || !privateWorkerConfig.endpointUrl.trim()}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-semibold text-text-1 shadow-2xs hover:bg-surface-2 active:scale-98 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <span>{workerTesting ? '⏳' : '⚡'}</span>
+                              <span>{workerTesting ? '正在探测服务...' : '测试服务连接'}</span>
+                            </button>
+
+                            {workerTestResult && (
+                              <div className="flex items-center gap-2 text-xs animate-in fade-in duration-150">
+                                {workerTestResult.success ? (
+                                  <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                                    <span>✓ 连接成功</span>
+                                    <span className="font-mono text-2xs bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-semibold">
+                                      {workerTestResult.latencyMs}ms · v{workerTestResult.version}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 text-rose-500 font-medium max-w-sm sm:max-w-md">
+                                    <span>✕</span>
+                                    <span className="truncate" title={workerTestResult.error}>{workerTestResult.error}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="text-3xs text-text-4 font-mono select-none">
+                            单租户私有架构 · 凭证内存即焚
+                          </div>
+                        </div>
+
+                        {/* 本机极速自测说明 */}
+                        <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 dark:bg-sky-500/10 p-3 text-2xs text-text-3 space-y-1 leading-relaxed">
+                          <div className="font-semibold text-text-1 flex items-center gap-1.5">
+                            <span>💡</span>
+                            <span>{devWorkerInfo?.isDev ? '开发环境无感调试说明' : '校内自建节点说明'}</span>
+                          </div>
+                          <p className="pl-5">
+                            {devWorkerInfo?.isDev
+                              ? '当前处于开发模式，主进程已在后台为您自动托管并启动了测试节点。直接点击上方的「测试服务连接」即可秒连验证，无需开终端运行额外命令！'
+                              : '若需在校园网自建私有节点，可在常开的寝室/实验室机器上使用 Docker 或轻量脚本启动，并在此处填入私有 IP 或穿透域名。'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </section>
             )}
@@ -795,13 +1259,13 @@ export function Settings({
                 <div>
                   <h2 className="text-base font-bold text-text-1">账号与云盘</h2>
                   <p className="mt-1 text-xs text-text-3">
-                    统一身份认证 (jAccount) 登录会话、交大云盘直连集成与系统安全保险库
+                    管理 jAccount 登录状态、交大云盘连接与已保存的账号
                   </p>
                 </div>
 
                 {/* 当前登录会话状态卡片 */}
                 {auth?.loggedIn && (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-bd/80 bg-surface-2/60 p-4 shadow-2xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-bd bg-surface-2/60 p-4 shadow-2xs">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-lg">
                         👤
@@ -818,11 +1282,11 @@ export function Settings({
                           )}
                           <span className="inline-flex items-center gap-1 rounded-md bg-success-bg px-2 py-0.5 text-2xs font-semibold text-success ring-1 ring-success-ring">
                             <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                            在线会话
+                            已登录
                           </span>
                         </div>
                         <p className="text-xs text-text-3 mt-0.5">
-                          当前会话有效，已建立 Canvas 与交大在线服务安全授权
+                          登录状态有效，已建立交大教学平台授权
                         </p>
                       </div>
                     </div>
@@ -845,7 +1309,7 @@ export function Settings({
                 )}
 
                 {/* 交大云盘直连与存储配额卡片 */}
-                <div className="rounded-2xl border border-bd/80 bg-surface-2/60 p-4 shadow-2xs space-y-4">
+                <div className="rounded-2xl border border-bd bg-surface-2/60 p-4 shadow-2xs space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
@@ -855,12 +1319,12 @@ export function Settings({
                         </span>
                         {cloudUserToken && (
                           <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent">
-                            SSO 单点直连
+                            一键免密连接
                           </span>
                         )}
                       </div>
                       <div className="text-xs text-text-3">
-                        {cloudUserToken ? '会话有效，支持直传分片与秒传备份' : '通过当前 jAccount 统一身份认证一键免密接入云盘'}
+                        {cloudUserToken ? '已连接，下载课件时可直接转存至云盘' : '通过交大统一身份认证一键免密接入云盘'}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -873,18 +1337,18 @@ export function Settings({
                             : 'bg-accent text-white shadow-xs hover:bg-accent-light'
                         }`}
                       >
-                        {cloudUserToken ? '断开云盘连接' : '一键直连 SSO'}
+                        {cloudUserToken ? '断开云盘连接' : '连接交大云盘'}
                       </button>
                     </div>
                   </div>
 
                   {/* 存储空间配额进度条 */}
                   {cloudSpaceInfo && (
-                    <div className="space-y-2 pt-2 border-t border-bd/40">
+                    <div className="space-y-2 pt-2 border-t border-bd">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-text-3">交大云盘已用存储配额</span>
+                        <span className="text-text-3">交大云盘已用空间</span>
                         <span className="font-mono text-text-2 font-medium">
-                          {cloudSpaceInfo.size} / {cloudSpaceInfo.capacity} ({cloudPercent}%)
+                          {formatBytes(Number(cloudSpaceInfo.size) || 0)} / {formatBytes(Number(cloudSpaceInfo.capacity) || 0)} · {cloudPercent}%
                         </span>
                       </div>
                       <div className="h-2 w-full overflow-hidden rounded-full bg-surface-3">
@@ -897,8 +1361,8 @@ export function Settings({
                   )}
 
                   {/* 云端保存根目录 */}
-                  <div className="flex items-center justify-between text-xs text-text-3 pt-2 border-t border-bd/40">
-                    <span>云端转存默认根目录：</span>
+                  <div className="flex items-center justify-between text-xs text-text-3 pt-2 border-t border-bd">
+                    <span>云盘保存目录：</span>
                     <span className="rounded-lg border border-bd bg-surface-1 px-2.5 py-0.5 font-mono text-2xs text-text-2">
                       /SJTU课程下载
                     </span>
@@ -913,19 +1377,16 @@ export function Settings({
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-text-1">系统硬件级加密保护中</span>
-                        <span className="rounded-md bg-success-bg px-2 py-0.5 text-2xs font-semibold text-success ring-1 ring-success-ring">
-                          DPAPI / Keychain
-                        </span>
+                        <span className="text-sm font-semibold text-text-1">账号安全加密防护</span>
                       </div>
                       <p className="text-xs text-text-3 mt-0.5">
-                        密码密文由操作系统安全芯片与系统凭据管理器隔离存储，渲染端与网络传输杜绝明文暴露
+                        账号密码采用系统安全芯片隔离存储，全程加密保护，杜绝明文暴露
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                    <span className="rounded-xl border border-bd/80 bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 shadow-2xs">
-                      已安全保存 <span className="font-mono font-bold text-accent">{credentials.length}</span> 个账号凭据
+                    <span className="rounded-xl border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 shadow-2xs">
+                      已安全保存 <span className="font-mono font-bold text-accent">{credentials.length}</span> 个账号
                     </span>
                   </div>
                 </div>
@@ -933,29 +1394,29 @@ export function Settings({
                 {/* 凭据列表与操作区 */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-text-2">已保存凭据列表</span>
+                    <span className="text-xs font-semibold text-text-2">已保存的账号</span>
                     {credentials.length > 0 && (
                       <button
                         type="button"
                         onClick={() => setShowClearModal(true)}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-1 text-xs font-medium text-danger hover:brightness-110 transition-all cursor-pointer shadow-2xs"
                       >
-                        <span>一键清空全部已保存凭据</span>
+                        <span>清空已保存账号</span>
                       </button>
                     )}
                   </div>
 
                   {isLoadingCreds ? (
                     <div className="flex items-center justify-center py-8 text-xs text-text-3">
-                      <span>正在读取凭据...</span>
+                      <span>正在加载账号...</span>
                     </div>
                   ) : credentials.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-bd/80 bg-surface-2/40 py-12 px-6 text-center space-y-3">
+                    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-bd bg-surface-2/40 py-12 px-6 text-center space-y-3">
                       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-3 text-2xl">
                         🔐
                       </div>
                       <div className="space-y-1">
-                        <div className="text-sm font-medium text-text-1">暂无已保存的账号凭据</div>
+                        <div className="text-sm font-medium text-text-1">暂无已保存的账号</div>
                         <p className="text-xs text-text-3 max-w-md leading-relaxed">
                           在登录页面输入账号密码成功登录后，可自动提示一键保存。
                         </p>
@@ -966,7 +1427,7 @@ export function Settings({
                       {credentials.map(cred => (
                         <div
                           key={cred.id}
-                          className="rounded-2xl border border-bd/80 bg-surface-2/60 p-4 shadow-2xs transition-all hover:border-bd-strong space-y-3"
+                          className="rounded-2xl border border-bd bg-surface-2/60 p-4 shadow-2xs transition-all hover:border-bd-strong space-y-3"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="space-y-1 min-w-0">
@@ -1001,7 +1462,7 @@ export function Settings({
                                 type="button"
                                 onClick={() => setCredToDelete(cred)}
                                 className="rounded-lg border border-danger/30 bg-danger-bg px-2.5 py-1 text-xs font-medium text-danger hover:brightness-110 transition-all cursor-pointer shadow-2xs"
-                                title="删除此账号的已保存凭据"
+                                title="删除此账号"
                               >
                                 🗑️ 删除
                               </button>
@@ -1010,7 +1471,7 @@ export function Settings({
 
                           {/* 内联编辑别名表单 */}
                           {editingId === cred.id && (
-                            <div className="flex items-center gap-2 pt-2 border-t border-bd/40">
+                            <div className="flex items-center gap-2 pt-2 border-t border-bd">
                               <input
                                 type="text"
                                 value={editingLabel}
@@ -1041,7 +1502,7 @@ export function Settings({
                           )}
 
                           {/* 时间戳展示 */}
-                          <div className="flex items-center gap-4 text-2xs text-text-4 pt-1 border-t border-bd/30">
+                          <div className="flex items-center gap-4 text-2xs text-text-4 pt-1 border-t border-bd">
                             <span>创建时间: {formatDate(cred.createdAt)}</span>
                             <span>•</span>
                             <span>
@@ -1057,7 +1518,7 @@ export function Settings({
                 {/* 一键清空二次确认弹窗 */}
                 {showClearModal && (
                   <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 z-[60] flex items-center justify-center p-4"
                     role="dialog"
                     aria-modal="true"
                   >
@@ -1071,14 +1532,14 @@ export function Settings({
                           ⚠️
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-text-1">清空全部已保存凭据</h3>
+                          <h3 className="text-sm font-bold text-text-1">清空所有已保存账号</h3>
                           <p className="text-xs text-text-3 mt-0.5">此操作不可撤销</p>
                         </div>
                       </div>
                       <p className="text-xs text-text-2 leading-relaxed">
-                        确定要清空所有已保存的账号凭据吗？此操作将彻底删除所有保存在系统安全保险库中的 jAccount 账号与加密密码，清空后登录时将不再提供自动填充。
+                        确定要清空所有已保存的账号吗？此操作将删除所有本地安全保存的 jAccount 账号与加密密码，清空后登录时将不再提供快捷填充。
                       </p>
-                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd/50">
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd">
                         <button
                           type="button"
                           onClick={() => setShowClearModal(false)}
@@ -1101,7 +1562,7 @@ export function Settings({
                 {/* 单项删除二次确认弹窗 */}
                 {credToDelete && (
                   <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 z-[60] flex items-center justify-center p-4"
                     role="dialog"
                     aria-modal="true"
                   >
@@ -1115,15 +1576,15 @@ export function Settings({
                           🗑️
                         </div>
                         <div>
-                          <h3 className="text-sm font-bold text-text-1">删除账号凭据</h3>
+                          <h3 className="text-sm font-bold text-text-1">删除账号</h3>
                           <p className="text-xs text-text-3 mt-0.5 font-mono">账号: {credToDelete.username}</p>
                         </div>
                       </div>
                       <p className="text-xs text-text-2 leading-relaxed">
-                        确定要删除账号「<strong className="text-text-1">{credToDelete.username}</strong>」
-                        {credToDelete.label ? `（${credToDelete.label}）` : ''} 的已保存凭据吗？删除后在登录页面将不再自动填充此账号。
+                        确定要删除已保存的账号「<strong className="text-text-1">{credToDelete.username}</strong>」
+                        {credToDelete.label ? `（${credToDelete.label}）` : ''} 吗？删除后在登录页面将不再自动填充此账号。
                       </p>
-                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd/50">
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-bd">
                         <button
                           type="button"
                           onClick={() => setCredToDelete(null)}
@@ -1153,7 +1614,7 @@ export function Settings({
                   <p className="mt-1 text-xs text-text-3">客户端版本状态、后台自动更新与初始化向导重置</p>
                 </div>
 
-                <div className="divide-y divide-bd/50 border-t border-bd/50">
+                <div className="divide-y divide-bd border-t border-bd">
                   {/* 版本信息卡片 */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-5">
                     <div className="space-y-1">
@@ -1164,7 +1625,7 @@ export function Settings({
                         </span>
                       </div>
                       <div className="text-xs text-text-3">
-                        上海交通大学课程一站式转存与同步套件（Canvas / 录播 / 慕课 / 交大云盘）
+                        上海交通大学课程一站式转存与同步套件 · Canvas / 录播 / 慕课 / 交大云盘
                       </div>
                       {updateMessage && (
                         <div className="text-xs text-accent font-medium mt-1">
@@ -1189,7 +1650,7 @@ export function Settings({
                     <div className="space-y-1 max-w-sm">
                       <div className="text-sm font-medium text-text-1">新版本后台自动下载</div>
                       <div className="text-xs text-text-3 leading-relaxed">
-                        检测到新版本时在后台自动下载安装包（下载就绪后提示安装，不强制打断当前操作）。
+                        检测到新版本时在后台自动下载安装包，下载就绪后提示安装，不强制打断当前操作。
                       </div>
                     </div>
                     <button
@@ -1220,7 +1681,7 @@ export function Settings({
                       onClick={() => {
                         useAppStore.getState().setShowSetupWizardModal(true)
                       }}
-                      className="rounded-xl border border-bd/80 bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-text-2 hover:text-accent hover:border-accent transition-all cursor-pointer shadow-2xs shrink-0"
+                      className="rounded-xl border border-bd bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-text-2 hover:text-accent hover:border-accent transition-all cursor-pointer shadow-2xs shrink-0"
                     >
                       🚀 重新运行设置向导
                     </button>
