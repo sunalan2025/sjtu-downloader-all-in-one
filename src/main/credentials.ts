@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { join, dirname } from 'node:path'
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync } from 'node:fs'
-import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'node:crypto'
+import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
 import type { StoredCredential, MaskedCredential } from '../shared/types'
 
 // AES-256-GCM 兜底高熵独立秘钥管理（当运行环境无 safeStorage 时使用）
