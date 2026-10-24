@@ -9,7 +9,8 @@ import {
   type DownloadMode,
   type FileConflictStrategy,
   type DownloadTaskSpec,
-  type PrivateWorkerTunnelConfig
+  type PrivateWorkerTunnelConfig,
+  type PrivateWorkerTaskPayload
 } from '../shared/types'
 import {
   getCachedUserToken,
@@ -72,6 +73,7 @@ import {
 } from './credentials'
 import {
   testPrivateWorker,
+  dispatchPrivateWorkerTask,
   startEmbeddedDevWorker,
   stopEmbeddedDevWorker,
   getEmbeddedDevWorkerUrl
@@ -609,6 +611,12 @@ app.whenReady().then(async () => {
     'private-worker:test',
     (_e, payload?: { url?: string; token?: string; tunnel?: PrivateWorkerTunnelConfig }) => {
       return testPrivateWorker(payload?.url || '', payload?.token, 4000, payload?.tunnel)
+    }
+  )
+  ipcMain.handle(
+    'private-worker:dispatch-task',
+    (_e, payload: { url: string; task: PrivateWorkerTaskPayload; token?: string }) => {
+      return dispatchPrivateWorkerTask(payload.url, payload.task, payload.token)
     }
   )
   ipcMain.handle('private-worker:get-dev-info', () => {

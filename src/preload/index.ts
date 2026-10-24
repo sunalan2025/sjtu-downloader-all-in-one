@@ -37,6 +37,8 @@ import type {
   IcsExportResult,
   PrivateWorkerTestResult,
   PrivateWorkerTunnelConfig,
+  PrivateWorkerTaskPayload,
+  PrivateWorkerTaskResponse,
   SshTunnelStatus
 } from '../shared/types'
 
@@ -467,6 +469,13 @@ const api = {
     tunnel?: PrivateWorkerTunnelConfig
   ): Promise<PrivateWorkerTestResult> =>
     ipcRenderer.invoke('private-worker:test', { url, token, tunnel }),
+  /** 向校内私有中转服务派发代传任务 */
+  dispatchPrivateWorkerTask: (
+    url: string,
+    task: PrivateWorkerTaskPayload,
+    token?: string
+  ): Promise<PrivateWorkerTaskResponse> =>
+    ipcRenderer.invoke('private-worker:dispatch-task', { url, task, token }),
   /** 获取开发环境内置测试节点就绪状态 */
   getDevWorkerInfo: (): Promise<{ isDev: boolean; devWorkerUrl: string | null }> =>
     ipcRenderer.invoke('private-worker:get-dev-info'),

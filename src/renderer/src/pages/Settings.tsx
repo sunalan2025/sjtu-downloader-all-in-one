@@ -1232,6 +1232,81 @@ export function Settings({
                           </div>
                         </div>
 
+                        {/* 中转目标存储模式单选组 */}
+                        <div className="space-y-2 pt-1 border-t border-bd/60">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-text-2">中转目标存储模式</span>
+                            <span className="text-3xs text-text-4">决定中转工作机下载完成后的课件归宿</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {/* 选项 1：转存至交大云盘 (JBox) */}
+                            <button
+                              type="button"
+                              onClick={() => setPrivateWorkerConfig({ storageMode: 'cloudpan' })}
+                              className={`flex flex-col items-start p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                                (privateWorkerConfig.storageMode || 'cloudpan') === 'cloudpan'
+                                  ? 'border-accent bg-accent/5 ring-1 ring-accent/30 shadow-xs'
+                                  : 'border-bd bg-surface-1 hover:bg-surface-2/70 text-text-3'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">☁️</span>
+                                <span className={`text-xs font-semibold ${
+                                  (privateWorkerConfig.storageMode || 'cloudpan') === 'cloudpan' ? 'text-accent' : 'text-text-1'
+                                }`}>
+                                  转存至交大云盘 (JBox)
+                                </span>
+                              </div>
+                              <p className="mt-1 text-2xs text-text-3 leading-relaxed">
+                                免本机流量，由中转工作机下载后直接上传备份至云端 JBox 网盘
+                              </p>
+                            </button>
+
+                            {/* 选项 2：保存在中转服务器本地磁盘 */}
+                            <button
+                              type="button"
+                              onClick={() => setPrivateWorkerConfig({ storageMode: 'server_local' })}
+                              className={`flex flex-col items-start p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                                privateWorkerConfig.storageMode === 'server_local'
+                                  ? 'border-accent bg-accent/5 ring-1 ring-accent/30 shadow-xs'
+                                  : 'border-bd bg-surface-1 hover:bg-surface-2/70 text-text-3'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">🖥️</span>
+                                <span className={`text-xs font-semibold ${
+                                  privateWorkerConfig.storageMode === 'server_local' ? 'text-accent' : 'text-text-1'
+                                }`}>
+                                  保存在中转服务器本地磁盘
+                                </span>
+                              </div>
+                              <p className="mt-1 text-2xs text-text-3 leading-relaxed">
+                                集中保存在寝室/实验室工作机中，自动按课程与课件明细分级存储
+                              </p>
+                            </button>
+                          </div>
+
+                          {/* 当选择保存在服务器本地磁盘时，展开根目录输入框 */}
+                          {privateWorkerConfig.storageMode === 'server_local' && (
+                            <div className="mt-2 rounded-xl border border-bd bg-surface-1 p-3 space-y-1.5 animate-in fade-in duration-150">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-medium text-text-2">服务器保存根目录</span>
+                                <span className="text-3xs text-text-4">支持绝对路径或 ~ 家目录</span>
+                              </div>
+                              <input
+                                type="text"
+                                value={privateWorkerConfig.serverDownloadDir ?? '~/downloads'}
+                                onChange={e => setPrivateWorkerConfig({ serverDownloadDir: e.target.value })}
+                                placeholder="~/downloads"
+                                className="w-full rounded-xl border border-bd bg-surface-2/50 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+                              />
+                              <div className="text-3xs text-text-3">
+                                课件将自动存储于：<code className="font-mono text-text-2">{privateWorkerConfig.serverDownloadDir || '~/downloads'}/[课程名称]/[分类]/...</code>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
                         {/* 高级选项：通过 SSH 隧道自动连接 */}
                         <div className="rounded-xl border border-bd bg-surface-1/50 p-3.5 space-y-3">
                           <button

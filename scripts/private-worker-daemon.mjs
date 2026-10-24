@@ -14,6 +14,9 @@
  */
 
 import http from 'node:http'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
 
 const PORT = parseInt(process.env.PORT || process.argv[2] || '6880', 10)
 const AUTH_TOKEN = (process.env.WORKER_TOKEN || process.argv[3] || '').trim()
@@ -24,6 +27,25 @@ const tasks = new Map()
 function sanitizeLog(val, maxLen = 120) {
   if (typeof val !== 'string') return ''
   return val.replace(/[\r\n\x00-\x1f\x7f-\x9f]/g, '_').slice(0, maxLen)
+}
+
+function expandHomeDir(p) {
+  if (!p || typeof p !== 'string') return path.join(os.homedir(), 'downloads')
+  const trimmed = p.trim()
+  if (trimmed === '~') return os.homedir()
+  if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
+    return path.join(os.homedir(), trimmed.slice(2))
+  }
+  return path.resolve(trimmed)
+}
+
+function sanitizePathSegment(segment, fallback = 'default') {
+  if (typeof segment !== 'string') return fallback
+  const cleaned = segment
+    .replace(/[\\/:*?"<>|\x00-\x1f\x7f-\x9f]/g, '_')
+    .replace(/\.{2,}/g, '_')
+    .trim()
+  return cleaned || fallback
 }
 
 function sendJson(res, statusCode, data) {
@@ -94,21 +116,63 @@ const server = http.createServer((req, res) => {
       try {
         const payload = JSON.parse(rawBody || '{}')
         const taskId = payload.taskId || `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
-        tasks.set(taskId, {
+        const isServerLocal = payload.storageMode === 'server_local'
+        let targetPath = payload.destPath || ''
+        let resolvedLocalPath = null
+
+        if (isServerLocal) {
+          const baseDir = expandHomeDir(payload.serverDownloadDir)
+          const safeCourse = sanitizePathSegment(payload.courseName, '未分类课程')
+          const safeCategory = sanitizePathSegment(payload.categoryName, '其它资料')
+          const safeFileName = sanitizePathSegment(payload.fileName, '未命名文件')
+
+          const targetDir = path.resolve(baseDir, safeCourse, safeCategory)
+          const normalizedBase = path.normalize(baseDir)
+          const normalizedTarget = path.normalize(targetDir)
+
+          if (!normalizedTarget.startsWith(normalizedBase)) {
+            return sendJson(res, 400, {
+              ok: false,
+              error: '检测到非法路径穿越尝试'
+            })
+          }
+
+          try {
+            fs.mkdirSync(targetDir, { recursive: true })
+          } catch (mkdirErr) {
+            return sendJson(res, 500, {
+              ok: false,
+              error: `创建存储目录失败: ${mkdirErr instanceof Error ? mkdirErr.message : String(mkdirErr)}`
+            })
+          }
+
+          resolvedLocalPath = path.join(targetDir, safeFileName)
+          targetPath = resolvedLocalPath
+        }
+
+        const taskRecord = {
           taskId,
           fileName: payload.fileName || 'unknown',
+          storageMode: payload.storageMode || 'cloudpan',
           status: 'queued',
-          receivedAt: Date.now()
-        })
+          receivedAt: Date.now(),
+          targetPath,
+          ...(resolvedLocalPath ? { resolvedPath: resolvedLocalPath } : {})
+        }
+        tasks.set(taskId, taskRecord)
 
         const safeTaskId = sanitizeLog(taskId, 64)
-        const safeFileName = sanitizeLog(payload.fileName || '未知文件', 128)
-        console.log(`[worker] 收到中转任务派发: ${safeTaskId} (${safeFileName})`)
+        const safeTarget = sanitizeLog(targetPath, 128)
+        console.log(`[worker] 收到中转任务派发: ${safeTaskId} -> ${safeTarget} [模式: ${payload.storageMode || 'cloudpan'}]`)
 
         return sendJson(res, 200, {
           ok: true,
           taskId,
-          message: '中转代传任务已成功加入队列'
+          storageMode: payload.storageMode || 'cloudpan',
+          targetPath,
+          message: isServerLocal
+            ? '中转下载任务已成功加入队列，将保存在中转服务器本地磁盘'
+            : '中转代传任务已成功加入队列，将转存至交大云盘'
         })
       } catch (err) {
         return sendJson(res, 400, {

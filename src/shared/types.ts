@@ -897,6 +897,9 @@ export interface ScheduleApi {
   exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]) => Promise<IcsExportResult>
 }
 
+/** 校内私有中转服务存储目标模式 */
+export type PrivateWorkerStorageMode = 'cloudpan' | 'server_local'
+
 /** 校内私有中转服务 SSH 隧道自动转发配置 */
 export interface PrivateWorkerTunnelConfig {
   /** 是否启用 SSH 隧道自动转发 */
@@ -917,8 +920,37 @@ export interface PrivateWorkerConfig {
   endpointUrl: string
   /** 访问授权密钥 (Token)，选填 */
   authToken?: string
+  /** 存储目标模式：转存至交大云盘 (JBox) 或保存在中转服务器本地磁盘 */
+  storageMode?: PrivateWorkerStorageMode
+  /** 当模式为保存在中转服务器本地磁盘时的目标根目录，默认 ~/downloads */
+  serverDownloadDir?: string
   /** 可选的 SSH 隧道自动托管配置 */
   tunnel?: PrivateWorkerTunnelConfig
+}
+
+/** 校内私有中转服务任务派发载荷 */
+export interface PrivateWorkerTaskPayload {
+  taskId: string
+  url: string
+  fileName: string
+  destPath: string
+  cloudUserToken?: string
+  conflictStrategy?: 'skip' | 'overwrite'
+  fileSize?: number
+  storageMode?: PrivateWorkerStorageMode
+  serverDownloadDir?: string
+  courseName?: string
+  categoryName?: string
+}
+
+/** 校内私有中转服务任务派发响应 */
+export interface PrivateWorkerTaskResponse {
+  ok: boolean
+  taskId?: string
+  storageMode?: PrivateWorkerStorageMode
+  targetPath?: string
+  message?: string
+  error?: string
 }
 
 /** SSH 隧道实时运行状态 */
@@ -949,6 +981,11 @@ export interface WindowApi {
     token?: string,
     tunnel?: PrivateWorkerTunnelConfig
   ) => Promise<PrivateWorkerTestResult>
+  dispatchPrivateWorkerTask?: (
+    url: string,
+    task: PrivateWorkerTaskPayload,
+    token?: string
+  ) => Promise<PrivateWorkerTaskResponse>
   getDevWorkerInfo?: () => Promise<{ isDev: boolean; devWorkerUrl: string | null }>
   startSshTunnel?: (config: PrivateWorkerTunnelConfig) => Promise<{ success: boolean; pid?: number; error?: string }>
   stopSshTunnel?: () => Promise<{ success: boolean; error?: string }>

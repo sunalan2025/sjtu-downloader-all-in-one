@@ -1,4 +1,4 @@
-import type { DownloadMode, FileConflictStrategy, VideoQualityOption, VideoPerspective } from '../types'
+import type { DownloadMode, FileConflictStrategy, VideoQualityOption, VideoPerspective, PrivateWorkerStorageMode } from '../types'
 
 export interface AppDefaultsConfig {
   concurrency: number
@@ -17,6 +17,8 @@ export interface AppDefaultsConfig {
     enabled: boolean
     endpointUrl: string
     authToken: string
+    storageMode: PrivateWorkerStorageMode
+    serverDownloadDir: string
   }
 }
 
@@ -36,6 +38,8 @@ export const APP_DEFAULTS: AppDefaultsConfig = {
   privateWorker: {
     enabled: false,
     endpointUrl: 'http://127.0.0.1:6880',
-    authToken: ''
+    authToken: '',
+    storageMode: 'cloudpan',
+    serverDownloadDir: '~/downloads'
   }
 }

@@ -8,8 +8,15 @@
  */
 
 import http from 'node:http'
-import type { PrivateWorkerTestResult, PrivateWorkerTunnelConfig } from '../shared/types'
+import type {
+  PrivateWorkerTestResult,
+  PrivateWorkerTunnelConfig,
+  PrivateWorkerTaskPayload,
+  PrivateWorkerTaskResponse
+} from '../shared/types'
 import { startSshTunnel } from './ssh-tunnel'
+
+export type { PrivateWorkerTaskPayload, PrivateWorkerTaskResponse }
 
 let embeddedServer: http.Server | null = null
 let embeddedWorkerUrl: string | null = null
@@ -71,17 +78,38 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
         }
 
         if (pathname === '/api/tasks' && req.method === 'POST') {
-          const body = JSON.stringify({
-            ok: true,
-            taskId: `task_dev_${Date.now()}`,
-            message: '开发测试节点已接收任务'
+          let rawBody = ''
+          req.on('data', chunk => {
+            rawBody += chunk
           })
-          res.writeHead(200, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Access-Control-Allow-Origin': '*',
-            'Content-Length': Buffer.byteLength(body)
+          req.on('end', () => {
+            try {
+              const payload = JSON.parse(rawBody || '{}') as Partial<PrivateWorkerTaskPayload>
+              const taskId = payload.taskId || `task_dev_${Date.now()}`
+              const isLocal = payload.storageMode === 'server_local'
+              const body = JSON.stringify({
+                ok: true,
+                taskId,
+                storageMode: payload.storageMode || 'cloudpan',
+                targetPath: isLocal
+                  ? `${payload.serverDownloadDir || '~/downloads'}/${payload.courseName || '未分类'}/${payload.fileName || 'file'}`
+                  : (payload.destPath || ''),
+                message: isLocal
+                  ? '开发测试节点已接收任务，将保存在中转服务器本地磁盘'
+                  : '开发测试节点已接收任务，将转存至交大云盘'
+              })
+              res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Access-Control-Allow-Origin': '*',
+                'Content-Length': Buffer.byteLength(body)
+              })
+              res.end(body)
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: false, error: 'Invalid JSON' }))
+            }
           })
-          return res.end(body)
+          return
         }
 
         res.writeHead(404, { 'Content-Type': 'application/json' })
@@ -114,20 +142,78 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
   return null
 }
 
-export interface PrivateWorkerTaskPayload {
-  taskId: string
-  url: string
-  fileName: string
-  destPath: string
-  cloudUserToken?: string
-  conflictStrategy?: 'skip' | 'overwrite'
-  fileSize?: number
-}
+/**
+ * 向私有中转服务派发代传任务
+ * @param workerUrl 节点 URL，例如 http://127.0.0.1:6880
+ * @param payload 任务载荷
+ * @param token 访问授权密钥 (Token)，选填
+ * @param timeoutMs 超时时限（毫秒），默认 10000ms
+ */
+export async function dispatchPrivateWorkerTask(
+  workerUrl: string,
+  payload: PrivateWorkerTaskPayload,
+  token?: string,
+  timeoutMs = 10000
+): Promise<PrivateWorkerTaskResponse> {
+  const normalized = normalizeWorkerUrl(workerUrl)
+  if (!normalized) {
+    return { ok: false, error: '中转服务节点地址无效' }
+  }
 
-export interface PrivateWorkerTaskResponse {
-  ok: boolean
-  taskId?: string
-  error?: string
+  let taskEndpoint = ''
+  try {
+    const urlObj = new URL(normalized)
+    urlObj.pathname = '/api/tasks'
+    taskEndpoint = urlObj.toString()
+  } catch {
+    return { ok: false, error: '请输入有效的中转服务节点地址格式' }
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  }
+  if (token && token.trim()) {
+    headers['Authorization'] = `Bearer ${token.trim()}`
+  }
+
+  try {
+    const res = await fetch(taskEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    })
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, error: '授权失败：访问授权密钥 (Token) 不匹配或已失效' }
+    }
+
+    if (!res.ok) {
+      return { ok: false, error: `服务返回异常状态码 HTTP ${res.status}` }
+    }
+
+    const data = await res.json().catch(() => ({})) as PrivateWorkerTaskResponse
+    return {
+      ok: Boolean(data.ok),
+      taskId: data.taskId || payload.taskId,
+      storageMode: data.storageMode || payload.storageMode,
+      targetPath: data.targetPath,
+      message: data.message,
+      error: data.error
+    }
+  } catch (err: unknown) {
+    const errMessage = err instanceof Error ? err.message : String(err)
+    if (errMessage.includes('aborted') || (err as { name?: string })?.name === 'AbortError') {
+      return { ok: false, error: `派发任务超时（超过 ${Math.round(timeoutMs / 1000)} 秒）` }
+    }
+    return { ok: false, error: `派发任务失败: ${errMessage}` }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**
