@@ -72,6 +72,9 @@ export function decryptPassword(cipher: string): string {
   return fallbackDecrypt(cipher)
 }
 
+export const encryptSecret = encryptPassword
+export const decryptSecret = decryptPassword
+
 function getCredentialsFilePath(): string {
   return join(app.getPath('userData'), 'credentials', 'accounts.enc.json')
 }
