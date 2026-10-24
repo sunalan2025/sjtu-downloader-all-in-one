@@ -9,6 +9,8 @@
 
 import http from 'node:http'
 import type {
+  DownloadMode,
+  PrivateWorkerConfig,
   PrivateWorkerTestResult,
   PrivateWorkerTunnelConfig,
   PrivateWorkerTaskPayload,
@@ -17,6 +19,34 @@ import type {
 import { startSshTunnel } from './ssh-tunnel'
 
 export type { PrivateWorkerTaskPayload, PrivateWorkerTaskResponse }
+
+/**
+ * 判断当前任务批次是否应当委托给校内私有中转机执行
+ * 规则：
+ * 1. 私有中转服务已启用且配置了有效的节点地址；
+ * 2. 存储目标模式为「保存在中转服务器本地磁盘」或「转存至交大云盘」时，全权由远端工作机承接（0 本地流量）；
+ * 3. 仅当用户显式指定需存入本机电脑（local/both 模式且工作机非 server_local）时才消耗本地流量。
+ */
+export function isWorkerDelegated(
+  mode?: DownloadMode,
+  privateWorker?: PrivateWorkerConfig
+): boolean {
+  if (!privateWorker || !privateWorker.enabled || !privateWorker.endpointUrl?.trim()) {
+    return false
+  }
+
+  // 1. 若中转服务目标为保存在中转服务器本地磁盘，直接委托远端工作机落盘
+  if (privateWorker.storageMode === 'server_local') {
+    return true
+  }
+
+  // 2. 若中转服务目标为转存至云盘，且当前下载模式未显式指定落地到本机
+  if (mode === 'cloud') {
+    return true
+  }
+
+  return false
+}
 
 let embeddedServer: http.Server | null = null
 let embeddedWorkerUrl: string | null = null

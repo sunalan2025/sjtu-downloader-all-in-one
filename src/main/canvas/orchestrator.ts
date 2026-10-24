@@ -22,8 +22,10 @@ import {
   type CanvasVideoSession,
   type CourseResourceSummary,
   type VideoQualityOption,
-  type CanvasAssignmentExportOptions
+  type CanvasAssignmentExportOptions,
+  type PrivateWorkerConfig
 } from '../../shared/types'
+import { isWorkerDelegated, dispatchPrivateWorkerTask } from '../private-worker'
 import { buildCloudRemoteSegments } from '../../shared/utils'
 import {
   fetchCourseAssignments,
@@ -1228,6 +1230,8 @@ export function registerCanvasHandlers(): void {
     term?: string
     videoSession?: { beginTime: string; teacher: string; classroom: string }
     saveImages?: boolean
+
+    privateWorker?: PrivateWorkerConfig
     cloudDestRoot?: string
   }) => {
     try {
@@ -1268,6 +1272,8 @@ export function registerCanvasHandlers(): void {
     conflictStrategy?: 'skip' | 'overwrite'
     term?: string
     saveImages?: boolean
+
+    privateWorker?: PrivateWorkerConfig
     cloudDestRoot?: string
   }) => {
     try {
@@ -1280,6 +1286,66 @@ export function registerCanvasHandlers(): void {
       const taskId = opts.taskId
       const total = opts.lectures.length
       const results: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> = []
+
+      // 私有中转服务代传接管判定：0 本地流量由远端中转机批量下载切片并合成 PDF
+      if (isWorkerDelegated(opts.cloudUserToken ? 'cloud' : 'local', opts.privateWorker)) {
+        const worker = opts.privateWorker!
+        for (let i = 0; i < opts.lectures.length; i++) {
+          const lecture = opts.lectures[i]
+          if (taskId) {
+            emitToRenderer('canvas:ppt-progress', {
+              taskId, ivsVideoId: 0, current: i, total,
+              phase: `中转解析 ${lecture.lectureName}…`, lectureName: lecture.lectureName
+            })
+          }
+          const realIvsVideoId = await resolveIvsVideoId(session, token, lecture.ivsVideoId)
+          if (!realIvsVideoId) {
+            results.push({ lectureName: lecture.lectureName, ok: true, skipped: true })
+            continue
+          }
+          const { fetchPptSliceList, buildPptFileNameForLecture } = await import('./ppt-download')
+          const slices = await fetchPptSliceList(session, token, realIvsVideoId)
+          if (!slices || slices.length === 0) {
+            results.push({ lectureName: lecture.lectureName, ok: true, skipped: true })
+            continue
+          }
+          const fileName = buildPptFileNameForLecture(lecture.lectureName, lecture.videoSession)
+          if (taskId) {
+            emitToRenderer('canvas:ppt-progress', {
+              taskId, ivsVideoId: realIvsVideoId, current: i, total,
+              phase: `中转派发 ${lecture.lectureName} (${slices.length}讲切片)…`, lectureName: lecture.lectureName
+            })
+          }
+          const dispatchRes = await dispatchPrivateWorkerTask(
+            worker.endpointUrl,
+            {
+              taskId: `${taskId || 'ppt'}_${realIvsVideoId}`,
+              url: slices[0].pptImgUrl,
+              fileName,
+              destPath: '',
+              storageMode: worker.storageMode || 'cloudpan',
+              serverDownloadDir: worker.serverDownloadDir || '~/downloads',
+              courseName: opts.courseName,
+              categoryName: '课堂讲义 (PPT)',
+              slices: slices.map(s => ({ url: s.pptImgUrl, createSec: Number(s.createSec) })),
+              saveImages: opts.saveImages
+            },
+            worker.authToken
+          )
+          results.push({ lectureName: lecture.lectureName, ok: dispatchRes.ok, error: dispatchRes.error })
+          if (taskId) {
+            emitToRenderer('canvas:ppt-progress', {
+              taskId, ivsVideoId: realIvsVideoId, current: i + 1, total,
+              phase: dispatchRes.ok ? `${lecture.lectureName} 完成 (0本地流量)` : `${lecture.lectureName} 失败`,
+              lectureName: lecture.lectureName
+            })
+          }
+        }
+        if (taskId) {
+          emitToRenderer('canvas:ppt-progress', { taskId, ivsVideoId: 0, current: total, total, phase: '中转下载完成' })
+        }
+        return { ok: true, results }
+      }
 
       if (taskId) {
         emitToRenderer('canvas:ppt-progress', { taskId, ivsVideoId: 0, current: 0, total, phase: '开始下载PPT课件…' })

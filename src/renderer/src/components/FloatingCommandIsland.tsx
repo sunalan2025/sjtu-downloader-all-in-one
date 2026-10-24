@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import type { DownloadMode, VideoQualityOption } from '@shared/types'
 import { getDownloadActionLabels } from '@shared/utils'
 import { useAppStore } from '../store/app'
@@ -153,6 +153,29 @@ export function FloatingCommandIsland({
   const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
   const currentDownloadMode = _downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
   const actionLabels = getDownloadActionLabels(currentDownloadMode)
+
+  const privateWorkerConfig = useAppStore((s) => s.privateWorkerConfig)
+  const isWorkerActive = Boolean(
+    privateWorkerConfig?.enabled &&
+    privateWorkerConfig?.endpointUrl?.trim() &&
+    (privateWorkerConfig.storageMode === 'server_local' || currentDownloadMode === 'cloud')
+  )
+
+  const effectiveActionLabels = useMemo(() => {
+    if (!isWorkerActive) return actionLabels
+    if (privateWorkerConfig?.storageMode === 'server_local') {
+      return {
+        ...actionLabels,
+        ctaPrefix: '🖥️ 中转下载至服务器 (0本机流量)',
+        inProgressText: '中转下载中 (0 本机流量)…'
+      }
+    }
+    return {
+      ...actionLabels,
+      ctaPrefix: '⚡ 中转代传至云盘 (0本机流量)',
+      inProgressText: '中转代传中 (0 本机流量)…'
+    }
+  }, [actionLabels, isWorkerActive, privateWorkerConfig?.storageMode])
 
   // 全局下载进行中标志 + 批量进度激活标志（提前声明：快捷键 effect 与隐藏条件都要用）
   const globalDownloading = useAppStore((s) => s.downloading)
@@ -370,14 +393,14 @@ export function FloatingCommandIsland({
           type="button"
           role="button"
           data-testid="floating-cta-download"
-          aria-label={selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `${actionLabels.ctaPrefix} ${selectedSummary.formattedSize}` : `${actionLabels.ctaPrefix} · 共 ${selectedSummary.totalItems} 项`}
+          aria-label={selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `${effectiveActionLabels.ctaPrefix} ${selectedSummary.formattedSize}` : `${effectiveActionLabels.ctaPrefix} · 共 ${selectedSummary.totalItems} 项`}
           onClick={handleStartDownload}
           disabled={storeDownloading}
           className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-accent to-sky-600 hover:from-accent-dark hover:to-sky-700 active:scale-[0.98] text-white font-semibold text-xs sm:text-sm shadow-md shadow-accent/25 hover:shadow-lg hover:shadow-accent/35 transition-all duration-150 cursor-pointer whitespace-nowrap shrink-0 ${
             storeDownloading ? 'opacity-60 cursor-not-allowed hover:from-accent hover:to-sky-600' : ''
           }`}
         >
-          <span>{storeDownloading ? actionLabels.inProgressText : (selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `${actionLabels.ctaPrefix} ${selectedSummary.formattedSize}` : `${actionLabels.ctaPrefix} · 共 ${selectedSummary.totalItems} 项`)}</span>
+          <span>{storeDownloading ? effectiveActionLabels.inProgressText : (selectedSummary.formattedSize && selectedSummary.formattedSize !== '0 B' ? `${effectiveActionLabels.ctaPrefix} ${selectedSummary.formattedSize}` : `${effectiveActionLabels.ctaPrefix} · 共 ${selectedSummary.totalItems} 项`)}</span>
           {!storeDownloading && (
             <span className="inline-flex items-center font-mono text-[11px] opacity-80 ml-0.5">⏎</span>
           )}

@@ -679,6 +679,7 @@ export function CanvasBrowser() {
         state: 'downloading',
         received: p.current,
         total: p.total,
+        fileName: p.lectureName ? `${p.lectureName} · PPT课件` : undefined,
         message: p.phase
       })
     })
@@ -1132,7 +1133,8 @@ export function CanvasBrowser() {
       conflictStrategy: st.fileConflictStrategy,
       localDestRoot: st.downloadMode !== 'cloud' ? st.localDestRoot : undefined,
       namingTemplate: st.namingTemplate,
-      cloudDestRoot: st.cloudDestRoot
+      cloudDestRoot: st.cloudDestRoot,
+      privateWorker: st.privateWorkerConfig
     }
 
     // ── 等待一门课的所有任务完成（done/skipped/error/cancelled） ──
@@ -1374,7 +1376,15 @@ export function CanvasBrowser() {
             // PPT 聚合任务进 batchTaskIds：在写 pending 时即计入，让 OverallProgressBar
             // 能实时反映 PPT 下载进度（processCourse 内同步 await，若返回后才 add 会错过整个下载过程）
             useAppStore.getState().addBatchTaskIds([pptTaskId])
-            snap.applyProgress({ taskId: pptTaskId, state: 'pending', received: 0, total: validLectures.length, message: `正在下载PPT课件 (${validLectures.length} 讲)…` })
+            snap.applyProgress({
+              taskId: pptTaskId,
+              state: 'pending',
+              received: 0,
+              total: validLectures.length,
+              fileName: `${courseName} · 课堂讲义 (PPT/PDF)`,
+              courseName,
+              message: `正在下载PPT课件 (${validLectures.length} 讲)…`
+            })
             try {
               const r = await window.api.ppt.downloadBatch({
                 taskId: pptTaskId,
@@ -1395,7 +1405,8 @@ export function CanvasBrowser() {
                 conflictStrategy: st.fileConflictStrategy,
                 term: c.term,
                 saveImages: useAppStore.getState().pptSaveImages,
-                cloudDestRoot: st.cloudDestRoot
+                cloudDestRoot: st.cloudDestRoot,
+      privateWorker: st.privateWorkerConfig
               })
               const successCount = r.results?.filter(x => x.ok && !x.skipped).length ?? 0
               const skippedCount = r.results?.filter(x => x.skipped).length ?? 0
@@ -1407,12 +1418,23 @@ export function CanvasBrowser() {
               snap.applyProgress({
                 taskId: pptTaskId,
                 state: failCount > 0 ? 'error' : 'done',
-                received: successCount, total: validLectures.length,
+                received: successCount,
+                total: validLectures.length,
+                fileName: `${courseName} · 课堂讲义 (PPT/PDF)`,
+                courseName,
                 message: `PPT: ${parts.join('，') || '无操作'}`
               })
               pptAggregateTaskId = pptTaskId
             } catch {
-              snap.applyProgress({ taskId: pptTaskId, state: 'error', received: 0, total: validLectures.length, message: 'PPT下载失败' })
+              snap.applyProgress({
+                taskId: pptTaskId,
+                state: 'error',
+                received: 0,
+                total: validLectures.length,
+                fileName: `${courseName} · 课堂讲义 (PPT/PDF)`,
+                courseName,
+                message: 'PPT下载失败'
+              })
               pptAggregateTaskId = pptTaskId
             }
           }
@@ -1442,7 +1464,15 @@ export function CanvasBrowser() {
           if (selAssignments.length > 0) {
             const assignTaskId = canvasAssignBatchTaskId(courseId)
             useAppStore.getState().addBatchTaskIds([assignTaskId])
-            snap.applyProgress({ taskId: assignTaskId, state: 'pending', received: 0, total: selAssignments.length, message: `正在归档作业 (${selAssignments.length} 项)…` })
+            snap.applyProgress({
+              taskId: assignTaskId,
+              state: 'pending',
+              received: 0,
+              total: selAssignments.length,
+              fileName: `${courseName} · 课程作业归档`,
+              courseName,
+              message: `正在归档作业 (${selAssignments.length} 项)…`
+            })
             const assignmentOptions = useAppStore.getState().canvasAssignmentOptions
             try {
               const r = await window.api.canvas.downloadAssignments({
@@ -1460,12 +1490,23 @@ export function CanvasBrowser() {
               snap.applyProgress({
                 taskId: assignTaskId,
                 state: failCount > 0 ? 'error' : 'done',
-                received: successCount, total: selAssignments.length,
+                received: successCount,
+                total: selAssignments.length,
+                fileName: `${courseName} · 课程作业归档`,
+                courseName,
                 message: `作业: ${successCount}成功${failCount > 0 ? `，${failCount}失败` : ''}`
               })
               assignmentAggregateTaskId = assignTaskId
             } catch {
-              snap.applyProgress({ taskId: assignTaskId, state: 'error', received: 0, total: selAssignments.length, message: '作业归档失败' })
+              snap.applyProgress({
+                taskId: assignTaskId,
+                state: 'error',
+                received: 0,
+                total: selAssignments.length,
+                fileName: `${courseName} · 课程作业归档`,
+                courseName,
+                message: '作业归档失败'
+              })
               assignmentAggregateTaskId = assignTaskId
             }
           }

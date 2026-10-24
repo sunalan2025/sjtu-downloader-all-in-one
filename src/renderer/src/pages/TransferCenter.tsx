@@ -26,14 +26,35 @@ export function TransferCenter() {
   // 映射（单模式批次不清理它），无守卫地查会把正在下载的单模式任务误聚合到
   // 陈旧 error 镜像上、显示成"传输失败"。与 useEffectiveProgress 同语义守卫。
   const downloadMode = useAppStore(s => s.downloadMode)
+  const canvasCourses = useAppStore(s => s.canvasCourses)
   const logicalTasks = useMemo(() => {
     const entries = Object.entries(progress).filter(([id]) => !id.endsWith('_cloud'))
     return entries.map(([id, local]) => {
       const cloudId = downloadMode === 'both' ? cloudLinkedIds[id] : undefined
       const cloud = cloudId ? progress[cloudId] : undefined
       const aggregate = aggregateTaskState(local, cloud)
-      const fileName = local.fileName || cloud?.fileName || local.filePath?.split(/[\\/]/).pop() || id.split('_').pop() || id
-      const courseName = local.courseName || cloud?.courseName
+
+      // 解析课程名称：优先本地任务元数据，无则通过 ID 中的数字反查全局课程
+      const courseIdMatch = id.match(/_(\d+)(?:_|$)/)
+      const matchedCourse = courseIdMatch
+        ? canvasCourses?.find(c => String(c.courseId) === courseIdMatch[1])
+        : undefined
+      const courseName = local.courseName || cloud?.courseName || matchedCourse?.name
+
+      // 解析规范化文件名，消除裸露的数字 ID
+      let fileName = local.fileName || cloud?.fileName || local.filePath?.split(/[\\/]/).pop()
+      if (!fileName || /^\d+$/.test(fileName) || fileName === id) {
+        if (id.includes('_ppt_')) {
+          fileName = courseName ? `${courseName} · 课堂讲义 (PPT/PDF)` : '课堂讲义 (PPT/PDF)'
+        } else if (id.includes('_assign_')) {
+          fileName = courseName ? `${courseName} · 课程作业归档` : '课程作业归档'
+        } else if (id.includes('_transcript_')) {
+          fileName = courseName ? `${courseName} · 课堂逐字稿与字幕` : '课堂逐字稿与字幕'
+        } else {
+          fileName = id.split('_').pop() || id
+        }
+      }
+
       return {
         taskId: id,
         fileName,
@@ -42,7 +63,7 @@ export function TransferCenter() {
         isBoth: !!cloud
       }
     })
-  }, [progress, cloudLinkedIds, downloadMode])
+  }, [progress, cloudLinkedIds, downloadMode, canvasCourses])
 
   const activeTasks = useMemo(() => {
     return logicalTasks.filter(t => (
@@ -86,10 +107,44 @@ export function TransferCenter() {
     }
   }
 
-  const renderFileIcon = (filename: string) => {
-    const ext = filename.split('.').pop()?.toUpperCase() || 'FILE'
+  const formatProgressCount = (task: { taskId: string; fileName: string; aggregate: { received: number; total: number } }) => {
+    const { received, total } = task.aggregate
+    const pct = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0
+    if (task.taskId.includes('_ppt_')) {
+      return `第 ${received} / ${total} 讲 (${pct}%)`
+    }
+    if (task.taskId.includes('_assign_')) {
+      return `已完成 ${received} / ${total} 项 (${pct}%)`
+    }
+    if (task.taskId.includes('_transcript_')) {
+      return `第 ${received} / ${total} 讲 (${pct}%)`
+    }
+    if (total > 0 && total <= 500 && !task.fileName?.match(/\.(mp4|zip|rar|7z|tar|gz|iso|dmg|exe|mkv|mov|flv|avi)$/i)) {
+      return `已完成 ${received} / ${total} 项 (${pct}%)`
+    }
+    return `${formatBytes(received)} / ${formatBytes(total)} (${pct}%)`
+  }
+
+  const renderFileIcon = (filename: string, taskId?: string) => {
+    let ext = filename.split('.').pop()?.toUpperCase() || ''
+    if (!ext || ext === filename.toUpperCase() || ext.length > 5 || /^\d+$/.test(ext)) {
+      if (taskId?.includes('_ppt_')) ext = 'PPT'
+      else if (taskId?.includes('_assign_')) ext = '作业'
+      else if (taskId?.includes('_transcript_')) ext = 'AI'
+      else if (taskId?.includes('_video_') || taskId?.includes('_mvid_')) ext = 'MP4'
+      else ext = '文件'
+    }
+
+    const isPpt = ext === 'PPT' || ext === 'PDF'
+    const isMedia = ext === 'MP4' || ext === 'AI' || ext === '作业'
+    const bgClass = isPpt
+      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+      : isMedia
+      ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20'
+      : 'bg-accent/10 text-accent border border-accent/20'
+
     return (
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/10 font-mono text-xs font-bold text-accent">
+      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-mono text-xs font-bold shadow-2xs ${bgClass}`}>
         {ext}
       </div>
     )
@@ -243,7 +298,7 @@ export function TransferCenter() {
               const pct = agg.total > 0 ? Math.min(100, Math.round((agg.received / agg.total) * 100)) : 0
               return (
                 <div key={task.taskId} className="flex items-center gap-4 rounded-2xl border border-bd bg-surface-2 p-4 shadow-card">
-                  {renderFileIcon(task.fileName)}
+                  {renderFileIcon(task.fileName, task.taskId)}
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between mb-1.5">
@@ -252,23 +307,23 @@ export function TransferCenter() {
                           {task.fileName}
                         </span>
                         {task.courseName && (
-                          <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 text-2xs text-text-3">
+                          <span className="shrink-0 rounded-md bg-surface-3 px-2 py-0.5 text-2xs text-text-2 font-medium border border-bd/60">
                             {task.courseName}
                           </span>
                         )}
                         {task.isBoth && (
-                          <span className="shrink-0 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 px-1.5 py-0.5 text-2xs font-medium">
+                          <span className="shrink-0 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 px-1.5 py-0.5 text-2xs font-medium border border-sky-500/20">
                             本地+云盘
                           </span>
                         )}
                         {agg.phase === 'uploading' && (
-                          <span className="shrink-0 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 text-2xs font-medium">
+                          <span className="shrink-0 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 text-2xs font-medium border border-amber-500/20">
                             ☁ 上传中
                           </span>
                         )}
                       </div>
-                      <span className="ml-3 shrink-0 font-mono text-xs text-text-3">
-                        {formatBytes(agg.received)} / {formatBytes(agg.total)} ({pct}%)
+                      <span className="ml-3 shrink-0 font-mono text-xs font-medium text-text-2">
+                        {formatProgressCount(task)}
                       </span>
                     </div>
 
@@ -281,12 +336,12 @@ export function TransferCenter() {
                       />
                     </div>
 
-                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-text-3">
-                      <span className="truncate">
+                    <div className="mt-1.5 flex items-center justify-between text-xs text-text-2">
+                      <span className="truncate font-medium">
                         {agg.message || (agg.phase === 'uploading' ? '正在上传至交大云盘…' : '正在下载…')}
                       </span>
                       {agg.phase === 'uploading' && (
-                        <span className="shrink-0 text-amber-600 dark:text-amber-400">本地已就绪</span>
+                        <span className="shrink-0 text-amber-600 dark:text-amber-400 font-semibold text-2xs ml-2">本地已就绪</span>
                       )}
                     </div>
                   </div>
@@ -334,7 +389,7 @@ export function TransferCenter() {
             ) : (
               failedTasks.map(task => (
                 <div key={task.taskId} className="flex items-center gap-4 rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 shadow-card">
-                  {renderFileIcon(task.fileName)}
+                  {renderFileIcon(task.fileName, task.taskId)}
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between mb-1">
@@ -343,7 +398,7 @@ export function TransferCenter() {
                           {task.fileName}
                         </span>
                         {task.courseName && (
-                          <span className="shrink-0 rounded-md bg-surface-3 px-1.5 py-0.5 text-2xs text-text-3">
+                          <span className="shrink-0 rounded-md bg-surface-3 px-2 py-0.5 text-2xs text-text-2 font-medium border border-bd/60">
                             {task.courseName}
                           </span>
                         )}

@@ -35,6 +35,7 @@ import type {
   IcsExportOptions,
   ScheduleEvent,
   IcsExportResult,
+  PrivateWorkerConfig,
   PrivateWorkerTestResult,
   PrivateWorkerTunnelConfig,
   PrivateWorkerTaskPayload,
@@ -143,8 +144,8 @@ const api = {
       ipcRenderer.invoke('vsjtu:audit-course-detail', resourceId)
   },
   download: {
-    /** 提交一批下载任务，支持 local/cloud/both 三种模式 */
-    start: (destRoot: string, tasks: DownloadTaskSpec[], options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string; cloudDestRoot?: string }): Promise<{ ok: boolean; error?: string }> =>
+    /** 提交一批下载任务，支持 local/cloud/both 三种模式及私有中转代传 */
+    start: (destRoot: string, tasks: DownloadTaskSpec[], options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string; cloudDestRoot?: string; privateWorker?: PrivateWorkerConfig }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('download:start', destRoot, tasks, options),
     /** 暂停单个任务（本地+云端同时尝试） */
     pause: (taskId: string): Promise<{ ok: boolean }> =>
@@ -435,6 +436,7 @@ const api = {
       term?: string
       saveImages?: boolean
       cloudDestRoot?: string
+      privateWorker?: PrivateWorkerConfig
     }): Promise<{ ok: boolean; results?: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }>; error?: string }> =>
       ipcRenderer.invoke('canvas:ppt-download-batch', opts),
     /** 订阅 PPT 下载进度事件（含 taskId，用于映射到 UI 进度条） */

@@ -941,6 +941,10 @@ export interface PrivateWorkerTaskPayload {
   serverDownloadDir?: string
   courseName?: string
   categoryName?: string
+  /** 可选的多切片（如 PPT 幻灯片图片列表），支持由中转机直接批量拉取并自动编译为完整 PDF */
+  slices?: Array<{ url: string; createSec?: number; fileName?: string }>
+  /** 是否保留原始切片图片文件 */
+  saveImages?: boolean
 }
 
 /** 校内私有中转服务任务派发响应 */
@@ -951,6 +955,8 @@ export interface PrivateWorkerTaskResponse {
   targetPath?: string
   message?: string
   error?: string
+  status?: string
+  receivedBytes?: number
 }
 
 /** SSH 隧道实时运行状态 */

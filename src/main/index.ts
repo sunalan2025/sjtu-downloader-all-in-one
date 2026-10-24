@@ -10,7 +10,8 @@ import {
   type FileConflictStrategy,
   type DownloadTaskSpec,
   type PrivateWorkerTunnelConfig,
-  type PrivateWorkerTaskPayload
+  type PrivateWorkerTaskPayload,
+  type PrivateWorkerConfig
 } from '../shared/types'
 import {
   getCachedUserToken,
@@ -155,6 +156,7 @@ import {
   cloudResumeAll
 } from './download-engine/cloud'
 import { registerTaskMeta, getDownloadSnapshot, clearFinishedSnapshots, deleteSnapshot } from './download-engine/progress'
+import { isWorkerDelegated, dispatchWorkerBatch } from './download-engine/worker-dispatch'
 import { globalSpeedLimiter, formatPathFromTemplate, isSafeExternalUrl } from '../shared/utils'
 
 
@@ -702,7 +704,14 @@ app.whenReady().then(async () => {
       _e,
       destRoot: string,
       specs: DownloadTaskSpec[],
-      options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string; cloudDestRoot?: string }
+      options?: {
+        mode?: DownloadMode
+        localDestRoot?: string
+        conflictStrategy?: FileConflictStrategy
+        namingTemplate?: string
+        cloudDestRoot?: string
+        privateWorker?: PrivateWorkerConfig
+      }
     ): Promise<{ ok: boolean; error?: string }> => {
       try {
         // [2.1] IPC input validation: bound batch size, validate spec array
@@ -721,6 +730,11 @@ app.whenReady().then(async () => {
 
         const mode: DownloadMode = options?.mode
           ?? (specs.some(s => s.cloudUserToken) ? 'cloud' : 'local')
+
+        // 私有中转服务代传接管判定：若命中 0 本地流量分流规则，委托远端节点代传并直接返回
+        if (isWorkerDelegated(mode, options?.privateWorker)) {
+          return dispatchWorkerBatch(specs, options!)
+        }
 
         const cloudToken = getCachedUserToken()
 

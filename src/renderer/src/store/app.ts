@@ -844,7 +844,13 @@ export const useAppStore = create<AppState>()(
               let historyUpdated = false
               let nextHistory = state.downloadHistory
               for (const [tid, prog] of batch) {
-                next[tid] = prog
+                const prev = next[tid]
+                next[tid] = {
+                  ...prev,
+                  ...prog,
+                  fileName: prog.fileName || prev?.fileName,
+                  courseName: prog.courseName || prev?.courseName
+                }
                 if (prog.state === 'done' && (prog.filePath || prog.cloudPath)) {
                   const baseId = tid.replace(/_cloud$/, '')
                   const existingIndex = nextHistory.findIndex(h => {

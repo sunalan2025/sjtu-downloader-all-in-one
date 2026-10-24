@@ -53,7 +53,8 @@ export async function submitDownloadBatch(
     conflictStrategy: store.fileConflictStrategy,
     localDestRoot: downloadMode !== 'cloud' ? store.localDestRoot : undefined,
     namingTemplate: store.namingTemplate,
-    cloudDestRoot: store.cloudDestRoot
+    cloudDestRoot: store.cloudDestRoot,
+    privateWorker: store.privateWorkerConfig
   }
 
   // 占位 pending + 计入本轮提交集
