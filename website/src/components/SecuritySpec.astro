@@ -1,0 +1,65 @@
+---
+import Icons from './icons/Icons.astro';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+
+const securityPoints = [
+  {
+    title: '系统级凭据加密',
+    desc: '基于 Windows DPAPI 与 macOS Keychain 原生硬件保险库，本地零明文存储。',
+    icon: 'shield' as const
+  },
+  {
+    title: '零越权交互保障',
+    desc: '仅做安全辅助回填，表单提交权与 2FA 二次验证完全由师生手动核验掌控。',
+    icon: 'sparkles' as const
+  },
+  {
+    title: '智能断点续传',
+    desc: '内置多线程传输引擎，自动比对文件指纹，智能跳过已有同名文件。',
+    icon: 'check' as const
+  }
+];
+---
+
+<section
+  id="security"
+  class={`py-20 sm:py-24 relative overflow-hidden bg-slate-50/50 dark:bg-sjtu-night/30 border-y border-slate-200/60 dark:border-slate-800/60 ${className}`}
+  aria-label="系统安全保障规范"
+>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Header (干净无副标题) -->
+    <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+      <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        安全保障
+      </h2>
+    </div>
+
+    <!-- 3 Columns Row -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
+      {
+        securityPoints.map((item) => (
+          <div
+            class="rounded-3xl p-7 sm:p-8 bg-white dark:bg-sjtu-dark/90 border border-slate-200/80 dark:border-slate-800/80 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+          >
+            <div>
+              <div class="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center mb-5">
+                <Icons name={item.icon} class="w-5 h-5 text-sjtu-blue" />
+              </div>
+              <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-2">
+                {item.title}
+              </h3>
+              <p class="text-sm text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
+                {item.desc}
+              </p>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

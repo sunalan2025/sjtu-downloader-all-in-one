@@ -88,7 +88,8 @@ import {
 } from '../src/main/download-engine/shared'
 
 import {
-  cloudRemotePath
+  cloudRemotePath,
+  cloudFolderSegments
 } from '../src/main/download-engine/cloud'
 
 import {
@@ -475,6 +476,23 @@ describe('Tier 5 Adversarial Coverage Hardening Suite', () => {
 
       const path = cloudRemotePath(canvasSpec)
       expect(path).toBe('SJTU Canvas课程/2025-2026-1/操作系统/第1讲.mp4')
+      expect(cloudFolderSegments(canvasSpec)).toEqual(['SJTU Canvas课程', '2025-2026-1', '操作系统'])
+
+      // 支持自定义 cloudDestRoot: '/SJTU课程备份'
+      const customRootSpec = {
+        ...canvasSpec,
+        cloudDestRoot: '/SJTU课程备份'
+      }
+      expect(cloudRemotePath(customRootSpec)).toBe('SJTU课程备份/2025-2026-1/操作系统/第1讲.mp4')
+      expect(cloudFolderSegments(customRootSpec)).toEqual(['SJTU课程备份', '2025-2026-1', '操作系统'])
+
+      // 支持云盘根目录: '/'
+      const rootDirSpec = {
+        ...canvasSpec,
+        cloudDestRoot: '/'
+      }
+      expect(cloudRemotePath(rootDirSpec)).toBe('2025-2026-1/操作系统/第1讲.mp4')
+      expect(cloudFolderSegments(rootDirSpec)).toEqual(['2025-2026-1', '操作系统'])
 
       const cnmoocSpec = {
         taskId: 'task_2',
@@ -487,6 +505,7 @@ describe('Tier 5 Adversarial Coverage Hardening Suite', () => {
 
       const cnmoocPath = cloudRemotePath(cnmoocSpec)
       expect(cnmoocPath).toBe('SJTU好大学在线/2025春/机器学习/导论.mp4')
+      expect(cloudFolderSegments(cnmoocSpec)).toEqual(['SJTU好大学在线', '2025春', '机器学习'])
     })
 
     it('accurately classifies transient vs permanent cloud errors', () => {

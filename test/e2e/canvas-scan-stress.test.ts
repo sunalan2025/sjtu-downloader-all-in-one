@@ -53,7 +53,7 @@ describe('Canvas LMS Scanning Logic & Term Grouping Adversarial Stress Suite', (
         expect(res['2025-2026-2']).toBeDefined()
       })
 
-      it('groups null, undefined, empty string, whitespace-only terms to "(无学期)"', () => {
+      it('groups null, undefined, empty string, whitespace-only terms to "未标注学期"', () => {
         const courses = [
           { id: 1, name: '课1', term: null },
           { id: 2, name: '课2', term: undefined },
@@ -66,8 +66,8 @@ describe('Canvas LMS Scanning Logic & Term Grouping Adversarial Stress Suite', (
           { id: 9, name: '课9' } // missing term property
         ]
         const res = groupCoursesByTerm(courses)
-        expect(Object.keys(res)).toEqual(['(无学期)'])
-        expect(res['(无学期)']).toHaveLength(9)
+        expect(Object.keys(res)).toEqual(['未标注学期'])
+        expect(res['未标注学期']).toHaveLength(9)
       })
 
       it('handles unexpected non-standard types gracefully without throwing', () => {
@@ -78,8 +78,8 @@ describe('Canvas LMS Scanning Logic & Term Grouping Adversarial Stress Suite', (
           { id: 4, name: '课4', term: { name: 123 } as any }
         ]
         const res = groupCoursesByTerm(courses)
-        expect(res['(无学期)']).toBeDefined()
-        expect(res['(无学期)']).toHaveLength(4)
+        expect(res['未标注学期']).toBeDefined()
+        expect(res['未标注学期']).toHaveLength(4)
       })
 
       it('trims leading and trailing whitespace from term names', () => {

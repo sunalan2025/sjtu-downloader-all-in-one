@@ -1,0 +1,391 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import React from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import * as cheerio from 'cheerio'
+import {
+  FloatingCommandIsland,
+  VIDEO_PERSPECTIVE_OPTIONS,
+  STORAGE_DEST_OPTIONS,
+  type FloatingCommandIslandProps,
+  type VideoPerspective
+} from '../../src/renderer/src/components/FloatingCommandIsland'
+import { estimateResourceSize } from '../../src/shared/utils'
+import { useAppStore } from '../../src/renderer/src/store/app'
+
+describe('FloatingCommandIsland Component Unit Tests', () => {
+  beforeEach(() => {
+    // 重置全局 store 的 downloadMode
+    useAppStore.getState().setDownloadMode('local')
+  })
+
+  // 辅助函数：根据 Props 用 renderToStaticMarkup 渲染并返回 cheerio 包装的根节点
+  function renderIsland(props: Partial<FloatingCommandIslandProps> = {}) {
+    const defaultProps: FloatingCommandIslandProps = {
+      selectedSummary: {
+        courseCount: 2,
+        totalItems: 14,
+        formattedSize: '约 1.25 GB',
+        filesCount: 8,
+        videoCount: 4,
+        assignCount: 2,
+        pptCount: 4
+      },
+      ...props
+    }
+    const html = renderToStaticMarkup(React.createElement(FloatingCommandIsland, defaultProps))
+    return {
+      html,
+      $: cheerio.load(html),
+      props: defaultProps
+    }
+  }
+
+  // 辅助函数：提取 VNode 树中的可点击元素，用于单元测试事件回调
+  function renderIslandVNode(props: Partial<FloatingCommandIslandProps> = {}) {
+    const defaultProps: FloatingCommandIslandProps = {
+      selectedSummary: {
+        courseCount: 2,
+        totalItems: 14,
+        formattedSize: '约 1.25 GB',
+        filesCount: 8,
+        videoCount: 4,
+        assignCount: 2,
+        pptCount: 4
+      },
+      ...props
+    }
+
+    let capturedVNode: any = null
+    function CaptureWrapper() {
+      capturedVNode = FloatingCommandIsland(defaultProps)
+      return capturedVNode
+    }
+
+    renderToStaticMarkup(React.createElement(CaptureWrapper))
+    return { vnode: capturedVNode, props: defaultProps }
+  }
+
+  // 递归搜集指定 predicate 的虚拟 DOM 节点
+  function findVNodes(node: any, predicate: (n: any) => boolean): any[] {
+    if (!node) return []
+    if (Array.isArray(node)) {
+      return node.flatMap((item) => findVNodes(item, predicate))
+    }
+    if (typeof node !== 'object') return []
+    const results: any[] = []
+    if (predicate(node)) {
+      results.push(node)
+    }
+    const children = node.props?.children
+    if (children) {
+      results.push(...findVNodes(children, predicate))
+    }
+    return results
+  }
+
+  describe('1. 基础渲染与显隐逻辑 (Visibility & Invariants)', () => {
+    it('当 totalItems <= 0 且无批量下载进行时平滑隐藏 (返回 null)', () => {
+      const { html } = renderIsland({
+        selectedSummary: {
+          totalItems: 0,
+          formattedSize: '0 B'
+        }
+      })
+      expect(html).toBe('')
+    })
+
+    it('当 totalItems === 0 但批量下载进行中 (batchProgress 有任务) 时保持可见', () => {
+      const { html, $ } = renderIsland({
+        selectedSummary: {
+          totalItems: 0,
+          formattedSize: '0 B'
+        },
+        batchProgress: { done: 3, downloading: 2, uploading: 0, failed: 0, total: 10, inflight: 0.8 }
+      })
+      expect(html).not.toBe('')
+      expect($('[role="toolbar"]').length).toBe(1)
+      // 批量进度环形态：显示 done/total 计数
+      expect($('[role="status"]').text()).toContain('3/10')
+    })
+
+    it('当 totalItems > 0 时正常呈现现代毛玻璃悬浮岛', () => {
+      const { $, html } = renderIsland()
+      const toolbar = $('[role="toolbar"]')
+      expect(toolbar.length).toBe(1)
+      expect(toolbar.attr('aria-label')).toBe('下载底栏智能指挥动作岛')
+      expect(html).toContain('fixed bottom-6')
+      expect(html).toContain('backdrop-blur-xl')
+      expect(html).toContain('shadow-2xl')
+      expect(html).toContain('rounded-2xl')
+    })
+  })
+
+  describe('2. 信息汇聚胶囊 (Left Info Capsule)', () => {
+    it('在多课程视图下呈现已选课程数、资源项数与预估容量', () => {
+      const { $ } = renderIsland({
+        isSingleCourse: false,
+        selectedSummary: {
+          courseCount: 3,
+          totalItems: 28,
+          formattedSize: '约 2.45 GB'
+        }
+      })
+      const text = $('[role="toolbar"]').text()
+      expect(text).toContain('✦ 已选 3 门课程 · 共 28 项资源 · 约 2.45 GB')
+    })
+
+    it('在单门课程视图 (isSingleCourse=true) 下呈现分类数与资源项数', () => {
+      const { $ } = renderIsland({
+        isSingleCourse: true,
+        selectedSummary: {
+          categoryCount: 4,
+          totalItems: 16,
+          formattedSize: '约 800.0 MB'
+        }
+      })
+      const text = $('[role="toolbar"]').text()
+      expect(text).toContain('✦ 已选 4 个分类 · 共 16 项资源 · 约 800.0 MB')
+    })
+
+    it('当提供 onClearSelection 回调时呈现清空小叉按钮并在点击时触发回调', () => {
+      const onClearSelection = vi.fn()
+      const { $ } = renderIsland({ onClearSelection })
+      const clearBtn = $('button[aria-label="清空选择"]')
+      expect(clearBtn.length).toBe(1)
+      expect(clearBtn.text()).toContain('✕')
+
+      // 测试点击事件
+      const { vnode } = renderIslandVNode({ onClearSelection })
+      const clearVNodes = findVNodes(vnode, (n) => n.props?.['aria-label'] === '清空选择')
+      expect(clearVNodes.length).toBe(1)
+      clearVNodes[0].props.onClick()
+      expect(onClearSelection).toHaveBeenCalledTimes(1)
+    })
+
+    it('未提供 onClearSelection 时不呈现清空小叉按钮', () => {
+      const { $ } = renderIsland({ onClearSelection: undefined })
+      const clearBtn = $('button[aria-label="清空选择"]')
+      expect(clearBtn.length).toBe(0)
+    })
+  })
+
+  describe('3. 分类交互芯片组 (Category Filter Chips)', () => {
+    it('正确呈现课件、视频、作业与PPT讲义 4 组分类芯片与计数', () => {
+      const { $ } = renderIsland({
+        selectedSummary: {
+          totalItems: 25,
+          formattedSize: '约 1.50 GB',
+          filesCount: 10,
+          videoCount: 6,
+          assignCount: 4,
+          pptCount: 5
+        }
+      })
+      expect($('button:contains("📘 课件 10")').length).toBe(1)
+      expect($('button:contains("视频 6")').length).toBe(1)
+      expect($('button:contains("📝 作业 4")').length).toBe(1)
+      expect($('button:contains("📑 PPT讲义 5")').length).toBe(1)
+    })
+
+    it('根据 categorySelection 属性呈现对应激活态 (aria-pressed 与高亮类名)', () => {
+      const { $ } = renderIsland({
+        categorySelection: {
+          files: true,
+          videos: false,
+          assignments: true,
+          pptPdf: false
+        }
+      })
+      const filesChip = $('button:contains("📘 课件")')
+      const assignChip = $('button:contains("📝 作业")')
+      const pptChip = $('button:contains("📑 PPT讲义")')
+
+      expect(filesChip.attr('aria-pressed')).toBe('true')
+      expect(filesChip.attr('class')).toContain('bg-accent/10')
+      expect(filesChip.attr('class')).toContain('text-accent')
+
+      expect(assignChip.attr('aria-pressed')).toBe('true')
+
+      expect(pptChip.attr('aria-pressed')).toBe('false')
+      expect(pptChip.attr('class')).toContain('text-text-3')
+    })
+
+    it('点击课件、视频、作业、PPT芯片时触发 onToggleCategory 回调', () => {
+      const onToggleCategory = vi.fn()
+      const { vnode } = renderIslandVNode({ onToggleCategory })
+
+      // 课件
+      const filesBtn = findVNodes(vnode, (n) => n.type === 'button' && JSON.stringify(n.props?.children).includes('课件'))[0]
+      expect(filesBtn).toBeDefined()
+      filesBtn.props.onClick()
+      expect(onToggleCategory).toHaveBeenCalledWith('files')
+
+      // 视频
+      const videoBtn = findVNodes(vnode, (n) => n.type === 'button' && JSON.stringify(n.props?.children).includes('视频'))[0]
+      expect(videoBtn).toBeDefined()
+      videoBtn.props.onClick()
+      expect(onToggleCategory).toHaveBeenCalledWith('videos')
+
+      // 作业
+      const assignBtn = findVNodes(vnode, (n) => n.type === 'button' && JSON.stringify(n.props?.children).includes('作业'))[0]
+      expect(assignBtn).toBeDefined()
+      assignBtn.props.onClick()
+      expect(onToggleCategory).toHaveBeenCalledWith('assignments')
+
+      // PPT
+      const pptBtn = findVNodes(vnode, (n) => n.type === 'button' && JSON.stringify(n.props?.children).includes('PPT讲义'))[0]
+      expect(pptBtn).toBeDefined()
+      pptBtn.props.onClick()
+      expect(onToggleCategory).toHaveBeenCalledWith('pptPdf')
+
+      expect(onToggleCategory).toHaveBeenCalledTimes(4)
+    })
+  })
+
+  describe('4. 视频机位偏好提示与规范化 (Video Perspective Hover Tooltip)', () => {
+    it('视频芯片包含悬停提示信息（指示当前默认机位及前往设置修改的提示）', () => {
+      const { $ } = renderIsland({ perspective: 'teacher' })
+      const videoBtn = $('button[role="button"]:contains("视频")')
+      expect(videoBtn.length).toBe(1)
+      expect(videoBtn.attr('title')).toContain('当前下载视角: 仅教师视角')
+      expect(videoBtn.attr('title')).toContain('如需修改请前往「设置 - 课件与多媒体」')
+    })
+
+    it('VIDEO_PERSPECTIVE_OPTIONS 导出 4 大标准视角并具备清晰文案', () => {
+      expect(VIDEO_PERSPECTIVE_OPTIONS.length).toBe(4)
+      const keys = VIDEO_PERSPECTIVE_OPTIONS.map((o) => o.key)
+      expect(keys).toEqual(['all', 'teacher', 'ppt', 'audio'])
+
+      expect(VIDEO_PERSPECTIVE_OPTIONS[0].label).toBe('双机位同时下载')
+      expect(VIDEO_PERSPECTIVE_OPTIONS[1].label).toBe('仅教师视角')
+      expect(VIDEO_PERSPECTIVE_OPTIONS[2].label).toBe('仅PPT投屏')
+      expect(VIDEO_PERSPECTIVE_OPTIONS[3].label).toBe('纯音频 MP3')
+    })
+
+    it('根据传入的 perspective 动态展示对应机位提示', () => {
+      const { $ } = renderIsland({ perspective: 'ppt' })
+      const videoBtn = $('button[role="button"]:contains("视频")')
+      expect(videoBtn.attr('title')).toContain('当前下载视角: 仅PPT投屏')
+    })
+
+    it('在仅下载原声音频模式下，视频芯片自动适配为音频芯片与专属提示', () => {
+      const { $ } = renderIsland({
+        videoQualityOption: 'audio_only',
+        selectedSummary: {
+          totalItems: 8,
+          formattedSize: '约 180 MB',
+          videoCount: 4
+        }
+      })
+      const audioChip = $('button:contains("原声音频 4")')
+      expect(audioChip.length).toBe(1)
+      expect(audioChip.attr('title')).toContain('当前下载模式: 仅下载原声音频')
+    })
+  })
+
+  describe('5. 存储目标与机位全局偏好联动 (Storage Destination from Store)', () => {
+    it('底部悬浮窗不再并存重复的存储目标切换按钮，保持清爽纯粹', () => {
+      const { $ } = renderIsland({ downloadMode: 'cloud' })
+      const destGroup = $('[role="group"][aria-label="存储目标切换"]')
+      expect(destGroup.length).toBe(0)
+    })
+  })
+
+  describe('6. 主执行下载大按钮 (Primary Action CTA)', () => {
+    it('主执行按钮文案符合规范：立即下载 ${formattedSize} (⏎)', () => {
+      const { $ } = renderIsland({
+        selectedSummary: {
+          totalItems: 10,
+          formattedSize: '约 1.80 GB'
+        }
+      })
+      const ctaBtn = $('button[aria-label="立即下载 约 1.80 GB"]')
+      expect(ctaBtn.length).toBe(1)
+      expect(ctaBtn.text()).toContain('立即下载 约 1.80 GB')
+      expect(ctaBtn.text()).toContain('⏎')
+    })
+    it('当已选资源大于0但字节数未知时文案友好降级', () => {
+      const { $ } = renderIsland({
+        selectedSummary: {
+          totalItems: 40,
+          courseCount: 1,
+          formattedSize: '0 B'
+        }
+      })
+      const ctaBtn = $('button[aria-label="立即下载 · 共 40 项"]')
+      expect(ctaBtn.length).toBe(1)
+      expect(ctaBtn.text()).toContain('立即下载 · 共 40 项')
+      expect(ctaBtn.text()).not.toContain('0 B')
+      expect($('span.font-medium').text()).toContain('待获取体积')
+      expect($('span.font-medium').text()).not.toContain('0 B')
+    })
+
+    it('点击主执行按钮时触发 onStartDownload 回调（onDownload 别名已删除）', () => {
+      const onStartDownload = vi.fn()
+      const { vnode } = renderIslandVNode({
+        onStartDownload
+      })
+
+      const ctaBtn = findVNodes(vnode, (n) => n.props?.['aria-label']?.startsWith?.('立即下载'))[0]
+      expect(ctaBtn).toBeDefined()
+      ctaBtn.props.onClick()
+
+      expect(onStartDownload).toHaveBeenCalledTimes(1)
+    })
+
+    it('批量下载进行中 (batchProgress 存在) 时主按钮切换为进度环形态，不渲染 CTA', () => {
+      const { $ } = renderIsland({
+        batchProgress: { done: 7, downloading: 3, uploading: 0, failed: 1, total: 20, inflight: 1.2 }
+      })
+      // 进度环 status 存在，CTA 按钮不存在
+      expect($('[role="status"]').length).toBe(1)
+      expect($('button[aria-label^="立即下载"]').length).toBe(0)
+      const statusText = $('[role="status"]').text()
+      expect(statusText).toContain('7/20')
+      expect(statusText).toContain('↓3')
+      expect(statusText).toContain('失败 1')
+    })
+  })
+
+  describe('7. 无障碍属性完备性 (Accessibility)', () => {
+    it('整体结构具备清晰的角色声明与 ARIA 标记', () => {
+      const { $ } = renderIsland()
+      expect($('[role="toolbar"]').length).toBe(1)
+      expect($('button[role="button"]').length).toBeGreaterThanOrEqual(4)
+      expect($('button[title*="设置"]').length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  describe('8. 与容量预估引擎真实联动 (Real-Time Resource Size Estimation Integration)', () => {
+    it('将 estimateResourceSize 计算结果传入后，胶囊与CTA按钮完美同步展示', () => {
+      // 模拟真实选课场景：120MB课件，3讲视频(教师视角 3*450MB=1350MB)，4个作业(8MB)，3个PPT生成(45MB)
+      // 总量 = 120 + 1350 + 8 + 45 = 1523 MB -> 约 1.49 GB
+      const MB = 1024 * 1024
+      const est = estimateResourceSize({
+        fileBytes: 120 * MB,
+        videoCount: 3,
+        perspective: 'teacher',
+        hasAssignments: true,
+        assignmentCount: 4,
+        hasPptPdf: true,
+        pptPdfCount: 3
+      })
+
+      const { $ } = renderIsland({
+        selectedSummary: {
+          courseCount: 1,
+          totalItems: 20,
+          formattedSize: est.formattedSize,
+          filesCount: 10,
+          videoCount: 3,
+          assignCount: 4,
+          pptCount: 3
+        }
+      })
+
+      const toolbarText = $('[role="toolbar"]').text()
+      expect(toolbarText).toContain('✦ 已选 1 门课程 · 共 20 项资源 · 约 1.49 GB')
+      expect(toolbarText).toContain('立即下载 约 1.49 GB')
+    })
+  })
+})

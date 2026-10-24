@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, shell } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { request as httpsRequest } from 'node:https'
@@ -69,6 +69,12 @@ import {
   clearAllCredentials,
   getCredentialForFill
 } from './credentials'
+import {
+  testPrivateWorker,
+  startEmbeddedDevWorker,
+  stopEmbeddedDevWorker,
+  getEmbeddedDevWorkerUrl
+} from './private-worker'
 import {
   getConcurrency,
   setConcurrency,
@@ -140,7 +146,7 @@ import {
   cloudCancelAll,
   cloudResumeAll
 } from './download-engine/cloud'
-import { saveQueueState, loadQueueState } from './download-engine/persistence'
+import { registerTaskMeta, getDownloadSnapshot, clearFinishedSnapshots, deleteSnapshot } from './download-engine/progress'
 import { globalSpeedLimiter, formatPathFromTemplate, isSafeExternalUrl } from '../shared/utils'
 
 
@@ -313,6 +319,13 @@ app.whenReady().then(async () => {
 
   // 课表与日程管理 (calendar.sjtu.edu.cn / Canvas DDL)
   registerScheduleHandlers(sjtuSession(), getMainWindow)
+
+  // 开发环境 (npm run dev) 下自动拉起内置测试中转节点，零终端命令即可直接测试
+  if (!app.isPackaged) {
+    startEmbeddedDevWorker().then(url => {
+      if (url) console.log('[dev-worker] 内置开发测试节点已自动就绪:', url)
+    }).catch(() => undefined)
+  }
 
   // 标题栏按钮颜色跟随主题
   ipcMain.handle('app:set-theme', (_e, theme: 'dark' | 'light') => {
@@ -585,6 +598,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('credentials:clear-all', () => clearAllCredentials())
   ipcMain.handle('credentials:get-fill-data', (_e, id) => getCredentialForFill(id))
 
+  // ─── 校内私有中转服务探测 (Private Worker) ─────────────────────────
+  ipcMain.handle('private-worker:test', (_e, payload?: { url?: string; token?: string }) => {
+    return testPrivateWorker(payload?.url || '', payload?.token)
+  })
+  ipcMain.handle('private-worker:get-dev-info', () => {
+    return {
+      isDev: !app.isPackaged,
+      devWorkerUrl: getEmbeddedDevWorkerUrl()
+    }
+  })
+
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
     // 类似于好大学在线的 ensureCnmoocLogin，发起扫描前主动确保持有有效 JWT
     await ensureVsjtuLogin()
@@ -651,7 +675,7 @@ app.whenReady().then(async () => {
       _e,
       destRoot: string,
       specs: DownloadTaskSpec[],
-      options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string }
+      options?: { mode?: DownloadMode; localDestRoot?: string; conflictStrategy?: FileConflictStrategy; namingTemplate?: string; cloudDestRoot?: string }
     ): Promise<{ ok: boolean; error?: string }> => {
       try {
         // [2.1] IPC input validation: bound batch size, validate spec array
@@ -740,7 +764,8 @@ app.whenReady().then(async () => {
             pendingLocal.push({ spec: { ...spec, cloudUserToken: undefined }, filePath, partPath })
             pendingLocalIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
+            registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
+            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
           }
           scheduleNext()
         }
@@ -748,8 +773,17 @@ app.whenReady().then(async () => {
         // ─── 云盘上传 ───
         if ((mode === 'cloud' || mode === 'both') && cloudToken) {
           const cloudSpecs = mode === 'both'
-            ? specs.map(s => ({ ...s, taskId: s.taskId + '_cloud', cloudUserToken: cloudToken }))
-            : specs.map(s => ({ ...s, cloudUserToken: cloudToken }))
+            ? specs.map(s => ({
+                ...s,
+                taskId: s.taskId + '_cloud',
+                cloudUserToken: cloudToken,
+                cloudDestRoot: options?.cloudDestRoot ?? s.cloudDestRoot
+              }))
+            : specs.map(s => ({
+                ...s,
+                cloudUserToken: cloudToken,
+                cloudDestRoot: options?.cloudDestRoot ?? s.cloudDestRoot
+              }))
           for (const spec of cloudSpecs) {
             // PERF: O(1) duplicate-check via index Sets instead of O(n) .some() scans
             if (cloudTasks.has(spec.taskId)) {
@@ -761,7 +795,8 @@ app.whenReady().then(async () => {
             pendingCloud.push(spec)
             pendingCloudIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0 })
+            registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
+            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
           }
           cloudScheduleNext()
         }
@@ -775,19 +810,35 @@ app.whenReady().then(async () => {
   )
 
   ipcMain.handle('download:pause', (_e, id: string) => {
-    // 任务可能在本地或云端任一队列（pending/paused/active），两端都尝试，各自对找不到的 id 安全 return
+    // 任务可能在本地或云端任一队列（pending/paused/active），两端都尝试；
+    // both 模式下若传入逻辑主键，顺带控制 _cloud 镜像
     pauseTask(id)
     cloudPauseTask(id)
+    if (!id.endsWith('_cloud')) cloudPauseTask(id + '_cloud')
     return { ok: true }
   })
   ipcMain.handle('download:cancel', (_e, id: string) => {
     cancelTask(id)
     cloudCancelTask(id)
+    if (!id.endsWith('_cloud')) cloudCancelTask(id + '_cloud')
     return { ok: true }
   })
   ipcMain.handle('download:resume', (_e, id: string) => {
     resumeTask(id)
     cloudResumeTask(id)
+    if (!id.endsWith('_cloud')) cloudResumeTask(id + '_cloud')
+    return { ok: true }
+  })
+  ipcMain.handle('download:get-snapshot', () => {
+    return getDownloadSnapshot()
+  })
+  ipcMain.handle('download:clear-finished-snapshots', () => {
+    clearFinishedSnapshots()
+    return { ok: true }
+  })
+  ipcMain.handle('download:delete-snapshot', (_e, taskId: string) => {
+    // 与渲染端删除单条历史联动；仅接受终态条目，防止误删在传任务
+    deleteSnapshot(taskId)
     return { ok: true }
   })
   ipcMain.handle('download:pause-all', () => {
@@ -974,7 +1025,7 @@ app.whenReady().then(async () => {
 
       const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
       if (jaCookies.length === 0) {
-        return { ok: false, error: 'jAccount 未登录，请先登录 v.sjtu' }
+        return { ok: false, error: 'jAccount 未登录，请先登录' }
       }
 
       const win = new BrowserWindow({
@@ -1037,12 +1088,11 @@ app.whenReady().then(async () => {
   createTray()
   startSpeedTicker()
 
-  // 恢复上次退出前未完成的任务队列
-  const { restoredCount } = loadQueueState()
-  if (restoredCount > 0) {
-    scheduleNext()
-    cloudScheduleNext()
-  }
+  // 清理可能遗留的陈旧任务队列文件（避免旧版本残留引起 403 错误）
+  try {
+    const oldQueueFile = join(app.getPath('userData'), 'download_queue.json')
+    if (existsSync(oldQueueFile)) unlinkSync(oldQueueFile)
+  } catch { /* ignore */ }
 
   // 系统深浅主题切换 → 同步窗口/托盘图标 (深色主题用浅色logo, 浅色主题用深色logo)
   nativeTheme.on('updated', applyThemeIcons)
@@ -1060,9 +1110,6 @@ app.whenReady().then(async () => {
  *  同时将任务状态置为 cancelled，确保重试定时器回调时能正确退出。 */
 function cleanupOnQuit(): void {
   setIsQuitting(true)
-
-  // 退出前将待处理与暂停的任务保存到本地用户数据目录
-  saveQueueState()
 
   // 中止自动更新下载并清理临时文件（installing=true 即安装已 spawn 时 no-op，
   // 避免删掉 NSIS 安装器正在使用的临时 .exe）
@@ -1095,6 +1142,9 @@ function cleanupOnQuit(): void {
 
   // 销毁系统托盘
   destroyTray()
+
+  // 停止开发模式下内嵌的测试工作机
+  stopEmbeddedDevWorker().catch(() => undefined)
 
   // 清除网络恢复定时器
   stopNetworkResumeTimer()

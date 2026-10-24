@@ -240,6 +240,234 @@ describe('Schedule Fetcher Unit Tests', () => {
       expect(res[0].startTime).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
     })
 
+    it('fetches courses concurrently from favorites and active courses, deduplicating by id', async () => {
+      const requestedUrls: string[] = []
+      const mockSes = {
+        fetch: vi.fn().mockImplementation(async (url: string) => {
+          requestedUrls.push(url)
+          if (url.includes('/users/self/favorites/courses')) {
+            return {
+              ok: true,
+              json: async () => [
+                { id: 101, name: '高等数学', course_code: 'MATH101' },
+                { id: 102, name: '线性代数', course_code: 'MATH102' }
+              ]
+            }
+          }
+          if (url.includes('/courses?enrollment_state=active')) {
+            return {
+              ok: true,
+              json: async () => [
+                { id: 102, name: '线性代数', course_code: 'MATH102' }, // duplicate
+                { id: 103, name: '大学物理', course_code: 'PHYS101' } // non-favorited active course
+              ]
+            }
+          }
+          if (url.includes('/courses/101/assignments')) {
+            return {
+              ok: true,
+              json: async () => [{ id: 1001, name: '高数作业1', due_at: '2026-11-20T12:00:00Z' }]
+            }
+          }
+          if (url.includes('/courses/102/assignments')) {
+            return {
+              ok: true,
+              json: async () => [{ id: 1002, name: '线代作业1', due_at: '2026-11-21T12:00:00Z' }]
+            }
+          }
+          if (url.includes('/courses/103/assignments')) {
+            return {
+              ok: true,
+              json: async () => [{ id: 1003, name: '大物作业1', due_at: '2026-11-22T12:00:00Z' }]
+            }
+          }
+          return { ok: false, status: 404 }
+        })
+      } as any
+
+      const res = await fetchCanvasUpcomingDeadlines(mockSes)
+      expect(res).toHaveLength(3)
+      expect(res.map(r => r.courseName)).toEqual(['高等数学', '线性代数', '大学物理'])
+      // Verify course 102 was requested only once
+      const assignmentUrls102 = requestedUrls.filter(u => u.includes('/courses/102/assignments'))
+      expect(assignmentUrls102).toHaveLength(1)
+    })
+
+    it('inherits lock_at as deadline and sets isLockAtDeadline = true when due_at is missing (e.g. 大学物理)', async () => {
+      const mockSes = {
+        fetch: vi.fn().mockImplementation(async (url: string) => {
+          if (url.includes('/users/self/favorites/courses')) {
+            return {
+              ok: true,
+              json: async () => [{ id: 103, name: '大学物理', course_code: 'PHYS101' }]
+            }
+          }
+          if (url.includes('/courses?enrollment_state=active')) {
+            return { ok: true, json: async () => [] }
+          }
+          if (url.includes('/courses/103/assignments')) {
+            return {
+              ok: true,
+              json: async () => [
+                {
+                  id: 2001,
+                  name: '大物实验报告（仅锁定时限）',
+                  due_at: null,
+                  lock_at: '2026-12-01T15:59:00Z',
+                  submission: null
+                },
+                {
+                  id: 2002,
+                  name: '大物平时作业（标准 DDL）',
+                  due_at: '2026-11-15T15:59:00Z',
+                  lock_at: '2026-11-16T15:59:00Z',
+                  submission: null
+                }
+              ]
+            }
+          }
+          return { ok: false, status: 404 }
+        })
+      } as any
+
+      const res = await fetchCanvasUpcomingDeadlines(mockSes)
+      expect(res).toHaveLength(2)
+      const lockInherited = res.find(r => r.id === 'canvas-ddl-2001')!
+      expect(lockInherited.isLockAtDeadline).toBe(true)
+      expect(lockInherited.startTime).toContain('2026-12-01')
+
+      const standardDdl = res.find(r => r.id === 'canvas-ddl-2002')!
+      expect(standardDdl.isLockAtDeadline).toBe(false)
+      expect(standardDdl.startTime).toContain('2026-11-15')
+    })
+
+    it('accurately identifies student submission statuses and fixes the has_submitted_submissions bug', async () => {
+      const pastDdl = new Date(Date.now() - 3600 * 1000).toISOString()
+      const futureDdl = new Date(Date.now() + 3600 * 1000).toISOString()
+
+      const mockSes = {
+        fetch: vi.fn().mockImplementation(async (url: string) => {
+          if (url.includes('/users/self/favorites/courses')) {
+            return {
+              ok: true,
+              json: async () => [{ id: 101, name: '软件工程', course_code: 'SE101' }]
+            }
+          }
+          if (url.includes('/courses?enrollment_state=active')) {
+            return { ok: true, json: async () => [] }
+          }
+          if (url.includes('/courses/101/assignments')) {
+            return {
+              ok: true,
+              json: async () => [
+                {
+                  id: 3001,
+                  name: '全班有人交但当前学生未交已逾期 (Bug Fix 验证)',
+                  due_at: pastDdl,
+                  has_submitted_submissions: true, // 全班有人提交
+                  submission: null // 当前学生未交！
+                },
+                {
+                  id: 3002,
+                  name: '已评分作业',
+                  due_at: pastDdl,
+                  submission: { workflow_state: 'graded', score: 95 }
+                },
+                {
+                  id: 3003,
+                  name: '已提交待批改作业',
+                  due_at: futureDdl,
+                  submission: { workflow_state: 'submitted' }
+                },
+                {
+                  id: 3004,
+                  name: '通过 attempt 判定的已提交作业',
+                  due_at: futureDdl,
+                  submission: { attempt: 1 }
+                },
+                {
+                  id: 3005,
+                  name: '通过 submitted_at 判定的已提交作业',
+                  due_at: futureDdl,
+                  submission: { submitted_at: '2026-10-18T10:00:00Z' }
+                },
+                {
+                  id: 3006,
+                  name: 'Canvas 明确标记 missing 的作业',
+                  due_at: futureDdl,
+                  submission: { missing: true }
+                },
+                {
+                  id: 3007,
+                  name: '未逾期未提交作业',
+                  due_at: futureDdl,
+                  submission: null
+                }
+              ]
+            }
+          }
+          return { ok: false, status: 404 }
+        })
+      } as any
+
+      const res = await fetchCanvasUpcomingDeadlines(mockSes)
+      expect(res).toHaveLength(7)
+
+      const bugFixItem = res.find(r => r.id === 'canvas-ddl-3001')!
+      expect(bugFixItem.submissionStatus).toBe('missing') // 关键：不得被误判为 submitted！
+
+      const gradedItem = res.find(r => r.id === 'canvas-ddl-3002')!
+      expect(gradedItem.submissionStatus).toBe('graded')
+      expect(gradedItem.score).toBe(95)
+
+      const submittedItem = res.find(r => r.id === 'canvas-ddl-3003')!
+      expect(submittedItem.submissionStatus).toBe('submitted')
+
+      const attemptItem = res.find(r => r.id === 'canvas-ddl-3004')!
+      expect(attemptItem.submissionStatus).toBe('submitted')
+
+      const timestampItem = res.find(r => r.id === 'canvas-ddl-3005')!
+      expect(timestampItem.submissionStatus).toBe('submitted')
+
+      const missingItem = res.find(r => r.id === 'canvas-ddl-3006')!
+      expect(missingItem.submissionStatus).toBe('missing')
+
+      const unsubmittedItem = res.find(r => r.id === 'canvas-ddl-3007')!
+      expect(unsubmittedItem.submissionStatus).toBe('unsubmitted')
+    })
+
+    it('supports lock_at and submission status in fallback upcoming events', async () => {
+      const pastLock = new Date(Date.now() - 3600 * 1000).toISOString()
+      const mockSes = {
+        fetch: vi.fn().mockImplementation(async (url: string) => {
+          if (url.includes('/users/self/favorites/courses') || url.includes('/courses?enrollment_state=active')) {
+            return { ok: true, json: async () => [] } // courses empty -> triggers fallback
+          }
+          if (url.includes('/users/self/upcoming_events')) {
+            return {
+              ok: true,
+              json: async () => [
+                {
+                  id: 4001,
+                  title: 'Fallback 锁定作业',
+                  lock_at: pastLock,
+                  submission: { workflow_state: 'graded', score: 100 }
+                }
+              ]
+            }
+          }
+          return { ok: false, status: 404 }
+        })
+      } as any
+
+      const res = await fetchCanvasUpcomingDeadlines(mockSes)
+      expect(res).toHaveLength(1)
+      expect(res[0].id).toBe('canvas-ddl-4001')
+      expect(res[0].isLockAtDeadline).toBe(true)
+      expect(res[0].submissionStatus).toBe('graded')
+      expect(res[0].score).toBe(100)
+    })
+
     it('returns empty array when network fails or returns non-200', async () => {
       const mockSes = {
         fetch: vi.fn().mockResolvedValue({

@@ -11,10 +11,12 @@ import {
   MacOSCircleCheckbox,
   NetdiskViewModeSwitch
 } from './DownloadUI'
-import { buildAncestorPathChain, canAutoPenetrateSingleSubdir, formatDate } from '@shared/utils'
+import { buildAncestorPathChain, canAutoPenetrateSingleSubdir, formatDate, formatCloudBreadcrumb, CLOUD_DEST_PRESETS, normalizeCloudPath } from '@shared/utils'
 import { resolveWindowAction } from './WindowConfirmModal'
 import { classifyCnmoocItem, isCnmoocQuizOrExercise } from '../pages/CnmoocBrowser'
 import { getTermTriState, toggleTermCourses, toggleTermCategory } from './NetdiskCourseExplorer'
+import { SetupWizardModal } from './SetupWizardModal'
+import { Settings } from '../pages/Settings'
 
 describe('window exit preferences and resolution', () => {
   it('has correct default window exit preferences', () => {
@@ -399,14 +401,14 @@ describe('Canvas category badges and PPT PDF lecture items', () => {
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({
       id: pptPdfTaskId(99999, 1),
-      name: '高等数学 - 第1讲 PPT课件 (PDF)',
+      name: '高等数学 - 第1讲 PPT课件',
       date: '2026-03-01',
       type: 'PDF',
       selected: true
     })
     expect(items[1]).toMatchObject({
       id: pptPdfTaskId(99999, 2),
-      name: '高等数学 - 第2讲 PPT课件 (PDF)',
+      name: '高等数学 - 第2讲 PPT课件',
       date: '2026-03-08',
       type: 'PDF',
       selected: true
@@ -713,13 +715,37 @@ describe('CloudPan Miller Columns Multi-Level Hydration & Auto-Penetration Suite
 })
 
 describe('macOS Finder Alignment & Vector Icon Suite', () => {
-  it('MacOSFolderIcon renders valid SVG structure with customizable dimensions', () => {
+  it('MacOSFolderIcon renders robust pure-vector layered SVG structure without fragile gradients', () => {
+    // 默认参数与自定义尺寸测试
+    const defaultIcon = MacOSFolderIcon({})
+    expect(defaultIcon.type).toBe('svg')
+    expect(defaultIcon.props.width).toBe(64)
+    expect(defaultIcon.props.height).toBe(64)
+    expect(defaultIcon.props.viewBox).toBe('0 0 100 80')
+
     const vnode = MacOSFolderIcon({ size: 80, className: 'custom-class' })
     expect(vnode.type).toBe('svg')
     expect(vnode.props.width).toBe(80)
     expect(vnode.props.height).toBe(80)
     expect(vnode.props.className).toContain('custom-class')
     expect(vnode.props.viewBox).toBe('0 0 100 80')
+
+    const json = JSON.stringify(vnode)
+    // 关键铁律：彻底移除导致全局冲突与透明失效的脆弱 defs 和 linearGradient
+    expect(json).not.toContain('defs')
+    expect(json).not.toContain('linearGradient')
+    expect(json).not.toContain('url(#')
+
+    // 纯矢量分层与实体色彩填充断言：背板(#2563EB)、内衬与投影(#1D4ED8)、纸张(#DBEAFE)、前盖天蓝(#3B82F6)、高光(#93C5FD)
+    expect(json).toContain('#2563EB')
+    expect(json).toContain('#1D4ED8')
+    expect(json).toContain('#DBEAFE')
+    expect(json).toContain('#3B82F6')
+    expect(json).toContain('#93C5FD')
+
+    // 纯矢量层级包含 6 个图层元素 (path, rect, rect, path, path, path)
+    const children = vnode.props.children.filter(Boolean)
+    expect(children.length).toBe(6)
   })
 
   it('MacOSDocumentIcon correctly categorizes file types and ribbons', () => {
@@ -918,6 +944,347 @@ describe('Video Stream Multi-Perspective Fast Selection Invariants', () => {
     }
   })
 })
+
+describe('Cloud Destination Root and Decoupled Export Options Store State', () => {
+  it('has correct default values for cloudDestRoot, export flags and assignment options', () => {
+    const state = useAppStore.getState()
+    expect(state.cloudDestRoot).toBe('/SJTU课程备份')
+    expect(state.canvasExportSrt).toBe(true)
+    expect(state.canvasExportMarkdown).toBe(true)
+    expect(state.canvasExportAiTranscript).toBe(true)
+    expect(state.canvasAssignmentOptions).toEqual({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+  })
+
+  it('updates cloudDestRoot via setCloudDestRoot', () => {
+    const store = useAppStore.getState()
+    store.setCloudDestRoot('/我的备份目录')
+    expect(useAppStore.getState().cloudDestRoot).toBe('/我的备份目录')
+
+    // Restore default
+    store.setCloudDestRoot('/SJTU课程备份')
+    expect(useAppStore.getState().cloudDestRoot).toBe('/SJTU课程备份')
+  })
+
+  it('updates canvasExportSrt and canvasExportMarkdown with bidirectional sync to canvasExportAiTranscript', () => {
+    const store = useAppStore.getState()
+
+    // Turn off SRT: markdown is still true => canvasExportAiTranscript remains true
+    store.setCanvasExportSrt(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Turn off Markdown as well => canvasExportAiTranscript becomes false
+    store.setCanvasExportMarkdown(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(false)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(false)
+
+    // Turn on SRT => canvasExportAiTranscript becomes true
+    store.setCanvasExportSrt(true)
+    expect(useAppStore.getState().canvasExportSrt).toBe(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Backward-compatible setter setCanvasExportAiTranscript(false) turns off all three
+    store.setCanvasExportAiTranscript(false)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(false)
+
+    // Backward-compatible setter setCanvasExportAiTranscript(true) turns on all three
+    store.setCanvasExportAiTranscript(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+    expect(useAppStore.getState().canvasExportSrt).toBe(true)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(true)
+  })
+
+  it('updates canvasAssignmentOptions via partial updates and updater function', () => {
+    const store = useAppStore.getState()
+
+    // Partial object update
+    store.setCanvasAssignmentOptions({ exportMarkdown: false })
+    expect(useAppStore.getState().canvasAssignmentOptions).toEqual({
+      exportMarkdown: false,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+
+    // Functional updater
+    store.setCanvasAssignmentOptions(prev => ({ ...prev, downloadSubmissions: false }))
+    expect(useAppStore.getState().canvasAssignmentOptions).toEqual({
+      exportMarkdown: false,
+      downloadAttachments: true,
+      downloadSubmissions: false
+    })
+
+    // Restore defaults
+    store.setCanvasAssignmentOptions({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+    expect(useAppStore.getState().canvasAssignmentOptions).toEqual({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+  })
+
+  it('persists cloudDestRoot, canvasExportSrt, canvasExportMarkdown, canvasAssignmentOptions in partialize', () => {
+    const store = useAppStore.getState()
+    store.setCloudDestRoot('/自定义云端目录')
+    store.setCanvasExportSrt(false)
+    store.setCanvasExportMarkdown(true)
+    store.setCanvasAssignmentOptions({ downloadAttachments: false })
+
+    const persistOptions = (useAppStore as any).persist?.getOptions?.()
+    expect(persistOptions).toBeDefined()
+    const partialized = persistOptions.partialize(useAppStore.getState())
+
+    expect(partialized.cloudDestRoot).toBe('/自定义云端目录')
+    expect(partialized.canvasExportSrt).toBe(false)
+    expect(partialized.canvasExportMarkdown).toBe(true)
+    expect(partialized.canvasAssignmentOptions).toEqual({
+      exportMarkdown: true,
+      downloadAttachments: false,
+      downloadSubmissions: true
+    })
+
+    // Test backward compatible merge when restoring older persisted state
+    const mergeFn = persistOptions.merge
+    if (mergeFn) {
+      const mergedOldState = mergeFn(
+        {
+          canvasExportAiTranscript: false,
+          // canvasExportSrt & canvasExportMarkdown are missing in legacy persisted state
+        },
+        useAppStore.getState()
+      )
+      expect(mergedOldState.canvasExportSrt).toBe(false)
+      expect(mergedOldState.canvasExportMarkdown).toBe(false)
+      expect(mergedOldState.canvasExportAiTranscript).toBe(false)
+    }
+
+    // Reset store to defaults
+    store.setCloudDestRoot('/SJTU课程备份')
+    store.setCanvasExportAiTranscript(true)
+    store.setCanvasAssignmentOptions({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+  })
+})
+
+describe('SetupWizardModal and Cloud Destination / Export Decoupling', () => {
+  it('provides CLOUD_DEST_PRESETS with 3 standardized options', () => {
+    expect(CLOUD_DEST_PRESETS).toHaveLength(3)
+    expect(CLOUD_DEST_PRESETS[0]).toEqual({ label: '/SJTU课程备份 (默认)', value: '/SJTU课程备份' })
+    expect(CLOUD_DEST_PRESETS[1]).toEqual({ label: '云盘根目录 (/)', value: '/' })
+    expect(CLOUD_DEST_PRESETS[2]).toEqual({ label: '/我的课程', value: '/我的课程' })
+  })
+
+  it('formats cloud breadcrumbs accurately across root, presets and custom paths', () => {
+    // Default preset
+    expect(formatCloudBreadcrumb('/SJTU课程备份')).toBe(
+      '交大云盘 > SJTU课程备份 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Cloud pan root '/'
+    expect(formatCloudBreadcrumb('/')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Empty or whitespace
+    expect(formatCloudBreadcrumb('')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    expect(formatCloudBreadcrumb('   ')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Custom subpath without leading/trailing slash trimming issues
+    expect(formatCloudBreadcrumb('/我的课程/')).toBe(
+      '交大云盘 > 我的课程 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    expect(formatCloudBreadcrumb('深度学习专题')).toBe(
+      '交大云盘 > 深度学习专题 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Multi-slash edge cases like // or ///
+    expect(formatCloudBreadcrumb('//')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    expect(formatCloudBreadcrumb('///')).toBe(
+      '交大云盘 > 2026-2027学年第1学期 > 软件工程 > ...'
+    )
+    // Custom term and course arguments
+    expect(formatCloudBreadcrumb('/SJTU课程备份', '2025-2026-2', '计算机系统结构')).toBe(
+      '交大云盘 > SJTU课程备份 > 2025-2026-2 > 计算机系统结构 > ...'
+    )
+  })
+
+  it('supports decoupled toggles for srt and markdown in SetupWizardModal state', () => {
+    const store = useAppStore.getState()
+    // Initial: both true
+    store.setCanvasExportSrt(true)
+    store.setCanvasExportMarkdown(true)
+    expect(useAppStore.getState().canvasExportSrt).toBe(true)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Turn off srt only: markdown remains true
+    store.setCanvasExportSrt(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(true)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Turn off markdown as well: both false
+    store.setCanvasExportMarkdown(false)
+    expect(useAppStore.getState().canvasExportSrt).toBe(false)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(false)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(false)
+
+    // Turn on srt only: srt true, markdown false
+    store.setCanvasExportSrt(true)
+    expect(useAppStore.getState().canvasExportSrt).toBe(true)
+    expect(useAppStore.getState().canvasExportMarkdown).toBe(false)
+    expect(useAppStore.getState().canvasExportAiTranscript).toBe(true)
+
+    // Restore defaults
+    store.setCanvasExportMarkdown(true)
+  })
+
+  it('exports SetupWizardModal component and verifies initial setup store flags', () => {
+    expect(typeof SetupWizardModal).toBe('function')
+    const store = useAppStore.getState()
+    store.setShowSetupWizardModal(false)
+    expect(useAppStore.getState().showSetupWizardModal).toBe(false)
+
+    store.setShowSetupWizardModal(true)
+    expect(useAppStore.getState().showSetupWizardModal).toBe(true)
+
+    // Clean up
+    store.setShowSetupWizardModal(false)
+  })
+})
+
+describe('Settings Page: Cloud Destination and Decoupled Options', () => {
+  it('exports Settings component correctly', () => {
+    expect(typeof Settings).toBe('function')
+  })
+
+  it('normalizes cloud destination path with normalizeCloudPath', () => {
+    // Empty, whitespace, nullish cases
+    expect(normalizeCloudPath('')).toBe('/')
+    expect(normalizeCloudPath('   ')).toBe('/')
+    expect(normalizeCloudPath(null as any)).toBe('/')
+    expect(normalizeCloudPath(undefined as any)).toBe('/')
+
+    // Root cases
+    expect(normalizeCloudPath('/')).toBe('/')
+    expect(normalizeCloudPath('///')).toBe('/')
+
+    // Standard presets
+    expect(normalizeCloudPath('/SJTU课程备份')).toBe('/SJTU课程备份')
+    expect(normalizeCloudPath('/SJTU课程备份/')).toBe('/SJTU课程备份')
+    expect(normalizeCloudPath('SJTU课程备份')).toBe('/SJTU课程备份')
+    expect(normalizeCloudPath('/我的课程')).toBe('/我的课程')
+
+    // Windows backslashes and extra spaces
+    expect(normalizeCloudPath('  \\我的课程\\大作业\\  ')).toBe('/我的课程/大作业')
+    expect(normalizeCloudPath('C:\\SJTU\\Course')).toBe('/C/SJTU/Course')
+
+    // Forbidden characters stripping (<>:"|?* and controls)
+    expect(normalizeCloudPath('/课程?name*1/sub:dir')).toBe('/课程name1/subdir')
+    expect(normalizeCloudPath('///folder////subfolder///')).toBe('/folder/subfolder')
+  })
+
+  it('binds and updates cloudDestRoot with presets and custom paths', () => {
+    const store = useAppStore.getState()
+    // Default preset
+    expect(store.cloudDestRoot).toBe('/SJTU课程备份')
+
+    // Switch to root preset
+    store.setCloudDestRoot(CLOUD_DEST_PRESETS[1].value)
+    expect(useAppStore.getState().cloudDestRoot).toBe('/')
+
+    // Switch to my courses preset
+    store.setCloudDestRoot(CLOUD_DEST_PRESETS[2].value)
+    expect(useAppStore.getState().cloudDestRoot).toBe('/我的课程')
+
+    // Custom normalized path
+    const rawInput = '  /交大/专业课/2026/  '
+    store.setCloudDestRoot(normalizeCloudPath(rawInput))
+    expect(useAppStore.getState().cloudDestRoot).toBe('/交大/专业课/2026')
+
+    // Restore default
+    store.setCloudDestRoot('/SJTU课程备份')
+    expect(useAppStore.getState().cloudDestRoot).toBe('/SJTU课程备份')
+  })
+
+  it('manages canvasAssignmentOptions with partial updates and detects all-empty state', () => {
+    const store = useAppStore.getState()
+    // Reset to all enabled
+    store.setCanvasAssignmentOptions({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+    let opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(true)
+    expect(opts.downloadAttachments).toBe(true)
+    expect(opts.downloadSubmissions).toBe(true)
+
+    // Helper checking whether all options are unselected (defensive warning condition)
+    const isAllUnchecked = (o: typeof opts) =>
+      !o.exportMarkdown && !o.downloadAttachments && !o.downloadSubmissions
+
+    expect(isAllUnchecked(opts)).toBe(false)
+
+    // Disable markdown description only
+    store.setCanvasAssignmentOptions({ exportMarkdown: false })
+    opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(false)
+    expect(opts.downloadAttachments).toBe(true)
+    expect(opts.downloadSubmissions).toBe(true)
+    expect(isAllUnchecked(opts)).toBe(false)
+
+    // Disable attachments only
+    store.setCanvasAssignmentOptions({ downloadAttachments: false })
+    opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(false)
+    expect(opts.downloadAttachments).toBe(false)
+    expect(opts.downloadSubmissions).toBe(true)
+    expect(isAllUnchecked(opts)).toBe(false)
+
+    // Disable submissions - now all 3 are disabled
+    store.setCanvasAssignmentOptions({ downloadSubmissions: false })
+    opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(false)
+    expect(opts.downloadAttachments).toBe(false)
+    expect(opts.downloadSubmissions).toBe(false)
+    // Triggers defensive condition: "未勾选任何内容时将仅创建作业文件夹结构"
+    expect(isAllUnchecked(opts)).toBe(true)
+
+    // Re-enable via functional updater
+    store.setCanvasAssignmentOptions(prev => ({ ...prev, exportMarkdown: true }))
+    opts = useAppStore.getState().canvasAssignmentOptions
+    expect(opts.exportMarkdown).toBe(true)
+    expect(opts.downloadAttachments).toBe(false)
+    expect(opts.downloadSubmissions).toBe(false)
+    expect(isAllUnchecked(opts)).toBe(false)
+
+    // Restore all defaults
+    store.setCanvasAssignmentOptions({
+      exportMarkdown: true,
+      downloadAttachments: true,
+      downloadSubmissions: true
+    })
+  })
+})
+
+
 
 
 

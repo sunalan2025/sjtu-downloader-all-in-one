@@ -11,14 +11,15 @@
  * 4. 支持 Local、CloudPan 直传及 Both 模式。
  */
 import type Electron from 'electron'
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import * as cheerio from 'cheerio'
 import type {
   CanvasAssignmentItem,
   CanvasAssignmentFile,
-  CanvasAssignmentComment
+  CanvasAssignmentComment,
+  CanvasAssignmentExportOptions
 } from '../../shared/types'
 import { CANVAS_BASE_URL } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
@@ -62,9 +63,19 @@ export function convertHtmlToMarkdown(html?: string): string {
     // 清理连续多余空行
     return text.replace(/\n{3,}/g, '\n\n').trim()
   } catch {
-    // 降级兜底：简单正则剥离 HTML 标签
-    return html.replace(/<[^>]+>/g, '').trim() || '*(无题目要求描述)*'
+    return sanitizeHtmlFallback(html)
   }
+}
+
+/** 降级兜底：循环迭代剥离 HTML 标签直至稳定（防御多字符嵌套绕过 CWE-20, CWE-116） */
+export function sanitizeHtmlFallback(html: string): string {
+  let sanitized = html
+  let prev: string
+  do {
+    prev = sanitized
+    sanitized = sanitized.replace(/<[^>]+>/g, '')
+  } while (sanitized !== prev)
+  return sanitized.trim() || '*(无题目要求描述)*'
 }
 
 /** 编译成标准《作业说明与评语.md》Markdown 文档内容 */
@@ -250,6 +261,7 @@ export interface AssignmentDownloadOpts {
   term?: string
   conflictStrategy?: 'skip' | 'overwrite'
   cloudUserToken?: string
+  options?: CanvasAssignmentExportOptions
 }
 
 /** 单个作业全量归档下载 */
@@ -259,22 +271,28 @@ export async function downloadAssignmentArchive(
   onProgress?: (phase: string) => void
 ): Promise<{ ok: boolean; path?: string; skipped?: boolean; error?: string }> {
   try {
-    const { courseName, assignment, destRoot, term, conflictStrategy = 'skip' } = opts
-    const base = destRoot || tmpdir()
+    const { courseName, assignment, destRoot, term, conflictStrategy = 'skip', options } = opts
+    const base = destRoot || mkdtempSync(join(tmpdir(), 'sjtu-canvas-assign-'))
     const cPath = canvasCoursePath(courseName, term)
     const assignDirName = sanitizeFsName(assignment.name)
     const outDir = join(base, 'Canvas课程', cPath, 'assignments', assignDirName)
 
+    const exportMd = options?.exportMarkdown ?? true
+    const dlAtt = options?.downloadAttachments ?? true
+    const dlSub = options?.downloadSubmissions ?? true
+
     mkdirSync(outDir, { recursive: true })
-    onProgress?.(`生成说明文档: ${assignment.name}`)
 
     // 1. 编译并保存《作业说明与评语.md》
-    const mdPath = join(outDir, '作业说明与评语.md')
-    const mdContent = compileAssignmentMarkdown(assignment)
-    writeFileSync(mdPath, mdContent, 'utf-8')
+    if (exportMd) {
+      onProgress?.(`生成说明文档: ${assignment.name}`)
+      const mdPath = join(outDir, '作业说明与评语.md')
+      const mdContent = compileAssignmentMarkdown(assignment)
+      writeFileSync(mdPath, mdContent, 'utf-8')
+    }
 
     // 2. 下载题目附件
-    if (assignment.teacherAttachments.length > 0) {
+    if (dlAtt && assignment.teacherAttachments.length > 0) {
       const attDir = join(outDir, 'attachments')
       mkdirSync(attDir, { recursive: true })
       for (let i = 0; i < assignment.teacherAttachments.length; i++) {
@@ -288,7 +306,7 @@ export async function downloadAssignmentArchive(
     }
 
     // 3. 下载学生本人提交原件
-    if (assignment.submissionFiles.length > 0) {
+    if (dlSub && assignment.submissionFiles.length > 0) {
       const subDir = join(outDir, 'submissions')
       mkdirSync(subDir, { recursive: true })
       for (let i = 0; i < assignment.submissionFiles.length; i++) {

@@ -27,7 +27,7 @@ function extractCanvasFileIds(html: string): number[] {
 function groupCoursesByTerm(courses: any[]): Record<string, any[]> {
   const grouped: Record<string, any[]> = {}
   for (const c of courses) {
-    const term = c.term?.name || '(无学期)'
+    const term = c.term?.name || '未标注学期'
     if (!grouped[term]) grouped[term] = []
     grouped[term].push(c)
   }
@@ -175,10 +175,10 @@ describe('Canvas LMS & Download Integrity E2E Suite (R2-F1, R2-F2, R2-F3, R2-F4)
         expect(sorted[2]).toBe('2023-2024-1')
       })
 
-      it('assigns (无学期) fallback when course has no term metadata', () => {
+      it('assigns 未标注学期 fallback when course has no term metadata', () => {
         const courseWithoutTerm = [{ id: 999, name: '独立研讨课', term: null }]
         const grouped = groupCoursesByTerm(courseWithoutTerm)
-        expect(grouped['(无学期)']).toBeDefined()
+        expect(grouped['未标注学期']).toBeDefined()
       })
     })
 

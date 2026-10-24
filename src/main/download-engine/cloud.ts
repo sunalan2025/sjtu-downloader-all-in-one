@@ -4,10 +4,8 @@
 // 本模块通过 import 直接操作同一引用。与 local 调度器通过 concurrency 的 reschedule 回调联动。
 // COS 分片 4MB，边下边传内存恒定；断点续传用 UploadSessionState 保存已传分片。
 
-import { request as httpsRequest } from 'node:https'
 import type { ClientRequest, IncomingMessage } from 'node:http'
-import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState, type DownloadTaskSpec } from '../../shared/types'
-import { interceptDownloadRedirect } from './domain-guard'
+import { type DownloadState, type DownloadTaskSpec } from '../../shared/types'
 import {
   type CloudTaskRuntime,
   cloudTasks,
@@ -20,12 +18,6 @@ import {
   cloudFullRetries,
   CLOUD_MAX_FULL_RETRIES,
   conflictStrategyByTask,
-  canvasCookiesByTask,
-  cnmoocCookiesByTask,
-  CANVAS_HOST,
-  CANVAS_RL_MAX_RETRIES,
-  canvasRlBackoffMs,
-  isCnmoocCookieHost,
   CLOUD_ROOT_FOLDER,
   CLOUD_CANVAS_ROOT_FOLDER,
   CLOUD_CNMOOC_ROOT_FOLDER,
@@ -39,6 +31,7 @@ import {
   effectiveCourseName,
   sharedActiveCount
 } from './shared'
+import { cdnFetchOnce, type CdnFetchContext, type CdnFetchCallbacks } from './cdn-fetch'
 import {
   noteNetworkRecovery,
   noteNetworkError,
@@ -53,7 +46,7 @@ import { getIsQuitting } from '../window'
 import { emitProgress } from './progress'
 import { notifyConcurrencySlotAvailable } from '../canvas/orchestrator'
 import { sanitizeForLog } from '../canvas/safe-fetch'
-import { sanitizeFsName } from '../../shared/utils'
+import { sanitizeFsName, buildCloudRemoteSegments } from '../../shared/utils'
 import { ChunkedUploader, FileExistsError, deleteCloudFile, ensureFolderPath, startChunkedUpload, resumeChunkedUpload } from '../cloudpan'
 
 const CHUNK_SIZE = 4 * 1024 * 1024 // 4 MB per COS part
@@ -92,7 +85,7 @@ export function cloudScheduleNext(): void {
       console.error('[cloudRunTask] unhandled rejection:', sanitizeForLog(err instanceof Error ? err.message : err))
       t.state = 'error'
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: t.received, total: t.total, message: '内部错误' })
-      scheduleCleanupTask(t.spec.taskId, true)
+      destroyCloudHandles(t, 'internal error')
     }).finally(() => {
       cloudActive.delete(spec.taskId)
       t.req = undefined
@@ -104,23 +97,17 @@ export function cloudScheduleNext(): void {
   }
 }
 
-/** 根据任务 spec 计算云盘远端路径 */
-export function cloudRemotePath(spec: DownloadTaskSpec): string {
-  const root = isCnmoocSpec(spec) ? CLOUD_CNMOOC_ROOT_FOLDER
-    : isCanvasSpec(spec) ? CLOUD_CANVAS_ROOT_FOLDER
-    : CLOUD_ROOT_FOLDER
-  // 逐段 sanitize，保留目录层级（Canvas courseName 的 "Canvas课程/" 前缀由 effectiveCourseName 剥掉）
-  return [root, ...effectiveCourseName(spec).split('/'), spec.fileName]
-    .map(sanitizeFsName)
-    .join('/')
-}
-
 /** 计算 ensureFolderPath 的参数列表（逐级创建文件夹） */
 export function cloudFolderSegments(spec: DownloadTaskSpec): string[] {
-  const root = isCnmoocSpec(spec) ? CLOUD_CNMOOC_ROOT_FOLDER
+  const defaultRoot = isCnmoocSpec(spec) ? CLOUD_CNMOOC_ROOT_FOLDER
     : isCanvasSpec(spec) ? CLOUD_CANVAS_ROOT_FOLDER
     : CLOUD_ROOT_FOLDER
-  return [root, ...effectiveCourseName(spec).split('/').map(sanitizeFsName)]
+  return buildCloudRemoteSegments(spec.cloudDestRoot, effectiveCourseName(spec).split('/'), defaultRoot)
+}
+
+/** 根据任务 spec 计算云盘远端路径 */
+export function cloudRemotePath(spec: DownloadTaskSpec): string {
+  return [...cloudFolderSegments(spec), sanitizeFsName(spec.fileName)].join('/')
 }
 
 async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
@@ -171,7 +158,7 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
   })
 
   try {
-    await cloudDownloadAndUpload(t, resumeFromByte)
+    await cloudDownloadAndUpload(t)
     if ((t.state as DownloadState) === 'cancelled') return
     t.state = 'done'
     t.uploaderState = undefined
@@ -246,14 +233,12 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
         ? `重试 ${CLOUD_MAX_FULL_RETRIES} 次仍失败：${msg.slice(0, 180)}`
         : msg.slice(0, 240)
     })
-    scheduleCleanupTask(t.spec.taskId, true)
   }
 }
 
 /** 从 CDN 流式下载视频，每积满 4MB 就上传一个 COS 分片。
- *  resumeFromByte > 0 时发送 Range header 断点续传。
  *  uploader 是外层闭包变量，CDN 200 回退时可就地替换，避免旧 handler 引用过期 session。 */
-function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): Promise<void> {
+function cloudDownloadAndUpload(t: CloudTaskRuntime): Promise<void> {
   const userToken = t.spec.cloudUserToken
   if (!userToken) return Promise.reject(new Error('cloudUserToken is required'))
 
@@ -284,8 +269,8 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
     let activeResp: IncomingMessage | undefined
     let retryCount = 0
     const MAX_RETRIES = 3
-    // Canvas 下载端点限流重试计数（429/403，仅 oc.sjtu.edu.cn 这一跳）
-    let rlRetries = 0
+    // Canvas 下载端点限流重试计数（429/403，仅 oc.sjtu.edu.cn 这一跳；跨 fetchOnce 共享）
+    const rlRetries = { count: 0 }
 
     const doFetch = (): void => {
       // 按块收集，仅在拼满 CHUNK_SIZE 时才 Buffer.concat，避免 O(n²) 逐块复制
@@ -343,222 +328,153 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
         // 否则：数据不足一片且未结束，等待更多 data 到达
       }
 
-      const fetchOnce = (url: string, depth: number): void => {
-        if (depth > 5) { fail(new Error(`重定向过多：${depth}`)); return }
-        let u: URL
-        try { u = new URL(url) } catch { fail(new Error(`URL 解析失败：${url.slice(0, 120)}`)); return }
-
-        const cdnOffset = uploader.bytesReceived
-        const headers: Record<string, string> = {
-          Accept: '*/*',
-          Referer: `${V_SJTU_ORIGIN}/jy-application-resmgr-ui/`,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
-        }
-        if (cdnOffset > 0) headers.Range = `bytes=${cdnOffset}-`
-        // Canvas 文件：仅在 oc.sjtu.edu.cn 这一跳注入会话 cookie + oc.sjtu Referer，
-        // 让 node:https 从 /files/{id}/download 跟随 302 到 s3 预签名直链后流式上传到云盘。
-        // 跟随到 s3.jcloud 时不带 cookie（签名直链自包含，避免泄漏 Canvas cookie 给第三方域）。
-        const canvasCookie = canvasCookiesByTask.get(t.spec.taskId)
-        if (canvasCookie && u.hostname === CANVAS_HOST) {
-          headers.Cookie = canvasCookie
-          headers.Referer = `${CANVAS_BASE_URL}/`
-        }
-        // 好大学在线：仅对 cnmooc.sjtu.cn 及其子域注入会话 cookie（与 Canvas 互斥）。
-        const cnmoocCookie = cnmoocCookiesByTask.get(t.spec.taskId)
-        if (cnmoocCookie && isCnmoocCookieHost(u.hostname)) {
-          headers.Cookie = cnmoocCookie
-          headers.Referer = `${CNMOOC_BASE_URL}/`
-        }
-
-        const req = httpsRequest(
-          {
-            method: 'GET',
-            host: u.hostname,
-            port: u.port || 443,
-            path: `${u.pathname}${u.search}`,
-            headers
-          },
-          (resp: IncomingMessage) => {
-            activeResp = resp
-            t.resp = resp
-            const status = resp.statusCode || 0
-
-            if (status >= 300 && status < 400 && resp.headers.location) {
-              resp.resume()
-              const intercept = interceptDownloadRedirect(resp.headers.location, url)
-              if (intercept.action === 'abort') {
-                fail(new Error(intercept.reason || '重定向被拦截'))
-                return
-              }
-
-              fetchOnce(intercept.nextUrl || resp.headers.location, depth + 1)
-              return
-            }
-
-            if (status < 200 || status >= 300) {
-              const isRateLimited = status === 429 || (status === 403 && u.hostname === CANVAS_HOST)
-              let bodyHead = ''
-              resp.on('data', (c: Buffer) => { if (bodyHead.length < 200) bodyHead += c.toString('utf8', 0, 200) })
-              resp.on('end', () => {
-                if (isRateLimited && rlRetries < CANVAS_RL_MAX_RETRIES && t.state === 'downloading') {
-                  rlRetries++
-                  const raHdr = resp.headers['retry-after']
-                  const raStr = Array.isArray(raHdr) ? raHdr[0] : raHdr
-                  const delay = canvasRlBackoffMs(raStr, rlRetries)
-                  emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: t.received, total: t.total, message: `文件下载被限流(${status})，${Math.round(delay / 1000)}s 后重试 (${rlRetries}/${CANVAS_RL_MAX_RETRIES})` })
-                  const rlTimer = setTimeout(() => {
-                    t.retryTimers.delete(rlTimer)
-                    if (t.state === 'downloading') fetchOnce(url, depth)
-                  }, delay)
-                  t.retryTimers.add(rlTimer)
-                  return
-                }
-                console.error(`[cloudpan:cdn] HTTP ${status}`)
-                fail(new Error(`HTTP ${status} ${resp.statusMessage || ''} — ${bodyHead.slice(0, 200)}`.trim()))
-              })
-              // BUG FIX: missing error handler on non-200 response body stream.
-              // Without this, a network error during body collection is an unhandled
-              // 'error' event, crashing the process.
-              resp.on('error', fail)
-              return
-            }
-
-            // CDN 不支持 Range（返回 200 而非 206）：销毁旧请求，重建 uploader，重新开始
+      // [Phase 2] fetchOnce 公共骨架（cookie 注入 / 重定向拦截 / 限流重试 / total
+      // 解析）抽取到 cdn-fetch.ts；此处保留云端特有部分：Range 起点 = uploader
+      // 已收字节、CDN 不支持 Range 的 200 回退重建 uploader、请求级指数退避重试。
+      const ctx: CdnFetchContext = {
+        taskId: t.spec.taskId,
+        get state() { return t.state },
+        retryTimers: t.retryTimers,
+        get received() { return t.received },
+        get total() { return t.total },
+        getRangeFrom: () => uploader.bytesReceived
+      }
+      const cb: CdnFetchCallbacks = {
+        fail,
+        // CDN 不支持 Range（带 Range 但返回 200 而非 206）：销毁旧请求，重建 uploader，重新开始
+        onHeaders: (resp, status) => {
+          if (uploader.bytesReceived > 0 && status === 200) {
+            console.warn('[cloudpan:cdn] CDN 不支持 Range，从头重新上传')
             // [Bug 33 Fix] 先移除旧 resp 上的监听器，防止旧流的 data/end 事件干扰新会话
-            if (cdnOffset > 0 && status === 200) {
-              console.warn('[cloudpan:cdn] CDN 不支持 Range，从头重新上传')
-              resp.removeAllListeners()
-              resp.resume()
-              try { activeReq?.destroy() } catch { /* ignore */ }
-              t.uploaderState = undefined
-              chunks = []; chunksLen = 0
-              uploading = false; ended = false
-              void ensureFolderPath(userToken, ...cloudFolderSegments(t.spec))
-                .then(() => startChunkedUpload(userToken, remotePath))
-                .then(u2 => {
-                  if (settled) return
-                  uploader = u2  // 就地替换，所有 handler 引用同一个变量
-                  t.uploader = u2
-                  retryCount = 0
-                  doFetch()      // 全新 fetch 会话
-                }).catch(fail)
+            resp.removeAllListeners()
+            resp.resume()
+            try { activeReq?.destroy() } catch { /* ignore */ }
+            t.uploaderState = undefined
+            chunks = []; chunksLen = 0
+            uploading = false; ended = false
+            void ensureFolderPath(userToken, ...cloudFolderSegments(t.spec))
+              .then(() => startChunkedUpload(userToken, remotePath))
+              .then(u2 => {
+                if (settled) return
+                uploader = u2  // 就地替换，所有 handler 引用同一个变量
+                t.uploader = u2
+                retryCount = 0
+                doFetch()      // 全新 fetch 会话
+              }).catch(fail)
+            return false
+          }
+          return true
+        },
+        onResponse: (resp, total) => {
+          noteNetworkRecovery()
+          t.total = total
+
+          if (!settled) emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total })
+          let lastEmit = 0
+
+          resp.on('data', (chunk: Buffer) => {
+            if (settled) { try { resp.destroy() } catch { /* ignore */ } ; return }
+            const s = t.state as DownloadState
+            if (s === 'paused' || s === 'cancelled') {
+              try { resp.destroy() } catch { /* ignore */ }
               return
             }
 
-            // 计算 total
-            noteNetworkRecovery()
-            const lenHdr = resp.headers['content-length']
-            const cl = Number(Array.isArray(lenHdr) ? lenHdr[0] : lenHdr) || 0
-            if (status === 206) {
-              const cr = resp.headers['content-range']
-              const crStr = Array.isArray(cr) ? cr[0] : cr
-              const m = crStr ? /\/(\d+)$/.exec(crStr) : null
-              t.total = m ? Number(m[1]) : cdnOffset + cl || 0
-            } else {
-              t.total = cl
+            chunks.push(chunk)
+            chunksLen += chunk.length
+            t.received += chunk.length
+            noteDownloadBytes(chunk.length)  // CDN 下载字节（上传字节在 uploadChunk 完成时计入 noteUploadBytes）
+
+            if (chunksLen >= CHUNK_SIZE * MAX_BUFFER_CHUNKS) {
+              try { resp.pause() } catch { /* ignore */ }
             }
 
-            if (!settled) emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total })
-            let lastEmit = 0
+            tryUploadNext()
 
-            resp.on('data', (chunk: Buffer) => {
-              if (settled) { try { resp.destroy() } catch { /* ignore */ } ; return }
-              const s = t.state as DownloadState
-              if (s === 'paused' || s === 'cancelled') {
-                try { resp.destroy() } catch { /* ignore */ }
-                return
-              }
+            const now = Date.now()
+            if (now - lastEmit > 250) {
+              lastEmit = now
+              emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total })
+            }
+          })
 
-              chunks.push(chunk)
-              chunksLen += chunk.length
-              t.received += chunk.length
-              noteDownloadBytes(chunk.length)  // CDN 下载字节（上传字节在 uploadChunk 完成时计入 noteUploadBytes）
+          resp.on('end', () => {
+            if (resp.destroyed) return
+            ended = true
+            // 上传剩余不足一片的尾段；无残留则直接 confirm
+            tryUploadNext()
+          })
 
-              if (chunksLen >= CHUNK_SIZE * MAX_BUFFER_CHUNKS) {
-                try { resp.pause() } catch { /* ignore */ }
-              }
-
-              tryUploadNext()
-
-              const now = Date.now()
-              if (now - lastEmit > 2000) {
-                lastEmit = now
-                emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total })
-              }
-            })
-
-            resp.on('end', () => {
-              if (resp.destroyed) return
-              ended = true
-              // 上传剩余不足一片的尾段；无残留则直接 confirm
-              tryUploadNext()
-            })
-
-            resp.on('error', (err: Error) => {
-              if (retryCount < MAX_RETRIES && t.state === 'downloading') {
-                retryCount++
-                noteNetworkError()
-                const delay = Math.pow(2, retryCount) * 1000
-                const label = isDnsError(err) ? 'DNS 解析失败' : '网络错误'
-                console.warn(`[cloudpan:cdn] ${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES}): ${err.message}`)
-                emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total, message: `${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})` })
-                const retryTimer = setTimeout(() => {
-                  t.retryTimers.delete(retryTimer)
-                  if (t.state !== 'downloading') return
-                  doFetch()
-                }, delay)
-                t.retryTimers.add(retryTimer)
-              } else {
-                fail(err)
-              }
-            })
-          }
-        )
-        activeReq = req
-        t.req = req
-        req.setTimeout(60_000, () => {
-          if (retryCount < MAX_RETRIES && t.state === 'downloading') {
-            timedOut = true
-            retryCount++
-            noteNetworkError()
-            const delay = Math.pow(2, retryCount) * 1000
-            console.warn(`[cloudpan:cdn] 请求超时，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})`)
-            emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total, message: `请求超时，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})` })
-            try { req.destroy() } catch { /* ignore */ }
-            const retryTimer = setTimeout(() => {
-              t.retryTimers.delete(retryTimer)
-              if (settled || t.state !== 'downloading') return
-              doFetch()
-            }, delay)
-            t.retryTimers.add(retryTimer)
-          } else {
-            req.destroy(new Error('请求超时（60s）'))
-          }
-        })
-        req.on('error', (err: Error) => {
-          // timeout handler 已处理重试，跳过
-          if (timedOut) return
-          if (!settled && retryCount < MAX_RETRIES && t.state === 'downloading') {
-            retryCount++
-            noteNetworkError()
-            const delay = Math.pow(2, retryCount) * 1000
-            const label = isDnsError(err) ? 'DNS 解析失败' : '连接错误'
-            console.warn(`[cloudpan:cdn] ${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})`)
-            emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total, message: `${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})` })
-            const retryTimer = setTimeout(() => {
-              t.retryTimers.delete(retryTimer)
-              if (settled || t.state !== 'downloading') return
-              doFetch()
-            }, delay)
-            t.retryTimers.add(retryTimer)
-          } else if (!settled) {
-            fail(err)
-          }
-        })
-        req.end()
+          resp.on('error', (err: Error) => {
+            if (retryCount < MAX_RETRIES && t.state === 'downloading') {
+              retryCount++
+              noteNetworkError()
+              const delay = Math.pow(2, retryCount) * 1000
+              const label = isDnsError(err) ? 'DNS 解析失败' : '网络错误'
+              console.warn(`[cloudpan:cdn] ${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES}): ${err.message}`)
+              emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total, message: `${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})` })
+              const retryTimer = setTimeout(() => {
+                t.retryTimers.delete(retryTimer)
+                if (t.state !== 'downloading') return
+                doFetch()
+              }, delay)
+              t.retryTimers.add(retryTimer)
+            } else {
+              fail(err)
+            }
+          })
+        },
+        onRequest: (req) => {
+          activeReq = req
+          t.req = req
+          req.setTimeout(60_000, () => {
+            if (retryCount < MAX_RETRIES && t.state === 'downloading') {
+              timedOut = true
+              retryCount++
+              noteNetworkError()
+              const delay = Math.pow(2, retryCount) * 1000
+              console.warn(`[cloudpan:cdn] 请求超时，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})`)
+              emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total, message: `请求超时，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})` })
+              try { req.destroy() } catch { /* ignore */ }
+              const retryTimer = setTimeout(() => {
+                t.retryTimers.delete(retryTimer)
+                if (settled || t.state !== 'downloading') return
+                doFetch()
+              }, delay)
+              t.retryTimers.add(retryTimer)
+            } else {
+              req.destroy(new Error('请求超时（60s）'))
+            }
+          })
+          req.on('error', (err: Error) => {
+            // timeout handler 已处理重试，跳过
+            if (timedOut) return
+            if (!settled && retryCount < MAX_RETRIES && t.state === 'downloading') {
+              retryCount++
+              noteNetworkError()
+              const delay = Math.pow(2, retryCount) * 1000
+              const label = isDnsError(err) ? 'DNS 解析失败' : '连接错误'
+              console.warn(`[cloudpan:cdn] ${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})`)
+              emitProgress({ taskId: t.spec.taskId, state: 'downloading', received: uploader.bytesReceived, total: t.total, message: `${label}，${delay / 1000}s 后重试 (${retryCount}/${MAX_RETRIES})` })
+              const retryTimer = setTimeout(() => {
+                t.retryTimers.delete(retryTimer)
+                if (settled || t.state !== 'downloading') return
+                doFetch()
+              }, delay)
+              t.retryTimers.add(retryTimer)
+            } else if (!settled) {
+              fail(err)
+            }
+          })
+        },
+        onRespAttached: (resp) => {
+          activeResp = resp
+          t.resp = resp
+        }
       }
 
-      fetchOnce(startUrl, 0)
+      cdnFetchOnce(startUrl, 0, rlRetries, ctx, cb)
+
     }
 
     // 初始化 uploader，然后开始下载
@@ -581,7 +497,7 @@ function cloudDownloadAndUpload(t: CloudTaskRuntime, _resumeFromByte: number): P
 function cloudPauseTaskCore(id: string): void {
   const t = cloudTasks.get(id)
   if (t) {
-    if (t.state !== 'downloading' && t.state !== 'pending' && t.state !== 'error') return
+    if (t.state !== 'downloading' && t.state !== 'pending') return
     t.state = 'paused'
     cloudActive.delete(id)
     emitProgress({ taskId: id, state: 'paused', received: t.received, total: t.total, message: '已暂停' })
@@ -626,6 +542,7 @@ function cloudCancelTaskCore(id: string): void {
     cloudPausedStates.delete(id)
     // [B1 Fix] 清掉全量重试计数，否则同 taskId 重新下载时 cloudRunTask 取到陈旧值，过早触发「重试耗尽」永久失败
     cloudFullRetries.delete(id)
+    scheduleCleanupTask(id, true)
     return
   }
   if (removeFromSpecArray(pendingCloud, id) || removeFromSpecArray(pausedCloud, id)) {
@@ -635,6 +552,7 @@ function cloudCancelTaskCore(id: string): void {
     cloudFullRetries.delete(id)
     pendingCloudIds.delete(id)
     pausedCloudIds.delete(id)
+    scheduleCleanupTask(id, true)
   }
 }
 

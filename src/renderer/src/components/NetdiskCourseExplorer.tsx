@@ -1,5 +1,8 @@
+import { useToast } from '../hooks/useToast'
+import { Toast } from './Toast'
 import { memo, useMemo, useEffect, useRef, useState, useCallback, Fragment } from 'react'
 import type React from 'react'
+import { useShallow } from 'zustand/shallow'
 import { BreadcrumbBar, type BreadcrumbItem } from './BreadcrumbBar'
 import {
   TriCheckbox,
@@ -13,8 +16,26 @@ import {
   MacOSCircleCheckbox
 } from './DownloadUI'
 import { Spinner } from './Spinner'
+import { useAppStore } from '../store/app'
 import type { CourseViewMode } from '../store/app'
-import { groupCoursesByTerm as sharedGroupCoursesByTerm, sortAcademicTerms } from '@shared/utils'
+import type { DownloadMode } from '@shared/types'
+import {
+  groupCoursesByTerm as sharedGroupCoursesByTerm,
+  sortAcademicTerms,
+  estimateResourceSize,
+  getDownloadActionLabels
+} from '@shared/utils'
+import {
+  FloatingCommandIsland,
+  type VideoPerspective,
+  type CategorySelectionState
+} from './FloatingCommandIsland'
+import { applyVideoPerspectivePreference } from '../download/perspective'
+import { PERSPECTIVE_LABELS } from './FloatingCommandIsland'
+import { computeBatchStats } from '../download/progress'
+export type { VideoPerspective, CategorySelectionState }
+
+export type IslandChipKey = 'files' | 'videos' | 'assignments' | 'pptPdf'
 
 // ─────────────────────────────────────────────────────────────
 // Netdisk Navigation Interfaces
@@ -34,14 +55,19 @@ export interface NetdiskFileItem {
   date?: string
   selected: boolean
   onToggle: () => void
+  onDownload?: () => void
+  onDownloadSingle?: () => void
   renderExtra?: React.ReactNode
   disabled?: boolean
   disabledReason?: string
 }
 
+export type FileItem = NetdiskFileItem
+
 export interface NetdiskCategoryItem {
   id: string
   name: string
+  chipKey?: IslandChipKey
   icon?: 'folder' | 'video' | 'file' | 'presentation' | 'audio' | 'assignment' | React.ReactNode
   badge?: string
   state: TriState
@@ -53,6 +79,17 @@ export interface NetdiskCategoryItem {
   renderExtra?: React.ReactNode
   disabled?: boolean
   disabledReason?: string
+}
+
+/** 规范化解析分类所属的动作岛芯片（唯一事实来源，避免模糊嗅探错误分类） */
+export function resolveCategoryChipKey(cat: NetdiskCategoryItem): IslandChipKey {
+  if (cat.chipKey) return cat.chipKey
+  const id = cat.id.toLowerCase()
+  const name = cat.name.toLowerCase()
+  if (id.includes('video') || name.includes('视频') || name.includes('音频') || id === 'teacher' || id === 'ppt') return 'videos'
+  if (id.includes('assign') || name.includes('作业')) return 'assignments'
+  if (id.includes('ppt_pdf') || id.includes('ppt-pdf') || name.includes('讲义') || (id.includes('ppt') && !name.includes('视频') && !name.includes('实录'))) return 'pptPdf'
+  return 'files'
 }
 
 export interface NetdiskCourseItem {
@@ -69,6 +106,7 @@ export interface NetdiskCourseItem {
   onToggle: () => void
   onToggleCategory?: (categoryId: string, on: boolean) => void
   onEnter?: () => void
+  onHover?: () => void
   isLoading?: boolean
   loadingMessage?: string
   summary?: {
@@ -78,6 +116,11 @@ export interface NetdiskCourseItem {
     inflight?: number
     total: number
   }
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  hasPptPdf?: boolean
+  onTogglePptPdf?: (enabled: boolean) => void
+  onDownload?: () => void
 }
 
 export interface NetdiskCourseExplorerProps {
@@ -87,6 +130,18 @@ export interface NetdiskCourseExplorerProps {
   onNavigate: (next: NetdiskNavState) => void
   emptyPlaceholder?: React.ReactNode
   groupByTerm?: boolean
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  /** 页面级批量下载提交入口（悬浮岛「立即下载」主按钮）。
+   *  [Bug Fix] 原先岛的按钮在旁听/好大学页无任何回调可走（onDownloadCourse 与
+   *  course.onDownload 均未接线）→ 点击无反应。各页必须传入自己的提交函数
+   *  （如 AuditedCourses.onDownload / CnmoocBrowser.onDownload）。 */
+  onStartDownload?: () => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  hasPptPdf?: boolean
+  onTogglePptPdf?: (enabled: boolean) => void
+  downloadMode?: DownloadMode
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -180,13 +235,24 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   navState,
   onNavigate,
   emptyPlaceholder,
-  groupByTerm = true
+  groupByTerm = true,
+  onDownloadSingle,
+  onDownloadCourse,
+  onStartDownload,
+  perspective,
+  onPerspectiveChange,
+  hasPptPdf,
+  onTogglePptPdf,
+  downloadMode: _downloadMode
 }: NetdiskCourseExplorerProps) {
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const currentDownloadMode = _downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
   // 当前处于的课程对象
   const currentCourse = useMemo(() => {
-    if (!navState.courseId) return undefined
+    if (!navState?.courseId) return undefined
     return courses.find(c => String(c.id) === String(navState.courseId))
-  }, [courses, navState.courseId])
+  }, [courses, navState?.courseId])
 
   // 当前处于的分类对象
   const currentCategory = useMemo(() => {
@@ -204,6 +270,11 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     return columnActiveCourse.categories.find(cat => cat.id === navState.categoryId)
   }, [columnActiveCourse, navState.categoryId])
 
+  const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
+  const globalVideoQuality = useAppStore(s => s.videoQualityOption)
+  const isAudioOnly = globalVideoQuality === 'audio_only' || globalPerspective === 'audio'
+
+  const [sharedPerspective, setSharedPerspective] = useState<VideoPerspective>('teacher')
   const lastEnteredCourseIdRef = useRef<number | string | null>(null)
 
   // Column 模式下仅在选中的课程 ID 变化时触发进入加载（阻断每帧重新触发的死循环）
@@ -286,14 +357,203 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
     return ''
   }, [viewMode, columnActiveCourse, columnActiveCategory, courses.length, navState.level, currentCourse, currentCategory])
 
+  // 全局 Toast 提示状态（统一收口至 useToast）
+  const { toast, showToast, hideToast } = useToast(2500)
+
+  const isSingleCourse = navState.level !== 'root' && !!currentCourse
+
+  // 动作岛统计汇总与体积估算
+  const selectedStats = useMemo(() => {
+    let courseCount = 0
+    let categoryCount = 0
+    let totalItems = 0
+    let filesCount = 0
+    let videoCount = 0
+    let assignCount = 0
+    let pptCount = 0
+    let fileBytes = 0
+
+    // 统计选中课程数
+    for (const c of courses) {
+      if (c.state === 'all' || c.state === 'some') {
+        courseCount++
+      }
+    }
+
+    // 统计当前课程内选中的分类数
+    if (currentCourse) {
+      for (const cat of currentCourse.categories) {
+        if (cat.state === 'all' || cat.state === 'some') {
+          categoryCount++
+        }
+      }
+    }
+
+    const relevantCourses = isSingleCourse ? [currentCourse!] : courses
+    for (const c of relevantCourses) {
+      for (const cat of c.categories) {
+        const chipKey = resolveCategoryChipKey(cat)
+
+        for (const item of cat.items) {
+          if (item.selected) {
+            totalItems++
+            if (chipKey === 'files') {
+              filesCount++
+              fileBytes += item.size || 0
+            } else if (chipKey === 'videos') {
+              videoCount++
+            } else if (chipKey === 'assignments') {
+              assignCount++
+            } else if (chipKey === 'pptPdf') {
+              pptCount++
+            }
+          }
+        }
+
+        // 未展开/未扫描分类兜底：若勾选了该分类但尚未拉取具体 items，计入 1 项
+        if (cat.items.length === 0 && (cat.state === 'all' || cat.state === 'some')) {
+          totalItems++
+          if (chipKey === 'files') filesCount++
+          else if (chipKey === 'videos') videoCount++
+          else if (chipKey === 'assignments') assignCount++
+          else if (chipKey === 'pptPdf') pptCount++
+        }
+      }
+
+      // 未扫描课程兜底
+      if (c.categories.length === 0 && (c.state === 'all' || c.state === 'some')) {
+        totalItems += c.itemCount || 1
+        fileBytes += c.totalBytes || 0
+        filesCount += c.itemCount || 1
+      }
+    }
+
+    const effectivePerspective: VideoPerspective = isAudioOnly
+      ? 'audio'
+      : (perspective ?? currentCourse?.perspective ?? globalPerspective ?? 'teacher')
+
+    const estimated = estimateResourceSize({
+      fileBytes,
+      videoCount,
+      perspective: effectivePerspective,
+      hasAssignments: assignCount > 0,
+      assignmentCount: assignCount,
+      hasPptPdf: pptCount > 0,
+      pptPdfCount: pptCount
+    })
+
+    return {
+      courseCount,
+      categoryCount,
+      totalItems,
+      formattedSize: estimated.formattedSize,
+      totalBytes: estimated.totalBytes,
+      filesCount,
+      videoCount,
+      assignCount,
+      pptCount,
+      isSingleCourse,
+      effectivePerspective
+    }
+  }, [courses, isSingleCourse, currentCourse, perspective, isAudioOnly, globalPerspective])
+
+  // 动作岛分类过滤芯片勾选状态
+  const categorySelectionState = useMemo<CategorySelectionState>(() => {
+    const targetCourses = isSingleCourse ? [currentCourse!] : courses
+    let hasFiles = false
+    let hasVideos = false
+    let hasAssignments = false
+    let hasPptPdf = false
+
+    for (const c of targetCourses) {
+      for (const cat of c.categories) {
+        if (cat.state !== 'none') {
+          const chipKey = resolveCategoryChipKey(cat)
+          if (chipKey === 'files') hasFiles = true
+          else if (chipKey === 'videos') hasVideos = true
+          else if (chipKey === 'assignments') hasAssignments = true
+          else if (chipKey === 'pptPdf') hasPptPdf = true
+        }
+      }
+    }
+
+    return {
+      files: hasFiles,
+      videos: hasVideos,
+      assignments: hasAssignments,
+      pptPdf: hasPptPdf
+    }
+  }, [courses, isSingleCourse, currentCourse])
+
+  const handleToggleIslandCategory = useCallback((catKey: 'files' | 'videos' | 'assignments' | 'pptPdf') => {
+    const targetCourses = isSingleCourse ? [currentCourse!] : courses
+    for (const c of targetCourses) {
+      const matchedCategories = c.categories.filter(k => resolveCategoryChipKey(k) === catKey)
+      if (matchedCategories.length > 0) {
+        for (const cat of matchedCategories) cat.onToggle()
+      } else if (c.onToggleCategory) {
+        c.onToggleCategory(catKey, true)
+      }
+    }
+  }, [isSingleCourse, currentCourse, courses])
+
+  const handleClearSelection = useCallback(() => {
+    if (isSingleCourse && currentCourse) {
+      if (currentCourse.state !== 'none') currentCourse.onToggle()
+    } else {
+      for (const c of courses) {
+        if (c.state !== 'none') c.onToggle()
+      }
+    }
+  }, [isSingleCourse, currentCourse, courses])
+
+  // ── 本轮批量下载进度（供岛的进度环）：复用领域层 computeBatchStats 统一口径 ──
+  const storeDownloading = useAppStore(s => s.downloading)
+  const batchProgress = useAppStore(
+    useShallow(s => {
+      if (!s.downloading || s.batchTaskIds.length === 0) return undefined
+      const isBoth = s.downloadMode === 'both'
+      return computeBatchStats(s.batchTaskIds, s.progress, s.cloudLinkedIds, isBoth)
+    })
+  )
+
+  const handleStartDownload = useCallback(() => {
+    // [Bug Fix] 原兜底链 course.onDownload → onDownloadCourse → courses[0].onDownload
+    // 在旁听/好大学页三环皆空 → 岛的主按钮点击无任何反应。改为优先走页面级
+    // onStartDownload 提交函数（各页 onDownload），仅 Column 视图 inspector 走
+    // onDownloadCourse / course.onDownload（那两个视图不挂岛）。
+    if (onStartDownload) {
+      onStartDownload()
+      return
+    }
+    if (isSingleCourse && currentCourse?.onDownload) {
+      currentCourse.onDownload()
+    } else if (onDownloadCourse && currentCourse) {
+      onDownloadCourse(currentCourse)
+    } else {
+      const selCourses = courses.filter(c => c.state !== 'none')
+      if (selCourses.length > 0) {
+        selCourses.forEach(c => {
+          if (c.onDownload) {
+            c.onDownload()
+          } else if (onDownloadCourse) {
+            onDownloadCourse(c)
+          }
+        })
+      }
+      // 兜底链末环（courses[0]?.onDownload?.()）删除：单课程下载是 inspector 的职责，
+      // 岛是批量提交入口，无回调可用时保持静默而非随机下载列表第一门课。
+    }
+  }, [onStartDownload, isSingleCourse, currentCourse, onDownloadCourse, courses])
+
   if (courses.length === 0) {
     return <div className="h-full w-full">{emptyPlaceholder}</div>
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-full w-full flex-col relative">
       {/* 顶部面包屑与层级回退条 */}
-      <div className="flex items-center justify-between border-b border-bd/70 bg-surface-1/60 px-4 py-2 backdrop-blur">
+      <div className="flex items-center justify-between border-b border-bd bg-surface-1/60 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-3">
           {viewMode !== 'column' && navState.level !== 'root' && (
             <button
@@ -349,6 +609,14 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
                 }
               }}
               groupByTerm={groupByTerm}
+              onDownloadSingle={onDownloadSingle}
+              onDownloadCourse={onDownloadCourse}
+              perspective={perspective}
+              onPerspectiveChange={onPerspectiveChange}
+              hasPptPdf={hasPptPdf}
+              onTogglePptPdf={onTogglePptPdf}
+              hasSelection={selectedStats.totalItems > 0}
+              downloadMode={currentDownloadMode}
             />
           ) : viewMode === 'list' ? (
             <ListView
@@ -358,6 +626,13 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               navState={navState}
               onNavigate={onNavigate}
               groupByTerm={groupByTerm}
+              onDownloadSingle={onDownloadSingle}
+              onDownloadCourse={onDownloadCourse}
+              perspective={perspective}
+              onPerspectiveChange={onPerspectiveChange}
+              showToast={showToast}
+              hasSelection={selectedStats.totalItems > 0}
+              downloadMode={currentDownloadMode}
             />
           ) : (
             <GridView
@@ -367,10 +642,57 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
               navState={navState}
               onNavigate={onNavigate}
               groupByTerm={groupByTerm}
+              onDownloadSingle={onDownloadSingle}
+              onDownloadCourse={onDownloadCourse}
+              perspective={perspective}
+              onPerspectiveChange={onPerspectiveChange}
+              showToast={showToast}
+              hasSelection={selectedStats.totalItems > 0}
+              downloadMode={currentDownloadMode}
             />
           )}
         </div>
       </div>
+
+      {/* 底部浮动命令动作岛 (非分栏视图下挂载：选中项 > 0 或本轮批量下载进行中)。
+          batchProgress 复用已死的 OverallProgressBar 的 batchTaskIds 统计口径
+          （both 模式区分下载中/上传中），让批量进度在岛上以进度环实时可见。 */}
+      {(selectedStats.totalItems > 0 || storeDownloading) && (
+        <FloatingCommandIsland
+          selectedSummary={{
+            courseCount: selectedStats.courseCount,
+            categoryCount: selectedStats.categoryCount,
+            totalItems: selectedStats.totalItems,
+            formattedSize: selectedStats.formattedSize,
+            filesCount: selectedStats.filesCount,
+            videoCount: selectedStats.videoCount,
+            assignCount: selectedStats.assignCount,
+            pptCount: selectedStats.pptCount
+          }}
+          isSingleCourse={selectedStats.isSingleCourse}
+          categorySelection={categorySelectionState}
+          onToggleCategory={handleToggleIslandCategory}
+          perspective={selectedStats.effectivePerspective ?? perspective ?? currentCourse?.perspective ?? sharedPerspective}
+          onPerspectiveChange={p => {
+            setSharedPerspective(p)
+            onPerspectiveChange?.(p)
+            if (currentCourse) {
+              currentCourse.onPerspectiveChange?.(p)
+            } else {
+              const targetCourses = courses.filter(c => c.state !== 'none')
+              const broadcastList = targetCourses.length > 0 ? targetCourses : courses
+              broadcastList.forEach(c => c.onPerspectiveChange?.(p))
+            }
+          }}
+          onStartDownload={handleStartDownload}
+          onClearSelection={handleClearSelection}
+          batchProgress={batchProgress}
+          downloadMode={currentDownloadMode}
+        />
+      )}
+
+      {/* Toast 提示浮条 */}
+      <Toast toast={toast} onClose={hideToast} />
     </div>
   )
 })
@@ -424,6 +746,305 @@ function groupCoursesByTerm(courses: NetdiskCourseItem[]) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 辅助判断与视频分类视角筛选组件
+// ─────────────────────────────────────────────────────────────
+
+export function isVideoCategory(category?: NetdiskCategoryItem): boolean {
+  if (!category) return false
+  const id = category.id.toLowerCase()
+  const name = category.name.toLowerCase()
+  return (
+    id === 'videos' ||
+    category.icon === 'video' ||
+    category.icon === 'audio' ||
+    name.includes('视频') ||
+    name.includes('音频')
+  )
+}
+
+export function isPptPerspectiveItem(item: NetdiskFileItem): boolean {
+  const id = item.id.toLowerCase()
+  const name = item.name.toLowerCase()
+  return id.includes('_ppt') || name.includes('ppt') || name.includes('投屏') || name.includes('影视角')
+}
+
+export function isTeacherPerspectiveItem(item: NetdiskFileItem): boolean {
+  const id = item.id.toLowerCase()
+  const name = item.name.toLowerCase()
+  if (id.includes('_teacher') || name.includes('教师')) return true
+  if (isPptPerspectiveItem(item)) return false
+  return true
+}
+
+// ─── useCategoryViewLogic：GridView / ListView 共用的分类视图逻辑 ───
+//
+// [Phase 3 去重] 两个视图组件各自手抄了同一套 ~130 行分类视图逻辑：选中态判定、
+// 学期分组、视角筛选（audio 档映射教师视角 + 同步全局画质偏好 + 按机位勾选）、
+// 教师/PPT 计数、displayedItems 过滤、单文件直下调度（含假成功 toast 禁令）。
+// 布局（网格卡片 vs 表格行）真正不同，留在各视图组件里。
+
+export interface CategoryViewLogicParams {
+  courses: NetdiskCourseItem[]
+  currentCourse?: NetdiskCourseItem
+  currentCategory?: NetdiskCategoryItem
+  groupByTerm?: boolean
+  hasSelection?: boolean
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  showToast?: (text: string, type?: 'success' | 'info') => void
+  downloadMode?: DownloadMode
+}
+
+export function useCategoryViewLogic(params: CategoryViewLogicParams) {
+  const { courses, currentCourse, currentCategory, groupByTerm = true, hasSelection, onDownloadSingle, perspective, onPerspectiveChange, showToast } = params
+
+  const isSelected =
+    hasSelection ??
+    (courses.some(c => c.state !== 'none') ||
+      currentCourse?.state !== 'none' ||
+      currentCategory?.items.some(i => i.selected) ||
+      false)
+
+  const termGroups = useMemo(() => {
+    if (!groupByTerm) return null
+    return groupCoursesByTerm(courses)
+  }, [courses, groupByTerm])
+
+  const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
+  const globalVideoQuality = useAppStore(s => s.videoQualityOption)
+  const isAudioOnly = globalVideoQuality === 'audio_only' || globalPerspective === 'audio'
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const activeDownloadMode = params.downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
+  const actionLabels = getDownloadActionLabels(activeDownloadMode)
+  const isVideoCat = isVideoCategory(currentCategory)
+  const [internalPerspective, setInternalPerspective] = useState<VideoPerspective>('all')
+  const activePerspective = isAudioOnly
+    ? 'audio'
+    : (perspective ?? currentCourse?.perspective ?? globalPerspective ?? internalPerspective)
+
+  const handleFilterPerspectiveChange = useCallback((nextPerspective: VideoPerspective) => {
+    setInternalPerspective(nextPerspective)
+    onPerspectiveChange?.(nextPerspective)
+    currentCourse?.onPerspectiveChange?.(nextPerspective)
+    // [Bug Fix] audio 档原先被忽略（no-op）。机位含 audio 语义时同步全局画质偏好；
+    // 纯音频模式下 PPT 路无独立音频流，按教师视角过滤（与 onDownload 的 angle===3 跳过一致）。
+    applyVideoPerspectivePreference(nextPerspective)
+
+    if (currentCategory) {
+      const filterPerspective: VideoPerspective =
+        nextPerspective === 'audio' ? 'teacher' : nextPerspective
+      for (const item of currentCategory.items) {
+        if (item.disabled) continue
+        const isTeacher = isTeacherPerspectiveItem(item)
+        const isPpt = isPptPerspectiveItem(item)
+
+        if (filterPerspective === 'all') {
+          if (!item.selected) item.onToggle()
+        } else if (filterPerspective === 'teacher') {
+          if (isTeacher && !item.selected) item.onToggle()
+          if (!isTeacher && item.selected) item.onToggle()
+        } else if (filterPerspective === 'ppt') {
+          if (isPpt && !item.selected) item.onToggle()
+          if (!isPpt && item.selected) item.onToggle()
+        }
+      }
+    }
+  }, [onPerspectiveChange, currentCourse, currentCategory])
+
+  const { totalCount, teacherCount, pptCount } = useMemo(() => {
+    if (!currentCategory) return { totalCount: 0, teacherCount: 0, pptCount: 0 }
+    let teacher = 0
+    let ppt = 0
+    for (const item of currentCategory.items) {
+      if (isTeacherPerspectiveItem(item)) teacher++
+      if (isPptPerspectiveItem(item)) ppt++
+    }
+    if (teacher === 0 && ppt === 0) {
+      teacher = currentCategory.items.length
+    }
+    return {
+      totalCount: currentCategory.items.length,
+      teacherCount: teacher,
+      pptCount: ppt
+    }
+  }, [currentCategory])
+
+  const displayedItems = useMemo(() => {
+    if (!currentCategory) return []
+    if (!isVideoCat) return currentCategory.items
+    // audio 档在文件列表维度按教师视角展示（纯音频只有教师路）
+    const filterPerspective: VideoPerspective = activePerspective === 'audio' ? 'teacher' : activePerspective
+    if (filterPerspective === 'teacher') {
+      return currentCategory.items.filter(isTeacherPerspectiveItem)
+    }
+    if (filterPerspective === 'ppt') {
+      return currentCategory.items.filter(isPptPerspectiveItem)
+    }
+    return currentCategory.items
+  }, [currentCategory, isVideoCat, activePerspective])
+
+  const handleSingleDownload = useCallback((item: NetdiskFileItem) => {
+    if (item.disabled) return
+    // 直下必须存在真实回调（页面级 onDownloadSingle 或条目级 onDownloadSingle/onDownload）。
+    // [Bug Fix] 原实现兜底"未勾选则 onToggle + toast 已开始下载"——在旁听/好大学等
+    // 未接单文件直下的页面上，点击"下载"只做了勾选却谎报下载开始。禁止假成功提示：
+    // 无真实回调时回退为勾选并提示需点主按钮，不冒充下载已启动。
+    if (onDownloadSingle) {
+      onDownloadSingle(item, currentCourse, currentCategory)
+    } else if (item.onDownloadSingle) {
+      item.onDownloadSingle()
+    } else if (item.onDownload) {
+      item.onDownload()
+    } else {
+      if (!item.selected) item.onToggle()
+      showToast?.(actionLabels.toastPromptMessage(item.name), 'info')
+      return
+    }
+    showToast?.(actionLabels.toastMessage(item.name), 'success')
+  }, [onDownloadSingle, currentCourse, currentCategory, showToast, actionLabels])
+
+  return {
+    isSelected,
+    termGroups,
+    isVideoCat,
+    activePerspective,
+    handleFilterPerspectiveChange,
+    totalCount,
+    teacherCount,
+    pptCount,
+    displayedItems,
+    handleSingleDownload,
+    actionLabels
+  }
+}
+
+export interface VideoPerspectiveFilterPillsProps {
+  perspective: VideoPerspective
+  totalCount: number
+  teacherCount: number
+  pptCount: number
+  onChange: (perspective: VideoPerspective) => void
+}
+
+export function VideoPerspectiveFilterPills({
+  perspective,
+  totalCount,
+  teacherCount,
+  pptCount,
+  onChange
+}: VideoPerspectiveFilterPillsProps) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="视频视角筛选"
+      data-testid="video-filter-pills"
+      className="inline-flex items-center rounded-lg border border-bd bg-surface-2/60 p-0.5 text-xs select-none shadow-2xs"
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={perspective === 'all'}
+        onClick={() => onChange('all')}
+        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-sans ${
+          perspective === 'all'
+            ? 'bg-accent text-white font-medium shadow-xs'
+            : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
+        }`}
+      >
+        全部视频 {totalCount}
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={perspective === 'teacher'}
+        onClick={() => onChange('teacher')}
+        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-sans ${
+          perspective === 'teacher'
+            ? 'bg-accent text-white font-medium shadow-xs'
+            : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
+        }`}
+      >
+        仅教师视角 {teacherCount}
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={perspective === 'ppt'}
+        onClick={() => onChange('ppt')}
+        className={`px-2.5 py-1 rounded-md transition-all cursor-pointer font-sans ${
+          perspective === 'ppt'
+            ? 'bg-accent text-white font-medium shadow-xs'
+            : 'text-text-2 hover:text-text-1 hover:bg-surface-1'
+        }`}
+      >
+        仅PPT投屏 {pptCount}
+      </button>
+    </div>
+  )
+}
+
+export interface CategoryLevelHeaderProps {
+  category: NetdiskCategoryItem
+  displayedCount: number
+  isVideoCategory: boolean
+  perspective: VideoPerspective
+  totalCount: number
+  teacherCount: number
+  pptCount: number
+  onPerspectiveChange: (p: VideoPerspective) => void
+}
+
+export function CategoryLevelHeader({
+  category,
+  displayedCount,
+  isVideoCategory: isVideo,
+  perspective,
+  totalCount,
+  teacherCount,
+  pptCount,
+  onPerspectiveChange
+}: CategoryLevelHeaderProps) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-bd bg-surface-1 p-3">
+      <div className="flex items-center gap-3">
+        <span
+          role="checkbox"
+          aria-checked={category.state === 'all'}
+          tabIndex={0}
+          onClick={() => category.onToggle()}
+          className="cursor-pointer"
+        >
+          <TriCheckbox state={category.state} size="sm" />
+        </span>
+        <div>
+          <h2 className="text-sm font-bold text-text-1">{category.name}</h2>
+          <div className="text-xs text-text-3">共 {displayedCount} 个文件</div>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        {isVideo && (
+          <VideoPerspectiveFilterPills
+            perspective={perspective}
+            totalCount={totalCount}
+            teacherCount={teacherCount}
+            pptCount={pptCount}
+            onChange={onPerspectiveChange}
+          />
+        )}
+        {category.isLoading && (
+          <div className="flex items-center gap-2 text-xs text-text-2">
+            <Spinner size={14} />
+            <span>{category.loadingMessage || '正在加载文件…'}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // 1. GridView (网格大图标视图)
 // ─────────────────────────────────────────────────────────────
 
@@ -444,12 +1065,15 @@ function CourseCard({
         c.onEnter?.()
         onNavigate({ level: 'course', courseId: c.id })
       }}
+      onMouseEnter={() => {
+        c.onHover?.()
+      }}
       className={`group relative flex flex-col items-center justify-start rounded-xl p-2.5 transition-all duration-150 cursor-pointer select-none ${
         isSelected
           ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs'
           : 'hover:bg-surface-2/70 active:bg-surface-3/50'
       }`}
-      title={`${c.name} (双击查看内容)`}
+      title={`${c.name} · 双击查看内容`}
     >
       {/* macOS 风格圆圈复选框 (左上角) */}
       <div
@@ -481,7 +1105,7 @@ function CourseCard({
         >
           {c.name}
         </h3>
-        <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+        <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-sans tabular-nums h-4 flex items-center justify-center">
           {c.teacher
             ? c.itemCount > 0
               ? `${c.teacher} · ${c.itemCount} 项`
@@ -495,13 +1119,20 @@ function CourseCard({
   )
 }
 
-function GridView({
+export function GridView({
   courses,
   currentCourse,
   currentCategory,
   navState,
   onNavigate,
-  groupByTerm = true
+  groupByTerm = true,
+  onDownloadSingle,
+  onDownloadCourse: _onDownloadCourse,
+  perspective,
+  onPerspectiveChange,
+  showToast,
+  hasSelection,
+  downloadMode
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
@@ -509,23 +1140,50 @@ function GridView({
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
   groupByTerm?: boolean
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  showToast?: (text: string, type?: 'success' | 'info') => void
+  hasSelection?: boolean
+  downloadMode?: DownloadMode
 }) {
-  const termGroups = useMemo(() => {
-    if (!groupByTerm) return null
-    return groupCoursesByTerm(courses)
-  }, [courses, groupByTerm])
+  const {
+    isSelected,
+    termGroups,
+    isVideoCat,
+    activePerspective,
+    handleFilterPerspectiveChange,
+    totalCount,
+    teacherCount,
+    pptCount,
+    displayedItems,
+    handleSingleDownload,
+    actionLabels
+  } = useCategoryViewLogic({
+    courses,
+    currentCourse,
+    currentCategory,
+    groupByTerm,
+    hasSelection,
+    onDownloadSingle,
+    perspective,
+    onPerspectiveChange,
+    showToast,
+    downloadMode
+  })
 
   // 根目录：展示课程大文件夹网格
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className="h-full overflow-y-auto p-1.5 pb-6">
+      <div className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-28' : 'pb-6'}`}>
         {termGroups ? (
           <div className="space-y-6">
             {termGroups.map(group => {
               const termState = getTermTriState(group.items)
               return (
                 <div key={group.term} className="space-y-3">
-                  <div className="flex items-center justify-between border-b border-bd/60 pb-2 px-1">
+                  <div className="flex items-center justify-between border-b border-bd pb-2 px-1">
                     <div className="flex items-center gap-2.5">
                       <span
                         role="checkbox"
@@ -551,24 +1209,6 @@ function GridView({
                       >
                         {termState === 'all' ? '取消全选' : '全选本学期'}
                       </button>
-                      <span className="text-bd text-xs">|</span>
-                      <button
-                        type="button"
-                        onClick={() => toggleTermCategory(group.items, 'files', true)}
-                        className="text-2xs text-text-3 hover:text-accent font-medium transition-colors cursor-pointer"
-                        title="仅勾选该学期所有课程的课件资料"
-                      >
-                        仅课件
-                      </button>
-                      <span className="text-bd text-xs">|</span>
-                      <button
-                        type="button"
-                        onClick={() => toggleTermCategory(group.items, 'videos', true)}
-                        className="text-2xs text-text-3 hover:text-accent font-medium transition-colors cursor-pointer"
-                        title="仅勾选该学期所有课程的课堂与录播视频"
-                      >
-                        仅视频
-                      </button>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3.5">
@@ -591,10 +1231,10 @@ function GridView({
     )
   }
 
-  // 课程级目录：展示课程下二级分类文件夹网格
+  // 课程级目录：展示课程下二级分类文件夹网格（已彻底移除专属操作白板）
   if (navState.level === 'course' || !currentCategory) {
     return (
-      <div className="h-full overflow-y-auto p-1.5 pb-4">
+      <div className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-28' : 'pb-4'}`}>
         <div className="mb-4 flex items-center justify-between rounded-xl border border-bd bg-surface-1 p-3">
           <div className="flex items-center gap-3">
             <span
@@ -634,7 +1274,7 @@ function GridView({
                     ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs'
                     : 'hover:bg-surface-2/70 active:bg-surface-3/50'
                 }`}
-                title={`${cat.name} (双击查看内容)`}
+                title={`${cat.name} · 双击查看内容`}
               >
                 {/* macOS 风格圆圈复选框 (左上角) */}
                 <div
@@ -665,7 +1305,7 @@ function GridView({
                   >
                     {cat.name}
                   </h4>
-                  <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+                  <div className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-sans tabular-nums h-4 flex items-center justify-center">
                     {cat.items.length} 个文件
                   </div>
                 </div>
@@ -673,62 +1313,31 @@ function GridView({
             )
           })}
         </div>
-
-        {/* 渲染分类扩展组件，如 PPT PDF 进度行或教师筛选 */}
-        {currentCourse.categories.some(cat => !!cat.renderExtra) && (
-          <div className="mt-6 space-y-3">
-            {currentCourse.categories.map(cat => cat.renderExtra ? (
-              <div key={`extra-${cat.id}`} className="rounded-xl border border-bd bg-surface-1 p-3">
-                <div className="text-xs font-semibold text-text-2 mb-2">{cat.name} 专属操作</div>
-                {cat.renderExtra}
-              </div>
-            ) : null)}
-          </div>
-        )}
       </div>
     )
   }
 
-  // 三级分类目录：展示具体文件/视频流
+  // 三级分类目录：展示具体文件/视频流（顶部内嵌视角筛选器，支持单文件悬停极速下载）
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mb-4 flex items-center justify-between rounded-xl border border-bd bg-surface-1 p-3">
-        <div className="flex items-center gap-3">
-          <span
-            role="checkbox"
-            aria-checked={currentCategory.state === 'all'}
-            tabIndex={0}
-            onClick={() => currentCategory.onToggle()}
-            className="cursor-pointer"
-          >
-            <TriCheckbox state={currentCategory.state} size="sm" />
-          </span>
-          <div>
-            <h2 className="text-sm font-bold text-text-1">{currentCategory.name}</h2>
-            <div className="text-xs text-text-3">共 {currentCategory.items.length} 个文件</div>
-          </div>
-        </div>
-        {currentCategory.isLoading && (
-          <div className="flex items-center gap-2 text-xs text-text-2">
-            <Spinner size={14} />
-            <span>{currentCategory.loadingMessage || '正在加载文件…'}</span>
-          </div>
-        )}
-      </div>
+    <div className={`h-full overflow-y-auto ${isSelected ? 'pb-28' : 'pb-4'}`}>
+      <CategoryLevelHeader
+        category={currentCategory}
+        displayedCount={displayedItems.length}
+        isVideoCategory={isVideoCat}
+        perspective={activePerspective}
+        totalCount={totalCount}
+        teacherCount={teacherCount}
+        pptCount={pptCount}
+        onPerspectiveChange={handleFilterPerspectiveChange}
+      />
 
-      {currentCategory.renderExtra && (
-        <div className="mb-4 rounded-xl border border-bd bg-surface-1 p-3">
-          {currentCategory.renderExtra}
-        </div>
-      )}
-
-      {currentCategory.items.length === 0 ? (
+      {displayedItems.length === 0 ? (
         <div className="py-12 text-center text-xs text-text-3">
           {currentCategory.emptyMessage || '该分类下暂无资源'}
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3 pb-6 select-none">
-          {currentCategory.items.map(item => (
+          {displayedItems.map(item => (
             <div
               key={item.id}
               onClick={() => {
@@ -740,7 +1349,7 @@ function GridView({
                   ? 'opacity-50 cursor-not-allowed'
                   : 'cursor-pointer ' + (item.selected ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs' : 'hover:bg-surface-2/70 active:bg-surface-3/50')
               }`}
-              title={item.disabled ? item.disabledReason : `${item.name} (点击勾选)`}
+              title={item.disabled ? item.disabledReason : `${item.name} · 点击勾选`}
             >
               {/* macOS 风格圆圈复选框 (左上角) */}
               <div
@@ -757,6 +1366,33 @@ function GridView({
                 />
               </div>
 
+              {/* 悬停即现极速下载按钮 (右上角) */}
+              {!item.disabled && (
+                <button
+                  type="button"
+                  data-testid="single-download-btn"
+                  title={`${actionLabels.ctaPrefix} ${item.name}`}
+                  onClick={e => {
+                    e.stopPropagation()
+                    handleSingleDownload(item)
+                  }}
+                  className="opacity-0 group-hover:opacity-100 transition-all absolute top-2 right-2 z-10 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent text-white text-[11px] font-medium shadow-sm hover:bg-accent-light active:scale-95 cursor-pointer"
+                >
+                  {actionLabels.iconType === 'upload' ? (
+                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 19V6m0 0l-4 4m4-4l4 4M4 3h16" />
+                    </svg>
+                  ) : actionLabels.iconType === 'both' ? (
+                    <span className="text-[9px] leading-none">☁️⬇</span>
+                  ) : (
+                    <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+                    </svg>
+                  )}
+                  <span>{actionLabels.quickActionText}</span>
+                </button>
+              )}
+
               {/* 居中大文档图标 (58px) */}
               <div className="my-1 flex h-16 w-16 items-center justify-center transition-transform duration-150 group-hover:scale-105 shrink-0">
                 <MacOSDocumentIcon filename={item.name} type={item.type} size={58} />
@@ -772,7 +1408,7 @@ function GridView({
                 >
                   {item.name}
                 </span>
-                <span className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-mono h-4 flex items-center justify-center">
+                <span className="mt-0.5 text-2xs text-text-4 truncate w-full px-1 font-sans tabular-nums h-4 flex items-center justify-center">
                   {item.disabledReason || (item.size ? formatBytes(item.size) : item.date || '文件')}
                 </span>
               </div>
@@ -808,6 +1444,9 @@ function CourseRow({
       onClick={() => {
         c.onEnter?.()
         onNavigate({ level: 'course', courseId: c.id, categoryId: c.categories[0]?.id })
+      }}
+      onMouseEnter={() => {
+        c.onHover?.()
       }}
       className="hover:bg-surface-2/60 transition-colors cursor-pointer"
     >
@@ -852,13 +1491,20 @@ function CourseRow({
   )
 }
 
-function ListView({
+export function ListView({
   courses,
   currentCourse,
   currentCategory,
   navState,
   onNavigate,
-  groupByTerm = true
+  groupByTerm = true,
+  onDownloadSingle,
+  onDownloadCourse: _onDownloadCourse,
+  perspective,
+  onPerspectiveChange,
+  showToast,
+  hasSelection,
+  downloadMode
 }: {
   courses: NetdiskCourseItem[]
   currentCourse?: NetdiskCourseItem
@@ -866,16 +1512,43 @@ function ListView({
   navState: NetdiskNavState
   onNavigate: (next: NetdiskNavState) => void
   groupByTerm?: boolean
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  showToast?: (text: string, type?: 'success' | 'info') => void
+  hasSelection?: boolean
+  downloadMode?: DownloadMode
 }) {
-  const termGroups = useMemo(() => {
-    if (!groupByTerm) return null
-    return groupCoursesByTerm(courses)
-  }, [courses, groupByTerm])
+  const {
+    isSelected,
+    termGroups,
+    isVideoCat,
+    activePerspective,
+    handleFilterPerspectiveChange,
+    totalCount,
+    teacherCount,
+    pptCount,
+    displayedItems,
+    handleSingleDownload,
+    actionLabels
+  } = useCategoryViewLogic({
+    courses,
+    currentCourse,
+    currentCategory,
+    groupByTerm,
+    hasSelection,
+    onDownloadSingle,
+    perspective,
+    onPerspectiveChange,
+    showToast,
+    downloadMode
+  })
 
   // 根目录列表
   if (navState.level === 'root' || !currentCourse) {
     return (
-      <div className="h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs">
+      <div className={`h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs ${isSelected ? 'pb-28' : ''}`}>
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 bg-surface-2 text-text-2 border-b border-bd z-10">
             <tr>
@@ -886,14 +1559,14 @@ function ListView({
               <th className="py-2.5 px-4 font-semibold text-right">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-bd/50">
+          <tbody className="divide-y divide-bd">
             {termGroups ? (
               termGroups.map(group => {
                 const termState = getTermTriState(group.items)
                 return (
                   <Fragment key={group.term}>
                     <tr className="bg-surface-2/70 font-semibold text-text-2">
-                      <td colSpan={5} className="py-2 px-4 border-y border-bd/40">
+                      <td colSpan={5} className="py-2 px-4 border-y border-bd">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2.5">
                             <span
@@ -911,7 +1584,7 @@ function ListView({
                             </span>
                             <span>📅</span>
                             <span>{group.term}</span>
-                            <span className="text-2xs text-text-3 font-normal">({group.items.length} 门课程)</span>
+                            <span className="text-2xs text-text-3 font-normal">{group.items.length} 门课程</span>
                           </div>
                           <div className="flex items-center gap-2 select-none">
                             <button
@@ -923,30 +1596,6 @@ function ListView({
                               className="text-2xs text-accent hover:underline font-normal cursor-pointer"
                             >
                               {termState === 'all' ? '取消全选' : '全选本学期'}
-                            </button>
-                            <span className="text-bd text-xs">|</span>
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation()
-                                toggleTermCategory(group.items, 'files', true)
-                              }}
-                              className="text-2xs text-text-3 hover:text-accent font-normal cursor-pointer"
-                              title="仅勾选该学期所有课程的课件资料"
-                            >
-                              仅课件
-                            </button>
-                            <span className="text-bd text-xs">|</span>
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation()
-                                toggleTermCategory(group.items, 'videos', true)
-                              }}
-                              className="text-2xs text-text-3 hover:text-accent font-normal cursor-pointer"
-                              title="仅勾选该学期所有课程的课堂与录播视频"
-                            >
-                              仅视频
                             </button>
                           </div>
                         </div>
@@ -969,10 +1618,10 @@ function ListView({
     )
   }
 
-  // 课程分类列表
+  // 课程分类列表（已彻底移除专属操作白板）
   if (navState.level === 'course' || !currentCategory) {
     return (
-      <div className="h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs">
+      <div className={`h-full overflow-y-auto rounded-xl border border-bd bg-surface-1 shadow-2xs ${isSelected ? 'pb-28' : ''}`}>
         <table className="w-full text-left text-xs">
           <thead className="sticky top-0 bg-surface-2 text-text-2 border-b border-bd z-10">
             <tr>
@@ -981,7 +1630,7 @@ function ListView({
               <th className="py-2.5 px-4 font-semibold text-right">操作</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-bd/50">
+          <tbody className="divide-y divide-bd">
             {currentCourse.categories.map(cat => (
               <tr
                 key={cat.id}
@@ -1022,16 +1671,21 @@ function ListView({
     )
   }
 
-  // 具体资源列表
+  // 具体资源列表（顶部内嵌视角筛选器，支持单文件悬停极速下载）
   return (
-    <div className="h-full overflow-y-auto space-y-3 pb-4">
-      {currentCategory.renderExtra && (
-        <div className="rounded-xl border border-bd bg-surface-1 p-3 shadow-2xs">
-          {currentCategory.renderExtra}
-        </div>
-      )}
+    <div className={`h-full overflow-y-auto space-y-3 ${isSelected ? 'pb-28' : 'pb-4'}`}>
+      <CategoryLevelHeader
+        category={currentCategory}
+        displayedCount={displayedItems.length}
+        isVideoCategory={isVideoCat}
+        perspective={activePerspective}
+        totalCount={totalCount}
+        teacherCount={teacherCount}
+        pptCount={pptCount}
+        onPerspectiveChange={handleFilterPerspectiveChange}
+      />
 
-      {currentCategory.items.length === 0 ? (
+      {displayedItems.length === 0 ? (
         <div className="py-12 text-center text-xs text-text-3">
           {currentCategory.emptyMessage || '该分类下暂无资源'}
         </div>
@@ -1047,15 +1701,15 @@ function ListView({
                 <th className="py-2.5 px-4 font-semibold text-right">状态 / 操作</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-bd/50">
-              {currentCategory.items.map(item => (
+            <tbody className="divide-y divide-bd">
+              {displayedItems.map(item => (
                 <tr
                   key={item.id}
                   onClick={() => {
                     if (item.disabled) return
                     item.onToggle()
                   }}
-                  className={`transition-colors ${
+                  className={`group transition-colors ${
                     item.disabled
                       ? 'opacity-60 bg-surface-2/20 cursor-not-allowed'
                       : 'hover:bg-surface-2/60 cursor-pointer'
@@ -1078,7 +1732,7 @@ function ListView({
                         {item.name}
                       </span>
                       {item.disabledReason && (
-                        <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                        <span className="shrink-0 rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd font-sans">
                           {item.disabledReason}
                         </span>
                       )}
@@ -1094,9 +1748,36 @@ function ListView({
                     {item.date || '—'}
                   </td>
                   <td className="py-2.5 px-4 text-right" onClick={e => e.stopPropagation()}>
-                    {item.renderExtra || (
-                      <span className="text-text-4 font-mono">待下载</span>
-                    )}
+                    <div className="flex items-center justify-end gap-2">
+                      {!item.disabled && (
+                        <button
+                          type="button"
+                          data-testid="single-download-btn"
+                          title={`${actionLabels.ctaPrefix} ${item.name}`}
+                          onClick={e => {
+                            e.stopPropagation()
+                            handleSingleDownload(item)
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-all inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent text-white text-[11px] font-medium shadow-xs hover:bg-accent-light active:scale-95 cursor-pointer"
+                        >
+                          {actionLabels.iconType === 'upload' ? (
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 19V6m0 0l-4 4m4-4l4 4M4 3h16" />
+                            </svg>
+                          ) : actionLabels.iconType === 'both' ? (
+                            <span className="text-[10px] leading-none">☁️⬇</span>
+                          ) : (
+                            <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 3v13m0 0l-4-4m4 4l4-4M4 21h16" />
+                            </svg>
+                          )}
+                          <span>{actionLabels.quickActionText}</span>
+                        </button>
+                      )}
+                      {item.renderExtra || (
+                        <span className={`text-text-4 font-mono ${!item.disabled ? 'group-hover:hidden' : ''}`}>待下载</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1112,23 +1793,535 @@ function ListView({
 // 3. ColumnView (分栏多级并列视图 / macOS Miller Columns)
 // ─────────────────────────────────────────────────────────────
 
-function ColumnView({
-  courses,
-  activeCourse,
-  activeCategory,
-  onSelectCourse,
-  onSelectCategory,
-  groupByTerm = true
-}: {
+export interface CourseResourceBreakdown {
+  filesCount: number
+  fileBytes: number
+  videoCount: number
+  assignmentCount: number
+  hasVideos: boolean
+  hasAssignments: boolean
+  pptPdfAvailable: boolean
+}
+
+export function getCourseResourceBreakdown(course: NetdiskCourseItem): CourseResourceBreakdown {
+  let filesCount = 0
+  let fileBytes = 0
+  let videoCount = 0
+  let assignmentCount = 0
+  let pptPdfAvailable = false
+
+  for (const cat of course.categories) {
+    const isVideoCat = cat.icon === 'video' || cat.icon === 'audio' || cat.id === 'videos' || cat.id === 'teacher'
+    const isAssignCat = cat.icon === 'assignment' || cat.id === 'assignments'
+    const isPptPdfCat = cat.id === 'pptPdf' || cat.id === 'ppt-pdf'
+
+    if (isPptPdfCat) {
+      pptPdfAvailable = true
+      continue
+    }
+
+    if (isAssignCat) {
+      assignmentCount += cat.items.length
+      continue
+    }
+
+    if (isVideoCat) {
+      videoCount = Math.max(videoCount, cat.items.length)
+      continue
+    }
+
+    if (cat.id === 'ppt') {
+      videoCount = Math.max(videoCount, cat.items.length)
+      continue
+    }
+
+    for (const it of cat.items) {
+      const ext = it.name.split('.').pop()?.toLowerCase() || ''
+      const isVideoItem =
+        it.type === 'MP4' ||
+        it.type === 'M4A' ||
+        it.type === 'video' ||
+        ['mp4', 'mkv', 'mov', 'flv', 'ts', 'webm', 'mp3', 'm4a'].includes(ext)
+      if (isVideoItem) {
+        videoCount++
+      } else {
+        filesCount++
+        fileBytes += it.size || 0
+      }
+    }
+  }
+
+  if (fileBytes === 0 && course.totalBytes) {
+    fileBytes = course.totalBytes
+  }
+
+  if (filesCount === 0 && videoCount === 0 && assignmentCount === 0 && course.itemCount > 0) {
+    filesCount = course.itemCount
+  }
+
+  const hasVideos =
+    videoCount > 0 ||
+    course.categories.some(c => c.icon === 'video' || c.icon === 'audio' || c.id === 'videos' || c.id === 'teacher')
+
+  return {
+    filesCount,
+    fileBytes,
+    videoCount,
+    assignmentCount,
+    hasVideos,
+    hasAssignments: assignmentCount > 0,
+    pptPdfAvailable: pptPdfAvailable || hasVideos
+  }
+}
+
+export interface CourseOverviewInspectorProps {
+  course: NetdiskCourseItem
+  category?: NetdiskCategoryItem
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  hasPptPdf?: boolean
+  onTogglePptPdf?: (enabled: boolean) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  hasSelection?: boolean
+  downloadMode?: DownloadMode
+}
+
+export function CourseOverviewInspector({
+  course,
+  category,
+  perspective,
+  onPerspectiveChange: _onPerspectiveChange,
+  hasPptPdf,
+  onTogglePptPdf: _onTogglePptPdf,
+  onDownloadCourse,
+  hasSelection,
+  downloadMode: _downloadMode
+}: CourseOverviewInspectorProps) {
+  const [internalPerspective] = useState<VideoPerspective>('teacher')
+  const globalPerspective = useAppStore(s => s.videoPerspectivePreference)
+  const globalAutoPptPdf = useAppStore(s => s.autoExportPptPdf)
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const activeDownloadMode = _downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
+  const actionLabels = getDownloadActionLabels(activeDownloadMode)
+  const activePerspective: VideoPerspective = perspective ?? course.perspective ?? globalPerspective ?? internalPerspective
+  const perspectiveLabel = PERSPECTIVE_LABELS[activePerspective] || '仅教师视角'
+
+  const pptCat = course.categories.find(c => c.id === 'pptPdf' || c.id === 'ppt-pdf')
+  const defaultPptPdf = pptCat ? pptCat.state === 'all' : false
+  const [internalPptPdf] = useState<boolean>(defaultPptPdf)
+  const isPptPdfOn = hasPptPdf ?? course.hasPptPdf ?? (pptCat ? pptCat.state === 'all' : (globalAutoPptPdf ?? internalPptPdf))
+
+  const { toast, showToast, hideToast } = useToast(2500)
+
+  const breakdown = useMemo(() => getCourseResourceBreakdown(course), [course])
+
+  const estimated = useMemo(() => {
+    return estimateResourceSize({
+      fileBytes: breakdown.fileBytes,
+      videoCount: breakdown.videoCount,
+      perspective: activePerspective,
+      hasAssignments: breakdown.hasAssignments,
+      assignmentCount: breakdown.assignmentCount,
+      hasPptPdf: isPptPdfOn,
+      pptPdfCount: breakdown.videoCount > 0 ? breakdown.videoCount : 1
+    })
+  }, [breakdown, activePerspective, isPptPdfOn])
+
+
+
+  const handleDownloadCourse = () => {
+    // [Bug Fix] 原实现兜底"未全选则 onToggle + toast 已开始下载全部资源"——在未接
+    // 页面级提交回调（onDownloadCourse / course.onDownload）的页面上是死按钮 + 假成功。
+    // 无真实回调时改为切换整课勾选态并如实提示，禁止谎报"已开始下载"。
+    if (onDownloadCourse) {
+      onDownloadCourse(course)
+    } else if (course.onDownload) {
+      course.onDownload()
+    } else {
+      course.onToggle()
+      showToast(
+        course.state === 'all'
+          ? `已取消勾选 "${course.name}"`
+          : actionLabels.toastPromptMessage(course.name),
+        'info'
+      )
+      return
+    }
+    showToast(actionLabels.toastMessage(course.name), 'success')
+  }
+
+  return (
+    <div
+      data-testid="course-overview-inspector"
+      className={`flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd select-none h-full relative animate-fadeIn ${hasSelection ? 'pb-24' : ''}`}
+    >
+      {/* 顶部标题区 */}
+      <div className="pb-3 border-b border-bd shrink-0">
+        <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+          <span className="text-2xs font-semibold text-accent bg-accent/10 px-2 py-0.5 rounded-full border border-accent/20">
+            {category ? '分类与课程概览' : '课程概览'}
+          </span>
+          {course.term && (
+            <span className="text-2xs font-mono text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd">
+              {course.term}
+            </span>
+          )}
+          {course.code && (
+            <span className="text-2xs font-mono text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd">
+              {course.code}
+            </span>
+          )}
+          {course.teacher && (
+            <span className="text-2xs text-text-3 bg-surface-2 px-1.5 py-0.5 rounded border border-bd">
+              👨‍🏫 {course.teacher}
+            </span>
+          )}
+          {course.badge && (
+            <span className="text-2xs font-semibold text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+              {course.badge}
+            </span>
+          )}
+        </div>
+        <h2 className="text-sm font-bold text-text-1 leading-snug break-words" title={course.name}>
+          {course.name}
+        </h2>
+        {category && (
+          <div className="mt-1 flex items-center gap-1 text-2xs text-text-3">
+            <span>当前浏览分类:</span>
+            <span className="font-semibold text-text-2">{category.name}</span>
+            <span className="font-mono text-text-4">({category.items.length})</span>
+          </div>
+        )}
+      </div>
+
+      {/* 资源结构与容量预估卡片 */}
+      <div className="my-3 rounded-xl border border-bd bg-surface-2/60 p-3.5 space-y-2 shrink-0 shadow-2xs">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-text-3 font-medium">预估总容量</span>
+          <span className="font-mono text-sm font-bold text-accent" data-testid="course-estimated-size">
+            {estimated.formattedSize}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-bd text-xs">
+          <div className="flex flex-col">
+            <span className="text-text-4 text-2xs">课件资料</span>
+            <span className="text-text-1 font-mono font-semibold">
+              {breakdown.filesCount} 项{breakdown.fileBytes > 0 ? ` · ${formatBytes(breakdown.fileBytes)}` : ''}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-text-4 text-2xs">课堂录播</span>
+            <span className="text-text-1 font-mono font-semibold">
+              {breakdown.videoCount > 0 ? `${breakdown.videoCount} 讲` : '无录播'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-text-4 text-2xs">课程作业</span>
+            <span className="text-text-1 font-mono font-semibold">
+              {breakdown.assignmentCount > 0 ? `${breakdown.assignmentCount} 项` : '无作业'}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-text-4 text-2xs">PPT 讲义 PDF</span>
+            <span className="text-text-1 font-mono font-semibold">
+              {isPptPdfOn ? (breakdown.videoCount > 0 ? `预估 ${breakdown.videoCount} 份` : '已开启') : '未开启'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 偏好状态只读概览（统一在设置页修改） */}
+      <div className="my-2 rounded-xl border border-bd bg-surface-2/40 p-3 space-y-1.5 shrink-0 text-2xs" data-testid="unified-preferences-summary">
+        {breakdown.hasVideos && (
+          <div className="flex items-center justify-between text-text-2">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span>📹</span>
+              <span>默认录播视角</span>
+            </span>
+            <span className="font-semibold text-accent">{perspectiveLabel}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-text-2">
+          <span className="flex items-center gap-1.5 font-medium">
+            <span>📑</span>
+            <span>PPT 讲义自动提取</span>
+          </span>
+          <span className={`font-semibold ${isPptPdfOn ? 'text-accent' : 'text-text-4'}`}>
+            {isPptPdfOn ? '已开启' : '未开启'}
+          </span>
+        </div>
+        <div className="pt-1 text-3xs text-text-4 border-t border-bd text-right">
+          如需修改请前往「设置 - 课件与多媒体」
+        </div>
+      </div>
+
+      {/* 勾选状态指示 */}
+      <div className="mt-2 mb-1 flex items-center justify-between text-xs text-text-3 px-1 shrink-0">
+        <span>课程勾选状态</span>
+        <span className={`font-semibold ${course.state === 'all' ? 'text-accent' : course.state === 'some' ? 'text-warning' : 'text-text-4'}`}>
+          {course.state === 'all' ? '已全选' : course.state === 'some' ? '部分已选' : '未勾选'}
+        </span>
+      </div>
+
+      {/* Toast 提示浮条 */}
+      <Toast toast={toast} onClose={hideToast} position="bottom-wide" />
+
+      {/* 底部主执行按钮 */}
+      <div className="mt-auto pt-3 shrink-0">
+        <button
+          type="button"
+          data-testid="course-download-cta"
+          onClick={handleDownloadCourse}
+          className="w-full flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98] transition-all cursor-pointer"
+        >
+          <span>
+            {actionLabels.iconType === 'both' ? '☁️⬇ ' : actionLabels.iconType === 'upload' ? '☁️ ' : '⬇ '}
+            {actionLabels.iconType === 'both' ? '下载并备份' : actionLabels.ctaPrefix}本门课程全部资源 · {estimated.formattedSize}
+          </span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export interface FileDetailInspectorProps {
+  item: NetdiskFileItem
+  course?: NetdiskCourseItem
+  category?: NetdiskCategoryItem
+  onClose: () => void
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  hasSelection?: boolean
+  downloadMode?: DownloadMode
+}
+
+export function FileDetailInspector({
+  item,
+  course,
+  category,
+  onClose,
+  onDownloadSingle,
+  hasSelection,
+  downloadMode: _downloadMode
+}: FileDetailInspectorProps) {
+  const { toast, showToast, hideToast } = useToast(2500)
+  const storeDownloadMode = useAppStore(s => s.downloadMode)
+  const effectiveStoreMode = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadMode : storeDownloadMode
+  const activeDownloadMode = _downloadMode ?? effectiveStoreMode ?? storeDownloadMode ?? 'local'
+  const actionLabels = getDownloadActionLabels(activeDownloadMode)
+
+  const handleDownloadSingle = () => {
+    if (item.disabled) return
+    // [Bug Fix] 同 Grid/ListView：无真实直下回调时禁止假"已开始下载"toast
+    if (onDownloadSingle) {
+      onDownloadSingle(item, course, category)
+    } else if (item.onDownload) {
+      item.onDownload()
+    } else if (item.onDownloadSingle) {
+      item.onDownloadSingle()
+    } else {
+      if (!item.selected) {
+        item.onToggle()
+      }
+      showToast(actionLabels.toastPromptMessage(item.name), 'info')
+      return
+    }
+    showToast(actionLabels.toastMessage(item.name), 'success')
+  }
+
+  const ext = item.name.split('.').pop()?.toLowerCase() || ''
+  const isVideo = ['mp4', 'mkv', 'mov', 'flv', 'ts', 'webm'].includes(ext) || item.type === 'MP4'
+  const isAudio = ['mp3', 'm4a', 'wav', 'aac', 'flac'].includes(ext) || item.type === 'M4A'
+
+  return (
+    <div
+      data-testid="file-detail-inspector"
+      className={`flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd select-none h-full relative animate-fadeIn ${hasSelection ? 'pb-24' : ''}`}
+    >
+      {/* 顶部标题区与关闭按钮 */}
+      <div className="flex items-center justify-between pb-3 border-b border-bd shrink-0">
+        <span className="text-xs font-bold text-text-2">课件详情与预览</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-text-4 hover:text-text-1 text-xs p-1 rounded-md hover:bg-surface-3 transition-colors cursor-pointer"
+          title="关闭详情面板"
+          aria-label="关闭详情面板"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* 缩略图与大图标预览 */}
+      <div className="my-4 shrink-0">
+        {isVideo ? (
+          <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-md">
+            <div className="flex flex-col items-center justify-center text-white/90 gap-2 p-4 text-center">
+              <span className="text-4xl">🎬</span>
+              <span className="text-xs font-semibold">课堂视频 / 录播课件</span>
+              <span className="text-2xs text-white/60">可直接点击下方按钮即时单文件下载</span>
+            </div>
+          </div>
+        ) : isAudio ? (
+          <div className="w-full rounded-xl bg-surface-2 p-5 flex flex-col items-center border border-bd shadow-xs">
+            <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-2 shadow-inner">
+              🎵
+            </div>
+            <span className="text-xs font-medium text-text-2">音频课件</span>
+          </div>
+        ) : (
+          <div className="w-full rounded-xl bg-surface-2/60 p-6 flex flex-col items-center justify-center border border-bd shadow-xs">
+            <div className="scale-125 mb-2">
+              <FileTypeBadge filename={item.name} type={item.type} />
+            </div>
+            <span className="text-2xs font-mono font-bold text-text-3 uppercase tracking-wider mt-2">
+              {ext || item.type || 'DOCUMENT'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* 文件名 */}
+      <h3 className="text-sm font-bold text-text-1 break-all select-text leading-snug mb-3 shrink-0" title={item.name}>
+        {item.name}
+      </h3>
+
+      {/* 详细元数据表 */}
+      <div className="w-full rounded-xl border border-bd bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd space-y-2 mb-4 shrink-0 shadow-2xs">
+        {course?.name && (
+          <div className="flex justify-between py-1">
+            <span className="text-text-3">所属课程</span>
+            <span className="font-semibold text-text-1 text-2xs truncate max-w-[180px]" title={course.name}>
+              {course.name}
+            </span>
+          </div>
+        )}
+        {category?.name && (
+          <div className="flex justify-between py-1">
+            <span className="text-text-3">所属分类</span>
+            <span className="font-semibold text-text-1 text-2xs">
+              {category.name}
+            </span>
+          </div>
+        )}
+        <div className="flex justify-between py-1">
+          <span className="text-text-3">文件大小</span>
+          <span className="font-mono font-bold text-accent">
+            {item.size ? formatBytes(item.size) : '未知'}
+          </span>
+        </div>
+        {item.date && (
+          <div className="flex justify-between py-1">
+            <span className="text-text-3">讲次/时间</span>
+            <span className="font-mono text-text-2 text-2xs">
+              {item.date}
+            </span>
+          </div>
+        )}
+        <div className="flex justify-between py-1">
+          <span className="text-text-3">状态</span>
+          <span className={`text-2xs font-medium ${item.disabled ? 'text-warning' : item.selected ? 'text-accent' : 'text-text-3'}`}>
+            {item.disabled ? (item.disabledReason || '不可用') : item.selected ? '已加入清单' : '未选择'}
+          </span>
+        </div>
+      </div>
+
+      {item.renderExtra && (
+        <div className="w-full mb-4 p-3 rounded-xl bg-surface-2/50 border border-bd text-xs shrink-0">
+          <div className="text-2xs font-semibold text-text-3 mb-1.5 uppercase tracking-wider">资源属性</div>
+          {item.renderExtra}
+        </div>
+      )}
+
+      {/* Toast 提示浮条 */}
+      <Toast toast={toast} onClose={hideToast} position="bottom-wide" />
+
+      {/* 底部双按钮操作区 */}
+      <div className="flex flex-col gap-2 mt-auto shrink-0 pt-2">
+        <button
+          type="button"
+          data-testid="file-download-btn"
+          disabled={item.disabled}
+          onClick={handleDownloadSingle}
+          className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
+            item.disabled
+              ? 'bg-surface-3 text-text-4 cursor-not-allowed opacity-60'
+              : 'bg-accent text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98]'
+          }`}
+        >
+          <span>{actionLabels.detailActionText}</span>
+        </button>
+
+        <button
+          type="button"
+          disabled={item.disabled}
+          onClick={() => {
+            if (item.disabled) return
+            item.onToggle()
+          }}
+          className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-medium border transition-all cursor-pointer ${
+            item.disabled
+              ? 'border-bd bg-surface-2 text-text-4 cursor-not-allowed opacity-60'
+              : item.selected
+              ? 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/20'
+              : 'border-bd bg-surface-2 text-text-2 hover:bg-surface-3 hover:text-text-1'
+          }`}
+        >
+          <span>{item.selected ? '✓ 已加入清单 · 点击取消' : '+ 勾选此文件加入清单'}</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export interface ColumnViewProps {
   courses: NetdiskCourseItem[]
   activeCourse?: NetdiskCourseItem
   activeCategory?: NetdiskCategoryItem
   onSelectCourse: (c: NetdiskCourseItem) => void
   onSelectCategory: (cat: NetdiskCategoryItem) => void
   groupByTerm?: boolean
-}) {
+  onDownloadSingle?: (item: NetdiskFileItem, course?: NetdiskCourseItem, category?: NetdiskCategoryItem) => void
+  onDownloadCourse?: (course: NetdiskCourseItem) => void
+  perspective?: VideoPerspective
+  onPerspectiveChange?: (perspective: VideoPerspective) => void
+  hasPptPdf?: boolean
+  onTogglePptPdf?: (enabled: boolean) => void
+  selectedFileItem?: NetdiskFileItem | null
+  onSelectFileItem?: (item: NetdiskFileItem | null) => void
+  hasSelection?: boolean
+  downloadMode?: DownloadMode
+}
+
+export function ColumnView({
+  courses,
+  activeCourse,
+  activeCategory,
+  onSelectCourse,
+  onSelectCategory,
+  groupByTerm = true,
+  onDownloadSingle,
+  onDownloadCourse: _onDownloadCourse,
+  perspective: _perspective,
+  onPerspectiveChange: _onPerspectiveChange,
+  hasPptPdf: _hasPptPdf,
+  onTogglePptPdf: _onTogglePptPdf,
+  selectedFileItem: controlledSelectedFile,
+  onSelectFileItem,
+  hasSelection = false,
+  downloadMode
+}: ColumnViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [selectedFileItem, setSelectedFileItem] = useState<NetdiskFileItem | null>(null)
+  const [internalSelectedFile, setInternalSelectedFile] = useState<NetdiskFileItem | null>(null)
+
+  const selectedFileItem = controlledSelectedFile !== undefined ? controlledSelectedFile : internalSelectedFile
+  const setSelectedFileItem = useCallback(
+    (item: NetdiskFileItem | null) => {
+      setInternalSelectedFile(item)
+      onSelectFileItem?.(item)
+    },
+    [onSelectFileItem]
+  )
 
   // 当切换课程或分类时，如果已选文件不在新分类中，则自动清空预览状态
   useEffect(() => {
@@ -1137,7 +2330,7 @@ function ColumnView({
     if (!exists) {
       setSelectedFileItem(null)
     }
-  }, [activeCategory, selectedFileItem])
+  }, [activeCategory, selectedFileItem, setSelectedFileItem])
 
   const scrollToRight = useCallback(() => {
     requestAnimationFrame(() => {
@@ -1163,6 +2356,9 @@ function ColumnView({
         onClick={() => {
           onSelectCourse(c)
           scrollToRight()
+        }}
+        onMouseEnter={() => {
+          c.onHover?.()
         }}
         className={`group flex items-center justify-between px-3 py-2 transition-all cursor-pointer mx-2 my-0.5 rounded-xl ${
           isSelected
@@ -1205,20 +2401,20 @@ function ColumnView({
   return (
     <div
       ref={containerRef}
-      className="flex h-full w-full flex-row overflow-x-auto divide-x divide-bd/60 rounded-2xl border border-bd bg-surface-1 shadow-card select-none scroll-smooth"
+      className="flex h-full w-full flex-row overflow-x-auto divide-x divide-bd rounded-2xl border border-bd bg-surface-1 shadow-card select-none scroll-smooth"
     >
       {/* 第 1 栏：课程列表 */}
       <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full">
-        <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
-          <span>全部课程 ({courses.length})</span>
+        <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
+          <span>全部课程 · {courses.length}</span>
         </div>
-        <div className="flex-1 overflow-y-auto py-2">
+        <div className={`flex-1 overflow-y-auto py-2 ${hasSelection ? 'pb-24' : ''}`}>
           {termGroups ? (
             termGroups.map(group => {
               const termState = getTermTriState(group.items)
               return (
                 <div key={group.term} className="mb-2">
-                  <div className="sticky top-0 z-10 flex items-center justify-between border-y border-bd/40 bg-surface-2/95 px-3 py-1 text-2xs font-semibold text-text-3 backdrop-blur-xs select-none">
+                  <div className="sticky top-0 z-10 flex items-center justify-between border-y border-bd bg-surface-2/95 px-3 py-1 text-2xs font-semibold text-text-3 backdrop-blur-xs select-none">
                     <div className="flex items-center gap-2 min-w-0">
                       <span
                         role="checkbox"
@@ -1232,7 +2428,7 @@ function ColumnView({
                       </span>
                       <span className="truncate">📅 {group.term}</span>
                     </div>
-                    <span className="font-mono text-text-4 shrink-0">({group.items.length})</span>
+                    <span className="font-mono text-text-4 shrink-0">{group.items.length}</span>
                   </div>
                   <div className="pt-1">
                     {group.items.map(c => renderColumnCourseItem(c))}
@@ -1249,10 +2445,10 @@ function ColumnView({
       {/* 第 2 栏：二级资源分类（严格单层步进：仅在选定课程后滑出展示） */}
       {activeCourse && (
         <div className="flex w-64 md:w-72 shrink-0 flex-col bg-surface-1/40 h-full animate-fadeIn">
-          <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
+          <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
             <span className="truncate">{activeCourse.name} · 分类</span>
           </div>
-          <div className="flex-1 overflow-y-auto py-2">
+          <div className={`flex-1 overflow-y-auto py-2 ${hasSelection ? 'pb-24' : ''}`}>
             {activeCourse.isLoading && (
               <div className="flex items-center justify-center gap-2 p-6 text-xs text-text-3">
                 <Spinner size={14} />
@@ -1310,10 +2506,10 @@ function ColumnView({
         </div>
       )}
 
-      {/* 第 3 栏：选定分类内的文件流（严格单层步进：仅在选定分类后滑出展示） */}
+      {/* 第 3 栏：选定分类内的文件流（已彻底移除顶部侵入性 renderExtra） */}
       {activeCourse && activeCategory && (
-        <div className={`flex flex-col bg-surface-1/40 h-full transition-all animate-fadeIn ${selectedFileItem ? 'w-72 md:w-80 shrink-0' : 'flex-1 min-w-[300px]'}`}>
-          <div className="flex h-10 items-center justify-between border-b border-bd/60 bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
+        <div className="flex w-72 md:w-80 shrink-0 flex-col bg-surface-1/40 h-full transition-all animate-fadeIn">
+          <div className="flex h-10 items-center justify-between border-b border-bd bg-surface-2/30 px-4 text-xs font-semibold text-text-2 select-none shrink-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <span
                 role="checkbox"
@@ -1334,21 +2530,19 @@ function ColumnView({
             )}
           </div>
 
-          {activeCategory.renderExtra && (
-            <div className="border-b border-bd/60 p-2.5 bg-surface-2/30 shrink-0">
-              {activeCategory.renderExtra}
-            </div>
-          )}
-
-          <div className="flex-1 overflow-y-auto py-2">
+          <div className={`flex-1 overflow-y-auto py-2 ${hasSelection ? 'pb-24' : ''}`}>
             {activeCategory.items.map(item => {
               const isActive = selectedFileItem?.id === item.id
               return (
                 <div
                   key={item.id}
                   onClick={() => {
-                    setSelectedFileItem(item)
-                    scrollToRight()
+                    if (selectedFileItem?.id === item.id) {
+                      setSelectedFileItem(null)
+                    } else {
+                      setSelectedFileItem(item)
+                      scrollToRight()
+                    }
                   }}
                   className={`group flex flex-col px-3 py-2 transition-all cursor-pointer mx-2 my-0.5 rounded-xl ${
                     isActive
@@ -1385,7 +2579,7 @@ function ColumnView({
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
                       {item.disabledReason ? (
-                        <span className="rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd/40 font-sans">
+                        <span className="rounded bg-surface-3/80 px-1.5 py-0.2 text-2xs text-text-3 border border-bd font-sans">
                           {item.disabledReason}
                         </span>
                       ) : item.size ? (
@@ -1416,133 +2610,17 @@ function ColumnView({
         </div>
       )}
 
-      {/* 第 4 栏：课件/文件详情与大预览卡片 (Inspector / Preview Column) */}
-      {selectedFileItem && (
-        <div className="flex w-80 md:w-96 shrink-0 flex-col bg-surface-1 p-5 overflow-y-auto border-l border-bd/60 select-none h-full">
-          <div className="flex items-center justify-between pb-3 border-b border-bd/60 shrink-0">
-            <span className="text-xs font-bold text-text-2">课件详情与预览</span>
-            <button
-              type="button"
-              onClick={() => setSelectedFileItem(null)}
-              className="text-text-4 hover:text-text-1 text-xs p-1 rounded-md hover:bg-surface-3 transition-colors cursor-pointer"
-              title="关闭详情面板"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="my-4">
-            {(() => {
-              const ext = selectedFileItem.name.split('.').pop()?.toLowerCase() || ''
-              const isVideo = ['mp4', 'mkv', 'mov', 'flv', 'ts', 'webm'].includes(ext) || selectedFileItem.type === 'MP4'
-              const isAudio = ['mp3', 'm4a', 'wav', 'aac', 'flac'].includes(ext)
-
-              if (isVideo) {
-                return (
-                  <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-md">
-                    <div className="flex flex-col items-center justify-center text-white/90 gap-2 p-4 text-center">
-                      <span className="text-4xl">🎬</span>
-                      <span className="text-xs font-semibold">课堂视频 / 录播课件</span>
-                      <span className="text-2xs text-white/60">加入下载清单后即可批量高速下载</span>
-                    </div>
-                  </div>
-                )
-              }
-
-              if (isAudio) {
-                return (
-                  <div className="w-full rounded-xl bg-surface-2 p-5 flex flex-col items-center border border-bd/60 shadow-xs">
-                    <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-3xl mb-2 shadow-inner">
-                      🎵
-                    </div>
-                    <span className="text-xs font-medium text-text-2">音频课件</span>
-                  </div>
-                )
-              }
-
-              return (
-                <div className="w-full rounded-xl bg-surface-2/60 p-6 flex flex-col items-center justify-center border border-bd/60 shadow-xs">
-                  <div className="scale-125 mb-2">
-                    <FileTypeBadge filename={selectedFileItem.name} type={selectedFileItem.type} />
-                  </div>
-                  <span className="text-2xs font-mono font-bold text-text-3 uppercase tracking-wider mt-2">
-                    {ext || selectedFileItem.type || 'DOCUMENT'}
-                  </span>
-                </div>
-              )
-            })()}
-          </div>
-
-          <h3 className="text-sm font-bold text-text-1 break-all select-text leading-snug mb-3 shrink-0" title={selectedFileItem.name}>
-            {selectedFileItem.name}
-          </h3>
-
-          <div className="w-full rounded-xl border border-bd/80 bg-surface-2/60 p-3.5 text-left text-xs divide-y divide-bd/40 space-y-2 mb-4 shrink-0">
-            {activeCourse?.name && (
-              <div className="flex justify-between py-1">
-                <span className="text-text-3">所属课程</span>
-                <span className="font-semibold text-text-1 text-2xs truncate max-w-[180px]" title={activeCourse.name}>
-                  {activeCourse.name}
-                </span>
-              </div>
-            )}
-            {activeCategory?.name && (
-              <div className="flex justify-between py-1">
-                <span className="text-text-3">所属分类</span>
-                <span className="font-semibold text-text-1 text-2xs">
-                  {activeCategory.name}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between py-1">
-              <span className="text-text-3">文件大小</span>
-              <span className="font-mono font-bold text-accent">
-                {selectedFileItem.size ? formatBytes(selectedFileItem.size) : '未知'}
-              </span>
-            </div>
-            {selectedFileItem.date && (
-              <div className="flex justify-between py-1">
-                <span className="text-text-3">讲次/时间</span>
-                <span className="font-mono text-text-2 text-2xs">
-                  {selectedFileItem.date}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between py-1">
-              <span className="text-text-3">状态</span>
-              <span className={`text-2xs font-medium ${selectedFileItem.disabled ? 'text-warning' : selectedFileItem.selected ? 'text-accent' : 'text-text-3'}`}>
-                {selectedFileItem.disabled ? (selectedFileItem.disabledReason || '不可用') : selectedFileItem.selected ? '已加入清单' : '未选择'}
-              </span>
-            </div>
-          </div>
-
-          {selectedFileItem.renderExtra && (
-            <div className="w-full mb-4 p-3 rounded-xl bg-surface-2/50 border border-bd/50 text-xs shrink-0">
-              <div className="text-2xs font-semibold text-text-3 mb-1.5 uppercase tracking-wider">资源属性</div>
-              {selectedFileItem.renderExtra}
-            </div>
-          )}
-
-          <div className="flex flex-col gap-2 mt-auto shrink-0 pt-2">
-            <button
-              type="button"
-              disabled={selectedFileItem.disabled}
-              onClick={() => {
-                if (selectedFileItem.disabled) return
-                selectedFileItem.onToggle()
-              }}
-              className={`w-full flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all cursor-pointer ${
-                selectedFileItem.disabled
-                  ? 'bg-surface-3 text-text-4 cursor-not-allowed opacity-60'
-                  : selectedFileItem.selected
-                  ? 'bg-accent text-white shadow-glow-sm hover:bg-accent-light active:scale-[0.98]'
-                  : 'border border-bd bg-surface-2 text-text-1 hover:bg-surface-3 active:scale-[0.98]'
-              }`}
-            >
-              <span>{selectedFileItem.selected ? '✓ 已加入下载清单 (点击取消)' : '+ 加入下载清单'}</span>
-            </button>
-          </div>
-        </div>
+      {/* 第 4 栏：课件详情与预览（仅在点击具体课件时滑出展示，无选定文件时保持纯净分栏） */}
+      {activeCourse && selectedFileItem && (
+        <FileDetailInspector
+          item={selectedFileItem}
+          course={activeCourse}
+          category={activeCategory}
+          onClose={() => setSelectedFileItem(null)}
+          onDownloadSingle={onDownloadSingle}
+          hasSelection={hasSelection}
+          downloadMode={downloadMode}
+        />
       )}
     </div>
   )

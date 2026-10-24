@@ -1,8 +1,9 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption } from '@shared/types'
+import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption, VideoPerspective, PrivateWorkerConfig } from '@shared/types'
 import { DEFAULT_NAMING_TEMPLATE } from '@shared/utils'
+import { APP_DEFAULTS } from '@shared/config/defaults'
 
 /** 应用主 stage：欢迎页 → 登录 → 浏览器/下载界面 */
 export type Stage = 'welcome' | 'login' | 'browser'
@@ -95,6 +96,8 @@ interface AppState {
   /** 同名文件冲突策略：skip=跳过，overwrite=先删除再下载/上传 */
   fileConflictStrategy: FileConflictStrategy
   localDestRoot: string
+  /** 云盘备份保存的根目录（默认 '/SJTU课程备份'） */
+  cloudDestRoot: string
   /** HLS 模块视频重编码目标高度（720/1080）；不设置 = 不重编码（保留原始质量）。
    *  解决 tv.sjtu.edu.cn 超高分辨率 I-frame-only 源在系统播放器中花屏/卡死的问题。 */
   hlsTranscodeMaxHeight?: 720 | 1080
@@ -116,6 +119,10 @@ interface AppState {
   namingTemplate: string
   /** 视频下载画质/纯音频选项 */
   videoQualityOption: VideoQualityOption
+  /** 默认录播镜头机位偏好（all/teacher/ppt/audio） */
+  videoPerspectivePreference: VideoPerspective
+  /** 默认提取并合成 PPT 讲义 PDF */
+  autoExportPptPdf: boolean
   /** 已下载历史记录 */
   downloadHistory: DownloadHistoryItem[]
   /** 并发下载数，2-16，会同步到主进程。0 = 自动 */
@@ -148,11 +155,31 @@ interface AppState {
   showSetupWizardModal: boolean
   /** PPT 讲义导出时是否同时保留高清切片图片目录 */
   pptSaveImages: boolean
-  /** 课堂视频下载时是否同步导出 AI 字幕 (.srt) 与逐字稿笔记 (.md) */
+  /** 课堂视频下载时是否同步导出 AI 字幕 (.srt) 与逐字稿笔记 (.md)（兼容字段，与 canvasExportSrt || canvasExportMarkdown 联动） */
   canvasExportAiTranscript: boolean
+  /** 课堂视频下载时是否同步导出 SRT 字幕文件（默认 true） */
+  canvasExportSrt: boolean
+  /** 课堂视频下载时是否同步导出 Markdown 格式逐字稿（默认 true） */
+  canvasExportMarkdown: boolean
+  /** Canvas 课程作业与提交归档导出选项 */
+  canvasAssignmentOptions: CanvasAssignmentExportOptions
+  /** 校内私有中转服务配置（实验性） */
+  privateWorkerConfig: PrivateWorkerConfig
+  /** 更新校内私有中转服务配置 */
+  setPrivateWorkerConfig: (cfg: Partial<PrivateWorkerConfig>) => void
   // setters
-  /** 切换 AI 字幕与逐字稿导出开关 */
+  /** 切换 AI 字幕与逐字稿导出开关（向下兼容向导与旧设置，联动更新 srt 和 markdown） */
   setCanvasExportAiTranscript: (on: boolean) => void
+  /** 切换课堂视频 SRT 字幕导出开关 */
+  setCanvasExportSrt: (on: boolean) => void
+  /** 切换课堂视频 Markdown 逐字稿导出开关 */
+  setCanvasExportMarkdown: (on: boolean) => void
+  /** 更新 Canvas 课程作业导出选项 */
+  setCanvasAssignmentOptions: (
+    opts:
+      | Partial<CanvasAssignmentExportOptions>
+      | ((prev: CanvasAssignmentExportOptions) => CanvasAssignmentExportOptions)
+  ) => void
   /** 标记是否完成首次初始化配置 */
   setHasCompletedInitialSetup: (completed: boolean) => void
   /** 记录上次完成向导确认的应用版本号 */
@@ -270,6 +297,8 @@ interface AppState {
   setAutoDownloadUpdate: (on: boolean) => void
   /** 设置本地下载目录路径 */
   setLocalDestRoot: (p: string) => void
+  /** 设置云盘备份保存的根目录路径 */
+  setCloudDestRoot: (p: string) => void
   /** 更新 both 模式下 localTaskId → cloudTaskId 的映射 */
   setCloudLinkedIds: (m: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) => void
   /** 标记是否有任务正在下载中 */
@@ -300,12 +329,20 @@ interface AppState {
   addDownloadHistory: (item: DownloadHistoryItem) => void
   /** 移除单条已下载历史记录 */
   removeDownloadHistoryItem: (taskId: string) => void
+  /** 从进度表删除单条（含 _cloud 镜像）——仅终态条目可删。
+   *  TransferCenter「移除」用：提交失败等主进程不认识的任务，cancel 后主进程
+   *  不会回发终态，行会永远留在列表里；本地直接删除即可。 */
+  removeProgressItem: (taskId: string) => void
   /** 清空所有已下载历史记录 */
   clearDownloadHistory: () => void
   /** 设置下载并发数（0 = 自动） */
   setConcurrency: (n: number) => void
   /** 切换 PPT 讲义切片原图保存开关 */
   setPptSaveImages: (on: boolean) => void
+  /** 设置默认录播镜头机位偏好 */
+  setVideoPerspectivePreference: (p: VideoPerspective) => void
+  /** 设置默认提取并合成 PPT 讲义 PDF 开关 */
+  setAutoExportPptPdf: (on: boolean) => void
 }
 
 const emptyScanResults = {
@@ -320,7 +357,7 @@ const emptyScanResults = {
 }
 
 const clampConcurrency = (n: number): number =>
-  Math.max(1, Math.min(16, Math.floor(Number.isFinite(n) ? n : 3) || 3))
+  Math.max(1, Math.min(16, Math.floor(Number.isFinite(n) ? n : APP_DEFAULTS.concurrency) || APP_DEFAULTS.concurrency))
 
 /** both 模式下，把云端进度合并到本地 taskId 对应的条目上；
  *  单任务组件（AngleCell）直接订阅此 selector 即可拿到聚合后的状态。
@@ -451,14 +488,17 @@ export const useAppStore = create<AppState>()(
       cloudSpaceInfo: null,
       cloudConnStatus: 'idle' as 'idle' | 'connecting' | 'error',
       cloudConnMessage: '',
-      downloadMode: 'cloud',
-      fileConflictStrategy: 'skip' as FileConflictStrategy,
-      localDestRoot: '',
+      downloadMode: APP_DEFAULTS.downloadMode,
+      fileConflictStrategy: APP_DEFAULTS.fileConflictStrategy,
+      localDestRoot: APP_DEFAULTS.defaultLocalDestRoot,
+      cloudDestRoot: APP_DEFAULTS.defaultCloudDestRoot,
       cloudLinkedIds: {},
       batchTaskIds: [],
-      concurrency: 3,
+      concurrency: APP_DEFAULTS.concurrency,
       autoDownloadUpdate: false,
-      courseViewMode: 'grid' as CourseViewMode,
+      courseViewMode: APP_DEFAULTS.courseViewMode,
+      videoPerspectivePreference: APP_DEFAULTS.videoPerspectivePreference,
+      autoExportPptPdf: true,
       canvasGroupByTerm: true,
       canvasSelectedTerm: 'all',
       scheduleSelectedSemesterKey: 'current',
@@ -466,18 +506,68 @@ export const useAppStore = create<AppState>()(
       scheduleLayerFilter: { course: true, activity: true, ddl: true },
       scheduleExpandNoonSlot: false,
       lastCourseTab: 'canvas' as 'canvas' | 'audited' | 'cnmooc',
-      windowCloseAction: 'tray' as WindowCloseAction,
-      exitWhenDownloading: 'prompt' as ExitWhenDownloadingPolicy,
+      windowCloseAction: APP_DEFAULTS.windowCloseAction,
+      exitWhenDownloading: APP_DEFAULTS.exitWhenDownloadingPolicy,
       hasCompletedInitialSetup: false,
       lastSetupVersion: null,
       showSetupWizardModal: false,
       pptSaveImages: false,
-      canvasExportAiTranscript: false,
+      canvasExportAiTranscript: true,
+      canvasExportSrt: true,
+      canvasExportMarkdown: true,
+      canvasAssignmentOptions: {
+        exportMarkdown: true,
+        downloadAttachments: true,
+        downloadSubmissions: true
+      },
+      privateWorkerConfig: {
+        ...APP_DEFAULTS.privateWorker
+      },
+      setPrivateWorkerConfig: cfg =>
+        set(state => ({
+          privateWorkerConfig: {
+            ...state.privateWorkerConfig,
+            ...cfg
+          }
+        })),
       setHasCompletedInitialSetup: hasCompletedInitialSetup => set({ hasCompletedInitialSetup }),
       setLastSetupVersion: lastSetupVersion => set({ lastSetupVersion }),
       setShowSetupWizardModal: showSetupWizardModal => set({ showSetupWizardModal }),
       setPptSaveImages: pptSaveImages => set({ pptSaveImages }),
-      setCanvasExportAiTranscript: canvasExportAiTranscript => set({ canvasExportAiTranscript }),
+      setVideoPerspectivePreference: p =>
+        set(state => ({
+          videoPerspectivePreference: p,
+          videoQualityOption:
+            p === 'audio'
+              ? 'audio_only'
+              : state.videoQualityOption === 'audio_only'
+                ? APP_DEFAULTS.videoQualityOption
+                : state.videoQualityOption
+        })),
+      setAutoExportPptPdf: autoExportPptPdf => set({ autoExportPptPdf }),
+      setCanvasExportAiTranscript: canvasExportAiTranscript =>
+        set({
+          canvasExportAiTranscript,
+          canvasExportSrt: canvasExportAiTranscript,
+          canvasExportMarkdown: canvasExportAiTranscript
+        }),
+      setCanvasExportSrt: on =>
+        set(state => ({
+          canvasExportSrt: on,
+          canvasExportAiTranscript: on || state.canvasExportMarkdown
+        })),
+      setCanvasExportMarkdown: on =>
+        set(state => ({
+          canvasExportMarkdown: on,
+          canvasExportAiTranscript: state.canvasExportSrt || on
+        })),
+      setCanvasAssignmentOptions: opts =>
+        set(state => ({
+          canvasAssignmentOptions:
+            typeof opts === 'function'
+              ? opts(state.canvasAssignmentOptions)
+              : { ...state.canvasAssignmentOptions, ...opts }
+        })),
       setWindowCloseAction: windowCloseAction => set({ windowCloseAction }),
       setExitWhenDownloading: exitWhenDownloading => set({ exitWhenDownloading }),
       setTheme: theme => set({ theme }),
@@ -641,6 +731,7 @@ export const useAppStore = create<AppState>()(
       setHlsTranscodeMaxHeight: hlsTranscodeMaxHeight => set({ hlsTranscodeMaxHeight }),
       setAutoDownloadUpdate: autoDownloadUpdate => set({ autoDownloadUpdate }),
       setLocalDestRoot: localDestRoot => set({ localDestRoot }),
+      setCloudDestRoot: cloudDestRoot => set({ cloudDestRoot }),
       setCloudLinkedIds: (m: Record<string, string> | ((prev: Record<string, string>) => Record<string, string>)) =>
         set(state => ({ cloudLinkedIds: typeof m === 'function' ? m(state.cloudLinkedIds) : m })),
       setDownloading: downloading => set({ downloading }),
@@ -725,23 +816,40 @@ export const useAppStore = create<AppState>()(
               for (const [tid, prog] of batch) {
                 next[tid] = prog
                 if (prog.state === 'done' && (prog.filePath || prog.cloudPath)) {
-                  const alreadyExists = nextHistory.some(h => {
+                  const baseId = tid.replace(/_cloud$/, '')
+                  const existingIndex = nextHistory.findIndex(h => {
+                    const hBaseId = h.taskId.replace(/_cloud$/, '')
+                    if (hBaseId === baseId) return true
                     const localMatch = !!(prog.filePath && h.filePath === prog.filePath)
                     const cloudMatch = !!(prog.cloudPath && h.cloudPath === prog.cloudPath)
                     return localMatch || cloudMatch
                   })
-                  if (!alreadyExists) {
+                  if (existingIndex >= 0) {
+                    // 已有记录（both 模式另一侧先完成）：补全路径与元数据，不重复增行
+                    if (!historyUpdated) {
+                      nextHistory = [...nextHistory]
+                      historyUpdated = true
+                    }
+                    const existing = nextHistory[existingIndex]
+                    nextHistory[existingIndex] = {
+                      ...existing,
+                      filePath: prog.filePath || existing.filePath,
+                      cloudPath: prog.cloudPath || existing.cloudPath,
+                      fileName: prog.fileName || existing.fileName
+                    }
+                  } else {
                     if (!historyUpdated) {
                       nextHistory = [...nextHistory]
                       historyUpdated = true
                     }
                     const displayPath = prog.filePath || prog.cloudPath || tid
+                    const fileName = prog.fileName || displayPath.split(/[/\\]/).pop() || tid
                     const fileSize = (prog.total && prog.total > 0)
                       ? prog.total
                       : (prog.received && prog.received > 0 ? prog.received : undefined)
                     nextHistory.unshift({
-                      taskId: tid,
-                      fileName: displayPath.split(/[/\\]/).pop() || tid,
+                      taskId: baseId,
+                      fileName,
                       filePath: prog.filePath,
                       cloudPath: prog.cloudPath,
                       fileSize,
@@ -756,9 +864,9 @@ export const useAppStore = create<AppState>()(
           })
         }
       },
-      maxDownloadSpeedKBps: 0,
+      maxDownloadSpeedKBps: APP_DEFAULTS.maxDownloadSpeedKBps,
       namingTemplate: DEFAULT_NAMING_TEMPLATE,
-      videoQualityOption: 'origin',
+      videoQualityOption: APP_DEFAULTS.videoQualityOption,
       downloadHistory: [],
       setMaxDownloadSpeedKBps: n => {
         const val = Math.max(0, n)
@@ -769,17 +877,67 @@ export const useAppStore = create<AppState>()(
       setVideoQualityOption: q => set({ videoQualityOption: q }),
       addDownloadHistory: item =>
         set(state => {
+          const baseId = item.taskId.replace(/_cloud$/, '')
           const alreadyExists = state.downloadHistory.some(h => {
+            const hBaseId = h.taskId.replace(/_cloud$/, '')
+            if (hBaseId === baseId) return true
             const localMatch = !!(item.filePath && h.filePath === item.filePath)
             const cloudMatch = !!(item.cloudPath && h.cloudPath === item.cloudPath)
             return localMatch || cloudMatch
           })
           if (alreadyExists) return {}
-          return { downloadHistory: [item, ...state.downloadHistory].slice(0, 300) }
+          return { downloadHistory: [{ ...item, taskId: baseId }, ...state.downloadHistory].slice(0, 300) }
         }),
       removeDownloadHistoryItem: taskId =>
-        set(state => ({ downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId) })),
-      clearDownloadHistory: () => set({ downloadHistory: [] }),
+        set(state => {
+          // [Bug Fix] 联动删 progress 终态条目 + 主进程快照：否则刷新页面后
+          // 快照恢复 → applyProgress(done) 会把刚删的历史"复活"。
+          // 仅删终态条目（done/skipped/cancelled），在传/失败任务不动。
+          const baseId = taskId.replace(/_cloud$/, '')
+          const nextProg = { ...state.progress }
+          for (const id of [baseId, baseId + '_cloud']) {
+            const p = nextProg[id]
+            if (p && (p.state === 'done' || p.state === 'skipped' || p.state === 'cancelled')) {
+              delete nextProg[id]
+            }
+          }
+          if (typeof window !== 'undefined' && window.api?.download?.deleteSnapshot) {
+            void window.api.download.deleteSnapshot(baseId).catch(() => {})
+          }
+          return {
+            downloadHistory: state.downloadHistory.filter(h => h.taskId !== taskId),
+            progress: nextProg
+          }
+        }),
+      clearDownloadHistory: () => {
+        set(state => {
+          const nextProg = { ...state.progress }
+          for (const [tid, p] of Object.entries(nextProg)) {
+            if (p.state === 'done' || p.state === 'skipped' || p.state === 'cancelled') {
+              delete nextProg[tid]
+            }
+          }
+          return { downloadHistory: [], progress: nextProg }
+        })
+        if (typeof window !== 'undefined' && window.api?.download?.clearFinishedSnapshots) {
+          void window.api.download.clearFinishedSnapshots().catch(() => {})
+        }
+      },
+      removeProgressItem: taskId =>
+        set(state => {
+          const baseId = taskId.replace(/_cloud$/, '')
+          const nextProg = { ...state.progress }
+          for (const id of [baseId, baseId + '_cloud']) {
+            const p = nextProg[id]
+            // 仅删终态（含 error）：error 属于终态且重试语义走 resumeTask 的 runtime，
+            // 删条目不影响主进程重试；在传任务（downloading/pending/paused）不可删，
+            // 必须走 cancel 让主进程停掉。
+            if (p && (p.state === 'done' || p.state === 'skipped' || p.state === 'cancelled' || p.state === 'error')) {
+              delete nextProg[id]
+            }
+          }
+          return { progress: nextProg }
+        }),
       setConcurrency: n => {
         const val = n === 0 ? 0 : clampConcurrency(n)
         set({ concurrency: val })
@@ -808,9 +966,24 @@ export const useAppStore = create<AppState>()(
           persisted.activeTab === 'settings' || persisted.activeTab === 'transfer' || persisted.activeTab === 'cloudpan'
             ? persisted.lastCourseTab || currentState.lastCourseTab || 'canvas'
             : (persisted.activeTab ?? currentState.activeTab)
+        const canvasExportSrt = typeof persisted.canvasExportSrt === 'boolean'
+          ? persisted.canvasExportSrt
+          : (typeof persisted.canvasExportAiTranscript === 'boolean' ? persisted.canvasExportAiTranscript : currentState.canvasExportSrt)
+        const canvasExportMarkdown = typeof persisted.canvasExportMarkdown === 'boolean'
+          ? persisted.canvasExportMarkdown
+          : (typeof persisted.canvasExportAiTranscript === 'boolean' ? persisted.canvasExportAiTranscript : currentState.canvasExportMarkdown)
+        const canvasAssignmentOptions: CanvasAssignmentExportOptions = {
+          ...currentState.canvasAssignmentOptions,
+          ...(persisted.canvasAssignmentOptions ?? {})
+        }
         return {
           ...currentState,
           ...persisted,
+          cloudDestRoot: persisted.cloudDestRoot ?? currentState.cloudDestRoot,
+          canvasExportSrt,
+          canvasExportMarkdown,
+          canvasExportAiTranscript: canvasExportSrt || canvasExportMarkdown,
+          canvasAssignmentOptions,
           activeTab
         }
       },
@@ -853,11 +1026,14 @@ export const useAppStore = create<AppState>()(
         downloadMode: state.downloadMode,
         fileConflictStrategy: state.fileConflictStrategy,
         localDestRoot: state.localDestRoot,
+        cloudDestRoot: state.cloudDestRoot,
         cnmoocResourceFilter: state.cnmoocResourceFilter,
         autoDownloadUpdate: state.autoDownloadUpdate,
         maxDownloadSpeedKBps: state.maxDownloadSpeedKBps,
         namingTemplate: state.namingTemplate,
         videoQualityOption: state.videoQualityOption,
+        videoPerspectivePreference: state.videoPerspectivePreference,
+        autoExportPptPdf: state.autoExportPptPdf,
         downloadHistory: state.downloadHistory,
         courseViewMode: state.courseViewMode,
         canvasGroupByTerm: state.canvasGroupByTerm,
@@ -873,7 +1049,11 @@ export const useAppStore = create<AppState>()(
         hasCompletedInitialSetup: state.hasCompletedInitialSetup,
         lastSetupVersion: state.lastSetupVersion,
         pptSaveImages: state.pptSaveImages,
-        canvasExportAiTranscript: state.canvasExportAiTranscript
+        canvasExportAiTranscript: state.canvasExportAiTranscript,
+        canvasExportSrt: state.canvasExportSrt,
+        canvasExportMarkdown: state.canvasExportMarkdown,
+        canvasAssignmentOptions: state.canvasAssignmentOptions,
+        privateWorkerConfig: state.privateWorkerConfig
       })
     }
   )

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   formatSrtTime,
   formatTimelineTime,
@@ -10,7 +10,7 @@ import {
 } from '../../src/main/canvas/transcript-download'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 
 describe('Canvas AI Speech Transcript & SRT Generator Unit Tests', () => {
   describe('formatSrtTime', () => {
@@ -148,7 +148,7 @@ describe('Canvas AI Speech Transcript & SRT Generator Unit Tests', () => {
   })
 
   describe('downloadLectureTranscript', () => {
-    const testDir = join(tmpdir(), 'test_canvas_transcript_' + Date.now())
+    const testDir = mkdtempSync(join(tmpdir(), 'test_canvas_transcript_'))
 
     afterEach(() => {
       if (existsSync(testDir)) {

@@ -4,8 +4,12 @@ import { describe, it, expect } from 'vitest'
 import {
   processPptSlices,
   formatSliceFileName,
-  buildPptSliceDirName
+  buildPptSliceDirName,
+  mergeImagesToPdf
 } from '../../src/main/canvas/ppt-download'
+import { writeFileSync, unlinkSync, existsSync, statSync, mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 import {
   resolveBundledFfmpeg,
@@ -301,6 +305,48 @@ describe('M3 Adversarial Stress Testing Suite: PPT Slices (R2-F7) & FFmpeg Path 
     it('maintains parity for resolveBundledFfmpeg', () => {
       const bundled = 'C:\\resources\\app.asar\\ffmpeg.exe'
       expect(resolveBundledFfmpeg(bundled, () => false)).toBe(contractResolveBundledFfmpeg(bundled, () => false))
+    })
+  })
+
+  // =========================================================================
+  // Section 6: mergeImagesToPdf Resilient PDF Generation & Async Handling
+  // =========================================================================
+  describe('6. mergeImagesToPdf Resilient PDF Generation & Corrupt Slice Handling', () => {
+    it('gracefully handles corrupt images and html error pages without throwing', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'ppt_test_'))
+      try {
+        const validPngPath = join(tempDir, 'valid.png')
+        // 1x1 valid transparent PNG
+        const pngBuf = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082', 'hex')
+        writeFileSync(validPngPath, pngBuf)
+
+        const corruptPath = join(tempDir, 'corrupt.jpg')
+        writeFileSync(corruptPath, Buffer.from('<html><body>502 Bad Gateway</body></html>'))
+
+        const outPdfPath = join(tempDir, 'merged.pdf')
+        await mergeImagesToPdf([validPngPath, corruptPath], outPdfPath)
+
+        expect(existsSync(outPdfPath)).toBe(true)
+        expect(statSync(outPdfPath).size).toBeGreaterThan(100)
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
+    })
+
+    it('creates a non-empty fallback page if all slice images are corrupted', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'ppt_test_corrupt_'))
+      try {
+        const corruptPath = join(tempDir, 'bad.png')
+        writeFileSync(corruptPath, Buffer.from('bad data here'))
+
+        const outPdfPath = join(tempDir, 'corrupt_merged.pdf')
+        await mergeImagesToPdf([corruptPath], outPdfPath)
+
+        expect(existsSync(outPdfPath)).toBe(true)
+        expect(statSync(outPdfPath).size).toBeGreaterThan(100)
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
     })
   })
 })

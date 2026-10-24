@@ -110,7 +110,7 @@ export function WindowConfirmModal() {
         onClick={() => close('cancel')}
       />
       {/* Mac 风格弹窗卡片 */}
-      <div className="relative w-[360px] animate-fadeIn rounded-2xl border border-white/10 bg-surface-1 p-5 shadow-2xl">
+      <div className="relative w-[360px] animate-fadeIn rounded-2xl border border-bd-strong bg-surface-1 p-5 shadow-2xl">
         <div className="flex flex-col items-center gap-3 text-center">
           {/* 标题图标 */}
           <div

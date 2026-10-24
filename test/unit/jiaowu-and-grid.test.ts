@@ -1,20 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   fetchJiaowuSchedule,
-  isJiaowuSessionValid,
   invalidateJiaowuLogin
 } from '../../src/main/schedule/schedule-fetcher'
 import {
   isWeekInZcd,
   getSlotIdFromJc,
-  getSlotIdFromTime,
   getSlotRangeFromJc,
   getSlotRangeFromTime,
   clusterDayEvents,
   getEventDisplayTime,
   parseWeekNumber,
   formatWeeksRange,
-  SJTU_TIME_SLOTS
+  getAssignmentStatusInfo
 } from '../../src/renderer/src/pages/ScheduleBrowser'
 import { isSafeExternalUrl, normalizeCanvasUrl } from '../../src/shared/utils'
 
@@ -177,6 +175,14 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(getSlotRangeFromTime('18:00', '21:30').span).toBe(1)
     })
 
+    it('maps Xuhui and Medical School afternoon times (13:30 ~ 15:10) to Slot 4 (第 7-8 节) with span 1', () => {
+      const resXuhui = getSlotRangeFromTime('13:30', '15:10')
+      expect(resXuhui.startSlot).toBe(4)
+      expect(resXuhui.endSlot).toBe(4)
+      expect(resXuhui.span).toBe(1)
+      expect(resXuhui.isLabOrLongSession).toBe(false)
+    })
+
     it('maps 12:00 ~ 17:40 long lab to span 3', () => {
       const res = getSlotRangeFromTime('12:00', '17:40')
       expect(res.startSlot).toBe(3)
@@ -259,7 +265,7 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
         endTime: '2026-10-14 15:40:00',
         type: 'course' as const
       }
-      expect(getEventDisplayTime(ideologicalEvent)).toBe('12:55 ~ 15:40 (第6-8节)')
+      expect(getEventDisplayTime(ideologicalEvent)).toBe('12:55 ~ 15:40 · 第6-8节')
     })
 
     it('formats 5-10节 long lab course with full time range and duration', () => {
@@ -366,7 +372,7 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(res.studentName).toBe('张三')
       expect(res.studentId).toBe('525080910001')
       expect(res.studentGrade).toBe('2025')
-      expect(res.termTitle).toContain('2026-2027学年 第1学期 (秋季)')
+      expect(res.termTitle).toContain('2026-2027 秋季学期')
     })
 
     it('extracts studentGrade preferentially from NJDM_ID', async () => {
@@ -435,13 +441,13 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       const list: Array<{ key: string; label: string }> = []
       for (let y = currentXnm; y >= enrollmentYear; y--) {
         if (y === currentXnm) {
-          list.push({ key: `${y}_3`, label: `${y}-${y + 1}学年 第1学期 (秋季 · 官方教务)` })
+          list.push({ key: `${y}_3`, label: `${y}-${y + 1} 秋季学期` })
         } else {
-          list.push({ key: `${y}_16`, label: `${y}-${y + 1}学年 第3学期 (夏季小学期)` })
-          list.push({ key: `${y}_12`, label: `${y}-${y + 1}学年 第2学期 (春季)` })
+          list.push({ key: `${y}_16`, label: `${y}-${y + 1} 夏季小学期` })
+          list.push({ key: `${y}_12`, label: `${y}-${y + 1} 春季学期` })
           list.push({
             key: `${y}_3`,
-            label: `${y}-${y + 1}学年 第1学期 (秋季${y === enrollmentYear ? ' · 入学学期' : ''})`
+            label: `${y}-${y + 1} 秋季学期`
           })
         }
       }
@@ -454,7 +460,7 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(keys).toEqual(['2026_3', '2025_16', '2025_12', '2025_3'])
       expect(keys).not.toContain('2024_3')
       expect(keys).not.toContain('2023_3')
-      expect(semesters.find(s => s.key === '2025_3')?.label).toContain('入学学期')
+      expect(semesters.find(s => s.key === '2025_3')?.label).toBe('2025-2026 秋季学期')
     })
 
     it('includes earlier semesters only for senior students (e.g. 2023 grade)', () => {
@@ -464,7 +470,7 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(keys).toContain('2025_3')
       expect(keys).toContain('2024_3')
       expect(keys).toContain('2023_3')
-      expect(semesters.find(s => s.key === '2023_3')?.label).toContain('入学学期')
+      expect(semesters.find(s => s.key === '2023_3')?.label).toBe('2023-2024 秋季学期')
     })
   })
 
@@ -574,6 +580,63 @@ describe('Jiaowu Schedule & Horizontal Grid Unit Tests', () => {
       expect(normalizeCanvasUrl('')).toBe('')
       expect(normalizeCanvasUrl('   ')).toBe('')
       expect(normalizeCanvasUrl(undefined)).toBe('')
+    })
+  })
+
+  describe('Assignment Status and Badges (4 态个人提交与锁定截止)', () => {
+    it('returns correct status info for graded with score', () => {
+      const info = getAssignmentStatusInfo('graded', 95)
+      expect(info.label).toBe('✓ 已评分 95分')
+      expect(info.badgeClass).toContain('text-blue-600')
+      expect(info.cardBgClass).toContain('bg-blue-500/5')
+    })
+
+    it('returns correct status info for graded without score', () => {
+      const info = getAssignmentStatusInfo('graded', null)
+      expect(info.label).toBe('✓ 已评分')
+      expect(info.badgeClass).toContain('text-blue-600')
+    })
+
+    it('returns correct status info for submitted', () => {
+      const info = getAssignmentStatusInfo('submitted')
+      expect(info.label).toBe('✓ 已提交')
+      expect(info.badgeClass).toContain('text-emerald-600')
+      expect(info.cardBgClass).toContain('bg-emerald-500/5')
+    })
+
+    it('returns correct status info for missing (逾期)', () => {
+      const info = getAssignmentStatusInfo('missing')
+      expect(info.label).toBe('✕ 已逾期')
+      expect(info.badgeClass).toContain('text-rose-600')
+      expect(info.cardBgClass).toContain('bg-rose-500/10')
+    })
+
+    it('returns correct status info for unsubmitted (待提交) and undefined fallback', () => {
+      const info1 = getAssignmentStatusInfo('unsubmitted')
+      expect(info1.label).toBe('⏳ 待提交')
+      expect(info1.badgeClass).toContain('text-amber-600')
+
+      const info2 = getAssignmentStatusInfo(undefined)
+      expect(info2.label).toBe('⏳ 待提交')
+      expect(info2.badgeClass).toContain('text-amber-600')
+    })
+
+    it('sorts assignments with dated deadlines first and undated assignments last', () => {
+      const assignments = [
+        { id: '1', title: '大物实验A', startTime: '' },
+        { id: '2', title: '微积分期中作业', startTime: '2026-10-25 23:59' },
+        { id: '3', title: '程序设计大作业', startTime: '2026-10-15 12:00' },
+        { id: '4', title: '英语读写拓展', startTime: '' }
+      ]
+
+      const sorted = [...assignments].sort((a, b) => {
+        if (!a.startTime && !b.startTime) return a.title.localeCompare(b.title)
+        if (!a.startTime) return 1
+        if (!b.startTime) return -1
+        return a.startTime.localeCompare(b.startTime)
+      })
+
+      expect(sorted.map(s => s.id)).toEqual(['3', '2', '1', '4'])
     })
   })
 })

@@ -13,7 +13,7 @@ import { TransferCenter } from './pages/TransferCenter'
 import { Settings } from './pages/Settings'
 import { CloudPanExplorer } from './pages/CloudPanExplorer'
 import { ScheduleBrowser } from './pages/ScheduleBrowser'
-import { useDownloadProgressSubscription } from './hooks/useSharedBrowserHooks'
+import { useDownloadProgressSubscription, useGlobalDownloadCompletion } from './hooks/useSharedBrowserHooks'
 import { prefetchCanvasCourses, prefetchCnmoocCourses, prefetchCloudConnection } from './services/prefetch'
 import type { ActiveTab } from '@shared/types'
 
@@ -56,12 +56,10 @@ export default function App() {
     }
   }
 
-  const handleBackToCourses = () => {
-    setActiveTab(previousCourseTab)
-  }
-
   // Subscribe to download progress once at App level
   useDownloadProgressSubscription()
+  // [Bug Fix / 重载语义] 接管快照恢复批次的收尾（页面级 hook 在重载后不会收尾）
+  useGlobalDownloadCompletion()
 
   const handleLogout = useCallback(async () => {
     try {
@@ -191,17 +189,17 @@ export default function App() {
               )}
               {visitedTabs.has('transfer') && (
                 <div className={`h-full w-full flex-col ${activeTab === 'transfer' ? 'flex' : 'hidden'}`}>
-                  <TransferCenter onBack={handleBackToCourses} />
+                  <TransferCenter />
                 </div>
               )}
               {visitedTabs.has('settings') && (
                 <div className={`h-full w-full flex-col ${activeTab === 'settings' ? 'flex' : 'hidden'}`}>
-                  <Settings onBack={handleBackToCourses} onLogout={() => void handleLogout()} />
+                  <Settings onLogout={() => void handleLogout()} />
                 </div>
               )}
               {visitedTabs.has('cloudpan') && (
                 <div className={`h-full w-full flex-col ${activeTab === 'cloudpan' ? 'flex' : 'hidden'}`}>
-                  <CloudPanExplorer onBack={handleBackToCourses} />
+                  <CloudPanExplorer />
                 </div>
               )}
             </div>

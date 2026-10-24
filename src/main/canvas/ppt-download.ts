@@ -5,8 +5,9 @@
  * 并发下载到临时目录后用 pdf-lib 合并为单个 PDF 文件，最后清理临时文件。
  * 支持 cloud/both 模式：生成 PDF 后由 orchestrator 上传云盘（destRoot 空时 PDF 仅作中间产物）。
  */
-import type Electron from 'electron'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { nativeImage } from 'electron'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { PDFDocument, type PDFImage } from 'pdf-lib'
@@ -176,43 +177,91 @@ async function downloadPptImage(
     throw new Error(`下载 PPT 图片失败: HTTP ${resp.status}`)
   }
   const arrayBuffer = await resp.arrayBuffer()
-  writeFileSync(destPath, Buffer.from(arrayBuffer))
+  await writeFile(destPath, Buffer.from(arrayBuffer))
 }
 
 // ─── 图片合并为 PDF ───────────────────────────────────────────
 
-/** 按图片真实字节判断类型并嵌入：PNG 用 embedPng，其余按 JPG 处理。
- *  课堂视频截图默认是 JPG，但服务端可能返回 PNG；embedJpg 遇到 PNG 会抛错，故按字节分流。 */
-async function embedImage(pdfDoc: PDFDocument, bytes: Buffer): Promise<PDFImage> {
-  // PNG 魔数：89 50 4E 47（.PNG）；JPG 魔数：FF D8 FF
-  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
-    return pdfDoc.embedPng(bytes)
+/** 按图片真实字节判断类型并嵌入：
+ * 1. PNG 魔数 (89 50 4E 47) 用 embedPng；
+ * 2. JPG 魔数 (FF D8) 用 embedJpg；
+ * 3. 其余格式 (WebP, GIF, BMP 等) 通过 Electron nativeImage 转为 PNG Buffer 后用 embedPng 嵌入；
+ * 4. 彻底损坏或不可解析的图片返回 null，由上层优雅跳过并保留其余课件。 */
+async function embedImage(pdfDoc: PDFDocument, bytes: Buffer): Promise<PDFImage | null> {
+  if (!bytes || bytes.length < 4) return null
+
+  // 1. PNG: 89 50 4E 47
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    try {
+      return await pdfDoc.embedPng(bytes)
+    } catch {
+      // 容灾转入 nativeImage 兜底
+    }
   }
-  return pdfDoc.embedJpg(bytes)
+
+  // 2. JPEG: FF D8
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    try {
+      return await pdfDoc.embedJpg(bytes)
+    } catch {
+      // 容灾转入 nativeImage 兜底
+    }
+  }
+
+  // 3. WebP / BMP / GIF 或非标格式分流：通过 Electron 内置 nativeImage 转换为标准 PNG Buffer
+  try {
+    const img = nativeImage.createFromBuffer(bytes)
+    if (!img.isEmpty()) {
+      const pngBuffer = img.toPNG()
+      if (pngBuffer && pngBuffer.length > 0) {
+        return await pdfDoc.embedPng(pngBuffer)
+      }
+    }
+  } catch {
+    // 无法解析
+  }
+
+  return null
 }
 
-/** 将本地图片文件列表合并为单个 PDF（每张图一页，16:9 横向） */
+/** 将本地图片文件列表合并为单个 PDF（每张图一页，16:9 横向，异步非阻塞且具备坏片容灾） */
 export async function mergeImagesToPdf(
   imagePaths: string[],
   outputPath: string
 ): Promise<void> {
   const pdfDoc = await PDFDocument.create()
+  let embeddedCount = 0
 
-  for (const imgPath of imagePaths) {
-    const imgBytes = readFileSync(imgPath)
-    const image = await embedImage(pdfDoc, imgBytes)
-    // 标准 16:9 页面（1920×1080 → 960×540 pt，保持宽高比）
-    const page = pdfDoc.addPage([960, 540])
-    page.drawImage(image, {
-      x: 0,
-      y: 0,
-      width: 960,
-      height: 540
-    })
+  for (let i = 0; i < imagePaths.length; i++) {
+    const imgPath = imagePaths[i]
+    try {
+      const imgBytes = await readFile(imgPath)
+      const image = await embedImage(pdfDoc, imgBytes)
+      if (image) {
+        // 标准 16:9 页面（1920×1080 → 960×540 pt，保持宽高比）
+        const page = pdfDoc.addPage([960, 540])
+        page.drawImage(image, {
+          x: 0,
+          y: 0,
+          width: 960,
+          height: 540
+        })
+        embeddedCount++
+      } else {
+        console.warn(`[ppt] 第 ${i + 1} 页图片数据无法解析，已优雅跳过并保留其余课件: ${imgPath}`)
+      }
+    } catch (err) {
+      console.warn(`[ppt] 读取第 ${i + 1} 页图片失败，已跳过: ${imgPath} ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // 若所有图片均损坏，至少添加一页空白页避免 pdf-lib 保存 0 页抛错
+  if (embeddedCount === 0) {
+    pdfDoc.addPage([960, 540])
   }
 
   const pdfBytes = await pdfDoc.save()
-  writeFileSync(outputPath, pdfBytes)
+  await writeFile(outputPath, pdfBytes)
 }
 
 // ─── 完整流程 ─────────────────────────────────────────────────

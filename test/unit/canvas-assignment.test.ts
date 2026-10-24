@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   convertHtmlToMarkdown,
+  sanitizeHtmlFallback,
   compileAssignmentMarkdown,
   fetchCourseAssignments,
   downloadAssignmentArchive
@@ -8,9 +9,31 @@ import {
 import type { CanvasAssignmentItem } from '../../src/shared/types'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 
 describe('Canvas Assignment Archive Unit Tests', () => {
+  const sampleAssignment: CanvasAssignmentItem = {
+    id: 101,
+    name: '实验报告1_酶动力学',
+    dueAt: '2026-10-20T23:59:00Z',
+    pointsPossible: 100,
+    hasSubmission: true,
+    submittedAt: '2026-10-19T14:30:12Z',
+    submissionScore: 96,
+    submissionGrade: 'A',
+    htmlUrl: 'https://oc.sjtu.edu.cn/courses/93803/assignments/101',
+    descriptionHtml: '<p>请根据实验测得的数据绘制双倒数作图，求出Km与Vmax。</p>',
+    teacherAttachments: [
+      { id: 1, name: '实验讲义.pdf', url: 'https://oc.sjtu.edu.cn/files/1', size: 102400 }
+    ],
+    submissionFiles: [
+      { id: 2, name: '学生报告.docx', url: 'https://oc.sjtu.edu.cn/files/2', size: 204800 }
+    ],
+    comments: [
+      { authorName: '助教张三', comment: '数据拟合曲线标准，误差分析到位。', createdAt: '2026-10-22T10:15:00Z' }
+    ]
+  }
+
   describe('convertHtmlToMarkdown', () => {
     it('converts paragraphs, links, bold, and list elements properly', () => {
       const html = '<p>请阅读 <b>实验手册</b> 并完成 <a href="http://example.com/guide.pdf">下载</a>。</p><ul><li>第一步</li><li>第二步</li></ul>'
@@ -25,31 +48,18 @@ describe('Canvas Assignment Archive Unit Tests', () => {
       expect(convertHtmlToMarkdown('')).toBe('*(无题目要求描述)*')
       expect(convertHtmlToMarkdown(undefined)).toBe('*(无题目要求描述)*')
     })
+
+    it('handles nested tags properly in sanitizeHtmlFallback without escaping', () => {
+      const maliciousHtml = '<scr<script>ipt>alert(1)</script>完成<b>报告</b>'
+      const result = sanitizeHtmlFallback(maliciousHtml)
+      expect(result).not.toContain('<script>')
+      expect(result).not.toContain('<scr')
+      expect(result).toContain('完成')
+      expect(result).toContain('报告')
+    })
   })
 
   describe('compileAssignmentMarkdown', () => {
-    const sampleAssignment: CanvasAssignmentItem = {
-      id: 101,
-      name: '实验报告1_酶动力学',
-      dueAt: '2026-10-20T23:59:00Z',
-      pointsPossible: 100,
-      hasSubmission: true,
-      submittedAt: '2026-10-19T14:30:12Z',
-      submissionScore: 96,
-      submissionGrade: 'A',
-      htmlUrl: 'https://oc.sjtu.edu.cn/courses/93803/assignments/101',
-      descriptionHtml: '<p>请根据实验测得的数据绘制双倒数作图，求出Km与Vmax。</p>',
-      teacherAttachments: [
-        { id: 1, name: '实验讲义.pdf', url: 'https://oc.sjtu.edu.cn/files/1', size: 102400 }
-      ],
-      submissionFiles: [
-        { id: 2, name: '学生报告.docx', url: 'https://oc.sjtu.edu.cn/files/2', size: 204800 }
-      ],
-      comments: [
-        { authorName: '助教张三', comment: '数据拟合曲线标准，误差分析到位。', createdAt: '2026-10-22T10:15:00Z' }
-      ]
-    }
-
     it('compiles full markdown containing title, metadata, requirements, attachments, submissions, and comments', () => {
       const md = compileAssignmentMarkdown(sampleAssignment)
       expect(md).toContain('# 实验报告1_酶动力学')
@@ -101,7 +111,7 @@ describe('Canvas Assignment Archive Unit Tests', () => {
   })
 
   describe('downloadAssignmentArchive', () => {
-    const testDir = join(tmpdir(), `test_assignment_${Date.now()}`)
+    const testDir = mkdtempSync(join(tmpdir(), 'test_assignment_'))
 
     it('downloads assignment markdown and attachment files', async () => {
       const sampleItem: CanvasAssignmentItem = {
@@ -140,6 +150,88 @@ describe('Canvas Assignment Archive Unit Tests', () => {
 
       // 清理
       try { rmSync(testDir, { recursive: true, force: true }) } catch {}
+    })
+
+    it('respects fine-grained export options to skip markdown, attachments, or submissions', async () => {
+      const testDir = mkdtempSync(join(tmpdir(), 'sjtu-assign-opts-test-'))
+      const sampleItem: CanvasAssignmentItem = {
+        ...sampleAssignment,
+        id: 777,
+        name: '期中作业_选项测试',
+        teacherAttachments: [{ id: 1, name: '指导书.txt', url: 'http://test/file1' }],
+        submissionFiles: [{ id: 2, name: '提交.txt', url: 'http://test/file2' }],
+        comments: []
+      }
+
+      const mockSes = {
+        fetch: vi.fn().mockImplementation(async (url: string) => {
+          return {
+            ok: true,
+            arrayBuffer: async () => Buffer.from(`content of ${url}`)
+          }
+        })
+      } as any
+
+      // 1. Skip markdown only
+      const resNoMd = await downloadAssignmentArchive(mockSes, {
+        courseName: '生物化学',
+        courseId: 93803,
+        assignment: sampleItem,
+        destRoot: testDir,
+        options: { exportMarkdown: false, downloadAttachments: true, downloadSubmissions: true }
+      })
+      expect(resNoMd.ok).toBe(true)
+      expect(existsSync(join(resNoMd.path!, '作业说明与评语.md'))).toBe(false)
+      expect(existsSync(join(resNoMd.path!, 'attachments', '指导书.txt'))).toBe(true)
+      expect(existsSync(join(resNoMd.path!, 'submissions', '提交.txt'))).toBe(true)
+
+      // 2. Skip attachments only
+      const resNoAtt = await downloadAssignmentArchive(mockSes, {
+        courseName: '生物化学',
+        courseId: 93803,
+        assignment: { ...sampleItem, name: '期中作业_无附件' },
+        destRoot: testDir,
+        options: { exportMarkdown: true, downloadAttachments: false, downloadSubmissions: true }
+      })
+      expect(resNoAtt.ok).toBe(true)
+      expect(existsSync(join(resNoAtt.path!, '作业说明与评语.md'))).toBe(true)
+      expect(existsSync(join(resNoAtt.path!, 'attachments'))).toBe(false)
+      expect(existsSync(join(resNoAtt.path!, 'submissions', '提交.txt'))).toBe(true)
+
+      // 3. Skip submissions only
+      const resNoSub = await downloadAssignmentArchive(mockSes, {
+        courseName: '生物化学',
+        courseId: 93803,
+        assignment: { ...sampleItem, name: '期中作业_无提交' },
+        destRoot: testDir,
+        options: { exportMarkdown: true, downloadAttachments: true, downloadSubmissions: false }
+      })
+      expect(resNoSub.ok).toBe(true)
+      expect(existsSync(join(resNoSub.path!, '作业说明与评语.md'))).toBe(true)
+      expect(existsSync(join(resNoSub.path!, 'attachments', '指导书.txt'))).toBe(true)
+      expect(existsSync(join(resNoSub.path!, 'submissions'))).toBe(false)
+
+      try { rmSync(testDir, { recursive: true, force: true }) } catch {}
+    })
+
+    it('falls back to mkdtempSync-created secure temp directory when destRoot is empty', async () => {
+      const mockSes = {
+        fetch: vi.fn()
+      } as any
+
+      const res = await downloadAssignmentArchive(mockSes, {
+        courseName: '生物化学',
+        courseId: 93803,
+        assignment: { ...sampleAssignment, teacherAttachments: [], submissionFiles: [] },
+        destRoot: ''
+      })
+
+      expect(res.ok).toBe(true)
+      expect(res.path).toBeDefined()
+      expect(res.path).toContain('sjtu-canvas-assign-')
+      if (res.path) {
+        try { rmSync(res.path, { recursive: true, force: true }) } catch {}
+      }
     })
   })
 })

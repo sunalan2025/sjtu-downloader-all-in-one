@@ -23,7 +23,7 @@ export default defineConfig({
     root: resolve(__dirname, 'src/renderer'),
     server: {
       host: '127.0.0.1',
-      port: 6173,
+      port: Number(process.env.VITE_PORT) || 5173,
       strictPort: false
     },
     resolve: {

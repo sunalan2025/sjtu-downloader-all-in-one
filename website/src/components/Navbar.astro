@@ -1,0 +1,203 @@
+---
+import Icons from './icons/Icons.astro';
+---
+
+<header
+  class="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-sjtu-dark/80 border-b border-black/[0.06] dark:border-white/[0.08] transition-colors duration-200"
+>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <!-- Left: SJTU Badge & Brand Title -->
+    <a
+      href="#top"
+      class="flex items-center gap-3 group focus:outline-none focus-visible:ring-2 focus-visible:ring-sjtu-blue rounded-lg"
+      aria-label="上海交通大学课程下载器 首页"
+    >
+      <div
+        class="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-sjtu-navy to-sjtu-blue text-white shadow-sm shadow-sjtu-navy/20 group-hover:scale-105 transition-transform duration-200"
+      >
+        <Icons name="graduation-cap" class="w-5 h-5 text-white" />
+      </div>
+      <div class="flex items-center">
+        <span class="font-bold text-base tracking-tight text-slate-900 dark:text-white group-hover:text-sjtu-blue transition-colors">
+          交大课程下载器
+        </span>
+      </div>
+    </a>
+
+    <!-- Center: Section Anchor Navigation -->
+    <nav class="hidden md:flex items-center gap-1 lg:gap-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+      <a
+        href="#features"
+        class="px-3 py-1.5 rounded-lg hover:text-sjtu-blue dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/60 transition-colors"
+      >
+        功能特性
+      </a>
+      <a
+        href="#security"
+        class="px-3 py-1.5 rounded-lg hover:text-sjtu-blue dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/60 transition-colors"
+      >
+        安全保障
+      </a>
+      <a
+        href="#download"
+        class="px-3 py-1.5 rounded-lg hover:text-sjtu-blue dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/60 transition-colors"
+      >
+        下载安装
+      </a>
+      <a
+        href="#faq"
+        class="px-3 py-1.5 rounded-lg hover:text-sjtu-blue dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/60 transition-colors"
+      >
+        常见问题
+      </a>
+    </nav>
+
+    <!-- Right: Actions (Theme, GitHub, CTA Download, Mobile Toggle) -->
+    <div class="flex items-center gap-2 sm:gap-3">
+      <!-- Dark / Light Mode Switcher -->
+      <button
+        id="theme-toggle"
+        type="button"
+        class="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sjtu-blue cursor-pointer"
+        aria-label="切换深色/浅色模式"
+        title="切换深色/浅色模式"
+      >
+        <span class="dark:hidden">
+          <Icons name="moon" class="w-5 h-5" />
+        </span>
+        <span class="hidden dark:inline">
+          <Icons name="sun" class="w-5 h-5" />
+        </span>
+      </button>
+
+      <!-- GitHub Stars Link -->
+      <a
+        href="https://github.com/sunalan2025/sjtu-downloader-all-in-one"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sjtu-blue"
+      >
+        <Icons name="github" class="w-4 h-4" />
+        <span>GitHub</span>
+        <span class="text-xs text-amber-500 font-semibold flex items-center gap-0.5">
+          ★
+        </span>
+      </a>
+
+      <!-- Quick CTA Button -->
+      <a
+        href="#download"
+        class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium text-white bg-sjtu-navy hover:bg-sjtu-blue active:scale-95 transition-all shadow-sm shadow-sjtu-navy/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-sjtu-blue"
+      >
+        <Icons name="download" class="w-4 h-4" />
+        <span>立即下载</span>
+      </a>
+
+      <!-- Mobile Hamburger Menu Button -->
+      <button
+        id="mobile-menu-toggle"
+        type="button"
+        class="md:hidden p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sjtu-blue cursor-pointer"
+        aria-label="切换导航菜单"
+        aria-expanded="false"
+        aria-controls="mobile-menu"
+      >
+        <span id="mobile-menu-icon-open">
+          <Icons name="menu" class="w-5 h-5" />
+        </span>
+        <span id="mobile-menu-icon-close" class="hidden">
+          <Icons name="x" class="w-5 h-5" />
+        </span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile Collapsible Menu -->
+  <div
+    id="mobile-menu"
+    class="hidden md:hidden border-b border-black/[0.06] dark:border-white/[0.08] bg-white/95 dark:bg-sjtu-dark/95 backdrop-blur-md px-4 pt-2 pb-4 space-y-1 transition-all"
+  >
+    <a
+      href="#features"
+      class="mobile-nav-link block px-3 py-2 rounded-lg text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+    >
+      功能特性
+    </a>
+    <a
+      href="#security"
+      class="mobile-nav-link block px-3 py-2 rounded-lg text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+    >
+      安全保障
+    </a>
+    <a
+      href="#download"
+      class="mobile-nav-link block px-3 py-2 rounded-lg text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+    >
+      下载安装
+    </a>
+    <a
+      href="#faq"
+      class="mobile-nav-link block px-3 py-2 rounded-lg text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+    >
+      常见问题
+    </a>
+    <div class="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-col gap-2">
+      <a
+        href="https://github.com/sunalan2025/sjtu-downloader-all-in-one"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+      >
+        <Icons name="github" class="w-4 h-4" />
+        <span>GitHub 仓库 · Star 支持</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<script>
+  function setupNavbar() {
+    // Theme toggle
+    const themeBtn = document.getElementById('theme-toggle');
+    if (themeBtn && !themeBtn.dataset.bound) {
+      themeBtn.dataset.bound = 'true';
+      themeBtn.addEventListener('click', () => {
+        const isDark = document.documentElement.classList.toggle('dark');
+        try {
+          localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        } catch (_) {}
+      });
+    }
+
+    // Mobile menu toggle
+    const menuBtn = document.getElementById('mobile-menu-toggle');
+    const mobileMenu = document.getElementById('mobile-menu');
+    const iconOpen = document.getElementById('mobile-menu-icon-open');
+    const iconClose = document.getElementById('mobile-menu-icon-close');
+
+    if (menuBtn && mobileMenu && iconOpen && iconClose && !menuBtn.dataset.bound) {
+      menuBtn.dataset.bound = 'true';
+      const toggleMenu = () => {
+        const isExpanded = menuBtn.getAttribute('aria-expanded') === 'true';
+        menuBtn.setAttribute('aria-expanded', String(!isExpanded));
+        mobileMenu.classList.toggle('hidden');
+        iconOpen.classList.toggle('hidden');
+        iconClose.classList.toggle('hidden');
+      };
+
+      menuBtn.addEventListener('click', toggleMenu);
+
+      const mobileLinks = mobileMenu.querySelectorAll('.mobile-nav-link');
+      mobileLinks.forEach((link) => {
+        link.addEventListener('click', () => {
+          if (!mobileMenu.classList.contains('hidden')) {
+            toggleMenu();
+          }
+        });
+      });
+    }
+  }
+
+  setupNavbar();
+  document.addEventListener('astro:page-load', setupNavbar);
+</script>

@@ -41,6 +41,8 @@ test_session_*.json
 test_auth_*.json
 *session*.json
 *.tmp
+.env*.local
+*.local.json
 
 # 测试与覆盖率产物
 coverage/
