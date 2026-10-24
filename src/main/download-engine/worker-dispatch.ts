@@ -116,7 +116,6 @@ export async function pollWorkerTaskProgress(
           state: 'done',
           received: totalBytes || receivedBytes || 1,
           total: totalBytes || receivedBytes || 1,
-          speed: 0,
           fileName,
           courseName: course,
           filePath: isServerLocal ? resolvedPath : undefined,
@@ -132,7 +131,6 @@ export async function pollWorkerTaskProgress(
           state: 'error',
           received: receivedBytes,
           total: totalBytes,
-          speed: 0,
           fileName,
           courseName: course,
           message: task.error || '中转服务器处理失败'
@@ -146,7 +144,6 @@ export async function pollWorkerTaskProgress(
           state: 'paused',
           received: receivedBytes,
           total: totalBytes,
-          speed: 0,
           fileName,
           courseName: course,
           message: '中转任务已取消'
@@ -160,7 +157,6 @@ export async function pollWorkerTaskProgress(
         state: 'downloading',
         received: receivedBytes,
         total: totalBytes,
-        speed: task.speed || 0,
         fileName,
         courseName: course,
         message: isServerLocal ? '中转服务器下载中…' : '中转服务器转存云盘中…'
@@ -173,7 +169,6 @@ export async function pollWorkerTaskProgress(
         state: 'paused',
         received: 0,
         total: fileSize,
-        speed: 0,
         fileName,
         courseName: course,
         message: '中转任务已停止'
@@ -187,7 +182,6 @@ export async function pollWorkerTaskProgress(
       state: 'error',
       received: 0,
       total: fileSize,
-      speed: 0,
       fileName,
       courseName: course,
       message: '中转任务等待超时'
