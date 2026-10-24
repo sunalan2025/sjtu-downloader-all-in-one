@@ -3,8 +3,8 @@
  *
  * 职责：
  * 1. 严格校验 SSH 主机名与端口参数，从根本上杜绝 Shell 注入与参数注入风险
- * 2. 调度并守护原生 `ssh -N -L` 子进程，提供就绪探针自动检测与错误回传
- * 3. 注册退出清理钩子与状态查询，杜绝后台孤儿进程与本地端口死锁
+ * 2. 调度并守护原生 `ssh -N -L` 子进程，提供就绪探针自动检测与友好中文错误翻译
+ * 3. 严防本地端口碰撞漏洞，注册退出清理钩子，杜绝后台孤儿进程与本地端口死锁
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -33,6 +33,32 @@ export function isValidSshHost(host: string): boolean {
  */
 function isValidPort(port: unknown): port is number {
   return typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535
+}
+
+/**
+ * 将 OpenSSH 常见英文错误输出格式化为友好、场景化的中文提示
+ */
+export function formatSshError(stderr: string, host: string): string {
+  const raw = (stderr || '').trim()
+  if (!raw) {
+    return `SSH 隧道连接失败（无法连接至主机 "${host}"）`
+  }
+  if (/could not resolve hostname/i.test(raw) || /不知道这样的主机/i.test(raw)) {
+    return `无法解析 SSH 主机名 "${host}"，请检查 ~/.ssh/config 别名或 IP 是否拼写正确 (${raw})`
+  }
+  if (/permission denied/i.test(raw)) {
+    return `SSH 身份认证失败：主机 "${host}" 拒绝了连接，请确认密钥已添加至服务器 authorized_keys (${raw})`
+  }
+  if (/connection refused/i.test(raw)) {
+    return `连接被拒绝：无法连接至主机 "${host}" 的 SSH 端口（请确认服务器运行中且未被防火墙阻断） (${raw})`
+  }
+  if (/timed out/i.test(raw) || /timeout/i.test(raw)) {
+    return `连接主机 "${host}" 超时，请检查网络连通性或是否需要开启 VPN (${raw})`
+  }
+  if (/address already in use/i.test(raw) || /cannot listen to port/i.test(raw)) {
+    return `本地转发端口已被本机其他应用程序占用，无法建立 SSH 监听 (${raw})`
+  }
+  return raw
 }
 
 /**
@@ -67,26 +93,39 @@ async function waitForPort(
   port: number,
   timeoutMs: number,
   child: ChildProcess,
-  getStderr: () => string
+  getStderr: () => string,
+  host: string
 ): Promise<{ ok: boolean; error?: string }> {
   const startTime = Date.now()
   const interval = 150
 
   while (Date.now() - startTime < timeoutMs) {
     if (child.exitCode !== null || child.killed) {
-      const err = getStderr().trim() || 'SSH 隧道进程已意外退出'
+      const err = formatSshError(getStderr(), host)
       return { ok: false, error: err }
     }
 
     const isOpen = await probePort(port, 200)
     if (isOpen) {
+      // 端口连通后，短暂确认 120ms 子进程没有在监听后立即报错崩溃
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      if (child.exitCode !== null || child.killed) {
+        const err = formatSshError(getStderr(), host)
+        return { ok: false, error: err }
+      }
       return { ok: true }
     }
 
     await new Promise((resolve) => setTimeout(resolve, interval))
   }
 
-  const err = getStderr().trim() || '等待本地转发端口就绪超时（请检查 SSH 主机连通性与密钥认证）'
+  if (child.exitCode !== null || child.killed) {
+    return { ok: false, error: formatSshError(getStderr(), host) }
+  }
+
+  const err = getStderr().trim()
+    ? formatSshError(getStderr(), host)
+    : `等待本地转发端口就绪超时（无法连接至主机 "${host}"，请检查网络或配置）`
   return { ok: false, error: err }
 }
 
@@ -186,15 +225,12 @@ export async function startSshTunnel(
       activeProcess = null
       activeConfig = null
     }
-    if (code !== 0 && code !== null) {
-      const trimmedErr = stderrBuffer.trim()
-      lastError = trimmedErr || lastError || `SSH 隧道进程异常退出 (退出码: ${code})`
-    } else if (signal) {
-      lastError = `SSH 隧道已停止 (${signal})`
+    if (code !== 0 && !lastError) {
+      const err = stderrBuffer.trim()
+      lastError = err ? formatSshError(err, trimmedHost) : `SSH 隧道进程已退出 (code: ${code ?? 'none'}, signal: ${signal ?? 'none'})`
     }
   })
 
-  // 等待转发端口就绪（时限 3500ms）
   const waitResult = await waitForPort(localPort, 3500, child, () => {
     if (spawnError) {
       return (
@@ -205,7 +241,7 @@ export async function startSshTunnel(
       )
     }
     return stderrBuffer
-  })
+  }, trimmedHost)
 
   if (waitResult.ok) {
     activeProcess = child

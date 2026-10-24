@@ -156,6 +156,9 @@ export async function testPrivateWorker(
   tunnelConfig?: PrivateWorkerTunnelConfig
 ): Promise<PrivateWorkerTestResult> {
   if (tunnelConfig?.enabled) {
+    // 严防开发模拟假节点占用端口：启动隧道前先停止嵌入式开发测试服务
+    await stopEmbeddedDevWorker()
+
     const tunnelRes = await startSshTunnel(tunnelConfig)
     if (!tunnelRes.success) {
       return {
@@ -229,6 +232,17 @@ export async function testPrivateWorker(
       version?: string
       server?: string
       name?: string
+    }
+
+    if (
+      tunnelConfig?.enabled &&
+      (data.server === 'sjtu-private-worker-dev' || data.name === 'sjtu-private-worker-dev')
+    ) {
+      return {
+        success: false,
+        latencyMs,
+        error: '检测到目标端口连接被本机开发测试服务拦截，未真正连入远程 SSH 服务器'
+      }
     }
 
     return {

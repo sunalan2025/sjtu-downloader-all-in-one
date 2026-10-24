@@ -75,7 +75,7 @@ export function Settings({
       window.api.getDevWorkerInfo().then(info => {
         if (!mounted || !info) return
         setDevWorkerInfo(info)
-        if (info.isDev && info.devWorkerUrl) {
+        if (info.isDev && info.devWorkerUrl && !privateWorkerConfig.tunnel?.enabled) {
           if (!privateWorkerConfig.endpointUrl || privateWorkerConfig.endpointUrl === 'http://127.0.0.1:6880') {
             setPrivateWorkerConfig({ endpointUrl: info.devWorkerUrl })
           }
@@ -85,7 +85,7 @@ export function Settings({
     return () => {
       mounted = false
     }
-  }, [privateWorkerConfig.endpointUrl, setPrivateWorkerConfig])
+  }, [privateWorkerConfig.endpointUrl, privateWorkerConfig.tunnel?.enabled, setPrivateWorkerConfig])
 
   const handleTestWorker = async () => {
     if (!window?.api?.testPrivateWorker) return
@@ -1184,7 +1184,7 @@ export function Settings({
 
                     {privateWorkerConfig.enabled && (
                       <div className="rounded-2xl border border-bd bg-surface-2/50 p-4 sm:p-5 space-y-4 animate-in fade-in duration-150">
-                        {devWorkerInfo?.isDev && devWorkerInfo.devWorkerUrl && (
+                        {devWorkerInfo?.isDev && devWorkerInfo.devWorkerUrl && !privateWorkerConfig.tunnel?.enabled && (
                           <div className="flex items-center justify-between rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3.5 py-2.5 text-xs text-emerald-700 dark:text-emerald-300">
                             <div className="flex items-center gap-2">
                               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
