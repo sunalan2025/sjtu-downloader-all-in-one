@@ -1155,10 +1155,10 @@ export function Settings({
                       <div className="space-y-1 max-w-sm">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-text-1">校内私有中转服务（实验性）</span>
-                          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent border border-accent/20">免本地流量</span>
+                          <span className="rounded-md bg-accent/10 px-2 py-0.5 text-2xs font-semibold text-accent border border-accent/20">校内中继</span>
                         </div>
                         <div className="text-xs text-text-3 leading-relaxed">
-                          将云盘上传任务委托给校内私有工作机（如寝室 Linux、实验室主机）执行，实现本地 0 流量消耗与千兆对等内网加速
+                          将下载与转存任务委托给校内私有工作机（如寝室 Linux、实验室主机）中继执行，享受千兆对等内网高速通道
                         </div>
                       </div>
                       <button

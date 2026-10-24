@@ -8,10 +8,12 @@ import { existsSync, openSync, renameSync, statSync, unlinkSync, writeSync, clos
 import { request as httpsRequest, Agent as HttpsAgent } from 'node:https'
 import { execFile, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
-import type { IncomingMessage } from 'node:http'
+import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { BrowserWindow, session } from 'electron'
 import type Electron from 'electron'
 import { sanitizeForLog } from './safe-fetch'
+import type { PrivateWorkerConfig } from '../../shared/types'
+import { wrapWorkerProxyUrl } from '../private-worker'
 
 /** 跟踪所有活跃的 ffmpeg 子进程，退出时 kill 防止残留 */
 const activeFfmpegProcesses = new Set<ChildProcess>()
@@ -123,7 +125,8 @@ export async function captureM3u8(
 export async function resolveM3u8(
   ses: Electron.Session,
   m3u8Url: string,
-  maxDepth = 3
+  maxDepth = 3,
+  privateWorker?: PrivateWorkerConfig
 ): Promise<{ mediaUrl: string; body: string }> {
   let url = m3u8Url
   const MAX_FETCH_RETRIES = 3
@@ -131,8 +134,13 @@ export async function resolveM3u8(
     for (let retry = 0; retry <= MAX_FETCH_RETRIES; retry++) {
       try {
         const fetchFn = (ses && typeof ses.fetch === 'function') ? ses.fetch.bind(ses) : fetch
-        const resp = await fetchFn(url, {
-          headers: { Referer: TV_REFERER, 'User-Agent': USER_AGENT }
+        const targetUrl = wrapWorkerProxyUrl(url, privateWorker)
+        const fetchHeaders: Record<string, string> = { Referer: TV_REFERER, 'User-Agent': USER_AGENT }
+        if (privateWorker?.enabled && privateWorker.authToken?.trim()) {
+          fetchHeaders['Authorization'] = `Bearer ${privateWorker.authToken.trim()}`
+        }
+        const resp = await fetchFn(targetUrl, {
+          headers: fetchHeaders
         })
         const text = await resp.text()
         // 如果有 #EXT-X-STREAM-INF，是 master playlist → 取第一个 variant
@@ -187,9 +195,10 @@ export async function downloadHls(
   m3u8Url: string,
   destPath: string,
   onProgress?: (p: HlsProgress) => void,
-  maxWorkers = 10
+  maxWorkers = 10,
+  privateWorker?: PrivateWorkerConfig
 ): Promise<number> {
-  const { mediaUrl, body } = await resolveM3u8(ses, m3u8Url)
+  const { mediaUrl, body } = await resolveM3u8(ses, m3u8Url, 3, privateWorker)
   const segments = parseSegments(mediaUrl, body)
   if (segments.length === 0) throw new Error(`m3u8 无 segments: ${m3u8Url}`)
 
@@ -236,7 +245,7 @@ export async function downloadHls(
           if (aborted || writeError) return
           const i = idx++
           let data: Buffer
-          try { data = await fetchSegment(segments[i]) }
+          try { data = await fetchSegment(segments[i], 3, privateWorker) }
           catch (e) { workerErr(e); return }
           if (aborted) return
           pendingWrites.set(i, data)
@@ -284,22 +293,30 @@ function isRetryableNetErr(err: unknown): boolean {
 }
 
 /** 下载单个 segment，网络错误时最多重试 3 次 */
-function fetchSegment(url: string, maxRetries = 3): Promise<Buffer> {
+function fetchSegment(url: string, maxRetries = 3, privateWorker?: PrivateWorkerConfig): Promise<Buffer> {
+  const targetUrl = wrapWorkerProxyUrl(url, privateWorker)
   return new Promise((resolve, reject) => {
     const attempt = (retryCount: number): void => {
-      const u = new URL(url)
-      const req = httpsRequest(
+      const u = new URL(targetUrl)
+      const isHttp = u.protocol === 'http:'
+      const reqFn = isHttp ? httpRequest : httpsRequest
+      const defaultPort = isHttp ? 80 : 443
+      const fetchHeaders: Record<string, string> = {
+        Referer: TV_REFERER,
+        'User-Agent': USER_AGENT,
+        'Accept-Encoding': 'identity'
+      }
+      if (privateWorker?.enabled && privateWorker.authToken?.trim()) {
+        fetchHeaders['Authorization'] = `Bearer ${privateWorker.authToken.trim()}`
+      }
+      const req = reqFn(
         {
           method: 'GET',
           host: u.hostname,
-          port: u.port || 443,
+          port: u.port || defaultPort,
           path: `${u.pathname}${u.search}`,
-          agent: hlsKeepAliveAgent,
-          headers: {
-            Referer: TV_REFERER,
-            'User-Agent': USER_AGENT,
-            'Accept-Encoding': 'identity'
-          }
+          agent: isHttp ? undefined : hlsKeepAliveAgent,
+          headers: fetchHeaders
         },
         (resp: IncomingMessage) => {
           if (resp.statusCode && (resp.statusCode < 200 || resp.statusCode >= 300)) {
@@ -559,6 +576,7 @@ export interface HlsOptions {
   maxWorkers?: number
   transcodeMaxHeight?: number
   isAudioOnly?: boolean
+  privateWorker?: PrivateWorkerConfig
 }
 
 /** 完整 HLS 视频下载管道：下载 TS 切片并在本地通过 FFmpeg remux 为标准 MP4 文件 */
@@ -572,7 +590,7 @@ export async function downloadHlsVideo(
   const tsPath = destMp4Path.replace(/\.(mp4|m4a)$/, '') + '.ts'
 
   // 1. 下载 HLS 切片
-  await downloadHls(ses, m3u8Url, tsPath, options?.onProgress, options?.maxWorkers)
+  await downloadHls(ses, m3u8Url, tsPath, options?.onProgress, options?.maxWorkers, options?.privateWorker)
 
   // 2. 纯音频提取
   if (isAudioOnly) {

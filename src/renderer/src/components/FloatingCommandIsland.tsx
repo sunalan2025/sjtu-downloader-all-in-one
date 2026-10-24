@@ -157,25 +157,31 @@ export function FloatingCommandIsland({
   const privateWorkerConfig = useAppStore((s) => s.privateWorkerConfig)
   const isWorkerActive = Boolean(
     privateWorkerConfig?.enabled &&
-    privateWorkerConfig?.endpointUrl?.trim() &&
-    (privateWorkerConfig.storageMode === 'server_local' || currentDownloadMode === 'cloud')
+    privateWorkerConfig?.endpointUrl?.trim()
   )
 
   const effectiveActionLabels = useMemo(() => {
     if (!isWorkerActive) return actionLabels
-    if (privateWorkerConfig?.storageMode === 'server_local') {
+    if (currentDownloadMode === 'cloud') {
+      if (privateWorkerConfig?.storageMode === 'server_local') {
+        return {
+          ...actionLabels,
+          ctaPrefix: '🖥️ 中转下载至服务器',
+          inProgressText: '中转下载中…'
+        }
+      }
       return {
         ...actionLabels,
-        ctaPrefix: '🖥️ 中转下载至服务器 (0本机流量)',
-        inProgressText: '中转下载中 (0 本机流量)…'
+        ctaPrefix: '⚡ 中转代传至云盘',
+        inProgressText: '中转代传中…'
       }
     }
     return {
       ...actionLabels,
-      ctaPrefix: '⚡ 中转代传至云盘 (0本机流量)',
-      inProgressText: '中转代传中 (0 本机流量)…'
+      ctaPrefix: '⚡ 中转下载至本地',
+      inProgressText: '中转下载中…'
     }
-  }, [actionLabels, isWorkerActive, privateWorkerConfig?.storageMode])
+  }, [actionLabels, isWorkerActive, currentDownloadMode, privateWorkerConfig?.storageMode])
 
   // 全局下载进行中标志 + 批量进度激活标志（提前声明：快捷键 effect 与隐藏条件都要用）
   const globalDownloading = useAppStore((s) => s.downloading)

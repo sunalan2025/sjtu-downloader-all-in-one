@@ -11,10 +11,11 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { PDFDocument, type PDFImage } from 'pdf-lib'
-import type { PptSlice, PptDownloadOpts } from '../../shared/types'
+import type { PptSlice, PptDownloadOpts, PrivateWorkerConfig } from '../../shared/types'
 import { VSJTU_CANVAS_BASE } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
 import { sanitizeFsName } from '../../shared/utils'
+import { wrapWorkerProxyUrl } from '../private-worker'
 
 const VSJTU_REFERER = 'https://v.sjtu.edu.cn/'
 /** PPT 图片并发下载数（与 HLS segment 并发一致） */
@@ -170,9 +171,16 @@ export async function fetchPptSliceList(
 async function downloadPptImage(
   ses: Electron.Session,
   url: string,
-  destPath: string
+  destPath: string,
+  privateWorker?: PrivateWorkerConfig
 ): Promise<void> {
-  const resp = await ses.fetch(url)
+  const targetUrl = wrapWorkerProxyUrl(url, privateWorker)
+  const headers: Record<string, string> = {}
+  if (privateWorker?.enabled && privateWorker.authToken?.trim()) {
+    headers['Authorization'] = `Bearer ${privateWorker.authToken.trim()}`
+  }
+  const fetchFn = (ses && typeof ses.fetch === 'function') ? ses.fetch.bind(ses) : fetch
+  const resp = await fetchFn(targetUrl, { headers })
   if (!resp.ok) {
     throw new Error(`下载 PPT 图片失败: HTTP ${resp.status}`)
   }
@@ -321,7 +329,7 @@ export async function downloadPptAsPdf(
           const s = slices[idx]
           const imgPath = join(tmpDir!, `${String(idx).padStart(4, '0')}.jpg`)
           try {
-            await downloadPptImage(ses, s.pptImgUrl, imgPath)
+            await downloadPptImage(ses, s.pptImgUrl, imgPath, opts.privateWorker)
             imagePaths[idx] = imgPath
           } catch (err) {
             console.warn(`[ppt] 下载第 ${idx + 1} 张失败，跳过:`, err instanceof Error ? err.message : err)
@@ -377,7 +385,8 @@ export async function downloadPptSlices(
   ses: Electron.Session,
   slices: Array<{ pptImgUrl: string; createSec?: number }>,
   outputDir: string,
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  privateWorker?: PrivateWorkerConfig
 ): Promise<string[]> {
   mkdirSync(outputDir, { recursive: true })
   const resultPaths: (string | null)[] = new Array(slices.length).fill(null)
@@ -395,7 +404,7 @@ export async function downloadPptSlices(
         const fileName = formatSliceFileName(idx + 1, Number(s.createSec || 0))
         const destPath = join(outputDir, fileName)
         try {
-          await downloadPptImage(ses, s.pptImgUrl, destPath)
+          await downloadPptImage(ses, s.pptImgUrl, destPath, privateWorker)
           resultPaths[idx] = destPath
         } catch (err) {
           console.warn(`[ppt] 下载切片图片 ${fileName} 失败:`, err)

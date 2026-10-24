@@ -719,6 +719,7 @@ export interface PptDownloadOpts {
     teacher: string
     classroom: string
   }
+  privateWorker?: PrivateWorkerConfig
   /** 是否保留高清切片图片至同级切片文件夹（默认 false） */
   saveImages?: boolean
 }

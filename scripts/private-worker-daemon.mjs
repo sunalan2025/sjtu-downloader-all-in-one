@@ -228,14 +228,16 @@ function sendJson(res, statusCode, data) {
   res.end(body)
 }
 
-function verifyAuth(req) {
+function verifyAuth(req, parsedUrl) {
   if (!AUTH_TOKEN) return true
   const authHeader = req.headers['authorization'] || ''
   const expected = `Bearer ${AUTH_TOKEN}`
-  return authHeader === expected || authHeader === AUTH_TOKEN
+  if (authHeader === expected || authHeader === AUTH_TOKEN) return true
+  if (parsedUrl && parsedUrl.searchParams.get('token') === AUTH_TOKEN) return true
+  return false
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
@@ -368,6 +370,80 @@ const server = http.createServer((req, res) => {
       return sendJson(res, 404, { ok: false, error: '任务不存在' })
     }
     return sendJson(res, 200, { ok: true, task })
+  }
+
+  // 4. 流式中转代理接口 (/api/proxy)
+  // 允许客户端请求经由中转机在校内抓取目标资源流并实时回传给本地（支持 Range 断点续传）
+  if (pathname === '/api/proxy' && req.method === 'GET') {
+    if (!verifyAuth(req, parsedUrl)) {
+      return sendJson(res, 401, { ok: false, error: 'Unauthorized' })
+    }
+    const targetUrl = parsedUrl.searchParams.get('url')
+    if (!targetUrl) {
+      return sendJson(res, 400, { ok: false, error: '缺少目标 url 参数' })
+    }
+    try {
+      const targetObj = new URL(targetUrl)
+      if (targetObj.protocol !== 'http:' && targetObj.protocol !== 'https:') {
+        return sendJson(res, 400, { ok: false, error: '不支持的协议类型' })
+      }
+
+      const forwardHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SJTU-Downloader-Worker/1.0',
+        'Accept': '*/*'
+      }
+      if (req.headers.range) {
+        forwardHeaders['Range'] = req.headers.range
+      }
+      if (req.headers.referer) {
+        forwardHeaders['Referer'] = req.headers.referer
+      }
+      if (req.headers.cookie) {
+        forwardHeaders['Cookie'] = req.headers.cookie
+      }
+
+      const upstreamResp = await fetch(targetUrl, {
+        method: 'GET',
+        headers: forwardHeaders
+      })
+
+      const responseHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Range, Authorization'
+      }
+      for (const [key, val] of upstreamResp.headers.entries()) {
+        const lowerKey = key.toLowerCase()
+        if (['content-length', 'content-type', 'content-range', 'accept-ranges', 'etag', 'last-modified'].includes(lowerKey)) {
+          responseHeaders[key] = val
+        }
+      }
+
+      res.writeHead(upstreamResp.status, responseHeaders)
+
+      if (!upstreamResp.body) {
+        return res.end()
+      }
+
+      const reader = upstreamResp.body.getReader()
+      req.on('close', () => {
+        reader.cancel().catch(() => {})
+      })
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        res.write(Buffer.from(value))
+      }
+      return res.end()
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(`[worker] 代理转发失败:`, sanitizeLog(errMsg))
+      if (!res.headersSent) {
+        return sendJson(res, 502, { ok: false, error: `中转代理失败: ${errMsg}` })
+      }
+      return res.end()
+    }
   }
 
   return sendJson(res, 404, { ok: false, error: 'Endpoint Not Found' })

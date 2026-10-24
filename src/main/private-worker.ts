@@ -21,11 +21,11 @@ import { startSshTunnel } from './ssh-tunnel'
 export type { PrivateWorkerTaskPayload, PrivateWorkerTaskResponse }
 
 /**
- * 判断当前任务批次是否应当委托给校内私有中转机执行
+ * 判断当前任务批次是否应当完全委托给校内私有中转机在远端脱机执行
  * 规则：
  * 1. 私有中转服务已启用且配置了有效的节点地址；
- * 2. 存储目标模式为「保存在中转服务器本地磁盘」或「转存至交大云盘」时，全权由远端工作机承接（0 本地流量）；
- * 3. 仅当用户显式指定需存入本机电脑（local/both 模式且工作机非 server_local）时才消耗本地流量。
+ * 2. 仅当目标模式为 'cloud' 时由远端工作机承接（代传至云盘，或在服务器本地磁盘落盘）；
+ * 3. 当用户选择存入本机电脑（local 模式）时，由本地下载引擎承接落盘，但全量网络请求经由 Worker 流式代理中继。
  */
 export function isWorkerDelegated(
   mode?: DownloadMode,
@@ -35,17 +35,32 @@ export function isWorkerDelegated(
     return false
   }
 
-  // 1. 若中转服务目标为保存在中转服务器本地磁盘，直接委托远端工作机落盘
-  if (privateWorker.storageMode === 'server_local') {
-    return true
-  }
-
-  // 2. 若中转服务目标为转存至云盘，且当前下载模式未显式指定落地到本机
+  // 仅当目标模式为 'cloud' 时全权委托给远端工作机承接（代传至云盘或直接在服务器落盘）
   if (mode === 'cloud') {
     return true
   }
 
   return false
+}
+
+/**
+ * 若启用了私有中转服务，将目标直链包装为经由中转节点的流式代理地址
+ * 让下载到本机的流量也完整经过校内中转机中继
+ */
+export function wrapWorkerProxyUrl(rawUrl: string, privateWorker?: PrivateWorkerConfig): string {
+  if (!rawUrl || typeof rawUrl !== 'string') return rawUrl
+  if (!privateWorker || !privateWorker.enabled || !privateWorker.endpointUrl?.trim()) {
+    return rawUrl
+  }
+  const normalized = normalizeWorkerUrl(privateWorker.endpointUrl)
+  if (!normalized) return rawUrl
+  // 已是中转节点代理地址的无需重复包装
+  if (rawUrl.startsWith(normalized)) return rawUrl
+  let proxyUrl = `${normalized}/api/proxy?url=${encodeURIComponent(rawUrl)}`
+  if (privateWorker.authToken?.trim()) {
+    proxyUrl += `&token=${encodeURIComponent(privateWorker.authToken.trim())}`
+  }
+  return proxyUrl
 }
 
 let embeddedServer: http.Server | null = null
@@ -78,7 +93,7 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
 
   for (let port = startPort; port <= maxPort; port++) {
     try {
-      const server = http.createServer((req, res) => {
+      const server = http.createServer(async (req, res) => {
         if (req.method === 'OPTIONS') {
           res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
@@ -140,6 +155,44 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
             }
           })
           return
+        }
+
+        if (pathname === '/api/proxy' && req.method === 'GET') {
+          const targetUrl = parsedUrl.searchParams.get('url')
+          if (!targetUrl) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            return res.end(JSON.stringify({ ok: false, error: '缺少目标 url' }))
+          }
+          try {
+            const forwardHeaders: Record<string, string> = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SJTU-Downloader-Worker/1.0',
+              'Accept': '*/*'
+            }
+            if (req.headers.range) forwardHeaders['Range'] = req.headers.range
+            if (req.headers.referer) forwardHeaders['Referer'] = req.headers.referer
+            if (req.headers.cookie) forwardHeaders['Cookie'] = req.headers.cookie
+            const upstream = await fetch(targetUrl, { method: 'GET', headers: forwardHeaders })
+            const respHeaders: Record<string, string> = {
+              'Access-Control-Allow-Origin': '*'
+            }
+            for (const [k, v] of upstream.headers.entries()) {
+              if (['content-length', 'content-type', 'content-range', 'accept-ranges'].includes(k.toLowerCase())) {
+                respHeaders[k] = v
+              }
+            }
+            res.writeHead(upstream.status, respHeaders)
+            if (!upstream.body) return res.end()
+            const reader = upstream.body.getReader()
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              res.write(Buffer.from(value))
+            }
+            return res.end()
+          } catch (proxyErr) {
+            res.writeHead(502, { 'Content-Type': 'application/json' })
+            return res.end(JSON.stringify({ ok: false, error: String(proxyErr) }))
+          }
         }
 
         res.writeHead(404, { 'Content-Type': 'application/json' })

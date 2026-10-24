@@ -126,6 +126,7 @@ import {
   cloudPausedStates,
   conflictStrategyByTask,
   cnmoocCookiesByTask,
+  workerConfigByTask,
   cloudFullRetries,
   CLOUD_ROOT_FOLDER,
   CNMOOC_LOCAL_DIR,
@@ -731,7 +732,7 @@ app.whenReady().then(async () => {
         const mode: DownloadMode = options?.mode
           ?? (specs.some(s => s.cloudUserToken) ? 'cloud' : 'local')
 
-        // 私有中转服务代传接管判定：若命中 0 本地流量分流规则，委托远端节点代传并直接返回
+        // 私有中转服务代传接管判定：若命中中转分流规则，委托远端节点代传并直接返回
         if (isWorkerDelegated(mode, options?.privateWorker)) {
           return dispatchWorkerBatch(specs, options!)
         }
@@ -805,6 +806,9 @@ app.whenReady().then(async () => {
             pendingLocal.push({ spec: { ...spec, cloudUserToken: undefined }, filePath, partPath })
             pendingLocalIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
+            if (options?.privateWorker?.enabled && options.privateWorker.endpointUrl?.trim()) {
+              workerConfigByTask.set(spec.taskId, options.privateWorker)
+            }
             registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
             emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
           }
@@ -825,21 +829,28 @@ app.whenReady().then(async () => {
                 cloudUserToken: cloudToken,
                 cloudDestRoot: options?.cloudDestRoot ?? s.cloudDestRoot
               }))
-          for (const spec of cloudSpecs) {
-            // PERF: O(1) duplicate-check via index Sets instead of O(n) .some() scans
-            if (cloudTasks.has(spec.taskId)) {
-              const st = cloudTasks.get(spec.taskId)!.state
-              if (st === 'pending' || st === 'downloading' || st === 'paused') continue
+          if (options?.privateWorker?.enabled && options.privateWorker.endpointUrl?.trim()) {
+            void dispatchWorkerBatch(cloudSpecs, {
+              ...options,
+              mode: 'cloud'
+            })
+          } else {
+            for (const spec of cloudSpecs) {
+              // PERF: O(1) duplicate-check via index Sets instead of O(n) .some() scans
+              if (cloudTasks.has(spec.taskId)) {
+                const st = cloudTasks.get(spec.taskId)!.state
+                if (st === 'pending' || st === 'downloading' || st === 'paused') continue
+              }
+              if (pendingCloudIds.has(spec.taskId)) continue
+              if (pausedCloudIds.has(spec.taskId)) continue
+              pendingCloud.push(spec)
+              pendingCloudIds.add(spec.taskId)
+              if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
+              registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
+              emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
             }
-            if (pendingCloudIds.has(spec.taskId)) continue
-            if (pausedCloudIds.has(spec.taskId)) continue
-            pendingCloud.push(spec)
-            pendingCloudIds.add(spec.taskId)
-            if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-            registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
-            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
+            cloudScheduleNext()
           }
-          cloudScheduleNext()
         }
 
         return { ok: true }

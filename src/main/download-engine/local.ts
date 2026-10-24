@@ -39,7 +39,8 @@ import {
   removeFromSpecArray,
   extractErrorMessage,
   sharedActiveCount,
-  isHlsStreamTask
+  isHlsStreamTask,
+  workerConfigByTask
 } from './shared'
 import { cdnFetchOnce, type CdnFetchContext, type CdnFetchCallbacks } from './cdn-fetch'
 import { downloadHlsVideo, extractAudioFromVideo } from '../canvas/hls-download'
@@ -158,6 +159,7 @@ async function runTask(t: TaskRuntime): Promise<void> {
       const hlsRes = await downloadHlsVideo(t.spec.url, t.filePath, {
         session: sjtuSession(),
         isAudioOnly,
+        privateWorker: workerConfigByTask.get(t.spec.taskId),
         onProgress: (p) => {
           if (t.state === 'cancelled' || t.state === 'paused') return
           t.received = p.bytesWritten || p.segmentsDone

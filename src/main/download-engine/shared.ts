@@ -14,7 +14,8 @@ import {
   type CanvasDownloadTaskSpec,
   type DownloadState,
   type DownloadTaskSpec,
-  type FileConflictStrategy
+  type FileConflictStrategy,
+  type PrivateWorkerConfig
 } from '../../shared/types'
 import { getHlsActive } from '../concurrency'
 import { emitProgress } from './progress'
@@ -118,6 +119,11 @@ export const CANVAS_HOST = new URL(CANVAS_BASE_URL).hostname
  *  任务完成由 scheduleCleanupTask 清理。 */
 export const cnmoocCookiesByTask = new Map<string, string>()
 
+/** 任务绑定的校内私有中转配置：taskId → PrivateWorkerConfig。
+ *  download:start 入队时写入，runTask / cdnFetchOnce 临下载时读取。
+ *  任务完成后由 scheduleCleanupTask 清理。 */
+export const workerConfigByTask = new Map<string, PrivateWorkerConfig>()
+
 /** cnmooc 会话 cookie 需注入的主机：cnmooc.sjtu.cn 及其子域（如 static.cnmooc.sjtu.cn 课件）。
  *  视频 flvUrl 多落在第三方 CDN，不在此列 → 不注入（避免把 cnmooc cookie 泄漏给无关域）。 */
 export function isCnmoocCookieHost(hostname: string): boolean {
@@ -171,6 +177,7 @@ export function scheduleCleanupTask(taskId: string, isCloud: boolean): void {
   conflictStrategyByTask.delete(taskId)
   canvasCookiesByTask.delete(taskId)
   cnmoocCookiesByTask.delete(taskId)
+  workerConfigByTask.delete(taskId)
 }
 
 // [2.8] Combined active count for shared concurrency limit across local + cloud

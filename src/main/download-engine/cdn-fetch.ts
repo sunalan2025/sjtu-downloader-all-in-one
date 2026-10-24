@@ -10,19 +10,22 @@
 // 请求级（超时/连接错误）重试不在骨架内——本地路径无重试（外层 runTask 有
 // 3 次整体重试），云端路径自带指数退避，均在 onRequest 回调后自行注册。
 
+import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import type { ClientRequest, IncomingMessage } from 'node:http'
-import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState } from '../../shared/types'
+import { CANVAS_BASE_URL, CNMOOC_BASE_URL, V_SJTU_ORIGIN, type DownloadState, type PrivateWorkerConfig } from '../../shared/types'
 import { interceptDownloadRedirect } from './domain-guard'
 import {
   canvasCookiesByTask,
   cnmoocCookiesByTask,
+  workerConfigByTask,
   CANVAS_HOST,
   CANVAS_RL_MAX_RETRIES,
   canvasRlBackoffMs,
   isCnmoocCookieHost
 } from './shared'
 import { emitProgress } from './progress'
+import { wrapWorkerProxyUrl } from '../private-worker'
 
 /** CDN 拉流请求头：CDN 校验 Referer / UA — 没带会 403 */
 const CDN_USER_AGENT =
@@ -43,6 +46,7 @@ export interface CdnFetchContext {
   getRangeFrom: () => number
   /** keep-alive Agent（本地用 sharedDownloadAgent 复用连接；云端不传用全局默认） */
   agent?: import('node:https').Agent
+  workerConfig?: PrivateWorkerConfig
 }
 
 export interface CdnFetchCallbacks {
@@ -78,9 +82,13 @@ export function cdnFetchOnce(
     cb.fail(new Error(`重定向过多：${depth}`))
     return
   }
+  const workerConfig = ctx.workerConfig ?? workerConfigByTask.get(ctx.taskId)
+  const isWorkerProxied = Boolean(workerConfig?.enabled && workerConfig.endpointUrl?.trim())
+  const effectiveUrl = isWorkerProxied ? wrapWorkerProxyUrl(url, workerConfig) : url
   let u: URL
   try {
-    u = new URL(url)
+    u = new URL(effectiveUrl)
+
   } catch {
     cb.fail(new Error(`URL 解析失败：${url.slice(0, 120)}`))
     return
@@ -93,30 +101,46 @@ export function cdnFetchOnce(
   }
   const rangeFrom = ctx.getRangeFrom()
   if (rangeFrom > 0) headers.Range = `bytes=${rangeFrom}-`
+  if (isWorkerProxied && workerConfig?.authToken?.trim()) {
+    headers.Authorization = `Bearer ${workerConfig.authToken.trim()}`
+  }
+
+  let targetUrlObj: URL = u
+  if (isWorkerProxied) {
+    try {
+      const orig = u.searchParams.get('url')
+      if (orig) targetUrlObj = new URL(orig)
+    } catch {
+      /* ignore */
+    }
+  }
   // Canvas 文件：仅在 oc.sjtu.edu.cn 这一跳注入会话 cookie + oc.sjtu Referer，
   // 让 node:https 从 /files/{id}/download 跟随 302 到 s3 预签名直链。
   // 跟随到 s3.jcloud 时不带 cookie（签名直链自包含，且避免把 Canvas cookie 泄漏给第三方域）。
   const canvasCookie = canvasCookiesByTask.get(ctx.taskId)
-  if (canvasCookie && u.hostname === CANVAS_HOST) {
+  if (canvasCookie && targetUrlObj.hostname === CANVAS_HOST) {
     headers.Cookie = canvasCookie
     headers.Referer = `${CANVAS_BASE_URL}/`
   }
   // 好大学在线：仅对 cnmooc.sjtu.cn 及其子域（含 static.cnmooc 课件）注入会话 cookie。
   // 与 Canvas 互斥（任务来源单一），视频 CDN 直链不在 cnmooc 域 → 不注入。
   const cnmoocCookie = cnmoocCookiesByTask.get(ctx.taskId)
-  if (cnmoocCookie && isCnmoocCookieHost(u.hostname)) {
+  if (cnmoocCookie && isCnmoocCookieHost(targetUrlObj.hostname)) {
     headers.Cookie = cnmoocCookie
     headers.Referer = `${CNMOOC_BASE_URL}/`
   }
 
-  const req = httpsRequest(
+  const isHttp = u.protocol === 'http:'
+  const requestFn = isHttp ? httpRequest : httpsRequest
+  const defaultPort = isHttp ? 80 : 443
+  const req = requestFn(
     {
       method: 'GET',
       host: u.hostname,
-      port: u.port || 443,
+      port: u.port || defaultPort,
       path: `${u.pathname}${u.search}`,
       headers,
-      ...(ctx.agent ? { agent: ctx.agent } : {})
+      ...(isHttp ? {} : (ctx.agent ? { agent: ctx.agent } : {}))
     },
     (resp: IncomingMessage) => {
       cb.onRespAttached?.(resp)

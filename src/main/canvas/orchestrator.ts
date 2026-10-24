@@ -1119,7 +1119,7 @@ export function registerCanvasHandlers(): void {
       lectureName: string
       videoSession?: { beginTime: string; teacher: string; classroom: string }
     },
-    baseOpts: { courseName: string; destRoot: string; term?: string; saveImages?: boolean },
+    baseOpts: { courseName: string; destRoot: string; term?: string; saveImages?: boolean; privateWorker?: PrivateWorkerConfig },
     cloudOpts: { cloudUserToken?: string; conflictStrategy?: 'skip' | 'overwrite'; cloudDestRoot?: string },
     cPath: string,
     taskId: string | undefined,
@@ -1161,7 +1161,8 @@ export function registerCanvasHandlers(): void {
       term: baseOpts.term,
       videoSession: lecture.videoSession,
       conflictStrategy: cloudOpts.conflictStrategy,
-      saveImages: baseOpts.saveImages
+      saveImages: baseOpts.saveImages,
+      privateWorker: baseOpts.privateWorker
     }, onLectureProgress)
 
     // 无 PPT 课件（skipped 且无 path）→ 跳过；本地已存在 PDF（skipped 但有 path）→ 继续走上传
@@ -1244,7 +1245,7 @@ export function registerCanvasHandlers(): void {
       const result = await runPptLecture(
         session, token,
         { ivsVideoId: opts.ivsVideoId, lectureName: opts.lectureName, videoSession: opts.videoSession },
-        { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages },
+        { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages, privateWorker: opts.privateWorker },
         { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy, cloudDestRoot: opts.cloudDestRoot },
         cPath, opts.taskId,
         (current, total, phase) => {
@@ -1287,7 +1288,7 @@ export function registerCanvasHandlers(): void {
       const total = opts.lectures.length
       const results: Array<{ lectureName: string; ok: boolean; skipped?: boolean; path?: string; cloudPath?: string; error?: string }> = []
 
-      // 私有中转服务代传接管判定：0 本地流量由远端中转机批量下载切片并合成 PDF
+      // 私有中转服务代传接管判定：由远端中转机批量下载切片并合成 PDF
       if (isWorkerDelegated(opts.cloudUserToken ? 'cloud' : 'local', opts.privateWorker)) {
         const worker = opts.privateWorker!
         for (let i = 0; i < opts.lectures.length; i++) {
@@ -1336,7 +1337,7 @@ export function registerCanvasHandlers(): void {
           if (taskId) {
             emitToRenderer('canvas:ppt-progress', {
               taskId, ivsVideoId: realIvsVideoId, current: i + 1, total,
-              phase: dispatchRes.ok ? `${lecture.lectureName} 完成 (0本地流量)` : `${lecture.lectureName} 失败`,
+              phase: dispatchRes.ok ? `${lecture.lectureName} 完成` : `${lecture.lectureName} 失败`,
               lectureName: lecture.lectureName
             })
           }
@@ -1361,7 +1362,7 @@ export function registerCanvasHandlers(): void {
         }
         const result = await runPptLecture(
           session, token, lecture,
-          { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages },
+          { courseName: opts.courseName, destRoot: opts.destRoot, term: opts.term, saveImages: opts.saveImages, privateWorker: opts.privateWorker },
           { cloudUserToken: opts.cloudUserToken, conflictStrategy: opts.conflictStrategy, cloudDestRoot: opts.cloudDestRoot },
           cPath, taskId,
           (imgCurrent, imgTotal, phase) => {

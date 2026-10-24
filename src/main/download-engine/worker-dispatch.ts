@@ -83,7 +83,7 @@ export async function dispatchWorkerBatch(
       total: fileSize,
       fileName: spec.fileName,
       courseName: course,
-      message: '正在向中转服务器派发 (0 本地流量)…'
+      message: '正在向中转服务器派发…'
     })
   }
 
@@ -102,8 +102,8 @@ export async function dispatchWorkerBatch(
           fileName: spec.fileName,
           courseName: course,
           message: isServerLocal
-            ? '中转工作机下载中 (0 本地流量)…'
-            : '中转代传至云盘中 (0 本地流量)…'
+            ? '中转工作机下载中…'
+            : '中转代传至云盘中…'
         })
 
         // 预解析可能需要鉴权的 Canvas 文件端点为纯净 S3 签名直链
