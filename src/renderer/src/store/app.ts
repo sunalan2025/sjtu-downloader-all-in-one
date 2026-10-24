@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
-import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption, VideoPerspective, PrivateWorkerConfig } from '@shared/types'
+import type { AuthStatus, CanvasAssignmentExportOptions, CloudPanSpaceInfo, Course, DownloadMode, FileConflictStrategy, DownloadProgress, DownloadState, VideoTask, ActiveTab, CanvasLectureGroup, CanvasCourse, CanvasTeacherSelection, CanvasVideoSession, CnmoocChapter, CnmoocCourse, CnmoocResourceFilter, DownloadHistoryItem, VideoQualityOption, VideoPerspective, PrivateWorkerConfig, PrivateWorkerTunnelConfig } from '@shared/types'
 import { DEFAULT_NAMING_TEMPLATE } from '@shared/utils'
 import { APP_DEFAULTS } from '@shared/config/defaults'
 
@@ -166,7 +166,11 @@ interface AppState {
   /** 校内私有中转服务配置（实验性） */
   privateWorkerConfig: PrivateWorkerConfig
   /** 更新校内私有中转服务配置 */
-  setPrivateWorkerConfig: (cfg: Partial<PrivateWorkerConfig>) => void
+  setPrivateWorkerConfig: (
+    cfg: Partial<Omit<PrivateWorkerConfig, 'tunnel'>> & {
+      tunnel?: Partial<PrivateWorkerTunnelConfig>
+    }
+  ) => void
   // setters
   /** 切换 AI 字幕与逐字稿导出开关（向下兼容向导与旧设置，联动更新 srt 和 markdown） */
   setCanvasExportAiTranscript: (on: boolean) => void
@@ -521,15 +525,41 @@ export const useAppStore = create<AppState>()(
         downloadSubmissions: true
       },
       privateWorkerConfig: {
-        ...APP_DEFAULTS.privateWorker
+        ...APP_DEFAULTS.privateWorker,
+        tunnel: {
+          enabled: false,
+          host: '',
+          remotePort: 6880,
+          localPort: 6880
+        }
       },
       setPrivateWorkerConfig: cfg =>
-        set(state => ({
-          privateWorkerConfig: {
-            ...state.privateWorkerConfig,
-            ...cfg
+        set(state => {
+          const { tunnel: cfgTunnel, ...cfgRest } = cfg
+          const currentTunnel = state.privateWorkerConfig?.tunnel ?? {
+            enabled: false,
+            host: '',
+            remotePort: 6880,
+            localPort: 6880
           }
-        })),
+          const updatedTunnel: PrivateWorkerTunnelConfig =
+            cfgTunnel !== undefined
+              ? {
+                  enabled: cfgTunnel.enabled ?? currentTunnel.enabled,
+                  host: cfgTunnel.host ?? currentTunnel.host,
+                  remotePort: cfgTunnel.remotePort ?? currentTunnel.remotePort,
+                  localPort: cfgTunnel.localPort ?? currentTunnel.localPort
+                }
+              : currentTunnel
+
+          return {
+            privateWorkerConfig: {
+              ...state.privateWorkerConfig,
+              ...cfgRest,
+              tunnel: updatedTunnel
+            }
+          }
+        }),
       setHasCompletedInitialSetup: hasCompletedInitialSetup => set({ hasCompletedInitialSetup }),
       setLastSetupVersion: lastSetupVersion => set({ lastSetupVersion }),
       setShowSetupWizardModal: showSetupWizardModal => set({ showSetupWizardModal }),
