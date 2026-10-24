@@ -4,11 +4,37 @@ import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkS
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'node:crypto'
 import type { StoredCredential, MaskedCredential } from '../shared/types'
 
-// AES-256-GCM 兜底秘钥派生（当运行环境无 safeStorage 时使用）
-const FALLBACK_SALT = 'sjtu-course-downloader-fallback-salt-2026'
+// AES-256-GCM 兜底高熵独立秘钥管理（当运行环境无 safeStorage 时使用）
+let _cachedFallbackKey: Buffer | null = null
+
+export function _resetFallbackKeyForTesting(): void {
+  _cachedFallbackKey = null
+}
+
 function getFallbackKey(): Buffer {
-  const machineKey = `${process.env.COMPUTERNAME || process.env.HOSTNAME || 'sjtu-machine'}-${process.env.USERNAME || process.env.USER || 'default-user'}`
-  return scryptSync(machineKey, FALLBACK_SALT, 32)
+  if (_cachedFallbackKey) return _cachedFallbackKey
+  try {
+    if (app && typeof app.getPath === 'function') {
+      const keyDir = join(app.getPath('userData'), 'credentials')
+      mkdirSync(keyDir, { recursive: true })
+      const keyPath = join(keyDir, '.fallback.key')
+      if (existsSync(keyPath)) {
+        const key = readFileSync(keyPath)
+        if (key.length === 32) {
+          _cachedFallbackKey = key
+          return key
+        }
+      }
+      const newKey = randomBytes(32)
+      writeFileSync(keyPath, newKey, { mode: 0o600 })
+      _cachedFallbackKey = newKey
+      return newKey
+    }
+  } catch {
+    /* ignore and fallback to in-memory random bytes */
+  }
+  _cachedFallbackKey = randomBytes(32)
+  return _cachedFallbackKey
 }
 
 function fallbackEncrypt(plain: string): string {
