@@ -851,13 +851,19 @@ export const useAppStore = create<AppState>()(
                   fileName: prog.fileName || prev?.fileName,
                   courseName: prog.courseName || prev?.courseName
                 }
-                if (prog.state === 'done' && (prog.filePath || prog.cloudPath)) {
+                const isFinished = prog.state === 'done' || prog.state === 'skipped'
+                if (isFinished && !tid.includes('_scan_')) {
                   const baseId = tid.replace(/_cloud$/, '')
+                  const mergedFilePath = prog.filePath || prev?.filePath
+                  const mergedCloudPath = prog.cloudPath || prev?.cloudPath
+                  const mergedFileName = prog.fileName || prev?.fileName
+                  const mergedCourseName = prog.courseName || prev?.courseName
+
                   const existingIndex = nextHistory.findIndex(h => {
                     const hBaseId = h.taskId.replace(/_cloud$/, '')
                     if (hBaseId === baseId) return true
-                    const localMatch = !!(prog.filePath && h.filePath === prog.filePath)
-                    const cloudMatch = !!(prog.cloudPath && h.cloudPath === prog.cloudPath)
+                    const localMatch = !!(mergedFilePath && h.filePath === mergedFilePath)
+                    const cloudMatch = !!(mergedCloudPath && h.cloudPath === mergedCloudPath)
                     return localMatch || cloudMatch
                   })
                   if (existingIndex >= 0) {
@@ -869,25 +875,41 @@ export const useAppStore = create<AppState>()(
                     const existing = nextHistory[existingIndex]
                     nextHistory[existingIndex] = {
                       ...existing,
-                      filePath: prog.filePath || existing.filePath,
-                      cloudPath: prog.cloudPath || existing.cloudPath,
-                      fileName: prog.fileName || existing.fileName
+                      filePath: mergedFilePath || existing.filePath,
+                      cloudPath: mergedCloudPath || existing.cloudPath,
+                      fileName: mergedFileName || existing.fileName,
+                      courseName: mergedCourseName || existing.courseName,
+                      fileSize: (prog.total && prog.total > 0)
+                        ? prog.total
+                        : (prog.received && prog.received > 0 ? prog.received : (prev?.total && prev.total > 0 ? prev.total : existing.fileSize))
                     }
                   } else {
                     if (!historyUpdated) {
                       nextHistory = [...nextHistory]
                       historyUpdated = true
                     }
-                    const displayPath = prog.filePath || prog.cloudPath || tid
-                    const fileName = prog.fileName || displayPath.split(/[/\\]/).pop() || tid
+                    const displayPath = mergedFilePath || mergedCloudPath || tid
+                    let fileName = mergedFileName || displayPath.split(/[/\\]/).pop() || tid
+                    if (!fileName || /^\d+$/.test(fileName) || fileName === tid) {
+                      if (tid.includes('_ppt_')) {
+                        fileName = mergedCourseName ? `${mergedCourseName} · 课堂讲义 (PPT/PDF)` : '课堂讲义 (PPT/PDF)'
+                      } else if (tid.includes('_assign_')) {
+                        fileName = mergedCourseName ? `${mergedCourseName} · 课程作业归档` : '课程作业归档'
+                      } else if (tid.includes('_transcript_')) {
+                        fileName = mergedCourseName ? `${mergedCourseName} · 课堂逐字稿与字幕` : '课堂逐字稿与字幕'
+                      } else {
+                        fileName = tid.split('_').pop() || tid
+                      }
+                    }
                     const fileSize = (prog.total && prog.total > 0)
                       ? prog.total
-                      : (prog.received && prog.received > 0 ? prog.received : undefined)
+                      : (prog.received && prog.received > 0 ? prog.received : (prev?.total && prev.total > 0 ? prev.total : undefined))
                     nextHistory.unshift({
                       taskId: baseId,
                       fileName,
-                      filePath: prog.filePath,
-                      cloudPath: prog.cloudPath,
+                      filePath: mergedFilePath,
+                      cloudPath: mergedCloudPath,
+                      courseName: mergedCourseName,
                       fileSize,
                       completedAt: Date.now()
                     })

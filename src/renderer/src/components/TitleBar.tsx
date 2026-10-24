@@ -44,14 +44,18 @@ export function TitleBar({
 
   const activeItems = useMemo(
     () => Object.values(progress).filter(
-      p => p.state === 'downloading' || p.state === 'pending' || p.state === 'paused'
+      p => (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') &&
+        !p.taskId.endsWith('_cloud') && !p.taskId.includes('_scan_')
     ),
     [progress]
   )
   const activeCount = activeItems.length
 
   const doneCount = useMemo(
-    () => Object.values(progress).filter(p => p.state === 'done' || p.state === 'skipped').length,
+    () => Object.values(progress).filter(
+      p => (p.state === 'done' || p.state === 'skipped') &&
+        !p.taskId.endsWith('_cloud') && !p.taskId.includes('_scan_')
+    ).length,
     [progress]
   )
 

@@ -126,6 +126,7 @@ export async function dispatchWorkerBatch(
         )
 
         if (res.ok) {
+          const resolvedPath = res.targetPath || rawSpec.destRelPath || spec.fileName
           emitProgress({
             taskId: spec.taskId,
             state: 'done',
@@ -133,6 +134,8 @@ export async function dispatchWorkerBatch(
             total: fileSize || 1,
             fileName: spec.fileName,
             courseName: course,
+            filePath: isServerLocal ? resolvedPath : undefined,
+            cloudPath: !isServerLocal ? resolvedPath : undefined,
             message: isServerLocal ? '已保存至中转服务器本地磁盘' : '已转存至交大云盘'
           })
         } else {
