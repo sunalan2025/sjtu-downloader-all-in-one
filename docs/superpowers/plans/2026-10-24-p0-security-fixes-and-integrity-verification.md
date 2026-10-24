@@ -1,6 +1,6 @@
 # P0 严重安全漏洞修复与安装包完整性校验实施方案
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 彻底消除架构审计中发现的 3 项 P0 级严重安全漏洞：全量加密敏感会话 Token（C-1）、自动更新安装包 SHA-256 数字指纹校验与 CI/CD 产物哈希生成（C-2）、macOS 更新脚本参数化执行以杜绝 shell 注入（C-3），并筑牢全链路自动化验证门禁。
 
@@ -45,19 +45,19 @@
 - Consumes: `encryptSecret(plain: string): string`, `decryptSecret(cipher: string): string`
 - Produces: `saveSessionStore(data: Partial<PersistedSession>): void`, `loadSessionStoreRaw(): PersistedSession | null` 切换为读写 `session.enc`，且若检测到遗留的 `session.json` 时予以物理删除。
 
-- [ ] **Step 1: 编写针对 `session.enc` 加密落盘与旧文件清理的测试用例**
+- [x] **Step 1: 编写针对 `session.enc` 加密落盘与旧文件清理的测试用例**
 
 在 `test/e2e/auth-session.test.ts` 中新增单元测试：
 1. 验证 `saveSessionStore` 写入的文件扩展名为 `.enc` 且内容非普通 JSON 明文；
 2. 验证 `loadSessionStoreRaw` 能正确解密恢复完整的 `PersistedSession` 对象；
 3. 验证当磁盘上残留旧明文 `session.json` 时，加载或保存逻辑会自动物理清理旧文件，防止残留泄漏。
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 运行: `npx vitest run test/e2e/auth-session.test.ts`  
 预期: FAIL（因为当前代码仍读写 `session.json` 且内容为明文 JSON）。
 
-- [ ] **Step 3: 提取通用加解密工具并改造 `auth.ts`**
+- [x] **Step 3: 提取通用加解密工具并改造 `auth.ts`**
 
 1. 将 `src/main/credentials.ts` 中的 `encryptPassword` / `decryptPassword` 通用化并导出别名 `encryptSecret` / `decryptSecret`；
 2. 在 `src/main/auth.ts` 中：
@@ -67,12 +67,12 @@
    - 增加旧明文清理逻辑：若 `userData/session.json` 存在，通过 `unlinkSync` 立即安全擦除；
    - 在 `clearSessionStore()` 中同时清理 `session.enc` 与旧 `session.json`。
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 运行: `npx vitest run test/e2e/auth-session.test.ts`  
 预期: PASS
 
-- [ ] **Step 5: 提交改动**
+- [x] **Step 5: 提交改动**
 
 ```bash
 git add src/main/auth.ts src/main/credentials.ts test/e2e/auth-session.test.ts
@@ -92,19 +92,19 @@ git commit -m "security: encrypt persisted session to session.enc and scrub lega
 - Consumes: Release 资产中的 `SHA256SUMS.txt` 文本清单、Node.js `crypto.createHash('sha256')`
 - Produces: `downloadUpdate(asset: UpdateAsset, sha256Expected?: string): { ok: boolean; error?: string }`；下载完成时计算真实 sha256 并强校验，不匹配时阻断安装并安全擦除文件。
 
-- [ ] **Step 1: 编写针对安装包 SHA-256 校验与清单解析的单元测试**
+- [x] **Step 1: 编写针对安装包 SHA-256 校验与清单解析的单元测试**
 
 在 `src/main/updater.test.ts` 中新增测试：
 1. 测试 `parseSha256Checksums(manifestText, fileName)` 能正确从 `SHA256SUMS.txt` 多行内容中提取对应文件的 64 位十六进制哈希；
 2. 测试当哈希匹配时允许进入 `update:ready`；
 3. 测试当哈希不匹配时触发 `update:failed`（提示语为 `更新安装包完整性校验未通过，可能文件已损坏或网络传输异常`），并确认下载的不完整/被篡改文件已被删除。
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 运行: `npx vitest run src/main/updater.test.ts`  
 预期: FAIL（尚未实现 `parseSha256Checksums` 与哈希流式校验）。
 
-- [ ] **Step 3: 实现 `release.yml` 自动生成哈希清单与 `updater.ts` 校验逻辑**
+- [x] **Step 3: 实现 `release.yml` 自动生成哈希清单与 `updater.ts` 校验逻辑**
 
 1. 修改 `.github/workflows/release.yml`：在 `release` job 的 `Download all artifacts` 之后、`Create GitHub Release` 之前增加步骤：
    ```yaml
@@ -123,12 +123,12 @@ git commit -m "security: encrypt persisted session to session.enc and scrub lega
    - 在流 `end` 触发时计算 `actualHash = hasher.digest('hex')`；
    - 比对逻辑：若有 `expectedHash`，大小写不敏感比对。若不匹配，调用 `fail('更新安装包完整性校验未通过，可能文件已损坏或网络传输异常')` 并删除临时文件；若历史版本无清单，回退至文件大小校验并给出安全日志说明。
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 运行: `npx vitest run src/main/updater.test.ts`  
 预期: PASS
 
-- [ ] **Step 5: 提交改动**
+- [x] **Step 5: 提交改动**
 
 ```bash
 git add .github/workflows/release.yml src/main/updater.ts src/main/updater.test.ts
@@ -147,7 +147,7 @@ git commit -m "security: generate and verify sha256 checksums for release update
 - Consumes: `process.execPath`, `spawn('/bin/sh', [scriptPath, appPath, newApp])`
 - Produces: 安全参数化替换脚本，禁止任何包含 shell 特殊字符求值的动态拼串。
 
-- [ ] **Step 1: 编写 macOS 更新脚本安全性与路径校验的测试用例**
+- [x] **Step 1: 编写 macOS 更新脚本安全性与路径校验的测试用例**
 
 在 `src/main/updater.test.ts` 中新增测试：
 1. 验证 `isSafeMacAppPath(path: string): boolean`：
@@ -155,12 +155,12 @@ git commit -m "security: generate and verify sha256 checksums for release update
    - 严禁为根目录 `/`、`/Applications` 本身、`/System` 或任何上级相对遍历 `..`；
 2. 验证生成的替换脚本中不再包含插值变量 `${appPath}`，而是统一使用静态 `$1` 与 `$2` 占位，且参数通过 `spawn` 的 args 数组安全传递。
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 运行: `npx vitest run src/main/updater.test.ts`  
 预期: FAIL（因为当前代码仍直接通过模板字符串插值变量拼接脚本）。
 
-- [ ] **Step 3: 重构 `installMac` 实现参数化与白名单**
+- [x] **Step 3: 重构 `installMac` 实现参数化与白名单**
 
 1. 提取并导出纯函数 `isSafeMacAppPath(path: string): boolean`：
    ```typescript
@@ -196,12 +196,12 @@ git commit -m "security: generate and verify sha256 checksums for release update
    spawn('/bin/sh', [scriptPath, appPath, newApp], { detached: true, stdio: 'ignore' }).unref()
    ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 运行: `npx vitest run src/main/updater.test.ts`  
 预期: PASS
 
-- [ ] **Step 5: 提交改动**
+- [x] **Step 5: 提交改动**
 
 ```bash
 git add src/main/updater.ts src/main/updater.test.ts
@@ -216,22 +216,22 @@ git commit -m "security: parameterize macOS update script and validate app paths
 - Modify: `docs/superpowers/plans/2026-10-24-p0-security-fixes-and-integrity-verification.md` (标记进度)
 - Review: `src/main/auth.ts`, `src/main/credentials.ts`, `src/main/updater.ts`, `.github/workflows/release.yml`
 
-- [ ] **Step 1: 运行 TypeScript 严格类型检查**
+- [x] **Step 1: 运行 TypeScript 严格类型检查**
 
 运行: `npm run typecheck`  
 预期: 0 错误通过
 
-- [ ] **Step 2: 运行 ESLint 代码规范检查**
+- [x] **Step 2: 运行 ESLint 代码规范检查**
 
 运行: `npm run lint`  
 预期: 0 错误 0 警告通过
 
-- [ ] **Step 3: 运行全量单元与端到端测试**
+- [x] **Step 3: 运行全量单元与端到端测试**
 
 运行: `npm test`  
 预期: 56+ 测试文件全绿，测试总数 1000+ 全部通过
 
-- [ ] **Step 4: 最终提交**
+- [x] **Step 4: 最终提交**
 
 ```bash
 git commit --allow-empty -m "chore: complete P0 security hardening gate verification"
