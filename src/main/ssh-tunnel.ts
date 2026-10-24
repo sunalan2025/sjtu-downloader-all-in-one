@@ -49,6 +49,9 @@ export function formatSshError(stderr: string, host: string): string {
   if (/permission denied/i.test(raw)) {
     return `SSH 身份认证失败：主机 "${host}" 拒绝了连接，请确认密钥已添加至服务器 authorized_keys (${raw})`
   }
+  if (/host key verification failed/i.test(raw)) {
+    return `主机密钥验证失败：主机 "${host}" 的公钥与本地 known_hosts 不符或未记录，请在终端执行 ssh ${host} 确认指纹 (${raw})`
+  }
   if (/connection refused/i.test(raw)) {
     return `连接被拒绝：无法连接至主机 "${host}" 的 SSH 端口（请确认服务器运行中且未被防火墙阻断） (${raw})`
   }
@@ -191,6 +194,10 @@ export async function startSshTunnel(
         'ServerAliveInterval=30',
         '-o',
         'ServerAliveCountMax=3',
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        '-o',
+        'ConnectTimeout=10',
         trimmedHost
       ],
       {
@@ -231,7 +238,7 @@ export async function startSshTunnel(
     }
   })
 
-  const waitResult = await waitForPort(localPort, 3500, child, () => {
+  const waitResult = await waitForPort(localPort, 12000, child, () => {
     if (spawnError) {
       return (
         lastError ||

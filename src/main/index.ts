@@ -610,7 +610,8 @@ app.whenReady().then(async () => {
   ipcMain.handle(
     'private-worker:test',
     (_e, payload?: { url?: string; token?: string; tunnel?: PrivateWorkerTunnelConfig }) => {
-      return testPrivateWorker(payload?.url || '', payload?.token, 4000, payload?.tunnel)
+      const timeoutMs = payload?.tunnel?.enabled ? 8000 : 4000
+      return testPrivateWorker(payload?.url || '', payload?.token, timeoutMs, payload?.tunnel)
     }
   )
   ipcMain.handle(
