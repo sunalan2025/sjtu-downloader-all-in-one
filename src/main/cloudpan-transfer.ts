@@ -95,37 +95,50 @@ export async function uploadCloudFiles(
       return { ok: true, count: 0 }
     }
     const cleanTarget = Array.isArray(targetDirPath) ? targetDirPath.filter(Boolean) : []
-    for (const localPath of result.filePaths) {
+    const items = result.filePaths.map(localPath => {
       const fileName = basename(localPath)
       const remotePath = [...cleanTarget, fileName].join('/')
       const taskId = 'cloudpan_up_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
       emitProgress({ taskId, state: 'pending', received: 0, total: 0 })
-      const uploadP = (async () => {
-        emitProgress({ taskId, state: 'downloading', received: 0, total: 0 })
+      return { localPath, remotePath, taskId }
+    })
+
+    const MAX_CONCURRENT_UPLOADS = 3
+    let cursor = 0
+
+    const runWorker = async (): Promise<void> => {
+      while (cursor < items.length) {
+        const item = items[cursor++]
+        emitProgress({ taskId: item.taskId, state: 'downloading', received: 0, total: 0 })
         try {
           await uploadLocalFileToCloud(
             userToken,
-            localPath,
-            remotePath,
+            item.localPath,
+            item.remotePath,
             'overwrite',
             (received, total) => {
-              emitProgress({ taskId, state: 'downloading', received, total })
+              emitProgress({ taskId: item.taskId, state: 'downloading', received, total })
             }
           )
-          emitProgress({ taskId, state: 'done', received: 100, total: 100, cloudPath: remotePath })
+          emitProgress({ taskId: item.taskId, state: 'done', received: 100, total: 100, cloudPath: item.remotePath })
         } catch (err) {
           emitProgress({
-            taskId,
+            taskId: item.taskId,
             state: 'error',
             received: 0,
             total: 0,
             message: err instanceof Error ? err.message : String(err)
           })
         }
-      })().finally(() => {
-        activeUploadPromises.delete(uploadP)
+      }
+    }
+
+    const workerCount = Math.min(MAX_CONCURRENT_UPLOADS, items.length)
+    for (let i = 0; i < workerCount; i++) {
+      const workerP = runWorker().finally(() => {
+        activeUploadPromises.delete(workerP)
       })
-      activeUploadPromises.add(uploadP)
+      activeUploadPromises.add(workerP)
     }
     return { ok: true, count: result.filePaths.length }
   } catch (err) {

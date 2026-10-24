@@ -1001,7 +1001,6 @@ export interface WindowApi {
   startSshTunnel?: (config: PrivateWorkerTunnelConfig) => Promise<{ success: boolean; pid?: number; error?: string }>
   stopSshTunnel?: () => Promise<{ success: boolean; error?: string }>
   getSshTunnelStatus?: () => Promise<SshTunnelStatus>
-  [key: string]: unknown
 }
 
 

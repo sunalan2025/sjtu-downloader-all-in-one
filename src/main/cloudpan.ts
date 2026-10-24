@@ -35,7 +35,8 @@ let cachedToken: string | null = null
 let cachedCred: CloudPanSpaceCred | null = null
 let credExpAt = 0
 /** PERF: 缓存已成功创建的文件夹路径，避免同一 course 下重复 PUT */
-const createdFolderPaths = new Set<string>()
+const FOLDER_CACHE_TTL_MS = 15 * 60 * 1000 // 15 分钟
+const createdFolderPaths = new Map<string, number>()
 
 export function getCachedUserToken(): string | null { return cachedToken }
 /** [Bug Fix] 由 main 进程写入缓存的 UserToken。
@@ -135,13 +136,14 @@ async function ensureFolder(userToken: string, folderName: string, parentPath: s
  *  PERF: 缓存已创建的路径，同一 course 下 100 个文件只发 3 次 HTTP PUT 而非 300 次。 */
 export async function ensureFolderPath(userToken: string, ...segments: string[]): Promise<void> {
   const key = segments.join('/')
-  if (createdFolderPaths.has(key)) return
+  const cachedAt = createdFolderPaths.get(key)
+  if (cachedAt && Date.now() - cachedAt < FOLDER_CACHE_TTL_MS) return
   const created: string[] = []
   for (const seg of segments) {
     await ensureFolder(userToken, seg, created)
     created.push(seg)
   }
-  createdFolderPaths.add(key)
+  createdFolderPaths.set(key, Date.now())
 }
 
 // ─── 云盘资源管理器与文件操作 API (SMH) ──────────────────────────
@@ -211,7 +213,7 @@ export async function createDirectory(
   const path = enc(dirPath)
   const url = `${PAN_BASE}/api/v1/directory/${cred.libraryId}/${cred.spaceId}/${path}?conflict_resolution_strategy=ask&access_token=${cred.accessToken}`
   await api<unknown>(url, { method: 'PUT' })
-  createdFolderPaths.add(dirPath.join('/'))
+  createdFolderPaths.set(dirPath.join('/'), Date.now())
 }
 
 /**

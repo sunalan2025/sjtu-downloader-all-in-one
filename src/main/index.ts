@@ -274,5 +274,4 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   cleanupOnQuit()
-  stopSshTunnel().catch(() => undefined)
 })
