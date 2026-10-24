@@ -897,6 +897,18 @@ export interface ScheduleApi {
   exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]) => Promise<IcsExportResult>
 }
 
+/** 校内私有中转服务 SSH 隧道自动转发配置 */
+export interface PrivateWorkerTunnelConfig {
+  /** 是否启用 SSH 隧道自动转发 */
+  enabled: boolean
+  /** SSH 主机别名或地址，如 lab-gpu、sjtu-server 或 10.x.x.x */
+  host: string
+  /** 远端中转服务监听端口，默认 6880 */
+  remotePort: number
+  /** 本地绑定转发端口，默认 6880 */
+  localPort: number
+}
+
 /** 校内私有中转服务配置 */
 export interface PrivateWorkerConfig {
   /** 是否启用私有中转代传 */
@@ -905,6 +917,18 @@ export interface PrivateWorkerConfig {
   endpointUrl: string
   /** 访问授权密钥 (Token)，选填 */
   authToken?: string
+  /** 可选的 SSH 隧道自动托管配置 */
+  tunnel?: PrivateWorkerTunnelConfig
+}
+
+/** SSH 隧道实时运行状态 */
+export interface SshTunnelStatus {
+  running: boolean
+  pid?: number
+  host?: string
+  localPort?: number
+  remotePort?: number
+  error?: string
 }
 
 /** 私有中转服务连接测试结果 */
@@ -920,8 +944,15 @@ export interface WindowApi {
   credentials: CredentialsApi
   cloudpan: CloudPanApi
   schedule: ScheduleApi
-  testPrivateWorker?: (url: string, token?: string) => Promise<PrivateWorkerTestResult>
+  testPrivateWorker?: (
+    url: string,
+    token?: string,
+    tunnel?: PrivateWorkerTunnelConfig
+  ) => Promise<PrivateWorkerTestResult>
   getDevWorkerInfo?: () => Promise<{ isDev: boolean; devWorkerUrl: string | null }>
+  startSshTunnel?: (config: PrivateWorkerTunnelConfig) => Promise<{ success: boolean; pid?: number; error?: string }>
+  stopSshTunnel?: () => Promise<{ success: boolean; error?: string }>
+  getSshTunnelStatus?: () => Promise<SshTunnelStatus>
   [key: string]: unknown
 }
 

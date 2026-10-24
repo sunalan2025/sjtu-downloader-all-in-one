@@ -8,7 +8,8 @@
  */
 
 import http from 'node:http'
-import type { PrivateWorkerTestResult } from '../shared/types'
+import type { PrivateWorkerTestResult, PrivateWorkerTunnelConfig } from '../shared/types'
+import { startSshTunnel } from './ssh-tunnel'
 
 let embeddedServer: http.Server | null = null
 let embeddedWorkerUrl: string | null = null
@@ -146,12 +147,24 @@ export function normalizeWorkerUrl(rawUrl: string): string {
  * @param rawUrl 节点 URL，如 http://127.0.0.1:6880
  * @param token 访问授权密钥 (Token)，选填
  * @param timeoutMs 超时时限（毫秒），默认 4000ms
+ * @param tunnelConfig 可选的 SSH 隧道托管配置
  */
 export async function testPrivateWorker(
   rawUrl: string,
   token?: string,
-  timeoutMs = 4000
+  timeoutMs = 4000,
+  tunnelConfig?: PrivateWorkerTunnelConfig
 ): Promise<PrivateWorkerTestResult> {
+  if (tunnelConfig?.enabled) {
+    const tunnelRes = await startSshTunnel(tunnelConfig)
+    if (!tunnelRes.success) {
+      return {
+        success: false,
+        error: `SSH 隧道启动失败: ${tunnelRes.error || '未知错误'}`
+      }
+    }
+  }
+
   const normalized = normalizeWorkerUrl(rawUrl)
   if (!normalized) {
     return {

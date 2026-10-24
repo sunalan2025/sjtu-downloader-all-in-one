@@ -8,7 +8,7 @@ import {
 import { Segmented } from '../components/Segmented'
 import { applyTheme } from '../components/TitleBar'
 import { prefetchCloudConnection } from '../services/prefetch'
-import type { DownloadMode, VideoQualityOption, VideoPerspective, MaskedCredential, PrivateWorkerTestResult } from '@shared/types'
+import type { DownloadMode, VideoQualityOption, VideoPerspective, MaskedCredential, PrivateWorkerTestResult, SshTunnelStatus } from '@shared/types'
 import { formatPathFromTemplate, formatDate, CLOUD_DEST_PRESETS, formatCloudBreadcrumb, normalizeCloudPath, formatBytes } from '../../../shared/utils'
 import pkg from '../../../../package.json'
 
@@ -41,9 +41,33 @@ export function Settings({
   const storePrivateWorkerConfig = useAppStore(s => s.privateWorkerConfig)
   const privateWorkerConfig = typeof useAppStore.getState === 'function' ? useAppStore.getState().privateWorkerConfig : storePrivateWorkerConfig
   const setPrivateWorkerConfig = useAppStore(s => s.setPrivateWorkerConfig)
+  const tunnelConfig = privateWorkerConfig?.tunnel ?? {
+    enabled: false,
+    host: '',
+    remotePort: 6880,
+    localPort: 6880
+  }
   const [workerTesting, setWorkerTesting] = useState(false)
   const [workerTestResult, setWorkerTestResult] = useState<PrivateWorkerTestResult | null>(null)
   const [devWorkerInfo, setDevWorkerInfo] = useState<{ isDev: boolean; devWorkerUrl: string | null } | null>(null)
+  const [tunnelAccordionOpen, setTunnelAccordionOpen] = useState(false)
+  const [tunnelStatus, setTunnelStatus] = useState<SshTunnelStatus | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    if (typeof window !== 'undefined' && window.api?.getSshTunnelStatus) {
+      window.api
+        .getSshTunnelStatus()
+        .then(status => {
+          if (!mounted || !status) return
+          setTunnelStatus(status)
+        })
+        .catch(() => undefined)
+    }
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -70,7 +94,8 @@ export function Settings({
     try {
       const res = await window.api.testPrivateWorker(
         privateWorkerConfig.endpointUrl,
-        privateWorkerConfig.authToken
+        privateWorkerConfig.authToken,
+        privateWorkerConfig.tunnel
       )
       setWorkerTestResult(res)
     } catch (err) {
@@ -80,8 +105,18 @@ export function Settings({
       })
     } finally {
       setWorkerTesting(false)
+      window.api?.getSshTunnelStatus?.().then(setTunnelStatus).catch(() => undefined)
     }
   }
+  const handleStopTunnel = async () => {
+    if (!window?.api?.stopSshTunnel) return
+    try {
+      await window.api.stopSshTunnel()
+    } finally {
+      window.api?.getSshTunnelStatus?.().then(setTunnelStatus).catch(() => undefined)
+    }
+  }
+
   const storeVideoQuality = useAppStore(s => s.videoQualityOption)
   const setVideoQualityOption = useAppStore(s => s.setVideoQualityOption)
   const videoQualityOption = propVideoQuality ?? storeVideoQuality
@@ -1195,6 +1230,180 @@ export function Settings({
                               className="w-full rounded-xl border border-bd bg-surface-1 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
                             />
                           </div>
+                        </div>
+
+                        {/* 高级选项：通过 SSH 隧道自动连接 */}
+                        <div className="rounded-xl border border-bd bg-surface-1/50 p-3.5 space-y-3">
+                          <button
+                            type="button"
+                            onClick={() => setTunnelAccordionOpen(prev => !prev)}
+                            className="flex w-full items-center justify-between text-left cursor-pointer group"
+                            aria-expanded={tunnelAccordionOpen}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-text-3 text-xs group-hover:text-text-2 transition-colors">
+                                {tunnelAccordionOpen ? '▾' : '▸'}
+                              </span>
+                              <span className="text-xs font-semibold text-text-2 group-hover:text-text-1 transition-colors">
+                                高级选项：通过 SSH 隧道自动连接
+                              </span>
+                              {tunnelConfig.enabled && (
+                                <span className="rounded-md bg-accent/10 px-1.5 py-0.5 text-3xs font-semibold text-accent border border-accent/20">
+                                  已启用
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-3xs text-text-4 font-mono">
+                              {tunnelAccordionOpen ? '收起 ▴' : '展开 ▾'}
+                            </span>
+                          </button>
+
+                          {tunnelAccordionOpen && (
+                            <div className="pt-2 space-y-3.5 border-t border-bd/60 animate-in fade-in duration-150">
+                              {/* 开启 SSH 隧道自动连接开关 */}
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="space-y-0.5">
+                                  <div className="text-xs font-medium text-text-1">通过 SSH 隧道自动连接</div>
+                                  <div className="text-3xs text-text-3">
+                                    校外或异构网络环境下，自动通过 SSH 端口转发打通内网中转节点
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={tunnelConfig.enabled}
+                                  onClick={() => {
+                                    const nextEnabled = !tunnelConfig.enabled
+                                    const isDefaultUrl =
+                                      !privateWorkerConfig.endpointUrl ||
+                                      privateWorkerConfig.endpointUrl === 'http://127.0.0.1:6880'
+                                    setPrivateWorkerConfig({
+                                      ...(nextEnabled && isDefaultUrl
+                                        ? { endpointUrl: `http://127.0.0.1:${tunnelConfig.localPort || 6880}` }
+                                        : {}),
+                                      tunnel: { enabled: nextEnabled }
+                                    })
+                                    setWorkerTestResult(null)
+                                  }}
+                                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-150 ${
+                                    tunnelConfig.enabled ? 'bg-accent' : 'bg-surface-4'
+                                  }`}
+                                  title="开启或关闭通过 SSH 隧道自动连接"
+                                >
+                                  <span
+                                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-150 mt-0.5 ml-0.5 ${
+                                      tunnelConfig.enabled ? 'translate-x-4' : 'translate-x-0'
+                                    }`}
+                                  />
+                                </button>
+                              </div>
+
+                              {tunnelConfig.enabled && (
+                                <div className="space-y-3 pt-1 animate-in fade-in duration-150">
+                                  {/* SSH 主机别名 / 地址 */}
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between text-xs">
+                                      <span className="font-medium text-text-2">SSH 主机别名 / 地址</span>
+                                      <span className="text-3xs text-text-4">支持 ~/.ssh/config 主机别名、内网 IP 或穿透域名</span>
+                                    </div>
+                                    <input
+                                      type="text"
+                                      value={tunnelConfig.host}
+                                      onChange={e => {
+                                        setPrivateWorkerConfig({
+                                          tunnel: { host: e.target.value }
+                                        })
+                                        setWorkerTestResult(null)
+                                      }}
+                                      placeholder="例如 lab-gpu 或 my-server"
+                                      className="w-full rounded-xl border border-bd bg-surface-1 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+                                    />
+                                  </div>
+
+                                  {/* 远程中转端口与本地监听端口双栏 */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center justify-between text-xs">
+                                        <span className="font-medium text-text-2">远程中转端口</span>
+                                        <span className="text-3xs text-text-4">远端服务端口 · 默认 6880</span>
+                                      </div>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={65535}
+                                        value={tunnelConfig.remotePort}
+                                        onChange={e => {
+                                          const val = parseInt(e.target.value, 10)
+                                          setPrivateWorkerConfig({
+                                            tunnel: { remotePort: isNaN(val) ? 6880 : val }
+                                          })
+                                          setWorkerTestResult(null)
+                                        }}
+                                        placeholder="6880"
+                                        className="w-full rounded-xl border border-bd bg-surface-1 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+                                      />
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center justify-between text-xs">
+                                        <span className="font-medium text-text-2">本地监听端口</span>
+                                        <span className="text-3xs text-text-4">本机转发端口 · 默认 6880</span>
+                                      </div>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        max={65535}
+                                        value={tunnelConfig.localPort}
+                                        onChange={e => {
+                                          const val = parseInt(e.target.value, 10)
+                                          const newPort = isNaN(val) ? 6880 : val
+                                          const isDefaultLocalUrl =
+                                            !privateWorkerConfig.endpointUrl ||
+                                            privateWorkerConfig.endpointUrl === `http://127.0.0.1:${tunnelConfig.localPort}` ||
+                                            privateWorkerConfig.endpointUrl === 'http://127.0.0.1:6880'
+                                          setPrivateWorkerConfig({
+                                            ...(isDefaultLocalUrl && !isNaN(val)
+                                              ? { endpointUrl: `http://127.0.0.1:${val}` }
+                                              : {}),
+                                            tunnel: { localPort: newPort }
+                                          })
+                                          setWorkerTestResult(null)
+                                        }}
+                                        placeholder="6880"
+                                        className="w-full rounded-xl border border-bd bg-surface-1 px-3.5 py-2 font-mono text-xs text-text-1 placeholder:text-text-4 outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all shadow-2xs"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* 实时状态指示徽标 */}
+                                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-bd bg-surface-2/70 px-3 py-2 text-xs">
+                                    {tunnelStatus?.running ? (
+                                      <div className="flex items-center gap-2">
+                                        <span className="flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
+                                          <span>🟢 隧道已连接 (PID: {tunnelStatus.pid})</span>
+                                        </span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5 text-text-3">
+                                        <span>⚪ 隧道就绪（点击「测试服务连接」时自动建立并测通）</span>
+                                      </div>
+                                    )}
+
+                                    {tunnelStatus?.running && (
+                                      <button
+                                        type="button"
+                                        onClick={handleStopTunnel}
+                                        className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-2xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 active:scale-95 transition-all cursor-pointer"
+                                        title="断开当前 SSH 隧道"
+                                      >
+                                        <span>断开</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
 
                         {/* 操作栏与测试反馈 */}

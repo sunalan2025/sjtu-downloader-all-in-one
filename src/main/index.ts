@@ -8,7 +8,8 @@ import {
   V_SJTU_API,
   type DownloadMode,
   type FileConflictStrategy,
-  type DownloadTaskSpec
+  type DownloadTaskSpec,
+  type PrivateWorkerTunnelConfig
 } from '../shared/types'
 import {
   getCachedUserToken,
@@ -75,6 +76,11 @@ import {
   stopEmbeddedDevWorker,
   getEmbeddedDevWorkerUrl
 } from './private-worker'
+import {
+  startSshTunnel,
+  stopSshTunnel,
+  getSshTunnelStatus
+} from './ssh-tunnel'
 import {
   getConcurrency,
   setConcurrency,
@@ -598,15 +604,27 @@ app.whenReady().then(async () => {
   ipcMain.handle('credentials:clear-all', () => clearAllCredentials())
   ipcMain.handle('credentials:get-fill-data', (_e, id) => getCredentialForFill(id))
 
-  // ─── 校内私有中转服务探测 (Private Worker) ─────────────────────────
-  ipcMain.handle('private-worker:test', (_e, payload?: { url?: string; token?: string }) => {
-    return testPrivateWorker(payload?.url || '', payload?.token)
-  })
+  // ─── 校内私有中转服务探测与 SSH 隧道托管 ─────────────────────────
+  ipcMain.handle(
+    'private-worker:test',
+    (_e, payload?: { url?: string; token?: string; tunnel?: PrivateWorkerTunnelConfig }) => {
+      return testPrivateWorker(payload?.url || '', payload?.token, 4000, payload?.tunnel)
+    }
+  )
   ipcMain.handle('private-worker:get-dev-info', () => {
     return {
       isDev: !app.isPackaged,
       devWorkerUrl: getEmbeddedDevWorkerUrl()
     }
+  })
+  ipcMain.handle('ssh-tunnel:start', (_e, config: PrivateWorkerTunnelConfig) => {
+    return startSshTunnel(config)
+  })
+  ipcMain.handle('ssh-tunnel:stop', () => {
+    return stopSshTunnel()
+  })
+  ipcMain.handle('ssh-tunnel:status', () => {
+    return getSshTunnelStatus()
   })
 
   ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
@@ -1146,6 +1164,9 @@ function cleanupOnQuit(): void {
   // 停止开发模式下内嵌的测试工作机
   stopEmbeddedDevWorker().catch(() => undefined)
 
+  // 停止并清理后台运行的 OpenSSH 隧道进程
+  stopSshTunnel().catch(() => undefined)
+
   // 清除网络恢复定时器
   stopNetworkResumeTimer()
 
@@ -1195,4 +1216,5 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   cleanupOnQuit()
+  stopSshTunnel().catch(() => undefined)
 })
