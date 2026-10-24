@@ -162,6 +162,10 @@ export interface UpdateAsset {
   size: number | null
   /** 资产文件名（用于落盘 + 校验） */
   fileName: string
+  /** SHA-256 校验和（若 release 中包含 SHA256SUMS.txt 则自动提取，用于完整性校验） */
+  sha256?: string | null
+  /** SHA256SUMS.txt 清单资产的下载直链 */
+  sha256Url?: string | null
 }
 
 /** 自动更新下载进度推送载荷（update:progress 事件） */

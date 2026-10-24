@@ -96,6 +96,13 @@ jobs:
       - name: List release files
         run: find artifacts -type f | head -30
 
+      - name: Generate SHA-256 Checksums
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
