@@ -1,5 +1,5 @@
 import { request as httpsRequest } from 'node:https'
-import { openSync, readSync, closeSync, fstatSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import type { ClientRequest } from 'node:http'
 import type Electron from 'electron'
 import type {
@@ -649,40 +649,42 @@ export async function uploadLocalFileToCloud(
   localPath: string,
   remotePath: string,
   conflictStrategy: 'skip' | 'overwrite',
-  onProgress?: (bytesUploaded: number, totalBytes: number) => void
+  onProgress?: (bytesUploaded: number, totalBytes: number) => void,
+  customUploader?: ChunkedUploader
 ): Promise<CloudPanConfirmResult> {
   // 确保父目录存在（逐级创建）
   const segments = remotePath.split('/')
   const folderSegments = segments.slice(0, -1) // 去掉文件名，保留目录层级
-  if (folderSegments.length > 0) {
+  if (folderSegments.length > 0 && !customUploader) {
     await ensureFolderPath(userToken, ...folderSegments)
   }
 
   // overwrite：先删远端同名文件（404 幂等）
-  if (conflictStrategy === 'overwrite') {
+  if (conflictStrategy === 'overwrite' && !customUploader) {
     await deleteCloudFile(userToken, remotePath).catch(() => undefined)
   }
 
-  const uploader = await startChunkedUpload(userToken, remotePath)
+  const uploader = customUploader ?? (await startChunkedUpload(userToken, remotePath))
   try {
-    const fd = openSync(localPath, 'r')
+    const fileHandle = await open(localPath, 'r')
     try {
-      // fd 持有期间文件不会被删/截断 → 用 fstatSync 拿 size，消除 stat→open 的 TOCTOU
-      const total = fstatSync(fd).size
+      // fileHandle 持有期间文件不会被删/截断 → 用 stat() 拿 size，消除 TOCTOU
+      const stat = await fileHandle.stat()
+      const total = stat.size
       const chunkSize = getDynamicChunkSize(total)
       const buf = Buffer.allocUnsafe(chunkSize)
       let uploaded = 0
       while (uploaded < total) {
-        const n = readSync(fd, buf, 0, chunkSize, uploaded)
-        if (n <= 0) break
+        const { bytesRead } = await fileHandle.read(buf, 0, chunkSize, uploaded)
+        if (bytesRead <= 0) break
         // 最后一片不足 chunkSize：只传实际读到的字节
-        const chunk = n < chunkSize ? buf.subarray(0, n) : buf
+        const chunk = bytesRead < chunkSize ? buf.subarray(0, bytesRead) : buf
         await uploader.uploadChunk(chunk)
-        uploaded += n
+        uploaded += bytesRead
         onProgress?.(uploaded, total)
       }
     } finally {
-      closeSync(fd)
+      await fileHandle.close()
     }
     return await uploader.confirm()
   } catch (err) {
