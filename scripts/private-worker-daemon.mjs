@@ -122,11 +122,335 @@ function createPdfFromJpegBuffers(images) {
   return Buffer.concat(chunks)
 }
 
-async function executeTaskAsync(task, payload) {
-  if (task.storageMode === 'server_local' && task.resolvedPath) {
-    task.status = 'downloading'
-    task.startedAt = Date.now()
+function strictEncodeURIComponent(str) {
+  return encodeURIComponent(str).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
+function encCloudPath(segments) {
+  return segments.map(strictEncodeURIComponent).join('/')
+}
+
+async function getCloudSpaceCred(userToken) {
+  const url = `https://pan.sjtu.edu.cn/user/v1/space/1/personal?user_token=${encodeURIComponent(userToken)}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json, text/plain, */*' }
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`获取交大云盘空间凭据失败: HTTP ${res.status} ${text.slice(0, 150)}`)
+  }
+  return await res.json()
+}
+
+async function ensureCloudFolders(cred, folderSegments) {
+  if (!Array.isArray(folderSegments) || folderSegments.length === 0) return
+  for (let i = 1; i <= folderSegments.length; i++) {
+    const segs = folderSegments.slice(0, i)
+    const pathStr = encCloudPath(segs)
+    const url = `https://pan.sjtu.edu.cn/api/v1/directory/${cred.libraryId}/${cred.spaceId}/${pathStr}?conflict_resolution_strategy=ask&access_token=${cred.accessToken}`
     try {
+      await fetch(url, {
+        method: 'PUT',
+        headers: { 'Accept': 'application/json, text/plain, */*' }
+      })
+    } catch {
+      // 容忍目录已存在或并发创建错误
+    }
+  }
+}
+
+async function checkCloudFileExists(cred, filePathSegments) {
+  const pathStr = encCloudPath(filePathSegments)
+  const url = `https://pan.sjtu.edu.cn/api/v1/file/${cred.libraryId}/${cred.spaceId}/${pathStr}?access_token=${cred.accessToken}`
+  try {
+    const res = await fetch(url, { method: 'HEAD' })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+async function deleteCloudFile(cred, filePathSegments) {
+  const pathStr = encCloudPath(filePathSegments)
+  const url = `https://pan.sjtu.edu.cn/api/v1/file/${cred.libraryId}/${cred.spaceId}/${pathStr}?permanent=0&access_token=${cred.accessToken}`
+  try {
+    await fetch(url, { method: 'DELETE' })
+  } catch {
+    // 忽略删除失败
+  }
+}
+
+async function uploadToCloudPanAsync(task, payload) {
+  if (!payload.cloudUserToken) {
+    // 无有效云盘凭据（例如测试模拟派发），直接标记完成
+    task.status = 'completed'
+    task.completedAt = Date.now()
+    return
+  }
+
+  task.status = 'uploading'
+  task.startedAt = Date.now()
+
+  let segments = []
+  if (payload.destPath) {
+    segments = payload.destPath.replace(/^\/+/, '').split('/').filter(Boolean)
+  }
+  if (segments.length === 0) {
+    segments = [
+      payload.courseName || '未分类课程',
+      payload.categoryName || '课件资料',
+      payload.fileName || 'file'
+    ]
+  }
+
+  const folderSegments = segments.slice(0, -1)
+  const fileName = segments[segments.length - 1]
+  const cred = await getCloudSpaceCred(payload.cloudUserToken)
+
+  await ensureCloudFolders(cred, folderSegments)
+
+  if (payload.conflictStrategy === 'overwrite') {
+    await deleteCloudFile(cred, segments)
+  } else {
+    const exists = await checkCloudFileExists(cred, segments)
+    if (exists) {
+      task.status = 'completed'
+      task.completedAt = Date.now()
+      task.receivedBytes = task.totalBytes || payload.fileSize || 0
+      task.targetPath = segments.join('/')
+      const safeTaskId = sanitizeLog(task.taskId, 64)
+      const safeTarget = sanitizeLog(task.targetPath, 128)
+      console.log(`[worker] 云盘已存在同名文件，跳过直传: ${safeTaskId} -> ${safeTarget}`)
+      return
+    }
+  }
+
+  const filePathStr = encCloudPath(segments)
+  const initUrl = `https://pan.sjtu.edu.cn/api/v1/file/${cred.libraryId}/${cred.spaceId}/${filePathStr}?multipart&conflict_resolution_strategy=ask&access_token=${cred.accessToken}`
+  const initRes = await fetch(initUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({
+      partNumberRange: Array.from({ length: 100 }, (_, i) => i + 1)
+    }),
+    signal: task.abortController?.signal
+  })
+
+  if (!initRes.ok) {
+    const errText = await initRes.text()
+    if (initRes.status === 409 || errText.includes('SameNameDirectoryOrFileExists')) {
+      task.status = 'completed'
+      task.completedAt = Date.now()
+      task.receivedBytes = task.totalBytes || payload.fileSize || 0
+      task.targetPath = segments.join('/')
+      return
+    }
+    throw new Error(`初始化云盘分片上传失败: HTTP ${initRes.status} ${errText.slice(0, 120)}`)
+  }
+
+  const initData = await initRes.json()
+  const partsMap = new Map()
+  if (Array.isArray(initData.parts)) {
+    for (const p of initData.parts) partsMap.set(p.partNumber, p)
+  }
+
+  async function putChunk(buf, partNum) {
+    let part = partsMap.get(partNum)
+    if (!part) {
+      const renewUrl = `https://pan.sjtu.edu.cn/api/v1/file/${cred.libraryId}/${cred.spaceId}/${initData.confirmKey}?renew&access_token=${cred.accessToken}`
+      const renewRes = await fetch(renewUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          partNumberRange: Array.from({ length: 100 }, (_, i) => partNum + i)
+        }),
+        signal: task.abortController?.signal
+      })
+      if (!renewRes.ok) {
+        throw new Error(`续订分片上传直链失败: HTTP ${renewRes.status}`)
+      }
+      const renewData = await renewRes.json()
+      if (Array.isArray(renewData.parts)) {
+        for (const p of renewData.parts) partsMap.set(p.partNumber, p)
+      }
+      part = partsMap.get(partNum)
+    }
+    if (!part) {
+      throw new Error(`未获取到分片 ${partNum} 的上传地址`)
+    }
+
+    let lastPutErr = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const putRes = await fetch(part.url, {
+          method: 'PUT',
+          headers: {
+            'Content-Length': String(buf.length)
+          },
+          body: buf,
+          signal: task.abortController?.signal
+        })
+        if (putRes.ok || putRes.status === 200 || putRes.status === 204) {
+          return
+        }
+        throw new Error(`COS PUT 分片失败 HTTP ${putRes.status}`)
+      } catch (err) {
+        lastPutErr = err
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+      }
+    }
+    throw lastPutErr
+  }
+
+  const CHUNK_SIZE = 4 * 1024 * 1024
+
+  if (Array.isArray(payload.slices) && payload.slices.length > 0) {
+    // 多切片（PPT 课件直接在服务器内存中合成并直传云盘）
+    const imageBuffers = []
+    let receivedBytes = 0
+    const isPdf = (payload.fileName || '').toLowerCase().endsWith('.pdf')
+
+    for (let i = 0; i < payload.slices.length; i++) {
+      const slice = payload.slices[i]
+      const res = await fetch(slice.url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SJTU-Downloader-Worker/1.0'
+        },
+        signal: task.abortController?.signal
+      })
+      if (!res.ok) {
+        throw new Error(`切片 ${i + 1}/${payload.slices.length} 下载失败: HTTP ${res.status}`)
+      }
+      const arrayBuf = await res.arrayBuffer()
+      const buf = Buffer.from(arrayBuf)
+      receivedBytes += buf.length
+
+      if (isPdf) {
+        const size = getJpegSize(buf)
+        imageBuffers.push({ buf, width: size.width, height: size.height })
+      }
+    }
+
+    let uploadDataBuffer = null
+    if (isPdf && imageBuffers.length > 0) {
+      uploadDataBuffer = createPdfFromJpegBuffers(imageBuffers)
+    } else if (imageBuffers.length > 0) {
+      uploadDataBuffer = imageBuffers[0].buf
+    }
+
+    if (uploadDataBuffer) {
+      task.totalBytes = uploadDataBuffer.length
+      let offset = 0
+      let partNum = 1
+      let lastTime = Date.now()
+      let lastBytes = 0
+
+      while (offset < uploadDataBuffer.length) {
+        const end = Math.min(offset + CHUNK_SIZE, uploadDataBuffer.length)
+        const chunk = uploadDataBuffer.subarray(offset, end)
+        await putChunk(chunk, partNum++)
+        offset = end
+        task.receivedBytes = offset
+        const now = Date.now()
+        const elapsed = (now - lastTime) / 1000
+        if (elapsed >= 0.5) {
+          task.speed = Math.round((offset - lastBytes) / elapsed)
+          lastTime = now
+          lastBytes = offset
+        }
+      }
+    }
+  } else if (payload.url) {
+    // 单文件直下流式直传
+    const response = await fetch(payload.url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SJTU-Downloader-Worker/1.0'
+      },
+      signal: task.abortController?.signal
+    })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`)
+    }
+
+    const contentLength = Number(response.headers.get('content-length') || 0)
+    if (contentLength > 0) {
+      task.totalBytes = contentLength
+    }
+
+    let accumulated = []
+    let accumulatedLen = 0
+    let partNum = 1
+    let totalUploaded = 0
+    let lastTime = Date.now()
+    let lastBytes = 0
+
+    const reader = response.body.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      const chunkBuf = Buffer.from(value)
+      accumulated.push(chunkBuf)
+      accumulatedLen += chunkBuf.length
+
+      while (accumulatedLen >= CHUNK_SIZE) {
+        const combined = Buffer.concat(accumulated)
+        const partBuf = combined.subarray(0, CHUNK_SIZE)
+        const remainder = combined.subarray(CHUNK_SIZE)
+        accumulated = remainder.length > 0 ? [remainder] : []
+        accumulatedLen = remainder.length
+
+        await putChunk(partBuf, partNum++)
+        totalUploaded += partBuf.length
+        task.receivedBytes = totalUploaded
+        const now = Date.now()
+        const elapsed = (now - lastTime) / 1000
+        if (elapsed >= 0.5) {
+          task.speed = Math.round((totalUploaded - lastBytes) / elapsed)
+          lastTime = now
+          lastBytes = totalUploaded
+        }
+      }
+    }
+
+    if (accumulatedLen > 0) {
+      const partBuf = Buffer.concat(accumulated)
+      accumulated = []
+      accumulatedLen = 0
+      await putChunk(partBuf, partNum++)
+      totalUploaded += partBuf.length
+      task.receivedBytes = totalUploaded
+    }
+  }
+
+  // 确认上传完成
+  const confirmUrl = `https://pan.sjtu.edu.cn/api/v1/file/${cred.libraryId}/${cred.spaceId}/${initData.confirmKey}?confirm&access_token=${cred.accessToken}`
+  const confirmRes = await fetch(confirmUrl, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+    signal: task.abortController?.signal
+  })
+  if (!confirmRes.ok) {
+    const confErr = await confirmRes.text()
+    throw new Error(`确认云盘上传失败: HTTP ${confirmRes.status} ${confErr.slice(0, 120)}`)
+  }
+
+  task.status = 'completed'
+  task.completedAt = Date.now()
+  task.speed = 0
+  task.targetPath = segments.join('/')
+  const safeTaskId = sanitizeLog(task.taskId, 64)
+  const safeTarget = sanitizeLog(task.targetPath, 128)
+  console.log(`[worker] 任务 ${safeTaskId} 已在远端成功直传交大云盘: ${safeTarget} (${task.receivedBytes} bytes)`)
+}
+
+async function executeTaskAsync(task, payload) {
+  task.startedAt = Date.now()
+  task.abortController = new AbortController()
+
+  try {
+    if (task.storageMode === 'server_local' && task.resolvedPath) {
+      task.status = 'downloading'
       if (Array.isArray(payload.slices) && payload.slices.length > 0) {
         // 多切片（如 PPT 课件多张图片批量拉取并合成 PDF）
         const imageBuffers = []
@@ -138,12 +462,16 @@ async function executeTaskAsync(task, payload) {
           fs.mkdirSync(sliceDir, { recursive: true })
         }
 
+        let lastTime = Date.now()
+        let lastBytes = 0
+
         for (let i = 0; i < payload.slices.length; i++) {
           const slice = payload.slices[i]
           const res = await fetch(slice.url, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SJTU-Downloader-Worker/1.0'
-            }
+            },
+            signal: task.abortController.signal
           })
           if (!res.ok) {
             throw new Error(`切片 ${i + 1}/${payload.slices.length} 下载失败: HTTP ${res.status}`)
@@ -152,6 +480,14 @@ async function executeTaskAsync(task, payload) {
           const buf = Buffer.from(arrayBuf)
           receivedBytes += buf.length
           task.receivedBytes = receivedBytes
+
+          const now = Date.now()
+          const elapsed = (now - lastTime) / 1000
+          if (elapsed >= 0.5) {
+            task.speed = Math.round((receivedBytes - lastBytes) / elapsed)
+            lastTime = now
+            lastBytes = receivedBytes
+          }
 
           if (payload.saveImages) {
             const pageNum = String(i + 1).padStart(3, '0')
@@ -171,6 +507,7 @@ async function executeTaskAsync(task, payload) {
 
         task.status = 'completed'
         task.completedAt = Date.now()
+        task.speed = 0
         const safeTaskId = sanitizeLog(task.taskId, 64)
         const safePath = sanitizeLog(task.resolvedPath, 128)
         console.log(`[worker] PPT 任务 ${safeTaskId} (${payload.slices.length} 讲切片) 已成功${isPdf ? '编译为 PDF 并' : ''}保存至: ${safePath} (${receivedBytes} bytes)`)
@@ -179,40 +516,65 @@ async function executeTaskAsync(task, payload) {
         const response = await fetch(payload.url, {
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SJTU-Downloader-Worker/1.0'
-          }
+          },
+          signal: task.abortController.signal
         })
         if (!response.ok) {
           throw new Error(`HTTP ${response.status} ${response.statusText}`)
         }
+        const contentLength = Number(response.headers.get('content-length') || 0)
+        if (contentLength > 0) {
+          task.totalBytes = contentLength
+        }
         const fileStream = fs.createWriteStream(task.resolvedPath)
         const reader = response.body.getReader()
         let receivedBytes = 0
+        let lastTime = Date.now()
+        let lastBytes = 0
+
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
           fileStream.write(Buffer.from(value))
           receivedBytes += value.length
           task.receivedBytes = receivedBytes
+          const now = Date.now()
+          const elapsed = (now - lastTime) / 1000
+          if (elapsed >= 0.5) {
+            task.speed = Math.round((receivedBytes - lastBytes) / elapsed)
+            lastTime = now
+            lastBytes = receivedBytes
+          }
         }
         fileStream.end()
         task.status = 'completed'
         task.completedAt = Date.now()
+        task.speed = 0
         const safeTaskId = sanitizeLog(task.taskId, 64)
         const safePath = sanitizeLog(task.resolvedPath, 128)
         console.log(`[worker] 任务 ${safeTaskId} 已成功下载并保存至: ${safePath} (${receivedBytes} bytes)`)
       } else {
         task.status = 'completed'
         task.completedAt = Date.now()
+        task.speed = 0
       }
-    } catch (err) {
+    } else if (task.storageMode === 'cloudpan') {
+      await uploadToCloudPanAsync(task, payload)
+    } else {
+      task.status = 'completed'
+      task.completedAt = Date.now()
+      task.speed = 0
+    }
+  } catch (err) {
+    if (task.abortController?.signal?.aborted) {
+      task.status = 'cancelled'
+    } else {
       task.status = 'failed'
       task.error = err instanceof Error ? err.message : String(err)
       const safeTaskId = sanitizeLog(task.taskId, 64)
       console.error(`[worker] 任务 ${safeTaskId} 执行失败: ${sanitizeLog(task.error)}`)
     }
-  } else {
-    task.status = 'completed'
-    task.completedAt = Date.now()
+    task.speed = 0
   }
 }
 
@@ -325,6 +687,9 @@ const server = http.createServer(async (req, res) => {
           fileName: payload.fileName || 'unknown',
           storageMode: payload.storageMode || 'cloudpan',
           status: 'queued',
+          receivedBytes: 0,
+          totalBytes: payload.fileSize || 0,
+          speed: 0,
           receivedAt: Date.now(),
           targetPath,
           ...(resolvedLocalPath ? { resolvedPath: resolvedLocalPath } : {})
@@ -359,17 +724,44 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  // 3. 任务状态查询接口
-  if (pathname.startsWith('/api/tasks/') && req.method === 'GET') {
-    if (!verifyAuth(req)) {
-      return sendJson(res, 401, { ok: false, error: 'Unauthorized' })
-    }
-    const taskId = pathname.replace('/api/tasks/', '')
+  // 3. 任务状态查询与取消接口
+  if (pathname.startsWith('/api/tasks/')) {
+    const isCancel = pathname.endsWith('/cancel') || req.method === 'DELETE'
+    const taskId = pathname.replace('/api/tasks/', '').replace(/\/cancel$/, '')
     const task = tasks.get(taskId)
     if (!task) {
       return sendJson(res, 404, { ok: false, error: '任务不存在' })
     }
-    return sendJson(res, 200, { ok: true, task })
+
+    if (!verifyAuth(req)) {
+      return sendJson(res, 401, { ok: false, error: 'Unauthorized' })
+    }
+
+    if (isCancel) {
+      if (task.abortController) {
+        task.abortController.abort()
+      }
+      task.status = 'cancelled'
+      task.speed = 0
+      return sendJson(res, 200, { ok: true, message: '任务已取消', task })
+    }
+
+    if (req.method === 'GET') {
+      return sendJson(res, 200, {
+        ok: true,
+        task: {
+          taskId: task.taskId,
+          fileName: task.fileName,
+          storageMode: task.storageMode,
+          status: task.status,
+          receivedBytes: task.receivedBytes || 0,
+          totalBytes: task.totalBytes || 0,
+          speed: task.speed || 0,
+          targetPath: task.targetPath,
+          error: task.error
+        }
+      })
+    }
   }
 
   // 4. 流式中转代理接口 (/api/proxy)
