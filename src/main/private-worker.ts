@@ -17,6 +17,7 @@ import type {
   PrivateWorkerTaskResponse
 } from '../shared/types'
 import { startSshTunnel } from './ssh-tunnel'
+import { isAllowedSjtuUrl } from './download-engine/domain-guard'
 
 export type { PrivateWorkerTaskPayload, PrivateWorkerTaskResponse }
 
@@ -165,6 +166,10 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
             res.writeHead(400, { 'Content-Type': 'application/json' })
             return res.end(JSON.stringify({ ok: false, error: '缺少目标 url' }))
           }
+          if (!isAllowedSjtuUrl(targetUrl, { allowLocalhost: false })) {
+            res.writeHead(403, { 'Content-Type': 'application/json' })
+            return res.end(JSON.stringify({ ok: false, error: '安全拦截：仅允许代理交大官方域名' }))
+          }
           try {
             const forwardHeaders: Record<string, string> = {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SJTU-Downloader-Worker/1.0',
@@ -172,7 +177,6 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
             }
             if (req.headers.range) forwardHeaders['Range'] = req.headers.range
             if (req.headers.referer) forwardHeaders['Referer'] = req.headers.referer
-            if (req.headers.cookie) forwardHeaders['Cookie'] = req.headers.cookie
             const upstream = await fetch(targetUrl, { method: 'GET', headers: forwardHeaders })
             const respHeaders: Record<string, string> = {
               'Access-Control-Allow-Origin': '*'
