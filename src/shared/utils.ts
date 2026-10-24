@@ -494,3 +494,27 @@ export function getDownloadActionLabels(mode?: DownloadMode): DownloadActionLabe
     iconType: 'download'
   }
 }
+
+/**
+ * 语义版本比较：若 latest > current 返回 true，否则返回 false。
+ * 支持带或不带 'v' 前缀的版本号，按数字逐段比较。
+ * 非合法版本号或解析失败时，保守返回 false。
+ */
+export function isNewerVersion(latest: string, current: string): boolean {
+  if (!latest || !current || typeof latest !== 'string' || typeof current !== 'string') {
+    return false
+  }
+  const cleanLatest = latest.trim().replace(/^v/i, '')
+  const cleanCurrent = current.trim().replace(/^v/i, '')
+  const a = cleanLatest.split('.').map(Number)
+  const b = cleanCurrent.split('.').map(Number)
+  if (a.some(n => Number.isNaN(n)) || b.some(n => Number.isNaN(n))) return false
+  const len = Math.max(a.length, b.length)
+  for (let i = 0; i < len; i++) {
+    const ai = a[i] ?? 0
+    const bi = b[i] ?? 0
+    if (ai > bi) return true
+    if (ai < bi) return false
+  }
+  return false
+}

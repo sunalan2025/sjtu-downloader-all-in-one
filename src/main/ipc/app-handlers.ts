@@ -25,7 +25,7 @@ import {
   installUpdate,
   setUpdateEmitter
 } from '../updater'
-import { isSafeExternalUrl } from '../../shared/utils'
+import { isSafeExternalUrl, isNewerVersion } from '../../shared/utils'
 import {
   listMaskedCredentials,
   saveCredential,
@@ -58,22 +58,6 @@ const UPDATE_REPO = 'sunalan2025/sjtu-downloader-all-in-one'
 const UPDATE_CHECK_TTL = 60 * 60 * 1000 // 1h 节流，避免触发 GitHub 未认证 60 次/h 限流
 let _updateCache: { result: UpdateCheckResult; ts: number } | null = null
 
-/**
- * 语义版本比较：latest > current 返回 true。
- */
-function isNewerVersion(latest: string, current: string): boolean {
-  const a = latest.split('.').map(Number)
-  const b = current.split('.').map(Number)
-  if (a.some(n => Number.isNaN(n)) || b.some(n => Number.isNaN(n))) return false
-  const len = Math.max(a.length, b.length)
-  for (let i = 0; i < len; i++) {
-    const ai = a[i] ?? 0
-    const bi = b[i] ?? 0
-    if (ai > bi) return true
-    if (ai < bi) return false
-  }
-  return false
-}
 
 /**
  * 注册应用基础设施、窗口控制、自动更新、凭据保险库与私有中转相关 IPC 通道
