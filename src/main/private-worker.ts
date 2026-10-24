@@ -24,8 +24,10 @@ export type { PrivateWorkerTaskPayload, PrivateWorkerTaskResponse }
  * 判断当前任务批次是否应当完全委托给校内私有中转机在远端脱机执行
  * 规则：
  * 1. 私有中转服务已启用且配置了有效的节点地址；
- * 2. 仅当目标模式为 'cloud' 时由远端工作机承接（代传至云盘，或在服务器本地磁盘落盘）；
- * 3. 当用户选择存入本机电脑（local 模式）时，由本地下载引擎承接落盘，但全量网络请求经由 Worker 流式代理中继。
+ * 2. 仅当中转目标模式为「保存在中转服务器本地磁盘」(server_local) 且下载模式为 'cloud' 时，
+ *    全权委托远端工作机承接直接在服务器本地磁盘落盘（存到中转机磁盘，不存交大云盘）；
+ * 3. 当目标为转存至交大云盘（cloudpan）或落地到本机电脑（local）时，不脱机委托，
+ *    而是由下载器的真实落盘/上传引擎承接（底层全量网络流通过 Worker /api/proxy 流式中转代理，真实落盘或上传到云盘）。
  */
 export function isWorkerDelegated(
   mode?: DownloadMode,
@@ -35,8 +37,8 @@ export function isWorkerDelegated(
     return false
   }
 
-  // 仅当目标模式为 'cloud' 时全权委托给远端工作机承接（代传至云盘或直接在服务器落盘）
-  if (mode === 'cloud') {
+  // 仅当用户明确配置中转目标为「保存在中转服务器本地磁盘」且为云端/服务器模式时，由远端工作机承接就地落盘
+  if (privateWorker.storageMode === 'server_local' && mode === 'cloud') {
     return true
   }
 

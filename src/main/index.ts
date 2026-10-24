@@ -829,28 +829,25 @@ app.whenReady().then(async () => {
                 cloudUserToken: cloudToken,
                 cloudDestRoot: options?.cloudDestRoot ?? s.cloudDestRoot
               }))
-          if (options?.privateWorker?.enabled && options.privateWorker.endpointUrl?.trim()) {
-            void dispatchWorkerBatch(cloudSpecs, {
-              ...options,
-              mode: 'cloud'
-            })
-          } else {
-            for (const spec of cloudSpecs) {
-              // PERF: O(1) duplicate-check via index Sets instead of O(n) .some() scans
-              if (cloudTasks.has(spec.taskId)) {
-                const st = cloudTasks.get(spec.taskId)!.state
-                if (st === 'pending' || st === 'downloading' || st === 'paused') continue
-              }
-              if (pendingCloudIds.has(spec.taskId)) continue
-              if (pausedCloudIds.has(spec.taskId)) continue
-              pendingCloud.push(spec)
-              pendingCloudIds.add(spec.taskId)
-              if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
-              registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
-              emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
+
+          for (const spec of cloudSpecs) {
+            // PERF: O(1) duplicate-check via index Sets instead of O(n) .some() scans
+            if (cloudTasks.has(spec.taskId)) {
+              const st = cloudTasks.get(spec.taskId)!.state
+              if (st === 'pending' || st === 'downloading' || st === 'paused') continue
             }
-            cloudScheduleNext()
+            if (pendingCloudIds.has(spec.taskId)) continue
+            if (pausedCloudIds.has(spec.taskId)) continue
+            pendingCloud.push(spec)
+            pendingCloudIds.add(spec.taskId)
+            if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
+            if (options?.privateWorker?.enabled && options.privateWorker.endpointUrl?.trim()) {
+              workerConfigByTask.set(spec.taskId, options.privateWorker)
+            }
+            registerTaskMeta(spec.taskId, { fileName: spec.fileName, courseName: effectiveCourseName(spec) })
+            emitProgress({ taskId: spec.taskId, state: 'pending', received: 0, total: 0, fileName: spec.fileName, courseName: effectiveCourseName(spec) })
           }
+          cloudScheduleNext()
         }
 
         return { ok: true }
