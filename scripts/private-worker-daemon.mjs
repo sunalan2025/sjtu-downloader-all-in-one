@@ -21,6 +21,11 @@ const VERSION = '1.0.0'
 
 const tasks = new Map()
 
+function sanitizeLog(val, maxLen = 120) {
+  if (typeof val !== 'string') return ''
+  return val.replace(/[\r\n\x00-\x1f\x7f-\x9f]/g, '_').slice(0, maxLen)
+}
+
 function sendJson(res, statusCode, data) {
   const body = JSON.stringify(data, null, 2)
   res.writeHead(statusCode, {
@@ -96,7 +101,9 @@ const server = http.createServer((req, res) => {
           receivedAt: Date.now()
         })
 
-        console.log(`[worker] 收到中转任务派发: ${taskId} (${payload.fileName || '未知文件'})`)
+        const safeTaskId = sanitizeLog(taskId, 64)
+        const safeFileName = sanitizeLog(payload.fileName || '未知文件', 128)
+        console.log(`[worker] 收到中转任务派发: ${safeTaskId} (${safeFileName})`)
 
         return sendJson(res, 200, {
           ok: true,

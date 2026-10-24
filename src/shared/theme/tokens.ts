@@ -56,9 +56,9 @@ export const LIGHT_THEME: ThemePalette = {
   },
   text: {
     primary: 'rgba(29, 29, 31, 1.0)',
-    secondary: 'rgba(29, 29, 31, 0.60)',
-    tertiary: 'rgba(29, 29, 31, 0.35)',
-    muted: 'rgba(29, 29, 31, 0.20)'
+    secondary: 'rgba(29, 29, 31, 0.70)',
+    tertiary: 'rgba(29, 29, 31, 0.52)',
+    muted: 'rgba(29, 29, 31, 0.38)'
   },
   border: {
     default: 'rgba(0, 0, 0, 0.08)',
@@ -97,9 +97,9 @@ export const DARK_THEME: ThemePalette = {
   },
   text: {
     primary: 'rgba(244, 244, 245, 1.0)',
-    secondary: 'rgba(244, 244, 245, 0.60)',
-    tertiary: 'rgba(244, 244, 245, 0.35)',
-    muted: 'rgba(244, 244, 245, 0.20)'
+    secondary: 'rgba(244, 244, 245, 0.70)',
+    tertiary: 'rgba(244, 244, 245, 0.52)',
+    muted: 'rgba(244, 244, 245, 0.38)'
   },
   border: {
     default: 'rgba(255, 255, 255, 0.08)',

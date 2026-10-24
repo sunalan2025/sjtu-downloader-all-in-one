@@ -524,7 +524,7 @@ async function fetchCanvasUpcomingEventsFallback(
           Boolean(sub?.submitted_at) ||
           (typeof sub?.attempt === 'number' && sub.attempt > 0)
 
-        let subStatus: 'submitted' | 'unsubmitted' | 'graded' | 'missing' = 'unsubmitted'
+        let subStatus: 'submitted' | 'unsubmitted' | 'graded' | 'missing'
         if (ws === 'graded') {
           subStatus = 'graded'
         } else if (isSubmitted) {
@@ -664,7 +664,7 @@ export async function fetchCanvasUpcomingDeadlines(
             Boolean(sub?.submitted_at) ||
             (typeof sub?.attempt === 'number' && sub.attempt > 0)
 
-          let subStatus: 'submitted' | 'unsubmitted' | 'graded' | 'missing' = 'unsubmitted'
+          let subStatus: 'submitted' | 'unsubmitted' | 'graded' | 'missing'
           if (ws === 'graded') {
             subStatus = 'graded'
           } else if (isSubmitted) {
