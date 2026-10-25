@@ -112,14 +112,6 @@ export default function App() {
     }
   }, [setAuth, setStage])
 
-  const cleanedRef = useRef(false)
-  useEffect(() => {
-    if (cleanedRef.current) return
-    cleanedRef.current = true
-    const localDestRoot = useAppStore.getState().localDestRoot || ''
-    window.api.cleanupStaleDownloads(localDestRoot).catch(() => undefined)
-  }, [])
-
   const prefetchedRef = useRef(false)
   useEffect(() => {
     if (stage !== 'browser') {

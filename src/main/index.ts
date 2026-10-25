@@ -22,6 +22,7 @@ import {
 import { registerScheduleHandlers } from './schedule/orchestrator'
 import { invalidateCalendarLogin } from './schedule/schedule-fetcher'
 import { cancelUpdate } from './updater'
+import { cleanupStaleDownloads } from './cleanup'
 import { sjtuSession } from './session'
 import { hydrateSjtuSession } from './auth'
 import { startEmbeddedDevWorker, stopEmbeddedDevWorker } from './private-worker'
@@ -116,6 +117,13 @@ app.whenReady().then(async () => {
 
   electronApp.setAppUserModelId('edu.sjtu.course-downloader')
 
+  // ─── 启动清理：清理上次异常退出的临时沙盒与中间产物 (A01) ───
+  try {
+    cleanupStaleDownloads()
+  } catch (err) {
+    console.warn('[cleanup] 启动临时目录清理异常（不阻塞启动）:', err)
+  }
+
   // 移除默认应用菜单，避免误触开发者工具等
   Menu.setApplicationMenu(null)
 
@@ -178,8 +186,8 @@ app.whenReady().then(async () => {
   // 课表与日程管理 (calendar.sjtu.edu.cn / Canvas DDL)
   registerScheduleHandlers(sjtuSession(), getMainWindow)
 
-  // 开发环境 (npm run dev) 下自动拉起内置测试中转节点
-  if (!app.isPackaged) {
+  // 仅在显式指定环境变量时拉起内置测试中转节点，避免开发态意外抢占 6880 端口或伪造假成功
+  if (!app.isPackaged && process.env.SJTU_DEV_WORKER === '1') {
     startEmbeddedDevWorker().then(url => {
       if (url) console.log('[dev-worker] 内置开发测试节点已自动就绪:', url)
     }).catch(() => undefined)
