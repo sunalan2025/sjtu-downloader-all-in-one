@@ -561,10 +561,21 @@ type WebviewElement = HTMLElement & {
 
 const ALLOWED_NAV_DOMAINS = ['sjtu.edu.cn', 'sjtu.cn']
 
-function isAllowedNavDomain(url: string): boolean {
+export function isAllowedNavDomain(url: string): boolean {
   try {
-    const host = new URL(url).hostname
+    const u = new URL(url)
+    if (u.protocol !== 'https:') return false
+    const host = u.hostname
     return ALLOWED_NAV_DOMAINS.some(d => host === d || host.endsWith('.' + d))
+  } catch {
+    return false
+  }
+}
+
+export function isTrustedJAccountOrigin(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl)
+    return u.protocol === 'https:' && u.hostname === 'jaccount.sjtu.edu.cn'
   } catch {
     return false
   }
@@ -589,6 +600,11 @@ export function getAutofillScript(
 
   return `(() => {
   try {
+    if (window.location.origin !== 'https://jaccount.sjtu.edu.cn') {
+      console.warn('[Security] 凭据填充已阻止：页面 Origin 不匹配');
+      return;
+    }
+
     const accounts = ${jsonAccounts};
     const defaultFill = ${jsonDefaultFill};
     const isDark = ${darkBool};
@@ -1091,6 +1107,10 @@ export function Login() {
   const handleSelectAccount = useCallback(async (id: string): Promise<void> => {
     const wv = webviewRef.current
     if (!wv) return
+    if (!isTrustedJAccountOrigin(wv.getURL())) {
+      console.warn('[Login] 拒绝向非 jAccount 官方页面填充凭据:', wv.getURL())
+      return
+    }
     try {
       const fill = await window.api.credentials.getFillData(id)
       if (fill.ok && fill.username && fill.password) {
@@ -1148,6 +1168,10 @@ export function Login() {
   const injectAutofill = useCallback(async (): Promise<void> => {
     const wv = webviewRef.current
     if (!wv) return
+    if (!isTrustedJAccountOrigin(wv.getURL())) {
+      console.warn('[Login] 拒绝向非 jAccount 官方页面注入自动填充脚本:', wv.getURL())
+      return
+    }
     try {
       const accounts = await window.api.credentials.list()
       let defaultFill: { username?: string; password?: string } | null = null
@@ -1316,7 +1340,7 @@ export function Login() {
     if (!wv || !ready) return
     try {
       const url = wv.getURL?.() ?? ''
-      if (url.includes('jaccount.sjtu.edu.cn')) {
+      if (isTrustedJAccountOrigin(url)) {
         void wv.insertCSS(getJAccountEmbedCss(isDark)).catch(() => undefined)
         void injectAutofill()
       }
@@ -1342,7 +1366,7 @@ export function Login() {
               return
             }
 
-            if (url.includes('jaccount.sjtu.edu.cn')) {
+            if (isTrustedJAccountOrigin(url)) {
               const is2FA = await wv
                 .executeJavaScript(`
                 (() => {
@@ -1417,7 +1441,7 @@ export function Login() {
         return
       }
 
-      if (url.includes('jaccount.sjtu.edu.cn')) {
+      if (isTrustedJAccountOrigin(url)) {
         void wv.insertCSS(getJAccountEmbedCss(isDarkRef.current)).catch(() => undefined)
         setReady(true)
         setError(null)
@@ -1430,6 +1454,8 @@ export function Login() {
       const url = wv.getURL()
       if (!isAllowedNavDomain(url)) {
         console.warn('[Login] blocked navigation to unexpected domain:', url)
+        setError('安全拦截：当前网页非交大官方认证服务 (jaccount.sjtu.edu.cn)，已自动返回认证首页')
+        setStatusMsg('安全拦截：当前网页非交大官方认证服务 (jaccount.sjtu.edu.cn)，已自动返回认证首页')
         void wv.loadURL(JACCOUNT_AUTH_URL)
         return
       }
@@ -1445,7 +1471,7 @@ export function Login() {
         capturedCredRef.current = null
       }
 
-      if (url.includes('jaccount.sjtu.edu.cn')) {
+      if (isTrustedJAccountOrigin(url)) {
         setError(null)
         void updateAuthStatus()
         void injectAutofill()
