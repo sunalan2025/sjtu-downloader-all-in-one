@@ -4,7 +4,7 @@ import { useAppStore } from '../store/app'
 /** 窗口动作：minimize=最小化按钮，close=关闭按钮（或 Alt+F4） */
 type WindowAction = 'minimize' | 'close'
 /** 用户选择：minimize=最小化到托盘，taskbar=最小化到任务栏，quit=退出应用，cancel=取消（保持窗口） */
-type WindowChoice = 'minimize' | 'taskbar' | 'quit' | 'cancel'
+type WindowChoice = 'minimize' | 'taskbar' | 'quit' | 'save_quit' | 'cancel'
 
 // ─── 模块级单例：让 CaptionButtons / close-requested 都能触发同一个弹窗 ───
 //
@@ -34,6 +34,7 @@ export async function resolveWindowAction(action: WindowAction): Promise<WindowC
     return windowCloseAction === 'taskbar' ? 'taskbar' : 'minimize'
   }
   if (exitWhenDownloading === 'pause_quit') return 'quit'
+  if (exitWhenDownloading === 'save_quit') return 'save_quit'
 
   if (!openFn) return 'cancel' // 弹窗未就绪，安全回退
   return openFn(action)
@@ -49,8 +50,65 @@ export async function handleWindowAction(action: WindowAction): Promise<void> {
     await window.api.window.minimizeToTaskbar()
   } else if (choice === 'quit') {
     await window.api.window.cancelAndQuit()
+  } else if (choice === 'save_quit') {
+    await window.api.window.pauseAndQuit()
   }
   // cancel → 什么都不做
+}
+
+/** 可聚焦元素查询选择器（符合 WCAG 2.1 规范） */
+export const FOCUSABLE_ELEMENTS_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * 模态弹窗焦点陷阱工具函数：拦截 Tab / Shift+Tab 按键，确保焦点仅在容器内可聚焦元素间循环
+ *
+ * @param container 包含可聚焦元素的容器 DOM 节点
+ * @param event 键盘事件（真实或模拟）
+ * @returns 是否拦截并处理了焦点事件
+ */
+export function trapFocus(
+  container: HTMLElement | null,
+  event: KeyboardEvent | { key: string; shiftKey?: boolean; preventDefault: () => void }
+): boolean {
+  if (!container || event.key !== 'Tab') return false
+
+  const doc = container.ownerDocument ?? (typeof document !== 'undefined' ? document : null)
+  const focusables = Array.from(
+    container.querySelectorAll<HTMLElement>(FOCUSABLE_ELEMENTS_SELECTOR)
+  ).filter(el => {
+    if (el.hasAttribute('disabled')) return false
+    if (el.getAttribute('aria-hidden') === 'true') return false
+    if (el.tabIndex === -1) return false
+    return true
+  })
+
+  if (focusables.length === 0) {
+    event.preventDefault()
+    return true
+  }
+
+  const first = focusables[0]
+  const last = focusables[focusables.length - 1]
+  const active = doc?.activeElement
+
+  if (event.shiftKey) {
+    // Shift + Tab：首项元素或外部焦点，回绕聚焦至末项
+    if (active === first || !container.contains(active as Node)) {
+      event.preventDefault()
+      last.focus()
+      return true
+    }
+  } else {
+    // Tab：末项元素或外部焦点，回绕聚焦至首项
+    if (active === last || !container.contains(active as Node)) {
+      event.preventDefault()
+      first.focus()
+      return true
+    }
+  }
+
+  return false
 }
 
 /** Mac 风格确认弹窗。挂载在 App 顶层（单例），监听 close-requested 事件。
@@ -60,6 +118,7 @@ export function WindowConfirmModal() {
   const [state, setState] = useState<{ action: WindowAction; resolve: (c: WindowChoice) => void } | null>(null)
   const stateRef = useRef(state)
   stateRef.current = state
+  const modalCardRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     // 注册模块级触发器：返回 Promise，组件内 setState + 保存 resolve
@@ -84,14 +143,34 @@ export function WindowConfirmModal() {
     })
   }, [])
 
-  // Esc 取消
+  // 焦点陷阱与键盘快捷键监听：打开时自动聚焦首个按钮，Tab 循环防逃逸，Escape 退出
   useEffect(() => {
     if (!state) return
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') close('cancel')
+
+    const focusFirstElement = () => {
+      const first = modalCardRef.current?.querySelector<HTMLElement>(FOCUSABLE_ELEMENTS_SELECTOR)
+      first?.focus()
     }
+
+    focusFirstElement()
+    const timer = setTimeout(focusFirstElement, 30)
+
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        close('cancel')
+        return
+      }
+      if (e.key === 'Tab') {
+        trapFocus(modalCardRef.current, e)
+      }
+    }
+
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('keydown', onKey)
+    }
   }, [state, close])
 
   if (!state) return null
@@ -103,6 +182,8 @@ export function WindowConfirmModal() {
       className="fixed inset-0 z-[100] flex items-center justify-center"
       role="dialog"
       aria-modal="true"
+      aria-labelledby="confirm-modal-title"
+      aria-describedby="confirm-modal-desc"
     >
       {/* 毛玻璃遮罩 */}
       <div
@@ -110,7 +191,10 @@ export function WindowConfirmModal() {
         onClick={() => close('cancel')}
       />
       {/* Mac 风格弹窗卡片 */}
-      <div className="relative w-[360px] animate-fadeIn rounded-2xl border border-bd-strong bg-surface-1 p-5 shadow-2xl">
+      <div
+        ref={modalCardRef}
+        className="relative w-[360px] animate-fadeIn rounded-2xl border border-bd-strong bg-surface-1 p-5 shadow-2xl"
+      >
         <div className="flex flex-col items-center gap-3 text-center">
           {/* 标题图标 */}
           <div
@@ -129,10 +213,10 @@ export function WindowConfirmModal() {
             )}
           </div>
           <div>
-            <div className="text-base font-semibold text-text-1">
+            <div id="confirm-modal-title" className="text-base font-semibold text-text-1">
               {isClose ? '关闭应用？' : '最小化窗口？'}
             </div>
-            <p className="mt-1.5 text-xs leading-relaxed text-text-3">
+            <p id="confirm-modal-desc" className="mt-1.5 text-xs leading-relaxed text-text-3">
               应用有正在进行的下载/上传任务。
               <br />
               {windowCloseAction === 'taskbar'
@@ -144,6 +228,9 @@ export function WindowConfirmModal() {
 
         {/* 按钮区：Mac 风格 — 主按钮填充，次按钮描边 */}
         <div className="mt-5 flex flex-col gap-2">
+          <button type="button" onClick={() => close('save_quit')} className="h-9 rounded-lg border border-bd bg-surface-2 text-sm font-medium text-text-1 hover:bg-surface-3">
+            保存任务并退出
+          </button>
           <button
             type="button"
             autoFocus

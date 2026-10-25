@@ -4,7 +4,7 @@
 // 与下载状态机无关）+ progress-primitives.tsx（进度状态机与任务控制）。旧导入
 // 路径 '../components/DownloadUI' 由 DownloadUI.tsx barrel re-export 保持不变。
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useClickOutside } from '../hooks/useClickOutside'
 import type { CourseViewMode } from '../store/app'
 
@@ -287,7 +287,103 @@ export interface DropdownSelectProps<T extends string | number = string> {
   disabled?: boolean
 }
 
-/** 现代圆角自定义下拉组件（彻底告别系统原生粗糙 select 弹窗，支持分组与 Apple HIG 毛玻璃悬浮弹窗） */
+export interface DropdownKeyboardNavigationParams<T extends string | number = string> {
+  key: string
+  isOpen: boolean
+  allOptions: DropdownOption<T>[]
+  currentIndex: number
+  value: T
+  onOpen: () => void
+  onClose: () => void
+  onSelect: (val: T) => void
+  onHighlight: (index: number) => void
+  preventDefault?: () => void
+}
+
+/**
+ * 键盘导航事件分发器：支持 WAI-ARIA 规范的下拉框全键盘操作
+ * - closed 状态下按 ArrowDown / ArrowUp / Enter / Space 唤起下拉并同步高亮项
+ * - open 状态下 ArrowDown / ArrowUp 循环移动高亮项，Home / End 快速首尾导航
+ * - Enter / Space 确认选择当前高亮项并收起
+ * - Escape / Tab 收起下拉
+ */
+export function handleDropdownKeyDown<T extends string | number = string>({
+  key,
+  isOpen,
+  allOptions,
+  currentIndex,
+  value,
+  onOpen,
+  onClose,
+  onSelect,
+  onHighlight,
+  preventDefault
+}: DropdownKeyboardNavigationParams<T>): void {
+  if (!isOpen) {
+    if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Enter' || key === ' ') {
+      preventDefault?.()
+      const selectedIdx = allOptions.findIndex(o => o.value === value)
+      onHighlight(selectedIdx >= 0 ? selectedIdx : 0)
+      onOpen()
+    }
+    return
+  }
+
+  if (allOptions.length === 0) {
+    if (key === 'Escape' || key === 'Tab') {
+      if (key === 'Escape') preventDefault?.()
+      onClose()
+    }
+    return
+  }
+
+  const count = allOptions.length
+
+  switch (key) {
+    case 'ArrowDown': {
+      preventDefault?.()
+      const nextIdx = (currentIndex + 1) % count
+      onHighlight(nextIdx)
+      break
+    }
+    case 'ArrowUp': {
+      preventDefault?.()
+      const prevIdx = (currentIndex - 1 + count) % count
+      onHighlight(prevIdx)
+      break
+    }
+    case 'Home': {
+      preventDefault?.()
+      onHighlight(0)
+      break
+    }
+    case 'End': {
+      preventDefault?.()
+      onHighlight(count - 1)
+      break
+    }
+    case 'Enter':
+    case ' ': {
+      preventDefault?.()
+      if (currentIndex >= 0 && currentIndex < count) {
+        onSelect(allOptions[currentIndex].value)
+      }
+      onClose()
+      break
+    }
+    case 'Escape': {
+      preventDefault?.()
+      onClose()
+      break
+    }
+    case 'Tab': {
+      onClose()
+      break
+    }
+  }
+}
+
+/** 现代圆角自定义下拉组件（彻底告别系统原生粗糙 select 弹窗，支持分组、Apple HIG 毛玻璃悬浮弹窗与全键盘 WAI-ARIA 无障碍导航） */
 export function DropdownSelect<T extends string | number = string>({
   value,
   options,
@@ -303,6 +399,8 @@ export function DropdownSelect<T extends string | number = string>({
 }: DropdownSelectProps<T>) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useClickOutside(containerRef, () => setOpen(false), { enabled: open })
 
@@ -310,24 +408,86 @@ export function DropdownSelect<T extends string | number = string>({
     ? groups.flatMap(g => g.options)
     : (options || [])
 
+  const selectedIdx = allOptions.findIndex(o => o.value === value)
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(selectedIdx >= 0 ? selectedIdx : 0)
+
+  // 展开时或当前高亮变动时，滚动至可视区域
+  useEffect(() => {
+    if (!open || !menuRef.current) return
+    const highlightedEl = menuRef.current.querySelector<HTMLElement>(`[data-index="${highlightedIndex}"]`)
+    if (highlightedEl && typeof highlightedEl.scrollIntoView === 'function') {
+      highlightedEl.scrollIntoView({ block: 'nearest' })
+    }
+  }, [open, highlightedIndex])
+
+  const openMenu = () => {
+    const idx = allOptions.findIndex(o => o.value === value)
+    setHighlightedIndex(idx >= 0 ? idx : 0)
+    setOpen(true)
+  }
+
+  const closeMenu = () => {
+    setOpen(false)
+  }
+
+  const toggleOpen = () => {
+    if (disabled) return
+    if (!open) {
+      openMenu()
+    } else {
+      closeMenu()
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
+    if (disabled) return
+    handleDropdownKeyDown({
+      key: e.key,
+      isOpen: open,
+      allOptions,
+      currentIndex: highlightedIndex,
+      value,
+      onOpen: openMenu,
+      onClose: closeMenu,
+      onSelect: (val: T) => {
+        onChange(val)
+        triggerRef.current?.focus()
+      },
+      onHighlight: (idx: number) => {
+        setHighlightedIndex(idx)
+      },
+      preventDefault: () => e.preventDefault()
+    })
+  }
+
   const selectedOpt = allOptions.find(o => o.value === value) || allOptions[0]
 
-  const renderOptionItem = (opt: DropdownOption<T>) => {
+  const renderOptionItem = (opt: DropdownOption<T>, idx: number) => {
     const isSelected = opt.value === value
+    const isHighlighted = idx === highlightedIndex
     return (
       <button
         key={String(opt.value)}
+        id={`dropdown-opt-${idx}`}
+        data-index={idx}
         type="button"
         role="option"
+        tabIndex={-1}
         aria-selected={isSelected}
         onClick={() => {
           onChange(opt.value)
           setOpen(false)
+          triggerRef.current?.focus()
         }}
+        onMouseEnter={() => setHighlightedIndex(idx)}
         className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs transition-colors text-left cursor-pointer ${
-          isSelected
-            ? 'bg-accent/15 font-semibold text-accent'
-            : 'text-text-2 hover:bg-surface-2/80 hover:text-text-1'
+          isSelected && isHighlighted
+            ? 'bg-accent/20 font-semibold text-accent ring-1 ring-accent/30'
+            : isSelected
+              ? 'bg-accent/15 font-semibold text-accent'
+              : isHighlighted
+                ? 'bg-surface-2 text-text-1'
+                : 'text-text-2 hover:bg-surface-2/80 hover:text-text-1'
         }`}
       >
         <span className="truncate">
@@ -343,11 +503,19 @@ export function DropdownSelect<T extends string | number = string>({
   }
 
   return (
-    <div ref={containerRef} className={`relative inline-block text-left ${open ? 'z-50' : ''} ${className}`} title={title}>
+    <div
+      ref={containerRef}
+      onKeyDown={handleKeyDown}
+      className={`relative inline-block text-left ${open ? 'z-50' : ''} ${className}`}
+      title={title}
+    >
       <button
+        ref={triggerRef}
         type="button"
         disabled={disabled}
-        onClick={() => !disabled && setOpen(prev => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={toggleOpen}
         className={`h-9 inline-flex items-center justify-between gap-2 rounded-xl border bg-surface-1 px-3 text-xs font-medium text-text-1 shadow-2xs transition-all hover:bg-surface-2 cursor-pointer select-none ${
           disabled ? 'opacity-40 cursor-not-allowed hover:bg-surface-1' : ''
         } ${
@@ -376,7 +544,10 @@ export function DropdownSelect<T extends string | number = string>({
 
       {open && (
         <div
+          ref={menuRef}
           role="listbox"
+          tabIndex={-1}
+          aria-activedescendant={`dropdown-opt-${highlightedIndex}`}
           className={`animate-fadeIn absolute ${
             align === 'right' ? 'right-0' : 'left-0'
           } top-[calc(100%+6px)] z-50 min-w-full w-max max-w-[340px] max-h-72 overflow-y-auto rounded-2xl border border-black/[0.08] dark:border-bd-strong bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-2xl ${menuClassName}`}
@@ -387,18 +558,20 @@ export function DropdownSelect<T extends string | number = string>({
                 <div className="px-3 py-1 text-3xs font-semibold text-text-4 select-none tracking-wider uppercase">
                   {group.label}
                 </div>
-                {group.options.map(opt => renderOptionItem(opt))}
+                {group.options.map(opt => {
+                  const optIdx = allOptions.indexOf(opt)
+                  return renderOptionItem(opt, optIdx >= 0 ? optIdx : 0)
+                })}
               </div>
             ))
           ) : (
-            allOptions.map(opt => renderOptionItem(opt))
+            allOptions.map((opt, idx) => renderOptionItem(opt, idx))
           )}
         </div>
       )}
     </div>
   )
 }
-
 
 /** macOS 风格经典天蓝色矢量立体文件夹图标 */
 export function MacOSFolderIcon({
