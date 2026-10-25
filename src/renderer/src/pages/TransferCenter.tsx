@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useAppStore } from '../store/app'
 import { formatBytes } from '../components/DownloadUI'
 import { formatDate } from '../../../shared/utils'
@@ -13,6 +13,8 @@ export function TransferCenter() {
   const localDestRoot = useAppStore(s => s.localDestRoot)
   const progress = useAppStore(s => s.progress)
   const cloudLinkedIds = useAppStore(s => s.cloudLinkedIds)
+
+  const syncedTaskIdsRef = useRef<Set<string>>(new Set())
 
   const [speed, setSpeed] = useState<TransferSpeed>({ down: 0, up: 0 })
   const [activeTab, setActiveTab] = useState<'active' | 'failed' | 'history'>(() => {
@@ -97,30 +99,29 @@ export function TransferCenter() {
     const finishedLogical = logicalTasks.filter(t => t.aggregate.state === 'done' || t.aggregate.state === 'skipped')
     if (finishedLogical.length === 0) return
 
-    const missing = finishedLogical.filter(lt => {
-      const baseId = lt.taskId.replace(/_cloud$/, '')
-      return !history.some(h => h.taskId.replace(/_cloud$/, '') === baseId)
-    })
-
-    if (missing.length > 0) {
-      for (const item of missing) {
-        const rawLocal = progress[item.taskId]
-        const rawCloud = cloudLinkedIds[item.taskId] ? progress[cloudLinkedIds[item.taskId]] : undefined
-        const fileSize = item.aggregate.total > 0
-          ? item.aggregate.total
-          : (item.aggregate.received > 0 ? item.aggregate.received : undefined)
-        useAppStore.getState().addDownloadHistory({
-          taskId: item.taskId,
-          fileName: item.fileName,
-          courseName: item.courseName,
-          filePath: rawLocal?.filePath || rawCloud?.filePath,
-          cloudPath: rawLocal?.cloudPath || rawCloud?.cloudPath,
-          fileSize,
-          completedAt: Date.now()
-        })
+    for (const item of finishedLogical) {
+      const baseId = item.taskId.replace(/_cloud$/, '')
+      if (syncedTaskIdsRef.current.has(baseId)) {
+        continue
       }
+      syncedTaskIdsRef.current.add(baseId)
+
+      const rawLocal = progress[item.taskId]
+      const rawCloud = cloudLinkedIds[item.taskId] ? progress[cloudLinkedIds[item.taskId]] : undefined
+      const fileSize = item.aggregate.total > 0
+        ? item.aggregate.total
+        : (item.aggregate.received > 0 ? item.aggregate.received : undefined)
+      useAppStore.getState().addDownloadHistory({
+        taskId: item.taskId,
+        fileName: item.fileName,
+        courseName: item.courseName,
+        filePath: rawLocal?.filePath || rawCloud?.filePath,
+        cloudPath: rawLocal?.cloudPath || rawCloud?.cloudPath,
+        fileSize,
+        completedAt: Date.now()
+      })
     }
-  }, [logicalTasks, history, progress, cloudLinkedIds])
+  }, [logicalTasks, progress, cloudLinkedIds])
 
   const handleOpenDownloadFolder = async (): Promise<void> => {
     let target = localDestRoot

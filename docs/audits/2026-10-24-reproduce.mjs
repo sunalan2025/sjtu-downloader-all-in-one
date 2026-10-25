@@ -55,7 +55,7 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
   const d = daemon(async()=>{fetches++;return new Response('fixture')});
   d.context.auditTask = {storageMode:'cloudpan'};
   d.context.auditPayload = {url:'https://oc.sjtu.edu.cn/fixture',storageMode:'cloudpan'};
-  await vm.runInContext('executeTaskAsync(auditTask,auditPayload)',d.context);
+  try { await vm.runInContext('executeTaskAsync(auditTask,auditPayload)',d.context); } catch {}
   result('L1-cloud-success-without-token',{status:d.context.auditTask.status,fetches});
 }
 
@@ -67,7 +67,7 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
   const d = daemon(async()=>new Response(new Uint8Array([1,2,3])),{createWriteStream:()=>stream,existsSync:()=>true});
   d.context.auditTask={storageMode:'server_local',resolvedPath:'C:/audit/existing.pdf'};
   d.context.auditPayload={url:'https://oc.sjtu.edu.cn/fixture',fileName:'existing.pdf',conflictStrategy:'skip'};
-  await vm.runInContext('executeTaskAsync(auditTask,auditPayload)',d.context);
+  try { await vm.runInContext('executeTaskAsync(auditTask,auditPayload)',d.context); } catch {}
   result('L2-worker-skip-and-flush',{status:d.context.auditTask.status,writesDespiteSkip:writes,finish,writeErrorListeners:stream.listenerCount('error')});
 }
 
@@ -121,13 +121,31 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
   state={...slice.createDownloadSlice(set),canvasCourses:[],downloadMode:'local'};
   state.progress=Object.fromEntries(Array.from({length:301},(_,i)=>['task'+i,{taskId:'task'+i,state:'done',fileName:'file'+i+'.pdf',total:100,received:100}]));
   const hook=selector=>selector(state);hook.getState=()=>state;
-  const react={useMemo:fn=>fn(),useState:initial=>[typeof initial==='function'?initial():initial,()=>{}],useEffect:fn=>effects.push(fn)};
-  const transfer=loadTs('src/renderer/src/pages/TransferCenter.tsx',{
-    react,'../store/app':{useAppStore:hook},'../components/DownloadUI':{formatBytes:String},'../../../shared/utils':{formatDate:String},
-    '../download/progress':{aggregateTaskState:(p)=>p}
-  },{window:{api:{download:{onTransferSpeed:()=>()=>{}}}}});
-  const rounds=[];
-  for(let i=0;i<8;i++){effects=[];const before=changes;transfer.TransferCenter();effects.forEach(fn=>fn());rounds.push({round:i+1,storeUpdates:changes-before,historySize:state.downloadHistory.length});}
+  const refs = new Map();
+  let refIdx = 0;
+  const react = {
+    useMemo: fn => fn(),
+    useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
+    useRef: val => {
+      const idx = refIdx++;
+      if (!refs.has(idx)) refs.set(idx, { current: val });
+      return refs.get(idx);
+    },
+    useEffect: fn => effects.push(fn)
+  };
+  const transfer = loadTs('src/renderer/src/pages/TransferCenter.tsx', {
+    react, '../store/app': { useAppStore: hook }, '../components/DownloadUI': { formatBytes: String }, '../../../shared/utils': { formatDate: String },
+    '../download/progress': { aggregateTaskState: (p) => p }
+  }, { window: { api: { download: { onTransferSpeed: () => () => {} } } } });
+  const rounds = [];
+  for (let i = 0; i < 8; i++) {
+    refIdx = 0;
+    effects = [];
+    const before = changes;
+    transfer.TransferCenter();
+    effects.forEach(fn => fn());
+    rounds.push({ round: i + 1, storeUpdates: changes - before, historySize: state.downloadHistory.length });
+  }
   result('P1-history-feedback-loop',rounds);
 }
 
