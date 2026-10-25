@@ -228,6 +228,17 @@ export async function downloadHls(
   let bytesWritten = 0
   let writeError: Error | null = null
 
+  const MAX_AHEAD_SEGMENTS = 5
+  const MAX_BUFFERED_BYTES = 50 * 1024 * 1024 // 50MB
+
+  const getBufferedBytes = (): number => {
+    let sum = 0
+    for (const buf of pendingWrites.values()) {
+      sum += buf.length
+    }
+    return sum
+  }
+
   /** 尝试按序 flush 已缓冲的 segment 到磁盘 */
   const flushSequential = (): void => {
     while (pendingWrites.has(writeIdx)) {
@@ -267,6 +278,13 @@ export async function downloadHls(
     for (let w = 0; w < Math.min(maxWorkers, segments.length); w++) {
       workers.push((async () => {
         while (idx < segments.length) {
+          if (aborted || writeError || signal?.aborted) return
+          // 滑动窗口控速：当当前下标超前已写盘序号 >= MAX_AHEAD_SEGMENTS 或总缓冲内存超标时，挂起等待
+          while (idx - writeIdx >= MAX_AHEAD_SEGMENTS || getBufferedBytes() >= MAX_BUFFERED_BYTES) {
+            if (aborted || writeError || signal?.aborted) return
+            await new Promise((r) => setTimeout(r, 20))
+          }
+          if (idx >= segments.length) break
           if (aborted || writeError || signal?.aborted) return
           const i = idx++
           let data: Buffer
@@ -318,6 +336,8 @@ export async function downloadHls(
   }
   return bytesWritten
 }
+
+export const downloadHlsM3u8ToTs = downloadHls
 
 /** 判断是否为可重试的网络错误（含 DNS 解析失败） */
 function isRetryableNetErr(err: unknown): boolean {
