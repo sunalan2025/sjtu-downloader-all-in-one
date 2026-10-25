@@ -24,7 +24,7 @@ export function wrapDnsError(url: string, err: unknown): Error | null {
 export const DEFAULT_429_MAX_RETRIES = 4
 export const DEFAULT_FETCH_TIMEOUT_MS = 15_000
 
-/** 包装 ses.fetch，具备超时熔断、Chromium DNS 错误转义以及 429 限流指数退避自愈 */
+/** 包装 ses.fetch，具备超时熔断（AbortController 深度中止底层网络连接）、Chromium DNS 错误转义以及 429 限流指数退避自愈 */
 export async function safeFetch(
   ses: Electron.Session,
   url: string,
@@ -35,39 +35,72 @@ export async function safeFetch(
   let attempt = 0
   for (;;) {
     let resp: Response
+    const controller = new AbortController()
+
+    let removeCallerAbortListener: (() => void) | undefined
+    if (init?.signal) {
+      if (init.signal.aborted) {
+        controller.abort(init.signal.reason)
+      } else {
+        const onCallerAbort = (): void => {
+          controller.abort(init.signal?.reason)
+        }
+        init.signal.addEventListener('abort', onCallerAbort, { once: true })
+        removeCallerAbortListener = (): void => {
+          init.signal?.removeEventListener('abort', onCallerAbort)
+        }
+      }
+    }
+
     try {
       let fetchPromise: Promise<Response>
       try {
-        fetchPromise = ses.fetch(url, init)
+        fetchPromise = ses.fetch(url, { ...init, signal: controller.signal })
       } catch (callErr) {
         throw wrapDnsError(url, callErr) ?? callErr
       }
 
       if (timeoutMs > 0) {
-        let timer: NodeJS.Timeout
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            reject(new Error(`请求超时 (${Math.round(timeoutMs / 1000)}s): ${sanitizeForLog(url)}`))
-          }, timeoutMs)
-        })
-        resp = await Promise.race([
-          fetchPromise.then(
-            r => {
-              clearTimeout(timer)
-              return r
-            },
-            err => {
-              clearTimeout(timer)
-              throw err
-            }
-          ),
-          timeoutPromise
-        ])
+        let timer: NodeJS.Timeout | undefined
+        try {
+          resp = await new Promise<Response>((resolve, reject) => {
+            let settled = false
+
+            timer = setTimeout(() => {
+              if (settled) return
+              settled = true
+              const timeoutError = new Error(
+                `请求超时 (${Math.round(timeoutMs / 1000)}s): ${sanitizeForLog(url)}`
+              )
+              controller.abort(timeoutError)
+              reject(timeoutError)
+            }, timeoutMs)
+
+            fetchPromise.then(
+              r => {
+                if (settled) return
+                settled = true
+                if (timer) clearTimeout(timer)
+                resolve(r)
+              },
+              err => {
+                if (settled) return
+                settled = true
+                if (timer) clearTimeout(timer)
+                reject(err)
+              }
+            )
+          })
+        } finally {
+          if (timer) clearTimeout(timer)
+        }
       } else {
         resp = await fetchPromise
       }
     } catch (err) {
       throw wrapDnsError(url, err) ?? err
+    } finally {
+      removeCallerAbortListener?.()
     }
 
     if (resp.status !== 429 || attempt >= maxRetries) {
@@ -87,7 +120,25 @@ export async function safeFetch(
       `[safeFetch] 429 Too Many Requests (${sanitizeForLog(url)})，${Math.round(delayMs / 1000)}s 后重试 (${attempt + 1}/${maxRetries})`
     )
 
-    await new Promise<void>(r => setTimeout(r, delayMs))
+    await new Promise<void>((resolve, reject) => {
+      if (init?.signal?.aborted) {
+        reject(init.signal.reason ?? new Error('This operation was aborted'))
+        return
+      }
+
+      function onAbort(): void {
+        clearTimeout(backoffTimer)
+        reject(init?.signal?.reason ?? new Error('This operation was aborted'))
+      }
+
+      const backoffTimer = setTimeout(() => {
+        init?.signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }, delayMs)
+
+      init?.signal?.addEventListener('abort', onAbort, { once: true })
+    })
+
     attempt++
   }
 }
