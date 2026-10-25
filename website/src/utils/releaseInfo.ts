@@ -62,7 +62,7 @@ export const STATIC_FALLBACK_ASSETS: Record<string, { filename: string; sizeMb: 
     sha256: '795e4a9ab75281f8c44fa5af7a33be9284cddf1bed87cb2cd02e33d802220ebd'
   },
   'mac-x64': {
-    filename: `sjtu-course-downloader-${CURRENT_RELEASE_VERSION}-mac-arm64.zip`,
+    filename: `sjtu-course-downloader-${CURRENT_RELEASE_VERSION}-mac-x64.zip`,
     sizeMb: 130.5,
     sha256: '450c17f49d8ee3dd2c49b75e4f69ba8317f7af96ef71fa929afabb23151e66f9'
   },
@@ -146,6 +146,25 @@ export function resolveDownloadLink(
 }
 
 /**
+ * 从 Release 的 body 描述文本中提取指定产物的 SHA256 哈希
+ */
+function extractSha256(release: GitHubRelease | null, filename: string): string | undefined {
+  if (!release?.body) return undefined;
+  const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // 匹配标准 sha256sum 形式: "<hash>  filename" 或 "<hash> *filename"
+  const linePattern = new RegExp(`([a-fA-F0-9]{64})\\s+[*]?${escaped}`, 'i');
+  const lineMatch = release.body.match(linePattern);
+  if (lineMatch) return lineMatch[1].toLowerCase();
+
+  // 匹配形式: "filename: <hash>" 或 "filename - <hash>"
+  const reversePattern = new RegExp(`${escaped}[:\\s-]+([a-fA-F0-9]{64})`, 'i');
+  const reverseMatch = release.body.match(reversePattern);
+  if (reverseMatch) return reverseMatch[1].toLowerCase();
+
+  return undefined;
+}
+
+/**
  * 获取全平台全格式下载矩阵明细清单（含文件大小、架构说明与直接下载链接）
  */
 export function getAllPlatformMatrix(
@@ -153,6 +172,8 @@ export function getAllPlatformMatrix(
   fallbackVersion: string = CURRENT_RELEASE_VERSION
 ): PlatformAssetDetail[] {
   const version = release?.tag_name || `v${fallbackVersion.replace(/^v/, '')}`;
+  const cleanVersion = version.replace(/^v/, '');
+  const isCurrentVersion = !release || cleanVersion === CURRENT_RELEASE_VERSION;
   const assets = release?.assets || [];
 
   function findUrl(pattern: (name: string) => boolean, key: string): { url: string; filename: string; sizeMb: number } {
@@ -180,11 +201,20 @@ export function getAllPlatformMatrix(
   const macArm = findUrl((n) => n.endsWith('.dmg') && (n.includes('arm64') || n.includes('aarch64')), 'mac-arm64');
   const macIntel = findUrl(
     (n) =>
-      (n.endsWith('.dmg') && !n.includes('arm64') && !n.includes('aarch64')) ||
-      (n.endsWith('.zip') && n.includes('mac')),
+      !n.includes('arm64') &&
+      !n.includes('aarch64') &&
+      ((n.endsWith('.dmg') && (n.includes('mac') || n.includes('darwin') || n.includes('x64'))) ||
+       (n.endsWith('.zip') && (n.includes('mac') || n.includes('darwin') || n.includes('x64')))),
     'mac-x64'
   );
   const linuxAppImage = findUrl((n) => n.endsWith('.appimage'), 'linux-appimage');
+
+  function resolveSha256(key: string, filename: string): string | undefined {
+    if (isCurrentVersion) {
+      return STATIC_FALLBACK_ASSETS[key]?.sha256;
+    }
+    return extractSha256(release, filename);
+  }
 
   return [
     {
@@ -197,7 +227,7 @@ export function getAllPlatformMatrix(
       filename: winExe.filename,
       url: winExe.url,
       sizeMb: winExe.sizeMb,
-      sha256: STATIC_FALLBACK_ASSETS['win-exe'].sha256,
+      sha256: resolveSha256('win-exe', winExe.filename),
       description: '适用于 Windows 10/11，推荐个人与笔记本电脑首选安装'
     },
     {
@@ -210,7 +240,7 @@ export function getAllPlatformMatrix(
       filename: winMsi.filename,
       url: winMsi.url,
       sizeMb: winMsi.sizeMb,
-      sha256: STATIC_FALLBACK_ASSETS['win-msi'].sha256,
+      sha256: resolveSha256('win-msi', winMsi.filename),
       description: '适用于实验室电脑、多用户环境与自动化静默安装'
     },
     {
@@ -223,7 +253,7 @@ export function getAllPlatformMatrix(
       filename: macArm.filename,
       url: macArm.url,
       sizeMb: macArm.sizeMb,
-      sha256: STATIC_FALLBACK_ASSETS['mac-arm64'].sha256,
+      sha256: resolveSha256('mac-arm64', macArm.filename),
       description: '针对 Apple M 系列芯片深度原生优化，性能功耗比最高'
     },
     {
@@ -236,7 +266,7 @@ export function getAllPlatformMatrix(
       filename: macIntel.filename,
       url: macIntel.url,
       sizeMb: macIntel.sizeMb,
-      sha256: STATIC_FALLBACK_ASSETS['mac-x64'].sha256,
+      sha256: resolveSha256('mac-x64', macIntel.filename),
       description: '适用于搭载 Intel 处理器的历史款 MacBook 与 iMac 设备'
     },
     {
@@ -249,7 +279,7 @@ export function getAllPlatformMatrix(
       filename: linuxAppImage.filename,
       url: linuxAppImage.url,
       sizeMb: linuxAppImage.sizeMb,
-      sha256: STATIC_FALLBACK_ASSETS['linux-appimage'].sha256,
+      sha256: resolveSha256('linux-appimage', linuxAppImage.filename),
       description: 'Ubuntu / Debian / Fedora 等主流发行版免安装双击运行'
     }
   ];

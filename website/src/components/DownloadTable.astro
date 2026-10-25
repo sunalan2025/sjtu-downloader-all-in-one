@@ -96,16 +96,24 @@ const changelogHighlights = [
                 </a>
 
                 <div class="flex items-center justify-between text-[11px] text-slate-400">
-                  <span class="font-mono truncate max-w-[140px]" title={asset.sha256}>
-                    SHA: {asset.sha256?.substring(0, 10)}...
-                  </span>
-                  <button
-                    type="button"
-                    class="copy-sha-btn text-sjtu-blue hover:underline cursor-pointer font-medium"
-                    data-hash={asset.sha256}
-                  >
-                    复制哈希
-                  </button>
+                  {asset.sha256 ? (
+                    <>
+                      <span class="font-mono truncate max-w-[140px]" title={asset.sha256}>
+                        SHA: {asset.sha256.substring(0, 10)}...
+                      </span>
+                      <button
+                        type="button"
+                        class="copy-sha-btn text-sjtu-blue hover:underline cursor-pointer font-medium"
+                        data-hash={asset.sha256}
+                      >
+                        复制哈希
+                      </button>
+                    </>
+                  ) : (
+                    <span class="text-[11px] text-slate-400 italic">
+                      SHA256: 待生成 / 见 Release 页面
+                    </span>
+                  )}
                 </div>
 
                 {asset.id === 'win-exe' && winMsiAsset && (
@@ -113,14 +121,18 @@ const changelogHighlights = [
                     <a href={winMsiAsset.url} class="text-sjtu-blue hover:underline font-medium truncate max-w-[140px]">
                       或下载 .msi 便携包 (133.3 MB)
                     </a>
-                    <button
-                      type="button"
-                      class="copy-sha-btn text-slate-400 hover:text-sjtu-blue cursor-pointer font-medium shrink-0"
-                      data-hash={winMsiAsset.sha256}
-                      title="复制 .msi SHA-256 校验码"
-                    >
-                      复制哈希
-                    </button>
+                    {winMsiAsset.sha256 ? (
+                      <button
+                        type="button"
+                        class="copy-sha-btn text-slate-400 hover:text-sjtu-blue cursor-pointer font-medium shrink-0"
+                        data-hash={winMsiAsset.sha256}
+                        title="复制 .msi SHA-256 校验码"
+                      >
+                        复制哈希
+                      </button>
+                    ) : (
+                      <span class="text-slate-400 text-[10px] italic">哈希见 Release</span>
+                    )}
                   </div>
                 )}
               </div>
