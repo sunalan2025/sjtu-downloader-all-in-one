@@ -418,7 +418,7 @@ export function Settings({
                     <div className="space-y-1 max-w-sm">
                       <div className="text-sm font-medium text-text-1">正在下载时关闭策略</div>
                       <div className="text-xs text-text-3 leading-relaxed">
-                        当有未完成的课件或视频传输时触发关闭的应对机制，有效防误触中断传输。
+                        当有未完成的课件或视频传输时触发关闭的应对机制；选择取消任务将自动中止下载并清理未完成的临时文件。
                       </div>
                     </div>
                     <div className="shrink-0">
@@ -429,7 +429,7 @@ export function Settings({
                         options={[
                           { key: 'prompt', label: '始终弹窗询问确认' },
                           { key: 'background', label: '自动转入托盘继续下载' },
-                          { key: 'pause_quit', label: '自动暂停任务并退出应用' }
+                          { key: 'pause_quit', label: '退出时自动取消任务' }
                         ]}
                       />
                     </div>
