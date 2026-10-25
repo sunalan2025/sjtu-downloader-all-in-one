@@ -31,6 +31,55 @@ if (HOST === '0.0.0.0' || (!HOST.startsWith('127.') && HOST !== 'localhost')) {
 }
 
 const tasks = new Map()
+const MAX_CONCURRENT_TASKS = 5
+const MAX_QUEUE_SIZE = 100
+const TASK_TTL_MS = 3600 * 1000 // 1 hour TTL
+const MAX_TASKS_MAP_SIZE = 200
+
+const taskQueue = []
+let runningCount = 0
+
+function isTerminalStatus(status) {
+  return status === 'completed' || status === 'done' || status === 'error' || status === 'cancelled' || status === 'skipped'
+}
+
+function pruneExpiredTasks(now = Date.now()) {
+  // 1. 淘汰已完成且超过 3600 秒 (1 小时) 的终态任务记录
+  for (const [id, task] of tasks.entries()) {
+    const isTerminal = Boolean(task.completedAt || isTerminalStatus(task.status))
+    if (isTerminal) {
+      const termTime = task.completedAt || task.receivedAt || 0
+      if (termTime > 0 && (now - termTime > TASK_TTL_MS)) {
+        tasks.delete(id)
+      }
+    }
+  }
+
+  // 2. 若任务表总条数超过 200，按 completedAt 从旧到新淘汰已终态任务直至 tasks.size <= 200
+  if (tasks.size > MAX_TASKS_MAP_SIZE) {
+    const terminalTasks = []
+    for (const [id, task] of tasks.entries()) {
+      if (task.completedAt || isTerminalStatus(task.status)) {
+        terminalTasks.push({ id, completedAt: task.completedAt || task.receivedAt || 0 })
+      }
+    }
+    terminalTasks.sort((a, b) => a.completedAt - b.completedAt)
+
+    for (const item of terminalTasks) {
+      if (tasks.size <= MAX_TASKS_MAP_SIZE) break
+      tasks.delete(item.id)
+    }
+  }
+}
+
+if (typeof setInterval === 'function') {
+  const pruneTimer = setInterval(() => {
+    pruneExpiredTasks()
+  }, 60 * 1000)
+  if (pruneTimer && typeof pruneTimer.unref === 'function') {
+    pruneTimer.unref()
+  }
+}
 
 function sanitizeLog(val, maxLen = 120) {
   if (typeof val !== 'string') return ''
@@ -210,6 +259,7 @@ async function deleteCloudFile(cred, filePathSegments) {
 async function uploadToCloudPanAsync(task, payload) {
   if (!payload.cloudUserToken || typeof payload.cloudUserToken !== 'string' || !payload.cloudUserToken.trim()) {
     task.status = 'error'
+    task.completedAt = Date.now()
     task.error = '云盘转存失败：缺少有效的交大云盘授权凭据，请在设置中重新登录云盘'
     throw new Error(task.error)
   }
@@ -644,6 +694,7 @@ async function executeTaskAsync(task, payload) {
         }
       } catch {}
     }
+    task.completedAt = task.completedAt || Date.now()
     if (task.abortController?.signal?.aborted) {
       task.status = 'cancelled'
     } else {
@@ -654,6 +705,29 @@ async function executeTaskAsync(task, payload) {
     }
     task.speed = 0
     throw err
+  }
+}
+
+function runTask(taskRecord, payload) {
+  runningCount++
+  executeTaskAsync(taskRecord, payload)
+    .catch(err => {
+      console.error('[worker] 执行任务异常:', sanitizeLog(err?.message || String(err)))
+    })
+    .finally(() => {
+      runningCount--
+      scheduleWorkerQueue()
+    })
+}
+
+function scheduleWorkerQueue() {
+  while (runningCount < MAX_CONCURRENT_TASKS && taskQueue.length > 0) {
+    const next = taskQueue.shift()
+    if (!next) break
+    if (next.taskRecord.status === 'cancelled') {
+      continue
+    }
+    runTask(next.taskRecord, next.payload)
   }
 }
 
@@ -702,7 +776,9 @@ const server = http.createServer(async (req, res) => {
       version: VERSION,
       uptimeSeconds: Math.round(process.uptime()),
       memoryRssMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
-      activeTasks: tasks.size
+      activeTasks: tasks.size,
+      runningTasks: runningCount,
+      queuedTasks: taskQueue.length
     })
   }
 
@@ -711,6 +787,8 @@ const server = http.createServer(async (req, res) => {
     if (!verifyAuth(req)) {
       return sendJson(res, 401, { ok: false, error: 'Unauthorized' })
     }
+
+    pruneExpiredTasks()
 
     let rawBody = ''
     req.on('data', chunk => {
@@ -721,6 +799,13 @@ const server = http.createServer(async (req, res) => {
     })
 
     req.on('end', () => {
+      if (taskQueue.length >= MAX_QUEUE_SIZE) {
+        return sendJson(res, 429, {
+          ok: false,
+          error: '中转服务器过载：当前排队任务已达上限 (100)，请稍后再试'
+        })
+      }
+
       try {
         const payload = JSON.parse(rawBody || '{}')
         if (!payload.url && (!Array.isArray(payload.slices) || payload.slices.length === 0)) {
@@ -821,10 +906,12 @@ const server = http.createServer(async (req, res) => {
         const safeTarget = sanitizeLog(targetPath, 128)
         console.log(`[worker] 收到中转任务派发: ${safeTaskId} -> ${safeTarget} [模式: ${payload.storageMode || 'cloudpan'}]`)
 
-        // 异步后台执行下载落地
-        executeTaskAsync(taskRecord, payload).catch(err => {
-          console.error(`[worker] 执行任务异常:`, sanitizeLog(err?.message || String(err)))
-        })
+        // 并发调度控制：未达 5 并发直接启动，否则入排队队列
+        if (runningCount < MAX_CONCURRENT_TASKS) {
+          runTask(taskRecord, payload)
+        } else {
+          taskQueue.push({ taskRecord, payload })
+        }
 
         return sendJson(res, 200, {
           ok: true,
@@ -859,10 +946,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (isCancel) {
+      const qIdx = taskQueue.findIndex(item => item.taskRecord.taskId === taskId)
+      if (qIdx !== -1) {
+        taskQueue.splice(qIdx, 1)
+      }
       if (task.abortController) {
         task.abortController.abort()
       }
       task.status = 'cancelled'
+      task.completedAt = Date.now()
       task.speed = 0
       return sendJson(res, 200, { ok: true, message: '任务已取消', task })
     }
@@ -1008,3 +1100,17 @@ process.on('SIGINT', () => {
     process.exit(0)
   })
 })
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.MAX_CONCURRENT_TASKS = MAX_CONCURRENT_TASKS
+  globalThis.MAX_QUEUE_SIZE = MAX_QUEUE_SIZE
+  globalThis.TASK_TTL_MS = TASK_TTL_MS
+  globalThis.MAX_TASKS_MAP_SIZE = MAX_TASKS_MAP_SIZE
+  globalThis.tasks = tasks
+  globalThis.taskQueue = taskQueue
+  globalThis.getRunningCount = () => runningCount
+  globalThis.setRunningCount = (val) => { runningCount = val }
+  globalThis.pruneExpiredTasks = pruneExpiredTasks
+  globalThis.scheduleWorkerQueue = scheduleWorkerQueue
+  globalThis.runTask = runTask
+}
