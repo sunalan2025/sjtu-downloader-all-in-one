@@ -6,7 +6,7 @@ import prettierConfig from 'eslint-config-prettier'
 import reactHooks from 'eslint-plugin-react-hooks'
 
 export default tseslint.config(
-  // 产物 / 配置 / 脚本 / 测试产物：不 lint
+  // 产物 / 配置 / 测试产物：不 lint
   {
     ignores: [
       'node_modules/**',
@@ -14,7 +14,6 @@ export default tseslint.config(
       'dist/**',
       'release/**',
       'build/icons/**',
-      'scripts/**',
       '**/*.config.{js,mjs,ts,cjs}',
       'src/**/*.test.ts',
       'test/**',
@@ -25,6 +24,35 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettierConfig,
+  {
+    // Node.js 脚本环境配置（构建脚本与私有代传守护进程）
+    files: ['scripts/**/*.{js,mjs,ts}'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        setImmediate: 'readonly',
+        clearImmediate: 'readonly',
+        fetch: 'readonly',
+        Headers: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+        FormData: 'readonly',
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
+        TextEncoder: 'readonly',
+        TextDecoder: 'readonly',
+        globalThis: 'readonly'
+      }
+    }
+  },
   {
     // React Hooks 规则（代码里已有 // eslint-disable react-hooks/exhaustive-deps 注释，需插件支持）
     plugins: { 'react-hooks': reactHooks },

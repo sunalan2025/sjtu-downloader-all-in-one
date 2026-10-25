@@ -8,7 +8,9 @@ on:
     branches: [master]
     paths:
       - 'src/**'
+      - 'test/**'
       - 'scripts/**'
+      - 'website/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig*.json'
@@ -19,7 +21,9 @@ on:
     branches: [master]
     paths:
       - 'src/**'
+      - 'test/**'
       - 'scripts/**'
+      - 'website/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig*.json'

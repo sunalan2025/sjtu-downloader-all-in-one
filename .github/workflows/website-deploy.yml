@@ -37,6 +37,12 @@ jobs:
         working-directory: website
         run: npm ci
 
+      - name: Check and test website
+        working-directory: website
+        run: |
+          npm run check
+          npm test
+
       - name: Build showcase website
         working-directory: website
         run: npm run build

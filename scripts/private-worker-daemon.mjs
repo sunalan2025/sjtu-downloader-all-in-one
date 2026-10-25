@@ -280,7 +280,7 @@ async function uploadToCloudPanAsync(task, payload) {
   }
 
   const folderSegments = segments.slice(0, -1)
-  const fileName = segments[segments.length - 1]
+  const _fileName = segments[segments.length - 1]
   const cred = await getCloudSpaceCred(payload.cloudUserToken)
 
   await ensureCloudFolders(cred, folderSegments)
@@ -383,7 +383,7 @@ async function uploadToCloudPanAsync(task, payload) {
   if (Array.isArray(payload.slices) && payload.slices.length > 0) {
     // 多切片（PPT 课件直接在服务器内存中合成并直传云盘）
     const imageBuffers = []
-    let receivedBytes = 0
+    let _receivedBytes = 0
     const isPdf = (payload.fileName || '').toLowerCase().endsWith('.pdf')
 
     for (let i = 0; i < payload.slices.length; i++) {
@@ -399,7 +399,7 @@ async function uploadToCloudPanAsync(task, payload) {
       }
       const arrayBuf = await res.arrayBuffer()
       const buf = Buffer.from(arrayBuf)
-      receivedBytes += buf.length
+      _receivedBytes += buf.length
 
       if (isPdf) {
         const size = getJpegSize(buf)
