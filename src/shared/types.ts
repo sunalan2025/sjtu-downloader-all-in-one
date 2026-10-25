@@ -252,6 +252,14 @@ export type FileConflictStrategy = 'skip' | 'overwrite'
 
 /** 下载任务规格：由 renderer 组装，传给 main 端调度下载/上传 */
 export interface DownloadTaskSpec {
+  /** Stable metadata shared by recovery, incremental backups and the resource library. */
+  resourceVersion?: string
+  resourceSize?: number
+  backupCourse?: import('./backup').BackupCourse
+  /** Main-process recovery only: preserve a verified partial file when resuming overwrite. */
+  resumeFromPartial?: boolean
+  /** Strong ETag or Last-Modified value used to validate HTTP Range recovery. */
+  httpValidator?: string
   /** 前端生成的唯一 id，用于关联进度回调 */
   taskId: string
   url: string
@@ -274,6 +282,8 @@ export interface DownloadTaskSpec {
   extractAudio?: boolean
   /** 资源分类（如 'files' | 'videos'） */
   category?: string
+  /** 存储目标模式：中转服务器本地磁盘或转存至交大云盘 */
+  storageMode?: PrivateWorkerStorageMode
   /** 任务来源（如 'canvas-files' | 'cloudpan' 等） */
   source?: string
   /** 原始文件 ID（用于恢复直链，避免依赖 taskId 字符串切分） */
@@ -314,6 +324,8 @@ export interface DownloadProgress {
    *  'count' 表示 received/total 是计数（如 HLS 切片数），显示为纯文案 + 百分比、不计算速度。
    *  用于 HLS 模块视频进度（切片数而非字节数）。 */
   unit?: 'bytes' | 'count'
+  /** 存储目标模式：中转服务器本地磁盘或转存至交大云盘 */
+  storageMode?: PrivateWorkerStorageMode
 }
 
 /** 实时传输速度（字节/秒），由主进程 1s 推送一次，EMA 平滑后 */
@@ -427,6 +439,7 @@ export interface CanvasCourse {
 
 /** Canvas 文件 */
 export interface CanvasFileItem {
+  updatedAt?: string
   fileId: number
   displayName: string
   filename: string
@@ -633,7 +646,7 @@ export interface SingleDownloadPayload {
 }
 
 /** 渲染端顶部 tab */
-export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'schedule' | 'transfer' | 'settings' | 'cloudpan'
+export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'schedule' | 'transfer' | 'settings' | 'cloudpan' | 'library'
 
 // ─────────────────────────────────────────────────────────────
 // 好大学在线 (cnmooc.sjtu.cn) 相关
@@ -760,6 +773,17 @@ export interface DownloadHistoryItem {
   fileSize?: number
   completedAt: number
   source?: string
+  /** 存储目标模式：中转服务器本地磁盘、转存至交大云盘或本机下载 */
+  storageMode?: PrivateWorkerStorageMode
+}
+
+/** 任务元数据通用接口 */
+export interface DownloadTaskMeta {
+  taskId?: string
+  fileName?: string
+  courseName?: string
+  storageMode?: PrivateWorkerStorageMode
+  [key: string]: unknown
 }
 
 // ─────────────────────────────────────────────────────────────

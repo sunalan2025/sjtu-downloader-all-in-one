@@ -5,19 +5,24 @@ import { formatDate } from '../../../shared/utils'
 import { aggregateTaskState } from '../download/progress'
 import type { TransferSpeed } from '@shared/types'
 
-export function TransferCenter() {
-  const history = useAppStore(s => s.downloadHistory)
+export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'history' }) {
+  const storeHistory = useAppStore(s => s.downloadHistory)
+  const history = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadHistory : storeHistory
   const removeHistoryItem = useAppStore(s => s.removeDownloadHistoryItem)
   const removeProgressItem = useAppStore(s => s.removeProgressItem)
   const clearHistory = useAppStore(s => s.clearDownloadHistory)
-  const localDestRoot = useAppStore(s => s.localDestRoot)
-  const progress = useAppStore(s => s.progress)
-  const cloudLinkedIds = useAppStore(s => s.cloudLinkedIds)
+  const storeLocalDestRoot = useAppStore(s => s.localDestRoot)
+  const localDestRoot = typeof useAppStore.getState === 'function' ? useAppStore.getState().localDestRoot : storeLocalDestRoot
+  const storeProgress = useAppStore(s => s.progress)
+  const progress = typeof useAppStore.getState === 'function' ? useAppStore.getState().progress : storeProgress
+  const storeCloudLinkedIds = useAppStore(s => s.cloudLinkedIds)
+  const cloudLinkedIds = typeof useAppStore.getState === 'function' ? useAppStore.getState().cloudLinkedIds : storeCloudLinkedIds
 
   const syncedTaskIdsRef = useRef<Set<string>>(new Set())
 
   const [speed, setSpeed] = useState<TransferSpeed>({ down: 0, up: 0 })
   const [activeTab, setActiveTab] = useState<'active' | 'failed' | 'history'>(() => {
+    if (props?.initialTab) return props.initialTab
     const prog = useAppStore.getState().progress
     const hasActive = Object.values(prog).some(p =>
       (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') &&
@@ -75,6 +80,7 @@ export function TransferCenter() {
         taskId: id,
         fileName,
         courseName,
+        storageMode: local.storageMode || cloud?.storageMode,
         aggregate,
         isBoth: !!cloud
       }
@@ -117,6 +123,7 @@ export function TransferCenter() {
         courseName: item.courseName,
         filePath: rawLocal?.filePath || rawCloud?.filePath,
         cloudPath: rawLocal?.cloudPath || rawCloud?.cloudPath,
+        storageMode: rawLocal?.storageMode || rawCloud?.storageMode,
         fileSize,
         completedAt: Date.now()
       })
@@ -135,6 +142,13 @@ export function TransferCenter() {
 
   const handleShowInFolder = (path: string) => {
     void window.api.showInFolder(path)
+  }
+
+  const handleCopyServerPath = (path: string) => {
+    if (!path) return
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(path)
+    }
   }
 
   const handleRetryAllFailed = () => {
@@ -367,6 +381,11 @@ export function TransferCenter() {
                             {task.courseName}
                           </span>
                         )}
+                        {task.storageMode === 'server_local' && (
+                          <span className="shrink-0 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 text-2xs font-medium border border-purple-500/20">
+                            私有服务器
+                          </span>
+                        )}
                         {task.isBoth && (
                           <span className="shrink-0 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 px-1.5 py-0.5 text-2xs font-medium border border-sky-500/20">
                             本地+云盘
@@ -458,6 +477,11 @@ export function TransferCenter() {
                             {task.courseName}
                           </span>
                         )}
+                        {task.storageMode === 'server_local' && (
+                          <span className="shrink-0 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 text-2xs font-medium border border-purple-500/20">
+                            私有服务器
+                          </span>
+                        )}
                       </div>
                       <span className="ml-3 shrink-0 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 px-2 py-0.5 text-2xs font-semibold">
                         传输失败
@@ -520,9 +544,17 @@ export function TransferCenter() {
                         {item.courseName}
                       </span>
                     )}
-                    {item.cloudPath && !item.filePath && (
+                    {item.storageMode === 'server_local' ? (
+                      <span className="shrink-0 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 text-2xs font-medium border border-purple-500/20">
+                        私有服务器
+                      </span>
+                    ) : item.storageMode === 'cloudpan' || (item.cloudPath && !item.filePath) ? (
                       <span className="shrink-0 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 px-1.5 py-0.5 text-2xs font-medium border border-sky-500/20">
-                        云盘/服务器
+                        交大云盘
+                      </span>
+                    ) : (
+                      <span className="shrink-0 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 text-2xs font-medium border border-emerald-500/20">
+                        本机保存
                       </span>
                     )}
                   </div>
@@ -534,7 +566,16 @@ export function TransferCenter() {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  {item.filePath && (
+                  {item.storageMode === 'server_local' ? (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyServerPath(item.filePath || item.cloudPath || '')}
+                      className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
+                      title={item.filePath || item.cloudPath || ''}
+                    >
+                      复制服务器路径
+                    </button>
+                  ) : item.filePath ? (
                     <button
                       type="button"
                       onClick={() => handleShowInFolder(item.filePath!)}
@@ -542,7 +583,7 @@ export function TransferCenter() {
                     >
                       在文件夹中显示
                     </button>
-                  )}
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => removeHistoryItem(item.taskId)}

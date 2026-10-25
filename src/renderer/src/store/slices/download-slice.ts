@@ -155,7 +155,8 @@ export const createDownloadSlice: StateCreator<AppState, [], [], DownloadSlice> 
               ...prev,
               ...prog,
               fileName: prog.fileName || prev?.fileName,
-              courseName: prog.courseName || prev?.courseName
+              courseName: prog.courseName || prev?.courseName,
+              storageMode: prog.storageMode || prev?.storageMode
             }
             const isFinished = prog.state === 'done' || prog.state === 'skipped'
             if (isFinished && !tid.includes('_scan_')) {
@@ -164,6 +165,7 @@ export const createDownloadSlice: StateCreator<AppState, [], [], DownloadSlice> 
               const mergedCloudPath = prog.cloudPath || prev?.cloudPath
               const mergedFileName = prog.fileName || prev?.fileName
               const mergedCourseName = prog.courseName || prev?.courseName
+              const mergedStorageMode = prog.storageMode || prev?.storageMode
 
               const existingIndex = nextHistory.findIndex(h => {
                 const hBaseId = h.taskId.replace(/_cloud$/, '')
@@ -184,6 +186,7 @@ export const createDownloadSlice: StateCreator<AppState, [], [], DownloadSlice> 
                   cloudPath: mergedCloudPath || existing.cloudPath,
                   fileName: mergedFileName || existing.fileName,
                   courseName: mergedCourseName || existing.courseName,
+                  storageMode: mergedStorageMode || existing.storageMode,
                   fileSize:
                     prog.total && prog.total > 0
                       ? prog.total
@@ -225,6 +228,7 @@ export const createDownloadSlice: StateCreator<AppState, [], [], DownloadSlice> 
                   filePath: mergedFilePath,
                   cloudPath: mergedCloudPath,
                   courseName: mergedCourseName,
+                  storageMode: mergedStorageMode,
                   fileSize,
                   completedAt: Date.now()
                 })
