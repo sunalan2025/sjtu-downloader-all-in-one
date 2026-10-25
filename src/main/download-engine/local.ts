@@ -108,9 +108,8 @@ async function runTask(t: TaskRuntime): Promise<void> {
 
   // 最终文件已存在 → 跳过 或 先删后下载（overwrite）
   if (strategy === 'overwrite') {
-    // 替换模式：无需预检存在性，直接删，不存在则 ENOENT 自然忽略
-    // （消除 existsSync/stat → unlink 的 TOCTOU 窗口）
-    try { unlinkSync(t.filePath) } catch { /* 不存在则忽略 */ }
+    // 覆盖模式：绝不在下载开始前删除已有成品 t.filePath！
+    // 仅清掉旧有的 .part 临时文件，待完整下载并验证成功后再通过 renameSync 原子覆盖替换。
     try { unlinkSync(t.partPath) } catch { /* ignore */ }
   } else {
     // skip 策略：检查已存在文件是否有效；若既有文件损坏（0 字节或非允许 HTML 错误页），则删除以自愈重新下载

@@ -8,9 +8,9 @@
  * 4. 支持中转任务的取消协同。
  */
 
-import type { DownloadMode, DownloadTaskSpec, PrivateWorkerConfig } from '../../shared/types'
-import { registerTaskMeta, emitProgress } from './progress'
-import { effectiveCourseName } from './shared'
+import type { DownloadMode, DownloadTaskSpec, PrivateWorkerConfig, DownloadState } from '../../shared/types'
+import { registerTaskMeta, emitProgress, getDownloadSnapshot } from './progress'
+import { effectiveCourseName, resolveDirectUrl } from './shared'
 import { sjtuSession } from '../session'
 import { CANVAS_BASE_URL } from '../../shared/types'
 import {
@@ -25,6 +25,13 @@ import { getCachedUserToken } from '../cloudpan'
 export { isWorkerDelegated }
 
 const activeWorkerTrackers = new Map<string, { abort: () => void; workerUrl: string; authToken?: string }>()
+
+/**
+ * 查询指定任务当前是否正在由 Worker 代理执行
+ */
+export function isWorkerTask(taskId: string): boolean {
+  return activeWorkerTrackers.has(taskId) || (!taskId.endsWith('_cloud') && activeWorkerTrackers.has(taskId + '_cloud'))
+}
 
 /**
  * 取消当前正在中转执行的指定任务
@@ -164,6 +171,10 @@ export async function pollWorkerTaskProgress(
     }
 
     if (aborted) {
+      const current = getDownloadSnapshot().find(st => st.taskId === taskId)
+      if (current?.state === 'cancelled') {
+        return
+      }
       emitProgress({
         taskId,
         state: 'paused',
@@ -243,17 +254,76 @@ export async function dispatchWorkerBatch(
         const course = effectiveCourseName(spec)
         const rawSpec = spec as { fileSize?: number; destRelPath?: string; categoryName?: string }
         const fileSize = rawSpec.fileSize || 0
-        const effectiveSpec = {
-          ...spec,
-          cloudDestRoot: options.cloudDestRoot ?? spec.cloudDestRoot
-        }
-
-        const targetDestPath = isServerLocal
-          ? (rawSpec.destRelPath || '')
-          : cloudRemotePath(effectiveSpec)
-        const targetCloudToken = spec.cloudUserToken || cachedToken || undefined
-
         try {
+          // 1. 直链懒解析：若 URL 为空（课堂视频/模块视频/好大学在线等），先通过统一的 resolveDirectUrl 获取真实下载直链
+          if (!spec.url) {
+            emitProgress({
+              taskId: spec.taskId,
+              state: 'downloading',
+              received: 0,
+              total: fileSize,
+              fileName: spec.fileName,
+              courseName: course,
+              message: '正在解析下载直链…'
+            })
+            const taskCtx = {
+              spec,
+              state: 'pending' as DownloadState,
+              total: fileSize
+            }
+            const resolvedOk = await resolveDirectUrl(taskCtx, !isServerLocal)
+            if (!resolvedOk || !spec.url) {
+              emitProgress({
+                taskId: spec.taskId,
+                state: 'error',
+                received: 0,
+                total: fileSize,
+                fileName: spec.fileName,
+                courseName: course,
+                message: '无法解析媒体下载直链'
+              })
+              continue
+            }
+          }
+
+          // 2. 协议检查：当前远端中转机未部署 ffmpeg，暂不支持 HLS (.m3u8) 切片合成，需提示回退本地处理
+          if (spec.isHls || (spec.url && spec.url.includes('.m3u8'))) {
+            emitProgress({
+              taskId: spec.taskId,
+              state: 'error',
+              received: 0,
+              total: fileSize,
+              fileName: spec.fileName,
+              courseName: course,
+              message: '该视频为 HLS 分片流，中转机暂不支持 remux，请使用本地下载'
+            })
+            continue
+          }
+
+          // 3. 预解析可能需要鉴权的 Canvas 文件端点为纯净 S3 签名直链
+          const directUrl = await resolveDirectCanvasUrl(spec.url)
+          if (!directUrl) {
+            emitProgress({
+              taskId: spec.taskId,
+              state: 'error',
+              received: 0,
+              total: fileSize,
+              fileName: spec.fileName,
+              courseName: course,
+              message: '下载地址无效'
+            })
+            continue
+          }
+
+          const effectiveSpec = {
+            ...spec,
+            cloudDestRoot: options.cloudDestRoot ?? spec.cloudDestRoot
+          }
+          const targetDestPath = isServerLocal
+            ? (rawSpec.destRelPath || '')
+            : cloudRemotePath(effectiveSpec)
+          const targetCloudToken = spec.cloudUserToken || cachedToken || undefined
+
           emitProgress({
             taskId: spec.taskId,
             state: 'downloading',
@@ -265,9 +335,6 @@ export async function dispatchWorkerBatch(
               ? '中转服务器下载中…'
               : '中转服务器转存云盘中…'
           })
-
-          // 预解析可能需要鉴权的 Canvas 文件端点为纯净 S3 签名直链
-          const directUrl = await resolveDirectCanvasUrl(spec.url)
 
           const res = await dispatchPrivateWorkerTask(
             worker.endpointUrl,

@@ -54,7 +54,8 @@ import {
 import {
   isWorkerDelegated,
   dispatchWorkerBatch,
-  cancelWorkerTask
+  cancelWorkerTask,
+  isWorkerTask
 } from '../download-engine/worker-dispatch'
 import { globalSpeedLimiter, formatPathFromTemplate } from '../../shared/utils'
 
@@ -220,12 +221,13 @@ export function registerDownloadHandlers(): void {
   )
 
   ipcMain.handle('download:pause', (_e, id: string) => {
+    if (isWorkerTask(id) || (!id.endsWith('_cloud') && isWorkerTask(id + '_cloud'))) {
+      return { ok: false, error: '中转任务不支持断点暂停，仅支持取消' }
+    }
     pauseTask(id)
     cloudPauseTask(id)
-    cancelWorkerTask(id)
     if (!id.endsWith('_cloud')) {
       cloudPauseTask(id + '_cloud')
-      cancelWorkerTask(id + '_cloud')
     }
     return { ok: true }
   })
@@ -233,10 +235,19 @@ export function registerDownloadHandlers(): void {
   ipcMain.handle('download:cancel', (_e, id: string) => {
     cancelTask(id)
     cloudCancelTask(id)
+    const workerActive = isWorkerTask(id)
     cancelWorkerTask(id)
+    if (workerActive) {
+      emitProgress({ taskId: id, state: 'cancelled', received: 0, total: 0, message: '已取消' })
+    }
     if (!id.endsWith('_cloud')) {
-      cloudCancelTask(id + '_cloud')
-      cancelWorkerTask(id + '_cloud')
+      const cloudId = id + '_cloud'
+      const cloudWorkerActive = isWorkerTask(cloudId)
+      cloudCancelTask(cloudId)
+      cancelWorkerTask(cloudId)
+      if (cloudWorkerActive) {
+        emitProgress({ taskId: cloudId, state: 'cancelled', received: 0, total: 0, message: '已取消' })
+      }
     }
     return { ok: true }
   })
