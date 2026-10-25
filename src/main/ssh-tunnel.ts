@@ -15,6 +15,16 @@ let activeProcess: ChildProcess | null = null
 let activeConfig: PrivateWorkerTunnelConfig | null = null
 let lastError: string | undefined = undefined
 
+export type DevWorkerCleanupHook = () => Promise<void>
+let devWorkerCleanupHook: DevWorkerCleanupHook | null = null
+
+/**
+ * 注册开发测试节点清理钩子，解耦与 private-worker 的循环导入
+ */
+export function registerDevWorkerCleanupHook(hook: DevWorkerCleanupHook | null): void {
+  devWorkerCleanupHook = hook
+}
+
 /**
  * 校验 SSH 主机名/别名是否合法且安全（防止命令注入与参数注入攻击）
  * 仅允许字母、数字、点、减号、下划线，且首字符严禁为减号（避免被 OpenSSH 解析为 CLI 参数）
@@ -178,11 +188,12 @@ export async function startSshTunnel(
   }
 
   // 确保本地开发模拟 Worker 不会抢占或死锁该转发端口
-  try {
-    const { stopEmbeddedDevWorker } = await import('./private-worker')
-    await stopEmbeddedDevWorker()
-  } catch {
-    /* 忽略动态导入失败 */
+  if (devWorkerCleanupHook) {
+    try {
+      await devWorkerCleanupHook()
+    } catch {
+      /* 忽略清理钩子执行失败 */
+    }
   }
 
   let stderrBuffer = ''

@@ -18,7 +18,7 @@ import type {
   PrivateWorkerTaskRecord,
   PrivateWorkerTaskQueryResponse
 } from '../shared/types'
-import { startSshTunnel } from './ssh-tunnel'
+import { startSshTunnel, registerDevWorkerCleanupHook } from './ssh-tunnel'
 import { isAllowedSjtuUrl } from './download-engine/domain-guard'
 
 export type {
@@ -91,6 +91,9 @@ export async function stopEmbeddedDevWorker(): Promise<void> {
     })
   })
 }
+
+// 注册开发节点清理钩子，避免 ssh-tunnel 反向循环导入 private-worker
+registerDevWorkerCleanupHook(stopEmbeddedDevWorker)
 
 /**
  * 在本地自动拉起轻量开发测试中转节点（带端口冲突自动递增自愈机制）
