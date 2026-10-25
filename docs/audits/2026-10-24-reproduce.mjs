@@ -149,13 +149,12 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
   result('P1-history-feedback-loop',rounds);
 }
 
-// Timeout rejects its caller but does not cancel the underlying fetch.
+// safeFetch timeout aborts underlying fetch connection via injected AbortController.
 {
   let receivedSignal;
-  const pending=true;
   const safe=loadTs('src/main/canvas/safe-fetch.ts',{'../download-engine/domain-guard':{calculateBackoffMs:()=>0}});
   try{await safe.safeFetch({fetch:(_u,init)=>{receivedSignal=init?.signal;return new Promise(()=>{})}},'https://fixture.invalid',undefined,0,5)}catch{}
-  result('P2-timeout-without-abort',{receivedAbortSignal:!!receivedSignal,pendingRequest:pending});
+  result('P2-timeout-without-abort',{receivedAbortSignal:!!receivedSignal,signalAborted:receivedSignal?.aborted===true});
 }
 
 // Actual HLS worker queue: stall segment 0, let the other 39 finish, with only two workers.
@@ -206,11 +205,13 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
   result('L5-resume-loses-resource',{cloudpanUrlAfterResume:direct.spec.url,canvasBothCloudUrlAfterResume:canvas.url});
 }
 
-// Same persist pattern as the production store: partialize does not suppress writes on progress changes.
+// Zustand persist with deduplicated storage: suppressed writes on progress changes.
 {
   const {createStore}=require('zustand/vanilla');const {persist,createJSONStorage}=require('zustand/middleware');
+  const {createDeduplicatedStorage}=loadTs('src/renderer/src/store/dedup-storage.ts');
   let writes=0;
-  const store=createStore(persist(()=>({preference:'unchanged',progress:0}),{name:'audit',storage:createJSONStorage(()=>({getItem:()=>null,setItem:()=>{writes++},removeItem(){}})),partialize:s=>({preference:s.preference})}));
+  const store=createStore(persist(()=>({preference:'unchanged',progress:0}),{name:'audit',storage:createJSONStorage(()=>createDeduplicatedStorage({getItem:()=>null,setItem:()=>{writes++},removeItem(){}})),partialize:s=>({preference:s.preference})}));
+  store.setState({preference:'unchanged'});
   const before=writes;for(let i=0;i<1000;i++)store.setState({progress:i});
   result('P4-persist-writes-on-runtime-updates',{progressUpdates:1000,persistentStorageWrites:writes-before,preferenceChanges:0});
 }
