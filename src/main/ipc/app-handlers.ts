@@ -4,7 +4,8 @@ import {
   ipcMain,
   nativeImage,
   Notification,
-  shell
+  shell,
+  type IpcMainInvokeEvent
 } from 'electron'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -60,6 +61,19 @@ const UPDATE_REPO = 'sunalan2025/sjtu-downloader-all-in-one'
 const UPDATE_CHECK_TTL = 60 * 60 * 1000 // 1h 节流，避免触发 GitHub 未认证 60 次/h 限流
 let _updateCache: { result: UpdateCheckResult; ts: number } | null = null
 
+/**
+ * 校验 IPC 调用发送方来源安全性
+ * 仅允许应用顶层主 Frame 发起，严格拒绝嵌套 iframe / webview 跨上下文越权
+ */
+export function validateIpcSender(event: IpcMainInvokeEvent): boolean {
+  if (!event || !event.senderFrame) return false
+  // 仅允许顶层主 frame 调用，严禁嵌套 iframe / webview 越权
+  if (event.senderFrame.parent !== null) return false
+  const url = event.senderFrame.url || ''
+  if (url.startsWith('file://')) return true
+  if (process.env['ELECTRON_RENDERER_URL'] && url.startsWith(process.env['ELECTRON_RENDERER_URL'])) return true
+  return false
+}
 
 /**
  * 注册应用基础设施、窗口控制、自动更新、凭据保险库与私有中转相关 IPC 通道
@@ -116,9 +130,15 @@ export function registerAppHandlers(): void {
     return result.canceled ? null : result.filePaths[0] ?? null
   })
 
-  ipcMain.handle('app:cleanup-stale-downloads', (_e, localDestRoot?: string): { ok: boolean } => {
+  ipcMain.handle('app:cleanup-stale-downloads', (event, localDestRoot?: unknown): { ok: boolean; error?: string } => {
+    if (!validateIpcSender(event)) {
+      return { ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+    }
+    if (localDestRoot !== undefined && (typeof localDestRoot !== 'string' || localDestRoot.includes('\0'))) {
+      return { ok: false, error: '路径参数包含非法字符' }
+    }
     try {
-      cleanupStaleDownloads(localDestRoot || undefined)
+      cleanupStaleDownloads(typeof localDestRoot === 'string' ? localDestRoot : undefined)
     } catch (e) {
       console.error('[startup] 清理残留文件失败（不阻塞）:', e)
     }
@@ -222,8 +242,13 @@ export function registerAppHandlers(): void {
   })
 
   // ─── 本地文件/文件夹在资源管理器中打开/定位 ───
-  ipcMain.handle('app:show-in-folder', (_e, fullPath: string): { ok: boolean } => {
-    if (typeof fullPath !== 'string' || !fullPath.trim()) return { ok: false }
+  ipcMain.handle('app:show-in-folder', (event, fullPath: unknown): { ok: boolean; error?: string } => {
+    if (!validateIpcSender(event)) {
+      return { ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+    }
+    if (typeof fullPath !== 'string' || !fullPath.trim() || fullPath.includes('\0')) {
+      return { ok: false, error: '路径参数包含非法字符' }
+    }
     try {
       shell.showItemInFolder(fullPath)
       return { ok: true }
@@ -240,7 +265,13 @@ export function registerAppHandlers(): void {
     }
   })
 
-  ipcMain.handle('app:open-path', async (_e, fullPath?: string): Promise<{ ok: boolean; error?: string }> => {
+  ipcMain.handle('app:open-path', async (event, fullPath?: unknown): Promise<{ ok: boolean; error?: string }> => {
+    if (!validateIpcSender(event)) {
+      return { ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+    }
+    if (fullPath !== undefined && (typeof fullPath !== 'string' || fullPath.includes('\0'))) {
+      return { ok: false, error: '路径参数包含非法字符' }
+    }
     let target = typeof fullPath === 'string' ? fullPath.trim() : ''
     if (!target) {
       try {
@@ -268,26 +299,72 @@ export function registerAppHandlers(): void {
   ipcMain.handle('app:cancel-update', (): { ok: boolean } => { cancelUpdate(); return { ok: true } })
 
   // ─── 安全凭据保险库 (Credentials Vault) ─────────────────────────
-  ipcMain.handle('credentials:list', () => listMaskedCredentials())
-  ipcMain.handle('credentials:save', (_e, { username, password, label }) => saveCredential(username, password, label))
-  ipcMain.handle('credentials:update-label', (_e, { id, label }) => updateCredentialLabel(id, label))
-  ipcMain.handle('credentials:delete', (_e, id) => deleteCredential(id))
-  ipcMain.handle('credentials:clear-all', () => clearAllCredentials())
-  ipcMain.handle('credentials:get-fill-data', (_e, id) => getCredentialForFill(id))
-  ipcMain.handle('credentials:get-worker-token', () => getWorkerAuthToken())
-  ipcMain.handle('credentials:save-worker-token', (_e, token: string) => saveWorkerAuthToken(token))
+  ipcMain.handle('credentials:list', (event) => {
+    if (!validateIpcSender(event)) {
+      throw new Error('安全拦截：拒绝来自未受信任来源的高权限系统调用')
+    }
+    return listMaskedCredentials()
+  })
+  ipcMain.handle('credentials:save', (event, { username, password, label }) => {
+    if (!validateIpcSender(event)) {
+      throw new Error('安全拦截：拒绝来自未受信任来源的高权限系统调用')
+    }
+    return saveCredential(username, password, label)
+  })
+  ipcMain.handle('credentials:update-label', (event, { id, label }) => {
+    if (!validateIpcSender(event)) {
+      throw new Error('安全拦截：拒绝来自未受信任来源的高权限系统调用')
+    }
+    return updateCredentialLabel(id, label)
+  })
+  ipcMain.handle('credentials:delete', (event, id) => {
+    if (!validateIpcSender(event)) {
+      throw new Error('安全拦截：拒绝来自未受信任来源的高权限系统调用')
+    }
+    return deleteCredential(id)
+  })
+  ipcMain.handle('credentials:clear-all', (event) => {
+    if (!validateIpcSender(event)) {
+      throw new Error('安全拦截：拒绝来自未受信任来源的高权限系统调用')
+    }
+    return clearAllCredentials()
+  })
+  ipcMain.handle('credentials:get-fill-data', (event, id) => {
+    if (!validateIpcSender(event)) {
+      throw new Error('安全拦截：拒绝来自未受信任来源的高权限系统调用')
+    }
+    return getCredentialForFill(id)
+  })
+  ipcMain.handle('credentials:get-worker-token', (event) => {
+    if (!validateIpcSender(event)) {
+      throw new Error('安全拦截：拒绝来自未受信任来源的高权限系统调用')
+    }
+    return getWorkerAuthToken()
+  })
+  ipcMain.handle('credentials:save-worker-token', (event, token: string) => {
+    if (!validateIpcSender(event)) {
+      throw new Error('安全拦截：拒绝来自未受信任来源的高权限系统调用')
+    }
+    return saveWorkerAuthToken(token)
+  })
 
   // ─── 校内私有中转服务探测与 SSH 隧道托管 ─────────────────────────
   ipcMain.handle(
     'private-worker:test',
-    (_e, payload?: { url?: string; token?: string; tunnel?: PrivateWorkerTunnelConfig }) => {
+    (event, payload?: { url?: string; token?: string; tunnel?: PrivateWorkerTunnelConfig }) => {
+      if (!validateIpcSender(event)) {
+        return { success: false, ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+      }
       const timeoutMs = payload?.tunnel?.enabled ? 8000 : 4000
       return testPrivateWorker(payload?.url || '', payload?.token, timeoutMs, payload?.tunnel)
     }
   )
   ipcMain.handle(
     'private-worker:dispatch-task',
-    (_e, payload: { url: string; task: PrivateWorkerTaskPayload; token?: string }) => {
+    (event, payload: { url: string; task: PrivateWorkerTaskPayload; token?: string }) => {
+      if (!validateIpcSender(event)) {
+        return { ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+      }
       return dispatchPrivateWorkerTask(payload.url, payload.task, payload.token)
     }
   )
@@ -297,13 +374,22 @@ export function registerAppHandlers(): void {
       devWorkerUrl: getEmbeddedDevWorkerUrl()
     }
   })
-  ipcMain.handle('ssh-tunnel:start', (_e, config: PrivateWorkerTunnelConfig) => {
+  ipcMain.handle('ssh-tunnel:start', (event, config: PrivateWorkerTunnelConfig) => {
+    if (!validateIpcSender(event)) {
+      return { success: false, ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+    }
     return startSshTunnel(config)
   })
-  ipcMain.handle('ssh-tunnel:stop', () => {
+  ipcMain.handle('ssh-tunnel:stop', (event) => {
+    if (!validateIpcSender(event)) {
+      return { success: false, ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+    }
     return stopSshTunnel()
   })
-  ipcMain.handle('ssh-tunnel:status', () => {
+  ipcMain.handle('ssh-tunnel:status', (event) => {
+    if (!validateIpcSender(event)) {
+      return { running: false, ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+    }
     return getSshTunnelStatus()
   })
 }
