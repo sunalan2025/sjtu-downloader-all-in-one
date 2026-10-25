@@ -32,21 +32,21 @@
 - Consumes: Page components.
 - Produces: Lazy loaded modules with Suspense fallback skeleton.
 
-- [ ] **Step 1: Write test for code-splitting and lazy components in App.tsx**
+- [x] **Step 1: Write test for code-splitting and lazy components in App.tsx**
   - Create `test/unit/code-splitting.test.ts`.
   - Assert that secondary pages (`Settings`, `TransferCenter`, `CloudPanExplorer`, `ScheduleBrowser`, `ResourceLibrary`, `AuditedCourses`, `CnmoocBrowser`) are lazy-loaded.
-- [ ] **Step 2: Run test to make sure it fails**
+- [x] **Step 2: Run test to make sure it fails**
   - Run `npx vitest run test/unit/code-splitting.test.ts`.
-- [ ] **Step 3: Implement lazy loading in App.tsx**
+- [x] **Step 3: Implement lazy loading in App.tsx**
   - In `src/renderer/src/App.tsx`:
     - Keep `Welcome`, `Login`, `CanvasBrowser` statically loaded.
     - Wrap `Settings`, `TransferCenter`, `CloudPanExplorer`, `ScheduleBrowser`, `ResourceLibrary`, `AuditedCourses`, `CnmoocBrowser` with `React.lazy`.
     - Provide a smooth `<Suspense>` wrapper with skeleton/spinner fallback.
-- [ ] **Step 4: Run test to make sure it passes**
+- [x] **Step 4: Run test to make sure it passes**
   - Run `npx vitest run test/unit/code-splitting.test.ts`.
-- [ ] **Step 5: Run lint and typecheck**
+- [x] **Step 5: Run lint and typecheck**
   - Run `npm run typecheck` and `npm run lint`.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   - `git add ...; git commit -m "perf(renderer): code-split secondary views with React.lazy and Suspense (A25)"`
 
 ---
@@ -62,18 +62,18 @@
 - Consumes: Worker stop lifecycle callbacks.
 - Produces: Acyclic import graph (`private-worker` -> `ssh-tunnel`).
 
-- [ ] **Step 1: Write test for dev worker cleanup callback registration**
+- [x] **Step 1: Write test for dev worker cleanup callback registration**
   - Check `test/unit/ssh-tunnel.test.ts`.
-- [ ] **Step 2: Implement decoupling callback in ssh-tunnel.ts**
+- [x] **Step 2: Implement decoupling callback in ssh-tunnel.ts**
   - In `src/main/ssh-tunnel.ts`:
     - Remove `await import('./private-worker')`.
     - Provide `registerDevWorkerCleanupHook(fn: () => Promise<void>)` or invoke via clean callback.
     - In `src/main/private-worker.ts`: register `stopEmbeddedDevWorker` hook on startup.
-- [ ] **Step 3: Run test to make sure it passes**
+- [x] **Step 3: Run test to make sure it passes**
   - Run `npx vitest run test/unit/ssh-tunnel.test.ts`.
-- [ ] **Step 4: Run lint and typecheck**
+- [x] **Step 4: Run lint and typecheck**
   - Run `npm run typecheck` and `npm run lint`.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   - `git add ...; git commit -m "refactor(main): eliminate circular import between ssh-tunnel and private-worker (A25)"`
 
 ---
@@ -88,7 +88,7 @@
 - Consumes: `DownloadSnapshotItem` storageMode / filePath / cloudPath.
 - Produces: Distinct badges ("本机保存" / "交大云盘" / "私有服务器") and safe action buttons.
 
-- [ ] **Step 1: Write the failing test for transfer storage modes and actions**
+- [x] **Step 1: Write the failing test for transfer storage modes and actions**
   - Create `test/unit/transfer-storage-modes.test.ts`.
   - Assert that when `storageMode === 'server_local'`:
     - Badge shows `私有服务器`.
@@ -98,17 +98,17 @@
   - Assert that local task:
     - Badge shows `本机保存`.
     - Renders `在文件夹中显示`.
-- [ ] **Step 2: Run test to make sure it fails**
+- [x] **Step 2: Run test to make sure it fails**
   - Run `npx vitest run test/unit/transfer-storage-modes.test.ts`.
-- [ ] **Step 3: Implement storage mode indicators in TransferCenter.tsx**
+- [x] **Step 3: Implement storage mode indicators in TransferCenter.tsx**
   - In `src/renderer/src/pages/TransferCenter.tsx`:
     - Render distinct badges for all three storage modes.
     - For `server_local` tasks, show remote path and copy button, do not invoke local `showInFolder`.
-- [ ] **Step 4: Run test to make sure it passes**
+- [x] **Step 4: Run test to make sure it passes**
   - Run `npx vitest run test/unit/transfer-storage-modes.test.ts`.
-- [ ] **Step 5: Run lint and typecheck**
+- [x] **Step 5: Run lint and typecheck**
   - Run `npm run typecheck` and `npm run lint`.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   - `git add ...; git commit -m "feat(ui): distinguish local, server and cloud storage modes with safe path handling (A25)"`
 
 ---
@@ -118,14 +118,14 @@
 **Files:**
 - Test: All tests across the entire repository
 
-- [ ] **Step 1: Run full test suite and audit script**
+- [x] **Step 1: Run full test suite and audit script**
   - Run `npm test`.
   - Run `npm --prefix website test`.
   - Run `npm --prefix website run check`.
   - Run `node docs/audits/2026-10-24-reproduce.mjs`.
-- [ ] **Step 2: Run full typecheck and lint**
+- [x] **Step 2: Run full typecheck and lint**
   - Run `npm run typecheck` and `npm run lint`.
-- [ ] **Step 3: Verify build**
+- [x] **Step 3: Verify build**
   - Run `node scripts/run-electron-vite.mjs build`.
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   - `git add ...; git commit -m "chore(audit): complete Phase 5 and final verification gate (A25)"`
