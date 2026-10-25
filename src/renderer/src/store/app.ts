@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { useShallow } from 'zustand/shallow'
+import { createDeduplicatedStorage } from './dedup-storage'
 import type {
   CanvasAssignmentExportOptions,
   DownloadProgress,
@@ -193,17 +194,14 @@ export const useAppStore = create<AppState>()(
       storage: createJSONStorage(() => {
         if (typeof window !== 'undefined' && typeof window.document !== 'undefined') {
           try {
-            if (typeof localStorage !== 'undefined') return localStorage
+            if (typeof localStorage !== 'undefined') return createDeduplicatedStorage(localStorage)
           } catch { /* ignore */ }
         }
-        return {
+        return createDeduplicatedStorage({
           getItem: () => null,
           setItem: () => {},
-          removeItem: () => {},
-          clear: () => {},
-          key: () => null,
-          length: 0
-        }
+          removeItem: () => {}
+        })
       }),
       partialize: state => ({
         theme: state.theme,
