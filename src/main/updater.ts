@@ -46,9 +46,33 @@ export function setUpdateEmitter(fn: UpdateEmitter): void {
 let activeReq: ClientRequest | null = null
 let activeStream: WriteStream | null = null
 let destPath: string | null = null
+let verifiedFilePath: string | null = null
 let downloading = false
 /** 安装已发起（spawn 了安装器）→ cancelUpdate 不再干预，避免删掉正在使用的临时文件 */
 let installing = false
+
+export function getVerifiedFilePath(): string | null {
+  return verifiedFilePath
+}
+
+/** 测试用重置更新模块运行态 */
+export function _resetUpdaterStateForTesting(): void {
+  if (activeReq) {
+    try { activeReq.destroy() } catch { /* ignore */ }
+    activeReq = null
+  }
+  if (activeStream) {
+    try { activeStream.destroy() } catch { /* ignore */ }
+    activeStream = null
+  }
+  if (destPath) {
+    try { unlinkSync(destPath) } catch { /* ignore */ }
+    destPath = null
+  }
+  verifiedFilePath = null
+  downloading = false
+  installing = false
+}
 
 /** 从 GitHub release 的 assets 里匹配当前平台的安装器资产。
  *  无匹配（平台/架构无对应 release）返回 null，渲染端回退「前往下载」。 */
@@ -155,6 +179,7 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
   if (downloading) return { ok: false, error: '已有下载在进行' }
 
   downloading = true
+  verifiedFilePath = null
   const dir = join(app.getPath('temp'), 'sjtu-update')
   try { mkdirSync(dir, { recursive: true }) } catch { /* ignore */ }
   destPath = join(dir, asset.fileName)
@@ -166,15 +191,16 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
   let loaded = 0
   let lastEmitTs = 0
   const hasher = createHash('sha256')
-  let expectedSha256: string | null = asset.sha256 ?? null
 
-  // 异步预取 SHA256SUMS.txt 清单（若存在）
-  if (!expectedSha256 && asset.sha256Url) {
-    fetchText(asset.sha256Url).then(manifest => {
-      const parsed = parseSha256Checksum(manifest, asset.fileName)
-      if (parsed) expectedSha256 = parsed
-    }).catch(() => {
-      /* ignore manifest error, fallback to size check */
+  let manifestPromise: Promise<string | null> | null = null
+  if (asset.sha256) {
+    manifestPromise = Promise.resolve(asset.sha256)
+  } else if (asset.sha256Url) {
+    manifestPromise = fetchText(asset.sha256Url).then(manifest => {
+      return parseSha256Checksum(manifest, asset.fileName)
+    }).catch(err => {
+      console.error('[updater] 获取或解析校验清单失败:', err)
+      return null
     })
   }
 
@@ -194,6 +220,7 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
     if (!downloading) return
     downloading = false
     activeReq = null
+    verifiedFilePath = null
     try { fileStream.destroy() } catch { /* ignore */ }
     try { if (destPath) unlinkSync(destPath) } catch { /* ignore */ }
     destPath = null
@@ -238,7 +265,18 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
           pushProgress(realTotal)
         })
         resp.pipe(fileStream)
-        fileStream.on('finish', () => {
+        fileStream.on('finish', async () => {
+          if (!downloading) return
+
+          let expectedHash: string | null = null
+          if (manifestPromise) {
+            try {
+              expectedHash = await manifestPromise
+            } catch {
+              expectedHash = null
+            }
+          }
+
           if (!downloading) return
           downloading = false
           activeReq = null
@@ -246,20 +284,32 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
 
           // 数字指纹完整性校验 (C-2)
           const actualHash = hasher.digest('hex').toLowerCase()
-          if (expectedSha256) {
-            if (actualHash !== expectedSha256.toLowerCase()) {
+
+          if (asset.sha256Url && !expectedHash) {
+            try { if (destPath) unlinkSync(destPath) } catch { /* ignore */ }
+            destPath = null
+            verifiedFilePath = null
+            emit('update:failed', { error: '安装包完整性校验失败：无法获取官方发布校验清单，已中止更新以保护系统安全' })
+            return
+          }
+
+          if (expectedHash) {
+            if (actualHash !== expectedHash.toLowerCase()) {
               try { if (destPath) unlinkSync(destPath) } catch { /* ignore */ }
               destPath = null
-              emit('update:failed', { error: '更新安装包完整性校验未通过，可能文件已损坏或网络传输异常' })
+              verifiedFilePath = null
+              emit('update:failed', { error: '安装包完整性校验失败：文件指纹与发布清单不一致，已中止安装以保护系统安全' })
               return
             }
           } else if (asset.size && loaded !== asset.size) {
             try { if (destPath) unlinkSync(destPath) } catch { /* ignore */ }
             destPath = null
+            verifiedFilePath = null
             emit('update:failed', { error: '更新安装包大小不匹配，文件可能不完整' })
             return
           }
 
+          verifiedFilePath = destPath
           // 最终进度推 100%，再推 ready
           emit('update:progress', { loaded, total: realTotal, percent: 100 })
           emit('update:ready', { ok: true })
@@ -289,6 +339,7 @@ export function cancelUpdate(): void {
     activeStream = null
   }
   downloading = false
+  verifiedFilePath = null
   if (destPath) {
     try { unlinkSync(destPath) } catch { /* ignore */ }
     destPath = null
@@ -297,7 +348,7 @@ export function cancelUpdate(): void {
 
 /** 是否有已下载就绪待安装的包（渲染端状态判断用）。 */
 export function hasReadyInstaller(): boolean {
-  return !!destPath && existsSync(destPath)
+  return !!verifiedFilePath && verifiedFilePath === destPath && existsSync(destPath)
 }
 
 /** 严格白名单校验 macOS .app 安装路径（防御目录穿越与关键系统路径覆盖） */
@@ -323,8 +374,8 @@ export function isSafeMacAppPath(p: string): boolean {
 /** 安装更新：spawn 安装器 / 替换 bundle 后退出当前进程让安装器接管。
  *  必须在 downloadUpdate 完成后调用（destPath 就绪）。 */
 export function installUpdate(): { ok: boolean; error?: string } {
-  if (!destPath || !existsSync(destPath)) {
-    return { ok: false, error: '没有已下载的安装包' }
+  if (!verifiedFilePath || verifiedFilePath !== destPath || !existsSync(destPath)) {
+    return { ok: false, error: '安装包尚未通过完整性校验，禁止执行' }
   }
   const installerPath = destPath
   installing = true
