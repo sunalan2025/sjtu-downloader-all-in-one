@@ -208,11 +208,10 @@ async function deleteCloudFile(cred, filePathSegments) {
 }
 
 async function uploadToCloudPanAsync(task, payload) {
-  if (!payload.cloudUserToken) {
-    // 无有效云盘凭据（例如测试模拟派发），直接标记完成
-    task.status = 'completed'
-    task.completedAt = Date.now()
-    return
+  if (!payload.cloudUserToken || typeof payload.cloudUserToken !== 'string' || !payload.cloudUserToken.trim()) {
+    task.status = 'error'
+    task.error = '云盘转存失败：缺少有效的交大云盘授权凭据，请在设置中重新登录云盘'
+    throw new Error(task.error)
   }
 
   task.status = 'uploading'
@@ -475,6 +474,8 @@ async function uploadToCloudPanAsync(task, payload) {
 async function executeTaskAsync(task, payload) {
   task.startedAt = Date.now()
   task.abortController = new AbortController()
+  let partPath = null
+  let fileStream = null
 
   try {
     if (!payload.url && (!Array.isArray(payload.slices) || payload.slices.length === 0)) {
@@ -485,6 +486,17 @@ async function executeTaskAsync(task, payload) {
     }
 
     if (task.storageMode === 'server_local' && task.resolvedPath) {
+      if (payload.conflictStrategy === 'skip' && fs.existsSync(task.resolvedPath)) {
+        task.status = 'skipped'
+        task.completedAt = Date.now()
+        task.speed = 0
+        task.receivedBytes = 0
+        const safeTaskId = sanitizeLog(task.taskId, 64)
+        const safePath = sanitizeLog(task.resolvedPath, 128)
+        console.log(`[worker] 任务 ${safeTaskId} 目标已存在且策略为 skip，跳过下载: ${safePath}`)
+        return
+      }
+
       task.status = 'downloading'
       if (Array.isArray(payload.slices) && payload.slices.length > 0) {
         // 多切片（如 PPT 课件多张图片批量拉取并合成 PDF）
@@ -561,16 +573,30 @@ async function executeTaskAsync(task, payload) {
         if (contentLength > 0) {
           task.totalBytes = contentLength
         }
-        const fileStream = fs.createWriteStream(task.resolvedPath)
+
+        partPath = task.resolvedPath + '.part'
+        fileStream = fs.createWriteStream(partPath)
+        let streamError = null
+        fileStream.on('error', (err) => {
+          streamError = err
+        })
+
         const reader = response.body.getReader()
         let receivedBytes = 0
         let lastTime = Date.now()
         let lastBytes = 0
 
         while (true) {
+          if (streamError) throw streamError
           const { done, value } = await reader.read()
           if (done) break
-          fileStream.write(Buffer.from(value))
+          if (!fileStream.write(Buffer.from(value))) {
+            await new Promise((resolve, reject) => {
+              fileStream.once('drain', resolve)
+              fileStream.once('error', reject)
+            })
+          }
+          if (streamError) throw streamError
           receivedBytes += value.length
           task.receivedBytes = receivedBytes
           const now = Date.now()
@@ -581,7 +607,16 @@ async function executeTaskAsync(task, payload) {
             lastBytes = receivedBytes
           }
         }
-        fileStream.end()
+
+        await new Promise((resolve, reject) => {
+          if (streamError) return reject(streamError)
+          fileStream.on('finish', resolve)
+          fileStream.on('error', reject)
+          fileStream.end()
+        })
+        fs.renameSync(partPath, task.resolvedPath)
+        partPath = null
+
         task.status = 'completed'
         task.completedAt = Date.now()
         task.speed = 0
@@ -597,15 +632,28 @@ async function executeTaskAsync(task, payload) {
       throw new Error(`不支持的存储模式: ${task.storageMode}`)
     }
   } catch (err) {
+    if (fileStream && !fileStream.destroyed) {
+      try {
+        fileStream.destroy()
+      } catch {}
+    }
+    if (partPath) {
+      try {
+        if (fs.existsSync(partPath)) {
+          fs.unlinkSync(partPath)
+        }
+      } catch {}
+    }
     if (task.abortController?.signal?.aborted) {
       task.status = 'cancelled'
     } else {
-      task.status = 'failed'
+      task.status = 'error'
       task.error = err instanceof Error ? err.message : String(err)
       const safeTaskId = sanitizeLog(task.taskId, 64)
       console.error(`[worker] 任务 ${safeTaskId} 执行失败: ${sanitizeLog(task.error)}`)
     }
     task.speed = 0
+    throw err
   }
 }
 
