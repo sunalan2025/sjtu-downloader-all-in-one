@@ -126,12 +126,14 @@ export async function resolveM3u8(
   ses: Electron.Session,
   m3u8Url: string,
   maxDepth = 3,
-  privateWorker?: PrivateWorkerConfig
+  privateWorker?: PrivateWorkerConfig,
+  signal?: AbortSignal
 ): Promise<{ mediaUrl: string; body: string }> {
   let url = m3u8Url
   const MAX_FETCH_RETRIES = 3
   for (let i = 0; i < maxDepth; i++) {
     for (let retry = 0; retry <= MAX_FETCH_RETRIES; retry++) {
+      if (signal?.aborted) throw new Error('AbortError')
       try {
         const fetchFn = (ses && typeof ses.fetch === 'function') ? ses.fetch.bind(ses) : fetch
         const targetUrl = wrapWorkerProxyUrl(url, privateWorker)
@@ -140,9 +142,11 @@ export async function resolveM3u8(
           fetchHeaders['Authorization'] = `Bearer ${privateWorker.authToken.trim()}`
         }
         const resp = await fetchFn(targetUrl, {
-          headers: fetchHeaders
+          headers: fetchHeaders,
+          signal
         })
         const text = await resp.text()
+        if (signal?.aborted) throw new Error('AbortError')
         // 如果有 #EXT-X-STREAM-INF，是 master playlist → 取第一个 variant
         if (/^#EXT-X-STREAM-INF/m.test(text)) {
           for (const line of text.split('\n')) {
@@ -157,6 +161,9 @@ export async function resolveM3u8(
         }
         break // 成功，跳出重试循环
       } catch (err) {
+        if (signal?.aborted || (err instanceof Error && (err.name === 'AbortError' || err.message === 'AbortError'))) {
+          throw new Error('AbortError')
+        }
         const msg = err instanceof Error ? err.message : ''
         const isDns = /ENOTFOUND|getaddrinfo|EAI_AGAIN|ERR_NAME_NOT_RESOLVED/i.test(msg)
         const isNet = /socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timeout|EPIPE/i.test(msg)
@@ -164,7 +171,7 @@ export async function resolveM3u8(
           const delay = Math.pow(2, retry) * 1000
           const label = isDns ? 'DNS 解析失败' : '网络错误'
           console.warn(`[hls:m3u8] ${label}，${delay / 1000}s 后重试 (${retry + 1}/${MAX_FETCH_RETRIES}): ${msg}`)
-          await sleep(delay)
+          await sleep(delay, signal)
           continue
         }
         throw err
@@ -196,9 +203,14 @@ export async function downloadHls(
   destPath: string,
   onProgress?: (p: HlsProgress) => void,
   maxWorkers = 10,
-  privateWorker?: PrivateWorkerConfig
+  privateWorker?: PrivateWorkerConfig,
+  signal?: AbortSignal
 ): Promise<number> {
-  const { mediaUrl, body } = await resolveM3u8(ses, m3u8Url, 3, privateWorker)
+  if (signal?.aborted) throw new Error('AbortError')
+
+  const { mediaUrl, body } = await resolveM3u8(ses, m3u8Url, 3, privateWorker, signal)
+  if (signal?.aborted) throw new Error('AbortError')
+
   const segments = parseSegments(mediaUrl, body)
   if (segments.length === 0) throw new Error(`m3u8 无 segments: ${m3u8Url}`)
 
@@ -232,22 +244,39 @@ export async function downloadHls(
     }
   }
 
+  let abortHandler: (() => void) | null = null
+
   try {
     // 并发下载所有 segment，下载完成的 segment 立即尝试按序写入
     const workers: Promise<void>[] = []
     let idx = 0
-    let aborted = false
-    const firstErr: { err: unknown } = { err: null }
-    const workerErr = (e: unknown): void => { if (!firstErr.err) firstErr.err = e; aborted = true }
+    let aborted = signal?.aborted ?? false
+    const firstErr: { err: unknown } = { err: signal?.aborted ? new Error('AbortError') : null }
+    const workerErr = (e: unknown): void => {
+      if (!firstErr.err) firstErr.err = e
+      aborted = true
+    }
+
+    if (signal) {
+      abortHandler = () => {
+        workerErr(new Error('AbortError'))
+      }
+      signal.addEventListener('abort', abortHandler, { once: true })
+    }
+
     for (let w = 0; w < Math.min(maxWorkers, segments.length); w++) {
       workers.push((async () => {
         while (idx < segments.length) {
-          if (aborted || writeError) return
+          if (aborted || writeError || signal?.aborted) return
           const i = idx++
           let data: Buffer
-          try { data = await fetchSegment(segments[i], 3, privateWorker) }
-          catch (e) { workerErr(e); return }
-          if (aborted) return
+          try {
+            data = await fetchSegment(segments[i], 3, privateWorker, signal)
+          } catch (e) {
+            workerErr(e)
+            return
+          }
+          if (aborted || signal?.aborted) return
           pendingWrites.set(i, data)
           done++
           bytesWritten += data.length
@@ -263,6 +292,11 @@ export async function downloadHls(
     }
     await Promise.allSettled(workers)
 
+    if (signal && abortHandler) {
+      signal.removeEventListener('abort', abortHandler)
+    }
+
+    if (signal?.aborted) throw new Error('AbortError')
     if (firstErr.err) throw firstErr.err
     if (writeError) throw writeError
     // 最终 flush（理论上 flushSequential 在最后一个 worker 中已完成）
@@ -274,6 +308,9 @@ export async function downloadHls(
     fd = -1 // 标记已关闭，finally 中不再 close
     renameSync(tmpPath, destPath)
   } catch (err) {
+    if (signal && abortHandler) {
+      signal.removeEventListener('abort', abortHandler)
+    }
     // 清理：关闭 fd + 删除 .part
     if (fd >= 0) { try { closeSync(fd) } catch { /* ignore */ } }
     try { unlinkSync(tmpPath) } catch { /* ignore */ }
@@ -293,10 +330,45 @@ function isRetryableNetErr(err: unknown): boolean {
 }
 
 /** 下载单个 segment，网络错误时最多重试 3 次 */
-function fetchSegment(url: string, maxRetries = 3, privateWorker?: PrivateWorkerConfig): Promise<Buffer> {
+function fetchSegment(
+  url: string,
+  maxRetries = 3,
+  privateWorker?: PrivateWorkerConfig,
+  signal?: AbortSignal
+): Promise<Buffer> {
+  if (signal?.aborted) {
+    return Promise.reject(new Error('AbortError'))
+  }
   const targetUrl = wrapWorkerProxyUrl(url, privateWorker)
   return new Promise((resolve, reject) => {
+    let activeReq: any = null
+    let activeTimer: NodeJS.Timeout | null = null
+
+    const onAbort = () => {
+      if (activeTimer) clearTimeout(activeTimer)
+      if (activeReq) {
+        try { activeReq.destroy(new Error('AbortError')) } catch { /* ignore */ }
+      }
+      reject(new Error('AbortError'))
+    }
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    const cleanup = () => {
+      if (signal) {
+        signal.removeEventListener('abort', onAbort)
+      }
+      if (activeTimer) clearTimeout(activeTimer)
+    }
+
     const attempt = (retryCount: number): void => {
+      if (signal?.aborted) {
+        cleanup()
+        reject(new Error('AbortError'))
+        return
+      }
       const u = new URL(targetUrl)
       const isHttp = u.protocol === 'http:'
       const reqFn = isHttp ? httpRequest : httpsRequest
@@ -319,41 +391,71 @@ function fetchSegment(url: string, maxRetries = 3, privateWorker?: PrivateWorker
           headers: fetchHeaders
         },
         (resp: IncomingMessage) => {
+          if (signal?.aborted) {
+            resp.resume()
+            cleanup()
+            reject(new Error('AbortError'))
+            return
+          }
           if (resp.statusCode && (resp.statusCode < 200 || resp.statusCode >= 300)) {
             resp.resume()
+            cleanup()
             reject(new Error(`Segment HTTP ${resp.statusCode}`))
             return
           }
-          // PERF: track total length and pre-allocate to avoid an extra copy pass
-          // (Buffer.concat creates a new buffer and copies all chunks; this approach
-          // does the same but with allocUnsafe for fewer zero-fills)
           const chunks: Buffer[] = []
           let totalLen = 0
-          resp.on('data', (c: Buffer) => { chunks.push(c); totalLen += c.length })
+          resp.on('data', (c: Buffer) => {
+            if (signal?.aborted) {
+              resp.destroy(new Error('AbortError'))
+              return
+            }
+            chunks.push(c)
+            totalLen += c.length
+          })
           resp.on('end', () => {
+            if (signal?.aborted) {
+              cleanup()
+              reject(new Error('AbortError'))
+              return
+            }
             const buf = Buffer.allocUnsafe(totalLen)
             let offset = 0
             for (const c of chunks) { c.copy(buf, offset); offset += c.length }
+            cleanup()
             resolve(buf)
           })
           resp.on('error', (err: Error) => {
+            if (signal?.aborted || err.message === 'AbortError') {
+              cleanup()
+              reject(new Error('AbortError'))
+              return
+            }
             if (retryCount < maxRetries && isRetryableNetErr(err)) {
               const delay = Math.pow(2, retryCount) * 1000
               console.warn(`[hls:segment] 网络错误，${delay / 1000}s 后重试 (${retryCount + 1}/${maxRetries}): ${err.message}`)
-              setTimeout(() => attempt(retryCount + 1), delay)
+              activeTimer = setTimeout(() => attempt(retryCount + 1), delay)
             } else {
+              cleanup()
               reject(err)
             }
           })
         }
       )
+      activeReq = req
       req.setTimeout(60_000, () => req.destroy(new Error('segment timeout')))
       req.on('error', (err: Error) => {
+        if (signal?.aborted || err.message === 'AbortError') {
+          cleanup()
+          reject(new Error('AbortError'))
+          return
+        }
         if (retryCount < maxRetries && isRetryableNetErr(err)) {
           const delay = Math.pow(2, retryCount) * 1000
           console.warn(`[hls:segment] 网络错误，${delay / 1000}s 后重试 (${retryCount + 1}/${maxRetries}): ${err.message}`)
-          setTimeout(() => attempt(retryCount + 1), delay)
+          activeTimer = setTimeout(() => attempt(retryCount + 1), delay)
         } else {
+          cleanup()
           reject(err)
         }
       })
@@ -370,9 +472,32 @@ function fetchSegment(url: string, maxRetries = 3, privateWorker?: PrivateWorker
  *  [Bug Fix] windowsHide:true：Electron 主进程是 GUI 子系统无控制台，Windows 下 spawn
  *  控制台程序若不隐藏会尝试分配新控制台，在杀软/AppContainer/权限策略下报 EPERM，
  *  表现为 remux 卡住、downloadModuleVideoNow 返回 "spawn EPERM"。 */
-export async function remuxTsToMp4(tsPath: string, mp4Path: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+export async function remuxTsToMp4(tsPath: string, mp4Path: string, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) {
+    try { unlinkSync(mp4Path) } catch { /* ignore */ }
+    throw new Error('AbortError')
+  }
+  return new Promise<boolean>((resolve, reject) => {
     let proc: ChildProcess | null = null
+    let abortListener: (() => void) | null = null
+
+    if (signal) {
+      abortListener = () => {
+        if (proc) {
+          try { proc.kill('SIGTERM') } catch { /* ignore */ }
+        }
+        try { unlinkSync(mp4Path) } catch { /* ignore */ }
+        reject(new Error('AbortError'))
+      }
+      signal.addEventListener('abort', abortListener, { once: true })
+    }
+
+    const cleanup = () => {
+      if (signal && abortListener) {
+        signal.removeEventListener('abort', abortListener)
+      }
+    }
+
     try {
       proc = execFile(FFMPEG_PATH, [
         '-y', '-loglevel', 'error',
@@ -382,24 +507,32 @@ export async function remuxTsToMp4(tsPath: string, mp4Path: string): Promise<boo
         '-movflags', '+faststart',
         mp4Path
       ], { timeout: 600_000, windowsHide: true }, (err) => {
-        activeFfmpegProcesses.delete(proc!)
+        cleanup()
+        if (proc) activeFfmpegProcesses.delete(proc)
+        if (signal?.aborted) {
+          try { unlinkSync(mp4Path) } catch { /* ignore */ }
+          reject(new Error('AbortError'))
+          return
+        }
         if (err) {
-          // 内置/系统 ffmpeg 缺失或失败：保留 .ts，返回 false 让上层 fallback 到 .ts 格式
           console.warn(`[hls:remux] ffmpeg 失败: ${(err as NodeJS.ErrnoException).code || ''} ${err.message}`)
           try { unlinkSync(mp4Path) } catch { /* ignore */ }
           resolve(false)
         } else {
-          // 成功，删 .ts
           try { unlinkSync(tsPath) } catch { /* ignore */ }
           resolve(true)
         }
       })
+      if (proc) activeFfmpegProcesses.add(proc)
     } catch (err) {
-      // execFile 同步抛出（如 EPERM 未进 callback 的边界情况）
+      cleanup()
+      if (signal?.aborted) {
+        reject(new Error('AbortError'))
+        return
+      }
       console.warn(`[hls:remux] execFile 同步抛出: ${err instanceof Error ? err.message : String(err)}`)
       resolve(false)
     }
-    if (proc) activeFfmpegProcesses.add(proc)
   })
 }
 
@@ -414,19 +547,41 @@ export async function transcodeVideo(
   srcPath: string,
   dstPath: string,
   maxHeight: number,
-  onProgress?: (p: HlsProgress) => void
+  onProgress?: (p: HlsProgress) => void,
+  signal?: AbortSignal
 ): Promise<boolean> {
+  if (signal?.aborted) {
+    try { unlinkSync(dstPath) } catch { /* ignore */ }
+    throw new Error('AbortError')
+  }
   onProgress?.({
     phase: 'transcoding', segmentsDone: 0, segmentsTotal: 0,
     bytesWritten: 0, message: `正在重编码为 ${maxHeight}p…（可能需要较长时间）`
   })
 
-  // scale=-2:maxHeight：宽度自动等比缩放，-2 保证 mod2 对齐
-  // 若源高度 <= maxHeight 则跳过缩放只重建 GOP
   const filter = `scale=-2:${maxHeight}`
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>((resolve, reject) => {
     let proc: ChildProcess | null = null
+    let abortListener: (() => void) | null = null
+
+    if (signal) {
+      abortListener = () => {
+        if (proc) {
+          try { proc.kill('SIGTERM') } catch { /* ignore */ }
+        }
+        try { unlinkSync(dstPath) } catch { /* ignore */ }
+        reject(new Error('AbortError'))
+      }
+      signal.addEventListener('abort', abortListener, { once: true })
+    }
+
+    const cleanup = () => {
+      if (signal && abortListener) {
+        signal.removeEventListener('abort', abortListener)
+      }
+    }
+
     try {
       proc = execFile(FFMPEG_PATH, [
         '-y', '-loglevel', 'warning', '-stats',
@@ -439,13 +594,18 @@ export async function transcodeVideo(
         '-movflags', '+faststart',
         dstPath
       ], { timeout: 3600_000, windowsHide: true }, (err) => {
-        activeFfmpegProcesses.delete(proc!)
+        cleanup()
+        if (proc) activeFfmpegProcesses.delete(proc)
+        if (signal?.aborted) {
+          try { unlinkSync(dstPath) } catch { /* ignore */ }
+          reject(new Error('AbortError'))
+          return
+        }
         if (err) {
           console.warn(`[hls:transcode] ffmpeg 失败: ${(err as NodeJS.ErrnoException).code || ''} ${err.message}`)
           try { unlinkSync(dstPath) } catch { /* ignore */ }
           resolve(false)
         } else {
-          // 成功：用新文件覆盖原文件
           try {
             unlinkSync(srcPath)
             renameSync(dstPath, srcPath)
@@ -453,11 +613,16 @@ export async function transcodeVideo(
           resolve(true)
         }
       })
+      if (proc) activeFfmpegProcesses.add(proc)
     } catch (err) {
+      cleanup()
+      if (signal?.aborted) {
+        reject(new Error('AbortError'))
+        return
+      }
       console.warn(`[hls:transcode] execFile 同步抛出: ${err instanceof Error ? err.message : String(err)}`)
       resolve(false)
     }
-    if (proc) activeFfmpegProcesses.add(proc)
   })
 }
 
@@ -467,8 +632,13 @@ export async function transcodeVideo(
 export async function extractAudioFromVideo(
   srcPath: string,
   m4aPath: string,
-  onProgress?: (p: HlsProgress) => void
+  onProgress?: (p: HlsProgress) => void,
+  signal?: AbortSignal
 ): Promise<boolean> {
+  if (signal?.aborted) {
+    try { unlinkSync(m4aPath) } catch { /* ignore */ }
+    throw new Error('AbortError')
+  }
   onProgress?.({
     phase: 'transcoding',
     segmentsDone: 0,
@@ -477,8 +647,27 @@ export async function extractAudioFromVideo(
     message: '正在提取纯音频 (AAC .m4a)…'
   })
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>((resolve, reject) => {
     let proc: ChildProcess | null = null
+    let abortListener: (() => void) | null = null
+
+    if (signal) {
+      abortListener = () => {
+        if (proc) {
+          try { proc.kill('SIGTERM') } catch { /* ignore */ }
+        }
+        try { unlinkSync(m4aPath) } catch { /* ignore */ }
+        reject(new Error('AbortError'))
+      }
+      signal.addEventListener('abort', abortListener, { once: true })
+    }
+
+    const cleanup = () => {
+      if (signal && abortListener) {
+        signal.removeEventListener('abort', abortListener)
+      }
+    }
+
     try {
       proc = execFile(FFMPEG_PATH, [
         '-y', '-loglevel', 'error',
@@ -488,7 +677,13 @@ export async function extractAudioFromVideo(
         '-b:a', '128k',
         m4aPath
       ], { timeout: 600_000, windowsHide: true }, (err) => {
-        activeFfmpegProcesses.delete(proc!)
+        cleanup()
+        if (proc) activeFfmpegProcesses.delete(proc)
+        if (signal?.aborted) {
+          try { unlinkSync(m4aPath) } catch { /* ignore */ }
+          reject(new Error('AbortError'))
+          return
+        }
         if (err) {
           console.warn(`[hls:audio] ffmpeg 提取音频失败: ${err.message}`)
           try { unlinkSync(m4aPath) } catch { /* ignore */ }
@@ -498,11 +693,16 @@ export async function extractAudioFromVideo(
           resolve(true)
         }
       })
+      if (proc) activeFfmpegProcesses.add(proc)
     } catch (err) {
+      cleanup()
+      if (signal?.aborted) {
+        reject(new Error('AbortError'))
+        return
+      }
       console.warn(`[hls:audio] execFile 同步抛出: ${err instanceof Error ? err.message : String(err)}`)
       resolve(false)
     }
-    if (proc) activeFfmpegProcesses.add(proc)
   })
 }
 
@@ -515,8 +715,11 @@ export async function downloadModuleVideo(
   baseName: string,
   onProgress?: (p: HlsProgress) => void,
   transcodeMaxHeight?: number,
-  isAudioOnly = false
+  isAudioOnly = false,
+  signal?: AbortSignal
 ): Promise<{ path: string; format: 'mp4' | 'ts' | 'm4a'; skipped?: boolean }> {
+  if (signal?.aborted) throw new Error('AbortError')
+
   const m4aPath = join(destDir, `${baseName}.m4a`)
   const mp4Path = join(destDir, `${baseName}.mp4`)
   const tsPath = join(destDir, `${baseName}.ts`)
@@ -529,10 +732,10 @@ export async function downloadModuleVideo(
   }
   if (existsSync(tsPath) && statSync(tsPath).size > 0) {
     if (isAudioOnly) {
-      if (await extractAudioFromVideo(tsPath, m4aPath, onProgress)) {
+      if (await extractAudioFromVideo(tsPath, m4aPath, onProgress, signal)) {
         return { path: m4aPath, format: 'm4a' }
       }
-    } else if (await remuxTsToMp4(tsPath, mp4Path)) {
+    } else if (await remuxTsToMp4(tsPath, mp4Path, signal)) {
       return { path: mp4Path, format: 'mp4' }
     }
     return { path: tsPath, format: 'ts' }
@@ -543,26 +746,30 @@ export async function downloadModuleVideo(
   const m3u8 = await captureM3u8(ses, iframeUrl)
   if (!m3u8) throw new Error('未捕获到 m3u8 播放地址')
 
+  if (signal?.aborted) throw new Error('AbortError')
+
   // 下载 HLS segments
   onProgress?.({ phase: 'downloading', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0, message: '正在下载 HLS 切片…' })
-  await downloadHls(ses, m3u8, tsPath, onProgress)
+  await downloadHls(ses, m3u8, tsPath, onProgress, 10, undefined, signal)
+
+  if (signal?.aborted) throw new Error('AbortError')
 
   // remux / 纯音频
   onProgress?.({ phase: 'remuxing', segmentsDone: 0, segmentsTotal: 0, bytesWritten: 0, message: '正在处理媒体格式…' })
-  if (await remuxTsToMp4(tsPath, mp4Path)) {
+  if (await remuxTsToMp4(tsPath, mp4Path, signal)) {
     if (isAudioOnly) {
-      const ok = await extractAudioFromVideo(mp4Path, m4aPath, onProgress)
+      const ok = await extractAudioFromVideo(mp4Path, m4aPath, onProgress, signal)
       if (ok) return { path: m4aPath, format: 'm4a' }
     }
     if (transcodeMaxHeight) {
       const tmpOut = mp4Path + '.transcode.mp4'
-      const ok = await transcodeVideo(mp4Path, tmpOut, transcodeMaxHeight, onProgress)
+      const ok = await transcodeVideo(mp4Path, tmpOut, transcodeMaxHeight, onProgress, signal)
       if (ok) return { path: mp4Path, format: 'mp4' }
     }
     return { path: mp4Path, format: 'mp4' }
   }
   if (isAudioOnly) {
-    const ok = await extractAudioFromVideo(tsPath, m4aPath, onProgress)
+    const ok = await extractAudioFromVideo(tsPath, m4aPath, onProgress, signal)
     if (ok) return { path: m4aPath, format: 'm4a' }
   }
   return { path: tsPath, format: 'ts' }
@@ -577,6 +784,7 @@ export interface HlsOptions {
   transcodeMaxHeight?: number
   isAudioOnly?: boolean
   privateWorker?: PrivateWorkerConfig
+  signal?: AbortSignal
 }
 
 /** 完整 HLS 视频下载管道：下载 TS 切片并在本地通过 FFmpeg remux 为标准 MP4 文件 */
@@ -585,56 +793,107 @@ export async function downloadHlsVideo(
   destMp4Path: string,
   options?: HlsOptions
 ): Promise<{ path: string; format: 'mp4' | 'ts' | 'm4a' }> {
+  if (options?.signal?.aborted) {
+    throw new Error('AbortError')
+  }
   const ses = options?.session ?? (session && session.defaultSession ? session.defaultSession : ({} as Electron.Session))
   const isAudioOnly = options?.isAudioOnly || destMp4Path.endsWith('.m4a')
   const tsPath = destMp4Path.replace(/\.(mp4|m4a)$/, '') + '.ts'
 
-  // 1. 下载 HLS 切片
-  await downloadHls(ses, m3u8Url, tsPath, options?.onProgress, options?.maxWorkers, options?.privateWorker)
+  try {
+    // 1. 下载 HLS 切片
+    await downloadHls(
+      ses,
+      m3u8Url,
+      tsPath,
+      options?.onProgress,
+      options?.maxWorkers,
+      options?.privateWorker,
+      options?.signal
+    )
 
-  // 2. 纯音频提取
-  if (isAudioOnly) {
-    const m4aPath = destMp4Path.endsWith('.m4a') ? destMp4Path : destMp4Path.replace(/\.mp4$/, '.m4a')
+    if (options?.signal?.aborted) {
+      throw new Error('AbortError')
+    }
+
+    // 2. 纯音频提取
+    if (isAudioOnly) {
+      const m4aPath = destMp4Path.endsWith('.m4a') ? destMp4Path : destMp4Path.replace(/\.mp4$/, '.m4a')
+      options?.onProgress?.({
+        phase: 'remuxing',
+        segmentsDone: 0,
+        segmentsTotal: 0,
+        bytesWritten: 0,
+        message: '正在提取纯音频 (AAC .m4a)…'
+      })
+      const audioOk = await extractAudioFromVideo(tsPath, m4aPath, options?.onProgress, options?.signal)
+      if (options?.signal?.aborted) {
+        throw new Error('AbortError')
+      }
+      if (audioOk) {
+        return { path: m4aPath, format: 'm4a' }
+      }
+    }
+
+    // 3. remux TS 到 MP4
     options?.onProgress?.({
       phase: 'remuxing',
       segmentsDone: 0,
       segmentsTotal: 0,
       bytesWritten: 0,
-      message: '正在提取纯音频 (AAC .m4a)…'
+      message: '正在合并转码 MP4…'
     })
-    const audioOk = await extractAudioFromVideo(tsPath, m4aPath, options?.onProgress)
-    if (audioOk) {
-      return { path: m4aPath, format: 'm4a' }
+
+    const remuxOk = await remuxTsToMp4(tsPath, destMp4Path, options?.signal)
+    if (options?.signal?.aborted) {
+      throw new Error('AbortError')
     }
+    if (remuxOk) {
+      if (options?.transcodeMaxHeight) {
+        const tmpOut = destMp4Path + '.transcode.mp4'
+        await transcodeVideo(destMp4Path, tmpOut, options.transcodeMaxHeight, options.onProgress, options?.signal)
+        if (options?.signal?.aborted) {
+          throw new Error('AbortError')
+        }
+      }
+      return { path: destMp4Path, format: 'mp4' }
+    }
+
+    // 若 FFmpeg remux 失败，退化为将 .ts 转为目标文件名，防止文件丢失
+    try {
+      if (existsSync(tsPath) && !existsSync(destMp4Path)) {
+        renameSync(tsPath, destMp4Path)
+      }
+    } catch { /* ignore */ }
+    return { path: destMp4Path, format: 'ts' }
+  } catch (err) {
+    if (options?.signal?.aborted || (err instanceof Error && err.message === 'AbortError')) {
+      try { unlinkSync(tsPath) } catch { /* ignore */ }
+      try { unlinkSync(destMp4Path) } catch { /* ignore */ }
+      throw new Error('AbortError')
+    }
+    throw err
   }
-
-  // 3. remux TS 到 MP4
-  options?.onProgress?.({
-    phase: 'remuxing',
-    segmentsDone: 0,
-    segmentsTotal: 0,
-    bytesWritten: 0,
-    message: '正在合并转码 MP4…'
-  })
-
-  const remuxOk = await remuxTsToMp4(tsPath, destMp4Path)
-  if (remuxOk) {
-    if (options?.transcodeMaxHeight) {
-      const tmpOut = destMp4Path + '.transcode.mp4'
-      await transcodeVideo(destMp4Path, tmpOut, options.transcodeMaxHeight, options.onProgress)
-    }
-    return { path: destMp4Path, format: 'mp4' }
-  }
-
-  // 若 FFmpeg remux 失败，退化为将 .ts 转为目标文件名，防止文件丢失
-  try {
-    if (existsSync(tsPath) && !existsSync(destMp4Path)) {
-      renameSync(tsPath, destMp4Path)
-    }
-  } catch { /* ignore */ }
-  return { path: destMp4Path, format: 'ts' }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms))
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('AbortError'))
+      return
+    }
+    let timer: NodeJS.Timeout | null = null
+    const onAbort = () => {
+      if (timer) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(new Error('AbortError'))
+    }
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+    timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+  })
 }

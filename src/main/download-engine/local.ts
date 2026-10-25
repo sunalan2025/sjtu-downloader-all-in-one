@@ -155,37 +155,52 @@ async function runTask(t: TaskRuntime): Promise<void> {
 
   try {
     if (isHlsStreamTask(t.spec)) {
+      const abortController = new AbortController()
+      t.cancel = () => {
+        abortController.abort()
+      }
       const isAudioOnly = t.spec.extractAudio || t.filePath.endsWith('.m4a')
-      const hlsRes = await downloadHlsVideo(t.spec.url, t.filePath, {
-        session: sjtuSession(),
-        isAudioOnly,
-        privateWorker: workerConfigByTask.get(t.spec.taskId),
-        onProgress: (p) => {
-          if (t.state === 'cancelled' || t.state === 'paused') return
-          t.received = p.bytesWritten || p.segmentsDone
-          t.total = p.segmentsTotal || 0
-          emitProgress({
-            taskId: t.spec.taskId,
-            state: 'downloading',
-            received: t.received,
-            total: t.total,
-            unit: p.bytesWritten ? 'bytes' : 'count',
-            message: p.message || (p.phase === 'downloading' ? `下载切片 (${p.segmentsDone}/${p.segmentsTotal})` : p.phase === 'remuxing' ? '正在合并转码 MP4…' : '')
-          })
+      try {
+        const hlsRes = await downloadHlsVideo(t.spec.url, t.filePath, {
+          session: sjtuSession(),
+          isAudioOnly,
+          privateWorker: workerConfigByTask.get(t.spec.taskId),
+          signal: abortController.signal,
+          onProgress: (p) => {
+            if (t.state === 'cancelled' || t.state === 'paused' || abortController.signal.aborted) return
+            t.received = p.bytesWritten || p.segmentsDone
+            t.total = p.segmentsTotal || 0
+            emitProgress({
+              taskId: t.spec.taskId,
+              state: 'downloading',
+              received: t.received,
+              total: t.total,
+              unit: p.bytesWritten ? 'bytes' : 'count',
+              message: p.message || (p.phase === 'downloading' ? `下载切片 (${p.segmentsDone}/${p.segmentsTotal})` : p.phase === 'remuxing' ? '正在合并转码 MP4…' : '')
+            })
+          }
+        })
+        if ((t.state as string) === 'cancelled' || (t.state as string) === 'paused' || abortController.signal.aborted) {
+          return
         }
-      })
-      if (hlsRes?.path) t.filePath = hlsRes.path
-      assertDownloadIntegrity(t.filePath, 1, false)
-      t.state = 'done'
-      emitProgress({
-        taskId: t.spec.taskId,
-        state: 'done',
-        received: t.received,
-        total: t.total || t.received,
-        filePath: t.filePath
-      })
-      scheduleCleanupTask(t.spec.taskId, false)
-      return
+        if (hlsRes?.path) t.filePath = hlsRes.path
+        assertDownloadIntegrity(t.filePath, 1, false)
+        t.state = 'done'
+        emitProgress({
+          taskId: t.spec.taskId,
+          state: 'done',
+          received: t.received,
+          total: t.total || t.received,
+          filePath: t.filePath
+        })
+        scheduleCleanupTask(t.spec.taskId, false)
+        return
+      } catch (err) {
+        if ((t.state as string) === 'cancelled' || (t.state as string) === 'paused' || abortController.signal.aborted) {
+          return
+        }
+        throw err
+      }
     }
 
     // 本地下载自动重试：网络错误（socket hang up 等）时最多重试 3 次
