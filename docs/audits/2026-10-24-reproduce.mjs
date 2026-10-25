@@ -184,7 +184,8 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
     '../../shared/types':{CANVAS_BASE_URL:'https://oc.sjtu.edu.cn'},'../concurrency':{getHlsActive:()=>0},
     './progress':{emitProgress:p=>events.push(p)},'../window':{getIsQuitting:()=>false},
     '../session':{sjtuSession:()=>({cookies:{get:async()=>[]}})},'../auth':{},'../canvas/video-tokens':{},
-    '../canvas/legacy-video':{},'../../shared/utils':{sanitizeFsName:String},'../cnmooc/api':{},'./vsjtu-resolver':{},'./integrity':{}
+    '../canvas/legacy-video':{},'../../shared/utils':{sanitizeFsName:String},'../cnmooc/api':{},'./vsjtu-resolver':{},'./integrity':{},
+    '../cloudpan':{getFileDownloadUrl:async()=>'https://fixture.invalid/resolved-cloudpan.pdf',getCachedUserToken:()=>'fixture_token'}
   });
   const local=loadTs('src/main/download-engine/local.ts',{
     './shared':shared,'node:fs':{statSync:()=>undefined,mkdirSync(){},unlinkSync(){}},
