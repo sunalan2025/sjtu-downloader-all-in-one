@@ -192,7 +192,8 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
     './cdn-fetch':{},'../canvas/hls-download':{downloadHlsVideo:()=>new Promise(r=>{finishHls=r})},
     '../session':{sjtuSession:()=>({})},'../concurrency':{getConcurrency:()=>1,isNetworkHealthy:()=>true},
     '../window':{getIsQuitting:()=>false},'./progress':{emitProgress:p=>events.push(p)},
-    '../canvas/orchestrator':{notifyConcurrencySlotAvailable(){}},'../canvas/safe-fetch':{sanitizeForLog:String},'../../shared/utils':{}
+    '../canvas/orchestrator':{notifyConcurrencySlotAvailable(){}},'../canvas/safe-fetch':{sanitizeForLog:String},'../../shared/utils':{},
+    '../backup/runtime':{updateBackupRuntimeSpec(){}}
   });
   shared.pendingLocal.push({spec:{taskId:'audit_hls',fileName:'clip.mp4',url:'https://fixture.invalid/a.m3u8',isHls:true},filePath:'C:/audit/clip.mp4',partPath:'C:/audit/clip.mp4.part'});
   local.scheduleNext();await nextTurn();local.cancelTask('audit_hls');finishHls({path:'C:/audit/clip.mp4'});await nextTurn();
@@ -216,7 +217,7 @@ const nextTurn = () => new Promise(resolve => setImmediate(resolve));
   result('P4-persist-writes-on-runtime-updates',{progressUpdates:1000,persistentStorageWrites:writes-before,preferenceChanges:0});
 }
 
-// Production download resolver returns an ARM archive for an Intel Mac; current release gets old hashes.
+// Production download resolver serves correct Intel asset; newer releases do not inherit stale fallback hashes.
 {
   const releases=loadTs('website/src/utils/releaseInfo.ts');
   const intel=releases.getAllPlatformMatrix(null).find(x=>x.id==='mac-x64');
