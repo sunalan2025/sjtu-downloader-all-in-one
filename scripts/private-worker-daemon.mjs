@@ -19,8 +19,16 @@ import path from 'node:path'
 import os from 'node:os'
 
 const PORT = parseInt(process.env.PORT || process.argv[2] || '6880', 10)
+const HOST = process.env.HOST || '127.0.0.1'
 const AUTH_TOKEN = (process.env.WORKER_TOKEN || process.argv[3] || '').trim()
 const VERSION = '1.0.0'
+
+if (HOST === '0.0.0.0' || (!HOST.startsWith('127.') && HOST !== 'localhost')) {
+  if (!AUTH_TOKEN || AUTH_TOKEN.length < 16) {
+    console.error('[worker:security] 致命错误：外部网络监听 (0.0.0.0) 必须配置强 WORKER_TOKEN（长度 >= 16 位）')
+    process.exit(1)
+  }
+}
 
 const tasks = new Map()
 
@@ -37,6 +45,24 @@ function expandHomeDir(p) {
     return path.join(os.homedir(), trimmed.slice(2))
   }
   return path.resolve(trimmed)
+}
+
+const SERVER_DOWNLOAD_ROOT = path.resolve(expandHomeDir(process.env.WORKER_DOWNLOAD_ROOT || '~/sjtu-downloads'))
+
+function isAllowedTargetUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl)
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false
+    const hostname = u.hostname.toLowerCase()
+    // 封禁回环与私网 IP 及 localhost
+    if (/^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|169\.254\.|localhost|::1)/i.test(hostname)) {
+      return false
+    }
+    // 仅允许交大官方及认证平台域名
+    return /(^|\.)(sjtu\.edu\.cn|sjtu\.cn|cnmooc\.org)$/i.test(hostname)
+  } catch {
+    return false
+  }
 }
 
 function sanitizePathSegment(segment, fallback = 'default') {
@@ -421,6 +447,8 @@ async function uploadToCloudPanAsync(task, payload) {
       totalUploaded += partBuf.length
       task.receivedBytes = totalUploaded
     }
+  } else {
+    throw new Error('未提供可转存的媒体 URL 或切片列表')
   }
 
   // 确认上传完成
@@ -449,6 +477,13 @@ async function executeTaskAsync(task, payload) {
   task.abortController = new AbortController()
 
   try {
+    if (!payload.url && (!Array.isArray(payload.slices) || payload.slices.length === 0)) {
+      throw new Error('未提供可下载的媒体 URL 或切片列表')
+    }
+    if (typeof payload.url === 'string' && payload.url.includes('.m3u8')) {
+      throw new Error('中转服务器暂不支持 HLS (.m3u8) 流直传，请使用本地下载模式')
+    }
+
     if (task.storageMode === 'server_local' && task.resolvedPath) {
       task.status = 'downloading'
       if (Array.isArray(payload.slices) && payload.slices.length > 0) {
@@ -554,16 +589,12 @@ async function executeTaskAsync(task, payload) {
         const safePath = sanitizeLog(task.resolvedPath, 128)
         console.log(`[worker] 任务 ${safeTaskId} 已成功下载并保存至: ${safePath} (${receivedBytes} bytes)`)
       } else {
-        task.status = 'completed'
-        task.completedAt = Date.now()
-        task.speed = 0
+        throw new Error('未提供有效的下载链接')
       }
     } else if (task.storageMode === 'cloudpan') {
       await uploadToCloudPanAsync(task, payload)
     } else {
-      task.status = 'completed'
-      task.completedAt = Date.now()
-      task.speed = 0
+      throw new Error(`不支持的存储模式: ${task.storageMode}`)
     }
   } catch (err) {
     if (task.abortController?.signal?.aborted) {
@@ -590,13 +621,10 @@ function sendJson(res, statusCode, data) {
   res.end(body)
 }
 
-function verifyAuth(req, parsedUrl) {
+function verifyAuth(req) {
   if (!AUTH_TOKEN) return true
-  const authHeader = req.headers['authorization'] || ''
-  const expected = `Bearer ${AUTH_TOKEN}`
-  if (authHeader === expected || authHeader === AUTH_TOKEN) return true
-  if (parsedUrl && parsedUrl.searchParams.get('token') === AUTH_TOKEN) return true
-  return false
+  const authHeader = req.headers?.['authorization'] || ''
+  return authHeader === `Bearer ${AUTH_TOKEN}` || authHeader === AUTH_TOKEN
 }
 
 const server = http.createServer(async (req, res) => {
@@ -647,25 +675,70 @@ const server = http.createServer(async (req, res) => {
     req.on('end', () => {
       try {
         const payload = JSON.parse(rawBody || '{}')
+        if (!payload.url && (!Array.isArray(payload.slices) || payload.slices.length === 0)) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: '任务缺少有效的媒体直链或切片列表'
+          })
+        }
+        if (typeof payload.url === 'string' && payload.url.includes('.m3u8')) {
+          return sendJson(res, 400, {
+            ok: false,
+            error: '中转服务器暂不支持 HLS (.m3u8) 流直传，请使用本地下载模式'
+          })
+        }
         const taskId = payload.taskId || `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
         const isServerLocal = payload.storageMode === 'server_local'
         let targetPath = payload.destPath || ''
         let resolvedLocalPath = null
 
         if (isServerLocal) {
-          const baseDir = expandHomeDir(payload.serverDownloadDir)
           const safeCourse = sanitizePathSegment(payload.courseName, '未分类课程')
           const safeCategory = sanitizePathSegment(payload.categoryName, '其它资料')
           const safeFileName = sanitizePathSegment(payload.fileName, '未命名文件')
 
-          const targetDir = path.resolve(baseDir, safeCourse, safeCategory)
-          const normalizedBase = path.normalize(baseDir)
-          const normalizedTarget = path.normalize(targetDir)
-
-          if (!normalizedTarget.startsWith(normalizedBase)) {
+          if (payload.courseName && (payload.courseName.includes('..') || payload.courseName.startsWith('/') || payload.courseName.startsWith('\\'))) {
             return sendJson(res, 400, {
               ok: false,
-              error: '检测到非法路径穿越尝试'
+              error: '存储路径无效：禁止访问受保护的根目录以外路径'
+            })
+          }
+          if (payload.categoryName && (payload.categoryName.includes('..') || payload.categoryName.startsWith('/') || payload.categoryName.startsWith('\\'))) {
+            return sendJson(res, 400, {
+              ok: false,
+              error: '存储路径无效：禁止访问受保护的根目录以外路径'
+            })
+          }
+          if (payload.fileName && (payload.fileName.includes('..') || payload.fileName.startsWith('/') || payload.fileName.startsWith('\\'))) {
+            return sendJson(res, 400, {
+              ok: false,
+              error: '存储路径无效：禁止访问受保护的根目录以外路径'
+            })
+          }
+          if (payload.serverDownloadDir) {
+            const rawSub = path.resolve(SERVER_DOWNLOAD_ROOT, payload.serverDownloadDir)
+            const normRawSub = path.normalize(rawSub)
+            const isSubInside = process.platform === 'win32'
+              ? normRawSub.toLowerCase().startsWith(SERVER_DOWNLOAD_ROOT.toLowerCase())
+              : normRawSub.startsWith(SERVER_DOWNLOAD_ROOT)
+            if (!isSubInside) {
+              return sendJson(res, 400, {
+                ok: false,
+                error: '存储路径无效：禁止访问受保护的根目录以外路径'
+              })
+            }
+          }
+
+          const targetDir = path.resolve(SERVER_DOWNLOAD_ROOT, safeCourse, safeCategory)
+          const normalizedTarget = path.normalize(targetDir)
+          const isTargetInside = process.platform === 'win32'
+            ? normalizedTarget.toLowerCase().startsWith(SERVER_DOWNLOAD_ROOT.toLowerCase())
+            : normalizedTarget.startsWith(SERVER_DOWNLOAD_ROOT)
+
+          if (!isTargetInside) {
+            return sendJson(res, 400, {
+              ok: false,
+              error: '存储路径无效：禁止访问受保护的根目录以外路径'
             })
           }
 
@@ -767,18 +840,18 @@ const server = http.createServer(async (req, res) => {
   // 4. 流式中转代理接口 (/api/proxy)
   // 允许客户端请求经由中转机在校内抓取目标资源流并实时回传给本地（支持 Range 断点续传）
   if (pathname === '/api/proxy' && req.method === 'GET') {
-    if (!verifyAuth(req, parsedUrl)) {
+    if (!verifyAuth(req)) {
       return sendJson(res, 401, { ok: false, error: 'Unauthorized' })
     }
     const targetUrl = parsedUrl.searchParams.get('url')
     if (!targetUrl) {
       return sendJson(res, 400, { ok: false, error: '缺少目标 url 参数' })
     }
+    if (!isAllowedTargetUrl(targetUrl)) {
+      return sendJson(res, 403, { ok: false, error: '目标地址不在允许的服务白名单内或属于受限网络地址' })
+    }
     try {
       const targetObj = new URL(targetUrl)
-      if (targetObj.protocol !== 'http:' && targetObj.protocol !== 'https:') {
-        return sendJson(res, 400, { ok: false, error: '不支持的协议类型' })
-      }
 
       const forwardHeaders = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) SJTU-Downloader-Worker/1.0',
@@ -791,13 +864,37 @@ const server = http.createServer(async (req, res) => {
         forwardHeaders['Referer'] = req.headers.referer
       }
       if (req.headers.cookie) {
-        forwardHeaders['Cookie'] = req.headers.cookie
+        const targetHost = targetObj.hostname.toLowerCase()
+        const reqHost = (req.headers.host || '').split(':')[0].toLowerCase()
+        if (targetHost === reqHost || /(^|\.)(sjtu\.edu\.cn|sjtu\.cn|cnmooc\.org)$/i.test(targetHost)) {
+          forwardHeaders['Cookie'] = req.headers.cookie
+        }
       }
 
-      const upstreamResp = await fetch(targetUrl, {
-        method: 'GET',
-        headers: forwardHeaders
-      })
+      let currentTargetUrl = targetUrl
+      let upstreamResp = null
+      const maxRedirects = 5
+
+      for (let r = 0; r < maxRedirects; r++) {
+        if (!isAllowedTargetUrl(currentTargetUrl)) {
+          return sendJson(res, 403, { ok: false, error: '目标地址不在允许的服务白名单内或属于受限网络地址' })
+        }
+        upstreamResp = await fetch(currentTargetUrl, {
+          method: 'GET',
+          headers: forwardHeaders,
+          redirect: 'manual'
+        })
+        if (upstreamResp.status >= 300 && upstreamResp.status < 400 && upstreamResp.headers.has('location')) {
+          const loc = upstreamResp.headers.get('location') || ''
+          const nextUrl = new URL(loc, currentTargetUrl).toString()
+          if (!isAllowedTargetUrl(nextUrl)) {
+            return sendJson(res, 403, { ok: false, error: '目标地址不在允许的服务白名单内或属于受限网络地址' })
+          }
+          currentTargetUrl = nextUrl
+          continue
+        }
+        break
+      }
 
       const responseHeaders = {
         'Access-Control-Allow-Origin': '*',
@@ -841,13 +938,13 @@ const server = http.createServer(async (req, res) => {
   return sendJson(res, 404, { ok: false, error: 'Endpoint Not Found' })
 })
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, HOST, () => {
   console.log('╔════════════════════════════════════════════════════════════════╗')
   console.log('║        SJTU Downloader Private Worker Daemon v' + VERSION + '           ║')
   console.log('║       交大课程下载器 · 校内私有委托代传工作机守护进程          ║')
   console.log('╚════════════════════════════════════════════════════════════════╝')
-  console.log(`  ✓ 本地监听地址: http://127.0.0.1:${PORT}`)
-  console.log(`  ✓ 健康检查接口: http://127.0.0.1:${PORT}/health`)
+  console.log(`  ✓ 本地监听地址: http://${HOST}:${PORT}`)
+  console.log(`  ✓ 健康检查接口: http://${HOST}:${PORT}/health`)
   if (AUTH_TOKEN) {
     console.log(`  🔒 已启用访问授权密钥 (Token): ${AUTH_TOKEN.slice(0, 3)}***`)
   } else {
