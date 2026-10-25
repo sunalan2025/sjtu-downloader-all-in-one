@@ -8,7 +8,7 @@
  * 4. 支持中转任务的取消协同。
  */
 
-import type { DownloadMode, DownloadTaskSpec, PrivateWorkerConfig, DownloadState } from '../../shared/types'
+import type { DownloadMode, DownloadTaskSpec, PrivateWorkerConfig, DownloadState, PrivateWorkerTaskPayload } from '../../shared/types'
 import { registerTaskMeta, emitProgress, getDownloadSnapshot } from './progress'
 import { effectiveCourseName, resolveDirectUrl } from './shared'
 import { sjtuSession } from '../session'
@@ -21,8 +21,60 @@ import {
 } from '../private-worker'
 import { cloudRemotePath } from './cloud'
 import { getCachedUserToken } from '../cloudpan'
+import { getWorkerAuthToken } from '../credentials'
 
 export { isWorkerDelegated }
+
+export interface BuildWorkerPayloadParams {
+  spec: DownloadTaskSpec
+  directUrl: string
+  worker: PrivateWorkerConfig
+  cachedCloudToken?: string
+  conflictStrategy?: 'skip' | 'overwrite'
+  cloudDestRoot?: string
+}
+
+/**
+ * 构造下发给 Worker 的任务载荷，严格遵守最小特权原则：
+ * 若 Worker 存储模式为 server_local（就地落盘），严禁携带 cloudUserToken
+ */
+export function buildWorkerPayload(params: BuildWorkerPayloadParams): PrivateWorkerTaskPayload {
+  const { spec, directUrl, worker, cachedCloudToken, conflictStrategy, cloudDestRoot } = params
+  const isServerLocal = worker.storageMode === 'server_local'
+  const rawSpec = spec as { fileSize?: number; destRelPath?: string; categoryName?: string }
+  const course = effectiveCourseName(spec)
+
+  const effectiveSpec = {
+    ...spec,
+    cloudDestRoot: cloudDestRoot ?? spec.cloudDestRoot
+  }
+  const targetDestPath = isServerLocal
+    ? (rawSpec.destRelPath || '')
+    : cloudRemotePath(effectiveSpec)
+
+  const payload: PrivateWorkerTaskPayload = {
+    taskId: spec.taskId,
+    url: directUrl,
+    fileName: spec.fileName,
+    destPath: targetDestPath,
+    conflictStrategy,
+    storageMode: worker.storageMode || 'cloudpan',
+    serverDownloadDir: worker.serverDownloadDir || '~/downloads',
+    courseName: course,
+    categoryName: spec.category || rawSpec.categoryName || '课件资料',
+    fileSize: rawSpec.fileSize || 0
+  }
+
+  // 最小特权原则：如果为 server_local 模式，严禁向 Worker 节点发送用户的交大云盘 Token
+  if (!isServerLocal) {
+    const token = spec.cloudUserToken || cachedCloudToken
+    if (token) {
+      payload.cloudUserToken = token
+    }
+  }
+
+  return payload
+}
 
 const activeWorkerTrackers = new Map<string, { abort: () => void; workerUrl: string; authToken?: string }>()
 
@@ -97,7 +149,11 @@ export async function pollWorkerTaskProgress(
   const abort = (): void => {
     aborted = true
   }
-  activeWorkerTrackers.set(taskId, { abort, workerUrl, authToken })
+  const tracker = { abort, workerUrl, authToken: authToken?.trim() || undefined }
+  activeWorkerTrackers.set(taskId, tracker)
+
+  const effectiveAuth = tracker.authToken || (await getWorkerAuthToken()) || undefined
+  tracker.authToken = effectiveAuth
 
   const startTime = Date.now()
 
@@ -106,7 +162,7 @@ export async function pollWorkerTaskProgress(
       await new Promise(r => setTimeout(r, pollIntervalMs))
       if (aborted) break
 
-      const queryRes = await queryPrivateWorkerTask(workerUrl, taskId, authToken)
+      const queryRes = await queryPrivateWorkerTask(workerUrl, taskId, effectiveAuth)
       if (!queryRes.ok || !queryRes.task) {
         // 网络抖动，继续轮询重试
         continue
@@ -220,6 +276,7 @@ export async function dispatchWorkerBatch(
     return { ok: false, error: '私有中转服务未正确配置' }
   }
 
+  const effectiveWorkerAuth = worker.authToken?.trim() || (await getWorkerAuthToken()) || undefined
   const isServerLocal = worker.storageMode === 'server_local'
   const cachedToken = getCachedUserToken()
 
@@ -315,14 +372,14 @@ export async function dispatchWorkerBatch(
             continue
           }
 
-          const effectiveSpec = {
-            ...spec,
-            cloudDestRoot: options.cloudDestRoot ?? spec.cloudDestRoot
-          }
-          const targetDestPath = isServerLocal
-            ? (rawSpec.destRelPath || '')
-            : cloudRemotePath(effectiveSpec)
-          const targetCloudToken = spec.cloudUserToken || cachedToken || undefined
+          const payload = buildWorkerPayload({
+            spec,
+            directUrl,
+            worker,
+            cachedCloudToken: cachedToken || undefined,
+            conflictStrategy: options.conflictStrategy,
+            cloudDestRoot: options.cloudDestRoot
+          })
 
           emitProgress({
             taskId: spec.taskId,
@@ -338,20 +395,8 @@ export async function dispatchWorkerBatch(
 
           const res = await dispatchPrivateWorkerTask(
             worker.endpointUrl,
-            {
-              taskId: spec.taskId,
-              url: directUrl,
-              fileName: spec.fileName,
-              destPath: targetDestPath,
-              cloudUserToken: targetCloudToken,
-              conflictStrategy: options.conflictStrategy,
-              storageMode: worker.storageMode || 'cloudpan',
-              serverDownloadDir: worker.serverDownloadDir || '~/downloads',
-              courseName: course,
-              categoryName: spec.category || rawSpec.categoryName || '课件资料',
-              fileSize
-            },
-            worker.authToken
+            payload,
+            effectiveWorkerAuth
           )
 
           if (res.ok) {
@@ -362,8 +407,8 @@ export async function dispatchWorkerBatch(
               course,
               fileSize,
               isServerLocal,
-              targetDestPath,
-              worker.authToken
+              payload.destPath,
+              effectiveWorkerAuth
             )
           } else {
             emitProgress({

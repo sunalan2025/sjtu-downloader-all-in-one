@@ -25,7 +25,7 @@ import {
   type CanvasAssignmentExportOptions,
   type PrivateWorkerConfig
 } from '../../shared/types'
-import { isWorkerDelegated, dispatchPrivateWorkerTask } from '../private-worker'
+import { isWorkerDelegated, dispatchPrivateWorkerTask, queryPrivateWorkerTask } from '../private-worker'
 import { buildCloudRemoteSegments } from '../../shared/utils'
 import {
   fetchCourseAssignments,
@@ -1317,13 +1317,19 @@ export function registerCanvasHandlers(): void {
               phase: `中转派发 ${lecture.lectureName} (${slices.length}讲切片)…`, lectureName: lecture.lectureName
             })
           }
+          const destPath = [opts.cloudDestRoot || '', cPath, '课堂讲义 (PPT)', fileName]
+            .filter(Boolean)
+            .join('/')
+          const subTaskId = `${taskId || 'ppt'}_${realIvsVideoId}`
           const dispatchRes = await dispatchPrivateWorkerTask(
             worker.endpointUrl,
             {
-              taskId: `${taskId || 'ppt'}_${realIvsVideoId}`,
+              taskId: subTaskId,
               url: slices[0].pptImgUrl,
               fileName,
-              destPath: '',
+              destPath,
+              cloudUserToken: worker.storageMode === 'server_local' ? undefined : opts.cloudUserToken,
+              conflictStrategy: opts.conflictStrategy,
               storageMode: worker.storageMode || 'cloudpan',
               serverDownloadDir: worker.serverDownloadDir || '~/downloads',
               courseName: opts.courseName,
@@ -1333,11 +1339,50 @@ export function registerCanvasHandlers(): void {
             },
             worker.authToken
           )
-          results.push({ lectureName: lecture.lectureName, ok: dispatchRes.ok, error: dispatchRes.error })
+          if (!dispatchRes.ok) {
+            results.push({ lectureName: lecture.lectureName, ok: false, error: dispatchRes.error })
+            if (taskId) {
+              emitToRenderer('canvas:ppt-progress', {
+                taskId, ivsVideoId: realIvsVideoId, current: i + 1, total,
+                phase: `${lecture.lectureName} 派发失败`, lectureName: lecture.lectureName
+              })
+            }
+            continue
+          }
+
+          // 轮询等待远端中转机切片拉取、PDF 合成与云盘上传完成
+          let pollDone = false
+          const startPoll = Date.now()
+          while (!pollDone && Date.now() - startPoll < 300_000) {
+            await new Promise(r => setTimeout(r, 1000))
+            const q = await queryPrivateWorkerTask(worker.endpointUrl, subTaskId, worker.authToken)
+            if (q.ok && q.task) {
+              if (q.task.status === 'completed') {
+                results.push({ lectureName: lecture.lectureName, ok: true })
+                pollDone = true
+                break
+              }
+              if (q.task.status === 'failed') {
+                results.push({ lectureName: lecture.lectureName, ok: false, error: q.task.error })
+                pollDone = true
+                break
+              }
+              if (taskId) {
+                emitToRenderer('canvas:ppt-progress', {
+                  taskId, ivsVideoId: realIvsVideoId, current: i, total,
+                  phase: `${lecture.lectureName} 远端合成转存中…`, lectureName: lecture.lectureName
+                })
+              }
+            }
+          }
+          if (!pollDone) {
+            results.push({ lectureName: lecture.lectureName, ok: false, error: '等待远端合成超时' })
+          }
           if (taskId) {
+            const lastRes = results[results.length - 1]
             emitToRenderer('canvas:ppt-progress', {
               taskId, ivsVideoId: realIvsVideoId, current: i + 1, total,
-              phase: dispatchRes.ok ? `${lecture.lectureName} 完成` : `${lecture.lectureName} 失败`,
+              phase: lastRes?.ok ? `${lecture.lectureName} 完成` : `${lecture.lectureName} 失败`,
               lectureName: lecture.lectureName
             })
           }

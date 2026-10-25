@@ -67,11 +67,7 @@ export function wrapWorkerProxyUrl(rawUrl: string, privateWorker?: PrivateWorker
   if (!normalized) return rawUrl
   // 已是中转节点代理地址的无需重复包装
   if (rawUrl.startsWith(normalized)) return rawUrl
-  let proxyUrl = `${normalized}/api/proxy?url=${encodeURIComponent(rawUrl)}`
-  if (privateWorker.authToken?.trim()) {
-    proxyUrl += `&token=${encodeURIComponent(privateWorker.authToken.trim())}`
-  }
-  return proxyUrl
+  return `${normalized}/api/proxy?url=${encodeURIComponent(rawUrl)}`
 }
 
 let embeddedServer: http.Server | null = null

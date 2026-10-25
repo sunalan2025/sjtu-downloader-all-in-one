@@ -808,6 +808,8 @@ export interface CredentialsApi {
   delete: (id: string) => Promise<{ ok: boolean; error?: string }>
   clearAll: () => Promise<{ ok: boolean; error?: string }>
   getFillData: (id?: string) => Promise<{ ok: boolean; username?: string; password?: string; error?: string }>
+  getWorkerToken: () => Promise<string>
+  saveWorkerToken: (token: string) => Promise<void>
 }
 
 // ─────────────────────────────────────────────────────────────

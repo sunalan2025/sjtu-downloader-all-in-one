@@ -177,6 +177,14 @@ export async function startSshTunnel(
     await stopSshTunnel()
   }
 
+  // 确保本地开发模拟 Worker 不会抢占或死锁该转发端口
+  try {
+    const { stopEmbeddedDevWorker } = await import('./private-worker')
+    await stopEmbeddedDevWorker()
+  } catch {
+    /* 忽略动态导入失败 */
+  }
+
   let stderrBuffer = ''
   let spawnError: Error | null = null
 

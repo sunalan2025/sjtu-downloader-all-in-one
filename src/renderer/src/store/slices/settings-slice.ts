@@ -129,8 +129,11 @@ export const createSettingsSlice: StateCreator<AppState, [], [], SettingsSlice> 
           ? opts(state.canvasAssignmentOptions)
           : { ...state.canvasAssignmentOptions, ...opts }
     })),
-  setPrivateWorkerConfig: cfg =>
-    set(state => {
+  setPrivateWorkerConfig: cfg => {
+    if (cfg.authToken !== undefined && typeof window !== 'undefined' && window.api?.credentials?.saveWorkerToken) {
+      void window.api.credentials.saveWorkerToken(cfg.authToken).catch(() => {})
+    }
+    return set(state => {
       const { tunnel: cfgTunnel, ...cfgRest } = cfg
       const currentTunnel = state.privateWorkerConfig?.tunnel ?? {
         enabled: false,
@@ -155,7 +158,8 @@ export const createSettingsSlice: StateCreator<AppState, [], [], SettingsSlice> 
           tunnel: updatedTunnel
         }
       }
-    }),
+    })
+  },
   setNamingTemplate: namingTemplate => set({ namingTemplate }),
   setVideoQualityOption: videoQualityOption => set({ videoQualityOption }),
   setVideoPerspectivePreference: p =>

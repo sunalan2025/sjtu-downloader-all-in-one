@@ -6,9 +6,11 @@ import type { StoredCredential, MaskedCredential } from '../shared/types'
 
 // AES-256-GCM 兜底高熵独立秘钥管理（当运行环境无 safeStorage 时使用）
 let _cachedFallbackKey: Buffer | null = null
+let memoryWorkerTokenCache: string | null = null
 
 export function _resetFallbackKeyForTesting(): void {
   _cachedFallbackKey = null
+  memoryWorkerTokenCache = null
 }
 
 function getFallbackKey(): Buffer {
@@ -230,10 +232,84 @@ export async function clearAllCredentials(): Promise<{ ok: boolean; error?: stri
       unlinkSync(filePath)
     }
     memoryCredentialsCache = []
+    const workerTokenPath = getWorkerTokenFilePath()
+    if (existsSync(workerTokenPath)) {
+      unlinkSync(workerTokenPath)
+    }
+    memoryWorkerTokenCache = ''
     return { ok: true }
   } catch (err: unknown) {
     return { ok: false, error: err instanceof Error ? err.message : 'Failed to clear credentials' }
   }
+}
+
+function getWorkerTokenFilePath(): string {
+  return join(app.getPath('userData'), 'credentials', 'worker.enc.json')
+}
+
+interface StoredWorkerTokenRecord {
+  encryptedToken: string
+  updatedAt: number
+}
+
+export async function saveWorkerAuthToken(token: string): Promise<void> {
+  const trimmed = typeof token === 'string' ? token.trim() : ''
+  const filePath = getWorkerTokenFilePath()
+  const dir = dirname(filePath)
+
+  if (!trimmed) {
+    if (existsSync(filePath)) {
+      try {
+        unlinkSync(filePath)
+      } catch {
+        /* ignore */
+      }
+    }
+    memoryWorkerTokenCache = ''
+    return
+  }
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  const encryptedToken = encryptSecret(trimmed)
+  const record: StoredWorkerTokenRecord = {
+    encryptedToken,
+    updatedAt: Date.now()
+  }
+
+  const tmpPath = filePath + '.tmp'
+  writeFileSync(tmpPath, JSON.stringify(record, null, 2), 'utf8')
+  renameSync(tmpPath, filePath)
+  memoryWorkerTokenCache = trimmed
+}
+
+export async function getWorkerAuthToken(): Promise<string> {
+  if (memoryWorkerTokenCache !== null) {
+    return memoryWorkerTokenCache
+  }
+
+  const filePath = getWorkerTokenFilePath()
+  if (!existsSync(filePath)) {
+    memoryWorkerTokenCache = ''
+    return ''
+  }
+
+  try {
+    const raw = readFileSync(filePath, 'utf8')
+    const parsed = JSON.parse(raw) as Partial<StoredWorkerTokenRecord>
+    if (parsed && typeof parsed.encryptedToken === 'string' && parsed.encryptedToken.trim()) {
+      const decrypted = decryptSecret(parsed.encryptedToken)
+      memoryWorkerTokenCache = decrypted
+      return decrypted
+    }
+  } catch (e) {
+    console.error('[credentials] failed to parse or decrypt worker token file:', e)
+  }
+
+  memoryWorkerTokenCache = ''
+  return ''
 }
 
 export async function getCredentialForFill(

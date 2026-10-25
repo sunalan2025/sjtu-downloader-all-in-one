@@ -71,6 +71,21 @@ export function Settings({
 
   useEffect(() => {
     let mounted = true
+    if (typeof window !== 'undefined' && window.api?.credentials?.getWorkerToken) {
+      window.api.credentials.getWorkerToken().then(token => {
+        if (!mounted || !token) return
+        if (!useAppStore.getState().privateWorkerConfig?.authToken) {
+          setPrivateWorkerConfig({ authToken: token })
+        }
+      }).catch(() => undefined)
+    }
+    return () => {
+      mounted = false
+    }
+  }, [setPrivateWorkerConfig])
+
+  useEffect(() => {
+    let mounted = true
     if (typeof window !== 'undefined' && window.api?.getDevWorkerInfo) {
       window.api.getDevWorkerInfo().then(info => {
         if (!mounted || !info) return

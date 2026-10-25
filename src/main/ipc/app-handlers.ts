@@ -32,7 +32,9 @@ import {
   updateCredentialLabel,
   deleteCredential,
   clearAllCredentials,
-  getCredentialForFill
+  getCredentialForFill,
+  saveWorkerAuthToken,
+  getWorkerAuthToken
 } from '../credentials'
 import {
   testPrivateWorker,
@@ -272,6 +274,8 @@ export function registerAppHandlers(): void {
   ipcMain.handle('credentials:delete', (_e, id) => deleteCredential(id))
   ipcMain.handle('credentials:clear-all', () => clearAllCredentials())
   ipcMain.handle('credentials:get-fill-data', (_e, id) => getCredentialForFill(id))
+  ipcMain.handle('credentials:get-worker-token', () => getWorkerAuthToken())
+  ipcMain.handle('credentials:save-worker-token', (_e, token: string) => saveWorkerAuthToken(token))
 
   // ─── 校内私有中转服务探测与 SSH 隧道托管 ─────────────────────────
   ipcMain.handle(

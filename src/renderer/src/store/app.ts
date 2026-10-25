@@ -242,6 +242,8 @@ export const useAppStore = create<AppState>()(
         canvasExportMarkdown: state.canvasExportMarkdown,
         canvasAssignmentOptions: state.canvasAssignmentOptions,
         privateWorkerConfig: state.privateWorkerConfig
+          ? { ...state.privateWorkerConfig, authToken: '' }
+          : state.privateWorkerConfig
       })
     }
   )

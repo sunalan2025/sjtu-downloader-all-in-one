@@ -454,7 +454,10 @@ const api = {
     clearAll: (): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('credentials:clear-all'),
     getFillData: (id?: string): Promise<{ ok: boolean; username?: string; password?: string; error?: string }> =>
-      ipcRenderer.invoke('credentials:get-fill-data', id)
+      ipcRenderer.invoke('credentials:get-fill-data', id),
+    getWorkerToken: (): Promise<string> => ipcRenderer.invoke('credentials:get-worker-token'),
+    saveWorkerToken: (token: string): Promise<void> =>
+      ipcRenderer.invoke('credentials:save-worker-token', token)
   },
   schedule: {
     fetchEvents: (options?: { startDate?: string; endDate?: string }): Promise<ScheduleFetchResult> =>
