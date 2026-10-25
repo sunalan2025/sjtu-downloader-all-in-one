@@ -491,7 +491,14 @@ export function reEnqueueLocal(p: PendingSpec): void {
   // Canvas 签名 URL / vod 流直链都有 TTL，任务暂停数小时或出错后恢复时，
   // 旧 url 往往已 403；若不清空，resolveDirectUrl 见 t.spec.url 非空直接 return，
   // 导致恢复后立即再次失败、永久卡在 error。
-  p.spec.url = ''
+  const src = (p.spec as any).source
+  if (
+    src === 'canvas-files' ||
+    src === 'canvas-video' ||
+    (src === 'cloudpan' && (p.spec as any).cloudRemotePath)
+  ) {
+    p.spec.url = ''
+  }
   pendingLocal.push(p)
   pendingLocalIds.add(p.spec.taskId)
   pausedLocalIds.delete(p.spec.taskId)

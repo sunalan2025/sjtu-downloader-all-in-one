@@ -64,7 +64,9 @@ export async function downloadCloudFile(
       url,
       fileName,
       courseName: '交大云盘',
-      category: 'files'
+      category: 'files',
+      source: 'cloudpan',
+      cloudRemotePath: remotePath
     }
     const filePath = join(localBase, fileName)
     const partPath = filePath + '.part'

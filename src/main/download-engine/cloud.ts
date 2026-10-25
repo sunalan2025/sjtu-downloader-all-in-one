@@ -55,7 +55,14 @@ const MAX_BUFFER_CHUNKS = 2 // 内存中最多缓冲 2 个 4MB 块 → 8MB
 /** 把一个 paused 的云端 spec 重新入待处理队列（resume 用） */
 export function reEnqueueCloud(spec: DownloadTaskSpec): void {
   // [Bug Fix] 同 reEnqueueLocal：清掉过期直链，cloudRunTask 会重新解析。
-  spec.url = ''
+  const src = (spec as any).source
+  if (
+    src === 'canvas-files' ||
+    src === 'canvas-video' ||
+    (src === 'cloudpan' && (spec as any).cloudRemotePath)
+  ) {
+    spec.url = ''
+  }
   pendingCloud.push(spec)
   pendingCloudIds.add(spec.taskId)
   pausedCloudIds.delete(spec.taskId)

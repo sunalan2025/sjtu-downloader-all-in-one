@@ -274,6 +274,14 @@ export interface DownloadTaskSpec {
   extractAudio?: boolean
   /** 资源分类（如 'files' | 'videos'） */
   category?: string
+  /** 任务来源（如 'canvas-files' | 'cloudpan' 等） */
+  source?: string
+  /** 原始文件 ID（用于恢复直链，避免依赖 taskId 字符串切分） */
+  rawFileId?: number
+  /** 课程 ID */
+  courseId?: number
+  /** 云盘远程路径（单文件或路径分段数组） */
+  cloudRemotePath?: string | string[]
 }
 
 /** 下载/上传任务状态机 */
@@ -537,6 +545,12 @@ export interface CanvasDownloadTaskSpec extends DownloadTaskSpec {
   source: CanvasTaskSource
   /** Canvas 课程 ID，用于关联 */
   canvasCourseId?: number
+  /** 显式课程 ID */
+  courseId?: number
+  /** 显式原始文件 ID */
+  rawFileId?: number
+  /** 云盘远程路径（单文件或路径分段数组） */
+  cloudRemotePath?: string | string[]
   /** 文件在 Canvas 上的相对路径（files 的文件夹层级） */
   canvasRelPath?: string
   /** 课堂视频懒解析所需（source='canvas-class-video' 时）。

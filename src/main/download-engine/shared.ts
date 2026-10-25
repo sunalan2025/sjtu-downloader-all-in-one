@@ -22,7 +22,7 @@ import { emitProgress } from './progress'
 import { getIsQuitting } from '../window'
 import { sjtuSession } from '../session'
 import { vsjtuFetch } from '../auth'
-import type { ChunkedUploader, UploadSessionState } from '../cloudpan'
+import { getFileDownloadUrl, getCachedUserToken, type ChunkedUploader, type UploadSessionState } from '../cloudpan'
 import { getVodChannelsCached, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from '../canvas/video-tokens'
 import { fetchLegacyVodStreamUrls } from '../canvas/legacy-video'
 import { sanitizeFsName } from '../../shared/utils'
@@ -249,15 +249,33 @@ export async function resolveDirectUrl(
   t: { spec: DownloadTaskSpec; state: DownloadState; total: number; filePath?: string; partPath?: string },
   isCloud: boolean
 ): Promise<boolean> {
-  const src = (t.spec as CanvasDownloadTaskSpec).source
+  const src = t.spec.source as string | undefined
 
   // canvas-files：url 可能在 resume 时被清空（reEnqueueLocal/Cloud 强制重解析），
   // 按 fileId 重建 /files/{id}/download 端点。
   if (src === 'canvas-files' && !t.spec.url) {
-    const parts = t.spec.taskId.split('_')
-    const fileId = Number(parts[parts.length - 1])
-    if (fileId > 0) {
+    const rawFileId = (t.spec as CanvasDownloadTaskSpec).rawFileId
+    const fileId = rawFileId || (() => {
+      const cleanId = t.spec.taskId.replace(/_cloud$/, '')
+      const parts = cleanId.split('_')
+      return Number(parts[parts.length - 1])
+    })()
+    if (fileId > 0 && !Number.isNaN(fileId)) {
       t.spec.url = `${CANVAS_BASE_URL}/files/${fileId}/download?download_frd=1`
+    }
+  }
+
+  // cloudpan：url 在 resume 时被清空，通过 cloudRemotePath 重新获取直链
+  if (src === 'cloudpan' && !t.spec.url && (t.spec as any).cloudRemotePath) {
+    const userToken = getCachedUserToken()
+    if (userToken) {
+      try {
+        const rawPath = (t.spec as any).cloudRemotePath
+        const remotePath = Array.isArray(rawPath) ? rawPath : String(rawPath).split('/').filter(Boolean)
+        t.spec.url = await getFileDownloadUrl(userToken, remotePath)
+      } catch (err) {
+        console.warn('[download:cloudpan] 重新获取云盘直链失败:', err)
+      }
     }
   }
 
