@@ -1,3 +1,4 @@
+import { BrowserWindow } from 'electron'
 import type Electron from 'electron'
 import { CANVAS_BASE_URL, type CanvasVideoSession } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
@@ -89,18 +90,19 @@ async function doExtractLegacyLtiToken(
     const pageResp = await safeFetch(ses, fullUrl, undefined, 2, timeoutMs)
     if (!pageResp.ok) {
       console.warn(`[legacy-lti] 获取 Tab 页面失败: HTTP ${pageResp.status}`)
-      return null
+      return doExtractLegacyLtiTokenViaWindow(ses, fullUrl, timeoutMs)
     }
     const html = await pageResp.text()
 
     // 2. 解析表单
     const parsed = parseLtiForm(html)
     if (!parsed || !parsed.action) {
-      console.warn('[legacy-lti] 页面未包含有效的 #tool_form 表单')
-      return null
+      console.warn('[legacy-lti] 页面未包含有效的 #tool_form 表单，尝试降级至隐藏窗口提取')
+      return doExtractLegacyLtiTokenViaWindow(ses, fullUrl, timeoutMs)
     }
 
     // 3. POST 提交表单至 LTI 启动地址 (courses.sjtu.edu.cn/lti/launch)
+    // 注意：Referer 必须为 Origin 级别 (https://oc.sjtu.edu.cn/)，严禁携带路径，否则触发 Chromium strict-origin-when-cross-origin 拦截 (net::ERR_BLOCKED_BY_CLIENT)
     const ltiResp = await safeFetch(
       ses,
       parsed.action,
@@ -108,8 +110,7 @@ async function doExtractLegacyLtiToken(
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Referer': fullUrl,
-          'Origin': CANVAS_BASE_URL
+          'Referer': `${CANVAS_BASE_URL}/`
         },
         body: parsed.params.toString()
       },
@@ -151,11 +152,81 @@ async function doExtractLegacyLtiToken(
       return { canvasCourseId: capturedId }
     }
 
-    console.warn('[legacy-lti] 响应未包含 canvasCourseId 凭据')
+    console.warn('[legacy-lti] 纯 HTTP 管道响应未包含 canvasCourseId 凭据，尝试隐藏窗口降级提取')
+    return doExtractLegacyLtiTokenViaWindow(ses, fullUrl, timeoutMs)
+  } catch (err) {
+    console.warn('[legacy-lti] 纯 HTTP 提取异常，尝试降级隐藏窗口:', err instanceof Error ? err.message : String(err))
+    return doExtractLegacyLtiTokenViaWindow(ses, fullUrl, timeoutMs)
+  }
+}
+
+/** 隐藏 BrowserWindow 降级方案：应对复杂重定向、动态 JS 或验证场景 */
+async function doExtractLegacyLtiTokenViaWindow(
+  ses: Electron.Session,
+  fullUrl: string,
+  timeoutMs: number
+): Promise<{ canvasCourseId: string } | null> {
+  if (typeof BrowserWindow !== 'function') return null
+  let win: Electron.BrowserWindow | null = null
+  try {
+    win = new BrowserWindow({
+      show: false,
+      width: 1000,
+      height: 700,
+      webPreferences: {
+        session: ses,
+        nodeIntegration: false,
+        contextIsolation: true,
+        backgroundThrottling: false
+      }
+    })
+    win.webContents.setAudioMuted(true)
+
+    let capturedCourseId: string | null = null
+    const checkUrl = (url: string) => {
+      if (!url || capturedCourseId) return
+      const m = url.match(/[?&#]canvasCourseId=([^&#]+)/)
+      if (m && m[1]) {
+        try {
+          capturedCourseId = decodeURIComponent(m[1])
+        } catch {
+          capturedCourseId = m[1]
+        }
+      }
+    }
+
+    win.webContents.on('will-redirect', (_e, url) => checkUrl(url))
+    win.webContents.on('did-redirect-navigation', (_e, url) => checkUrl(url))
+    win.webContents.on('did-navigate', (_e, url) => checkUrl(url))
+    win.webContents.on('did-frame-navigate', (_e, url) => checkUrl(url))
+
+    await win.loadURL(fullUrl).catch(err => {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!msg.includes('ERR_ABORTED')) {
+        console.log('[legacy-lti] 降级窗口 loadURL 信息:', msg)
+      }
+    })
+
+    const deadline = Date.now() + Math.min(timeoutMs, 8000)
+    while (Date.now() < deadline && !capturedCourseId) {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) break
+      checkUrl(win.webContents.getURL())
+      if (capturedCourseId) break
+      await new Promise(r => setTimeout(r, 100))
+    }
+
+    if (capturedCourseId) {
+      console.log('[legacy-lti] 隐藏窗口降级提取成功:', (capturedCourseId as string).slice(0, 16) + '...')
+      return { canvasCourseId: capturedCourseId }
+    }
     return null
   } catch (err) {
-    console.warn('[legacy-lti] 提取异常:', err instanceof Error ? err.message : String(err))
+    console.warn('[legacy-lti] 降级窗口提取异常:', err instanceof Error ? err.message : String(err))
     return null
+  } finally {
+    if (win && !win.isDestroyed()) {
+      win.destroy()
+    }
   }
 }
 

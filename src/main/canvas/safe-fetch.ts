@@ -22,7 +22,7 @@ export function wrapDnsError(url: string, err: unknown): Error | null {
 }
 
 export const DEFAULT_429_MAX_RETRIES = 4
-export const DEFAULT_FETCH_TIMEOUT_MS = 15_000
+export const DEFAULT_FETCH_TIMEOUT_MS = 30_000
 
 /** 包装 ses.fetch，具备超时熔断（AbortController 深度中止底层网络连接）、Chromium DNS 错误转义以及 429 限流指数退避自愈 */
 export async function safeFetch(

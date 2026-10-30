@@ -461,6 +461,48 @@ export function CnmoocBrowser() {
     videoQualityOption, resourceFilter
   ])
 
+  // ── 导航与选择态解耦：进入子文件夹/分类时自动清空全选态，保持未选择状态 ──
+  const handleNavigate = useCallback(
+    (next: NetdiskNavState) => {
+      if (next.level === 'category' && next.courseId && next.categoryId) {
+        const cId = String(next.courseId)
+        const cd = courseData[cId]
+        const chapter = cd?.chapters.find(ch => ch.chapter === next.categoryId)
+        const idsToRemove = chapter
+          ? chapter.items
+              .filter(it => !isCnmoocQuizOrExercise(it.title, it.itemType))
+              .map(it => makeTid(cId, it.itemId))
+          : []
+        if (idsToRemove.length > 0) {
+          setSelected(prev => {
+            const nextSet = new Set(prev)
+            for (const id of idsToRemove) nextSet.delete(id)
+            return nextSet
+          })
+        }
+      } else if (next.level === 'course' && next.courseId) {
+        const cId = String(next.courseId)
+        const cd = courseData[cId]
+        const idsToRemove = cd
+          ? cd.chapters.flatMap(ch =>
+              ch.items
+                .filter(it => !isCnmoocQuizOrExercise(it.title, it.itemType))
+                .map(it => makeTid(cId, it.itemId))
+            )
+          : []
+        if (idsToRemove.length > 0) {
+          setSelected(prev => {
+            const nextSet = new Set(prev)
+            for (const id of idsToRemove) nextSet.delete(id)
+            return nextSet
+          })
+        }
+      }
+      setNavState(next)
+    },
+    [courseData]
+  )
+
   return (
     <div className="ui-page">
       <PageHeader title="好大学在线" description="浏览课程章节、课件与视频" />
@@ -519,7 +561,7 @@ export function CnmoocBrowser() {
             courses={netdiskCourses}
             viewMode={courseViewMode}
             navState={navState}
-            onNavigate={setNavState}
+            onNavigate={handleNavigate}
             onStartDownload={() => void onDownload()}
           />
         )}

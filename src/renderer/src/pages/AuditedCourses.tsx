@@ -392,7 +392,7 @@ export function AuditedCourses() {
         name: isAudioOnly
           ? `${c.name} - ${t.lectureLabel} (PPT 纯画面/无独立音频)`
           : `${c.name} - ${t.lectureLabel} (PPT MP4)`,
-        type: isAudioOnly ? 'DISABLED' : 'PPT',
+        type: isAudioOnly ? 'DISABLED' : 'MP4',
         disabled: isAudioOnly,
         disabledReason: isAudioOnly ? '无独立音频流' : undefined,
         date: t.lectureDate,
@@ -490,6 +490,42 @@ export function AuditedCourses() {
     setStage('login')
   }, [setAuth, resetScanResults, setStage])
 
+  // ── 导航与选择态解耦：进入子文件夹/分类时自动清空全选态，保持未选择状态 ──
+  const handleNavigate = useCallback(
+    (next: NetdiskNavState) => {
+      if (next.level === 'category' && next.courseId && next.categoryId) {
+        const cId = Number(next.courseId)
+        const tasks = tasksByCourse[cId] ?? EMPTY_TASKS
+        const idsToRemove =
+          next.categoryId === 'teacher'
+            ? tasks.filter(t => t.angle === 0).map(t => t.taskId)
+            : next.categoryId === 'ppt'
+              ? tasks.filter(t => t.angle === 3).map(t => t.taskId)
+              : tasks.map(t => t.taskId)
+
+        if (idsToRemove.length > 0) {
+          setSelected(prev => {
+            const nextSet = new Set(prev)
+            for (const id of idsToRemove) nextSet.delete(id)
+            return nextSet
+          })
+        }
+      } else if (next.level === 'course' && next.courseId) {
+        const cId = Number(next.courseId)
+        const tasks = tasksByCourse[cId] ?? EMPTY_TASKS
+        if (tasks.length > 0) {
+          setSelected(prev => {
+            const nextSet = new Set(prev)
+            for (const t of tasks) nextSet.delete(t.taskId)
+            return nextSet
+          })
+        }
+      }
+      setNavState(next)
+    },
+    [tasksByCourse]
+  )
+
   return (
     <div className="ui-page">
       <PageHeader title="旁听课程" description="浏览旁听课程与录播资源" />
@@ -544,7 +580,7 @@ export function AuditedCourses() {
             courses={netdiskCourses}
             viewMode={courseViewMode}
             navState={navState}
-            onNavigate={setNavState}
+            onNavigate={handleNavigate}
             onStartDownload={() => void onDownload()}
           />
         )}

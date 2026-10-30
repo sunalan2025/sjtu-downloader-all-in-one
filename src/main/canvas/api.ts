@@ -12,7 +12,7 @@ import {
   type CanvasFileItem,
   type CanvasModule
 } from '../../shared/types'
-import { safeFetch } from './safe-fetch'
+import { safeFetch, sanitizeForLog } from './safe-fetch'
 import { sanitizeFsName } from '../../shared/utils'
 
 export { sanitizeFsName }
@@ -97,21 +97,32 @@ async function canvasFetchWithRetry(
 ): Promise<Response> {
   let attempt = 0
   for (;;) {
-    const resp = await safeFetch(ses, url, init)
-    if (resp.status !== 429) return resp
-    // 已读消费 body 会被丢，但 429 通常无有用 body，直接关闭
-    try { await resp.text() } catch { /* ignore */ }
-    if (attempt >= CANVAS_MAX_RATE_LIMIT_RETRIES) return resp
-    // Retry-After 可能是秒数或 HTTP 日期，这里只处理秒数；缺省用指数退避
-    const ra = resp.headers.get('retry-after')
-    let delayMs: number
-    if (ra && /^\d+$/.test(ra.trim())) {
-      delayMs = Math.min(Number(ra.trim()) * 1000, 30_000)
-    } else {
-      delayMs = Math.min(Math.pow(2, attempt) * 1000, 16_000)
+    try {
+      const resp = await safeFetch(ses, url, init)
+      if (resp.status !== 429) return resp
+      // 已读消费 body 会被丢，但 429 通常无有用 body，直接关闭
+      try { await resp.text() } catch { /* ignore */ }
+      if (attempt >= CANVAS_MAX_RATE_LIMIT_RETRIES) return resp
+      // Retry-After 可能是秒数或 HTTP 日期，这里只处理秒数；缺省用指数退避
+      const ra = resp.headers.get('retry-after')
+      let delayMs: number
+      if (ra && /^\d+$/.test(ra.trim())) {
+        delayMs = Math.min(Number(ra.trim()) * 1000, 30_000)
+      } else {
+        delayMs = Math.min(Math.pow(2, attempt) * 1000, 16_000)
+      }
+      await new Promise<void>(r => setTimeout(r, delayMs))
+      attempt++
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.message.includes('请求超时')
+      if (isTimeout && attempt < 2) {
+        attempt++
+        console.warn(`[canvas] 请求超时，正在进行第 ${attempt} 次重试: ${sanitizeForLog(url)}`)
+        await new Promise<void>(r => setTimeout(r, 1000 * attempt))
+        continue
+      }
+      throw err
     }
-    await new Promise<void>(r => setTimeout(r, delayMs))
-    attempt++
   }
 }
 

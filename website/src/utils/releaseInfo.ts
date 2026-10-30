@@ -42,7 +42,7 @@ import releaseMetadata from '../data/release-metadata.json';
 export const REPO_OWNER = 'sunalan2025';
 export const REPO_NAME = 'sjtu-downloader-all-in-one';
 export const DEFAULT_FALLBACK_URL = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
-export const CURRENT_RELEASE_VERSION = releaseMetadata?.version || '2.5.1';
+export const CURRENT_RELEASE_VERSION = releaseMetadata?.version || '2.5.2';
 
 /**
  * 预设的静态发布资产映射表（优先使用构建期自动抓取的 Release 元数据，离线时提供全套直链与哈希兜底）
