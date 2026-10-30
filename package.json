@@ -1,7 +1,7 @@
 {
   "name": "sjtu-course-downloader",
-  "version": "2.5.0",
-  "description": "上海交通大学 (SJTU) 课程与交大旁听视频下载器，一站式批量下载交大旁听视频、Canvas 课件录播与好大学在线，支持交大云盘备份",
+  "version": "2.5.1",
+  "description": "上海交通大学 (SJTU) 课程下载器，批量下载旁听课程视频、Canvas 课件录播与好大学在线，支持交大云盘备份",
   "keywords": [
     "sjtu",
     "shanghai-jiao-tong-university",
@@ -33,7 +33,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,mjs}\"",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "worker:start": "node scripts/private-worker-daemon.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
@@ -45,8 +46,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.2",
-    "@types/react": "^19.0.2",
-    "@types/react-dom": "^19.0.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
     "electron": "^39.8.5",
@@ -57,15 +58,15 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "png-to-ico": "^3.0.1",
     "postcss": "^8.4.49",
-    "prettier": "^3.9.4",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "prettier": "^3.9.10",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "sharp": "^0.35.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.62.1",
     "vite": "^7.0.0",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.12",
     "zustand": "^5.0.2"
   },
   "overrides": {

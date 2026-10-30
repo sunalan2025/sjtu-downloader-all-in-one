@@ -1,3 +1,4 @@
+import type { CloudDriveApi } from './cloud-drive'
 // ─────────────────────────────────────────────────────────────
 // 站点与 webview 相关常量
 // ─────────────────────────────────────────────────────────────
@@ -162,6 +163,10 @@ export interface UpdateAsset {
   size: number | null
   /** 资产文件名（用于落盘 + 校验） */
   fileName: string
+  /** SHA-256 校验和（若 release 中包含 SHA256SUMS.txt 则自动提取，用于完整性校验） */
+  sha256?: string | null
+  /** SHA256SUMS.txt 清单资产的下载直链 */
+  sha256Url?: string | null
 }
 
 /** 自动更新下载进度推送载荷（update:progress 事件） */
@@ -248,6 +253,14 @@ export type FileConflictStrategy = 'skip' | 'overwrite'
 
 /** 下载任务规格：由 renderer 组装，传给 main 端调度下载/上传 */
 export interface DownloadTaskSpec {
+  /** Stable metadata shared by recovery, incremental backups and the resource library. */
+  resourceVersion?: string
+  resourceSize?: number
+  backupCourse?: import('./backup').BackupCourse
+  /** Main-process recovery only: preserve a verified partial file when resuming overwrite. */
+  resumeFromPartial?: boolean
+  /** Strong ETag or Last-Modified value used to validate HTTP Range recovery. */
+  httpValidator?: string
   /** 前端生成的唯一 id，用于关联进度回调 */
   taskId: string
   url: string
@@ -258,6 +271,8 @@ export interface DownloadTaskSpec {
   fileName: string
   /** 交大云盘 UserToken；存在时走云盘上传而非本地下载 */
   cloudUserToken?: string
+  /** 交大云盘目标保存根目录（如 '/SJTU课程备份' 或 '/'） */
+  cloudDestRoot?: string
   /** vod-info 资源 id，用于按需解析直链（lazy resolution） */
   refId?: number
   /** 视角：0=教师, 3=PPT */
@@ -268,6 +283,16 @@ export interface DownloadTaskSpec {
   extractAudio?: boolean
   /** 资源分类（如 'files' | 'videos'） */
   category?: string
+  /** 存储目标模式：中转服务器本地磁盘或转存至交大云盘 */
+  storageMode?: PrivateWorkerStorageMode
+  /** 任务来源（如 'canvas-files' | 'cloudpan' 等） */
+  source?: string
+  /** 原始文件 ID（用于恢复直链，避免依赖 taskId 字符串切分） */
+  rawFileId?: number
+  /** 课程 ID */
+  courseId?: number
+  /** 云盘远程路径（单文件或路径分段数组） */
+  cloudRemotePath?: string | string[]
 }
 
 /** 下载/上传任务状态机 */
@@ -286,6 +311,10 @@ export interface DownloadProgress {
   state: DownloadState
   received: number
   total: number
+  /** 文件名（由 spec 传递，供 UI 稳定展示，避免从临时路径猜文件名） */
+  fileName?: string
+  /** 课程名（供 UI 分类与展示） */
+  courseName?: string
   /** 落盘文件最终绝对路径（done/skipped 时有；仅云端模式下无此字段） */
   filePath?: string
   /** 云盘最终绝对路径（done/skipped 且涉及云盘/both 模式时有） */
@@ -296,6 +325,8 @@ export interface DownloadProgress {
    *  'count' 表示 received/total 是计数（如 HLS 切片数），显示为纯文案 + 百分比、不计算速度。
    *  用于 HLS 模块视频进度（切片数而非字节数）。 */
   unit?: 'bytes' | 'count'
+  /** 存储目标模式：中转服务器本地磁盘或转存至交大云盘 */
+  storageMode?: PrivateWorkerStorageMode
 }
 
 /** 实时传输速度（字节/秒），由主进程 1s 推送一次，EMA 平滑后 */
@@ -409,6 +440,7 @@ export interface CanvasCourse {
 
 /** Canvas 文件 */
 export interface CanvasFileItem {
+  updatedAt?: string
   fileId: number
   displayName: string
   filename: string
@@ -463,6 +495,7 @@ export interface CanvasAssignmentComment {
   authorName: string
   comment: string
   createdAt: string
+  attachments?: CanvasAssignmentFile[]
 }
 
 /** Canvas 作业关联文件（题目附件或学生提交原件） */
@@ -483,6 +516,7 @@ export interface CanvasAssignmentItem {
   submittedAt?: string
   submissionScore?: number
   submissionGrade?: string
+  submissionBody?: string
   htmlUrl?: string
   descriptionHtml?: string
   teacherAttachments: CanvasAssignmentFile[]
@@ -527,6 +561,12 @@ export interface CanvasDownloadTaskSpec extends DownloadTaskSpec {
   source: CanvasTaskSource
   /** Canvas 课程 ID，用于关联 */
   canvasCourseId?: number
+  /** 显式课程 ID */
+  courseId?: number
+  /** 显式原始文件 ID */
+  rawFileId?: number
+  /** 云盘远程路径（单文件或路径分段数组） */
+  cloudRemotePath?: string | string[]
   /** 文件在 Canvas 上的相对路径（files 的文件夹层级） */
   canvasRelPath?: string
   /** 课堂视频懒解析所需（source='canvas-class-video' 时）。
@@ -591,8 +631,25 @@ export interface CanvasTranscriptExportOptions {
   exportMarkdown?: boolean
 }
 
+/** Canvas 课程作业与提交归档导出选项 */
+export interface CanvasAssignmentExportOptions {
+  exportMarkdown: boolean
+  downloadAttachments: boolean
+  downloadSubmissions: boolean
+}
+
+/** 单文件/条目即时直下载调度参数结构 */
+export interface SingleDownloadPayload {
+  id: string
+  type: 'file' | 'video' | 'assignment'
+  name: string
+  courseId: number
+  url?: string
+  size?: number
+}
+
 /** 渲染端顶部 tab */
-export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'schedule' | 'transfer' | 'settings' | 'cloudpan'
+export type ActiveTab = 'canvas' | 'audited' | 'cnmooc' | 'schedule' | 'transfer' | 'settings' | 'cloudpan' | 'library'
 
 // ─────────────────────────────────────────────────────────────
 // 好大学在线 (cnmooc.sjtu.cn) 相关
@@ -696,6 +753,7 @@ export interface PptDownloadOpts {
     teacher: string
     classroom: string
   }
+  privateWorker?: PrivateWorkerConfig
   /** 是否保留高清切片图片至同级切片文件夹（默认 false） */
   saveImages?: boolean
 }
@@ -706,6 +764,9 @@ export interface PptDownloadOpts {
 
 export type VideoQualityOption = 'origin' | '1080p' | '720p' | 'audio_only'
 
+/** 视频录播镜头机位偏好：双机位 / 仅教师 / 仅PPT / 纯音频 */
+export type VideoPerspective = 'all' | 'teacher' | 'ppt' | 'audio'
+
 export interface DownloadHistoryItem {
   taskId: string
   fileName: string
@@ -715,13 +776,24 @@ export interface DownloadHistoryItem {
   fileSize?: number
   completedAt: number
   source?: string
+  /** 存储目标模式：中转服务器本地磁盘、转存至交大云盘或本机下载 */
+  storageMode?: PrivateWorkerStorageMode
+}
+
+/** 任务元数据通用接口 */
+export interface DownloadTaskMeta {
+  taskId?: string
+  fileName?: string
+  courseName?: string
+  storageMode?: PrivateWorkerStorageMode
+  [key: string]: unknown
 }
 
 // ─────────────────────────────────────────────────────────────
 // Window API 契约（渲染进程与主进程 IPC）
 // ─────────────────────────────────────────────────────────────
 
-export interface CloudPanApi {
+export interface CloudPanApi extends CloudDriveApi {
   getCachedToken: () => Promise<string | null>
   setCachedToken: (token: string | null) => Promise<{ ok: boolean }>
   validateToken: () => Promise<{ ok: boolean; error?: string }>
@@ -734,7 +806,7 @@ export interface CloudPanApi {
   renameItem: (oldPath: string[], newName: string, isDir: boolean) => Promise<{ ok: boolean; error?: string }>
   getDownloadUrl: (filePath: string[]) => Promise<{ ok: boolean; url?: string; error?: string }>
   downloadFile: (remotePath: string[], targetDir?: string) => Promise<{ ok: boolean; taskId?: string; error?: string }>
-  uploadFiles: (targetDirPath: string[]) => Promise<{ ok: boolean; count?: number; error?: string }>
+  uploadFiles: (targetDirPath: string[], folder?: boolean) => Promise<{ ok: boolean; count?: number; error?: string }>
   openInBrowser: (remotePath?: string[]) => Promise<{ ok: boolean; error?: string }>
 }
 
@@ -763,6 +835,8 @@ export interface CredentialsApi {
   delete: (id: string) => Promise<{ ok: boolean; error?: string }>
   clearAll: () => Promise<{ ok: boolean; error?: string }>
   getFillData: (id?: string) => Promise<{ ok: boolean; username?: string; password?: string; error?: string }>
+  getWorkerToken: () => Promise<string>
+  saveWorkerToken: (token: string) => Promise<void>
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -777,7 +851,7 @@ export interface ScheduleEvent {
   location?: string
   startTime: string // "YYYY-MM-DD HH:mm" 或 ISO
   endTime: string   // "YYYY-MM-DD HH:mm" 或 ISO
-  type: 'course' | 'activity' | 'assignment_ddl'
+  type: 'course' | 'activity' | 'assignment_ddl' | 'exam'
   courseName?: string
   teacher?: string
   weekInfo?: string
@@ -788,6 +862,7 @@ export interface ScheduleEvent {
   score?: number | null
   pointsPossible?: number | null
   htmlUrl?: string
+  isLockAtDeadline?: boolean // 标记该截止时间是否由 lock_at（锁定/关闭时间）继承而来（如大学物理等未设置 due_at 的课程）
   // 日历类别（如 "课程", "会议", "私人"）
   calendarName?: string
   // 教务排课与大课扩展
@@ -796,6 +871,10 @@ export interface ScheduleEvent {
   jxbmc?: string
   isLabOrLongSession?: boolean
   courseType?: string
+  // 考试专属字段 (学在交大 / 教务考试)
+  examType?: string
+  leftDay?: number
+  conflictCourseTitle?: string
 }
 
 /** 课表学期周次信息 */
@@ -813,8 +892,11 @@ export interface IcsExportOptions {
   includeCourses: boolean
   includeActivities?: boolean
   includeDdl: boolean
+  includeExams?: boolean // 是否导出考试安排
   alarmMinutesBefore: number // 默认 20
   alarmDdlHoursBefore: number // 默认 24
+  alarmExamHoursBefore?: number // 默认 24 (考前 24 小时预备)
+  alarmExamMinutesBefore?: number // 默认 120 (考前 2 小时出发)
   targetFilePath?: string
 }
 
@@ -870,11 +952,125 @@ export interface ScheduleApi {
   exportIcs: (options: IcsExportOptions, events: ScheduleEvent[]) => Promise<IcsExportResult>
 }
 
+/** 校内私有中转服务存储目标模式 */
+export type PrivateWorkerStorageMode = 'cloudpan' | 'server_local'
+
+/** 校内私有中转服务 SSH 隧道自动转发配置 */
+export interface PrivateWorkerTunnelConfig {
+  /** 是否启用 SSH 隧道自动转发 */
+  enabled: boolean
+  /** SSH 主机别名或地址，如 lab-gpu、sjtu-server 或 10.x.x.x */
+  host: string
+  /** 远端中转服务监听端口，默认 6880 */
+  remotePort: number
+  /** 本地绑定转发端口，默认 6880 */
+  localPort: number
+}
+
+/** 校内私有中转服务配置 */
+export interface PrivateWorkerConfig {
+  /** 是否启用私有中转代传 */
+  enabled: boolean
+  /** 服务节点地址，如 http://127.0.0.1:6880 */
+  endpointUrl: string
+  /** 访问授权密钥 (Token)，选填 */
+  authToken?: string
+  /** 存储目标模式：转存至交大云盘 (JBox) 或保存在中转服务器本地磁盘 */
+  storageMode?: PrivateWorkerStorageMode
+  /** 当模式为保存在中转服务器本地磁盘时的目标根目录，默认 ~/downloads */
+  serverDownloadDir?: string
+  /** 可选的 SSH 隧道自动托管配置 */
+  tunnel?: PrivateWorkerTunnelConfig
+}
+
+/** 校内私有中转服务任务派发载荷 */
+export interface PrivateWorkerTaskPayload {
+  taskId: string
+  url: string
+  fileName: string
+  destPath: string
+  cloudUserToken?: string
+  conflictStrategy?: 'skip' | 'overwrite'
+  fileSize?: number
+  storageMode?: PrivateWorkerStorageMode
+  serverDownloadDir?: string
+  courseName?: string
+  categoryName?: string
+  /** 可选的多切片（如 PPT 幻灯片图片列表），支持由中转机直接批量拉取并自动编译为完整 PDF */
+  slices?: Array<{ url: string; createSec?: number; fileName?: string }>
+  /** 是否保留原始切片图片文件 */
+  saveImages?: boolean
+}
+
+/** 校内私有中转服务任务派发响应 */
+export interface PrivateWorkerTaskResponse {
+  ok: boolean
+  taskId?: string
+  storageMode?: PrivateWorkerStorageMode
+  targetPath?: string
+  message?: string
+  error?: string
+  status?: string
+  receivedBytes?: number
+}
+
+/** 校内私有中转服务任务查询记录 */
+export interface PrivateWorkerTaskRecord {
+  taskId: string
+  fileName?: string
+  storageMode?: PrivateWorkerStorageMode
+  status: 'queued' | 'downloading' | 'uploading' | 'completed' | 'failed' | 'cancelled'
+  receivedBytes?: number
+  totalBytes?: number
+  speed?: number
+  targetPath?: string
+  error?: string
+}
+
+/** 校内私有中转服务任务查询响应 */
+export interface PrivateWorkerTaskQueryResponse {
+  ok: boolean
+  task?: PrivateWorkerTaskRecord
+  error?: string
+}
+
+/** SSH 隧道实时运行状态 */
+export interface SshTunnelStatus {
+  running: boolean
+  pid?: number
+  host?: string
+  localPort?: number
+  remotePort?: number
+  error?: string
+}
+
+/** 私有中转服务连接测试结果 */
+export interface PrivateWorkerTestResult {
+  success: boolean
+  latencyMs?: number
+  version?: string
+  serverName?: string
+  error?: string
+}
+
 export interface WindowApi {
   credentials: CredentialsApi
   cloudpan: CloudPanApi
   schedule: ScheduleApi
-  [key: string]: unknown
+  testPrivateWorker?: (
+    url: string,
+    token?: string,
+    tunnel?: PrivateWorkerTunnelConfig
+  ) => Promise<PrivateWorkerTestResult>
+  dispatchPrivateWorkerTask?: (
+    url: string,
+    task: PrivateWorkerTaskPayload,
+    token?: string
+  ) => Promise<PrivateWorkerTaskResponse>
+  getDevWorkerInfo?: () => Promise<{ isDev: boolean; devWorkerUrl: string | null }>
+  startSshTunnel?: (config: PrivateWorkerTunnelConfig) => Promise<{ success: boolean; pid?: number; error?: string }>
+  stopSshTunnel?: () => Promise<{ success: boolean; error?: string }>
+  getSshTunnelStatus?: () => Promise<SshTunnelStatus>
 }
 
 

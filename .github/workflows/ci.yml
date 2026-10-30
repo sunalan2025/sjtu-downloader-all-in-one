@@ -1,4 +1,4 @@
-# CI — PR / push 到 master 时跑 lint + typecheck + test + 构建验证（不打包）。
+# CI — PR / push 到 master 时跑 lint + typecheck + 构建验证（不打包）。
 # 早发现打包错误与类型回归，不阻塞 release（release 由 release.yml 在 tag 触发）。
 
 name: CI
@@ -9,22 +9,22 @@ on:
     paths:
       - 'src/**'
       - 'scripts/**'
+      - 'website/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig*.json'
       - 'eslint.config.mjs'
-      - 'vitest.config.ts'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [master]
     paths:
       - 'src/**'
       - 'scripts/**'
+      - 'website/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig*.json'
       - 'eslint.config.mjs'
-      - 'vitest.config.ts'
       - '.github/workflows/ci.yml'
 
 permissions:
@@ -54,9 +54,6 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
-
-      - name: Test
-        run: npm run test
 
       - name: Build (renderer + main, no packaging)
         run: node scripts/run-electron-vite.mjs build

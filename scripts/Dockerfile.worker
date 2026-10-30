@@ -1,0 +1,21 @@
+# 交大课程下载器 · 校内私有委托代传工作机 Dockerfile
+# 轻量 Node.js Alpine 基础镜像（< 50MB）
+FROM node:20-alpine
+
+LABEL maintainer="SJTU Downloader"
+LABEL description="校内私有中转代传工作机守护服务"
+
+WORKDIR /app
+
+# 仅需复制守护脚本（零外部 npm 依赖）
+COPY scripts/private-worker-daemon.mjs ./worker.mjs
+
+ENV PORT=6880
+ENV WORKER_TOKEN=""
+
+EXPOSE 6880
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:6880/health || exit 1
+
+CMD ["node", "worker.mjs"]

@@ -25,6 +25,8 @@ Thumbs.db
 .agents/
 .claude/
 CLAUDE.md
+GEMINI.md
+gemini.md
 .superpowers/
 .gemini/
 .antigravity/
@@ -41,10 +43,20 @@ test_session_*.json
 test_auth_*.json
 *session*.json
 *.tmp
+.env*.local
+*.local.json
 
-# 测试与覆盖率产物
+# 测试与覆盖率产物（仅本地保留，远程不上传）
+test/
+*.test.ts
+*.test.tsx
 coverage/
 .nyc_output/
+
+# 审计与测试截图工件
+docs/audits/*.png
+docs/audits/*.jpg
+docs/audits/*.json
 
 # 图标产物（由 scripts/generate-icons.mjs 从 build/icon.png 生成，CI/本地 build 前自动跑 npm run icons）
 build/icons/

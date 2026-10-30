@@ -1,0 +1,66 @@
+---
+import Icons from './icons/Icons.astro';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+
+const faqs = [
+  {
+    question: '在校外网络环境下，如何正常下载录播与课件？',
+    answer:
+      'Canvas 录播与教务排课受校园网络边界保护。在校外使用时，请提前连接交大 EasyConnect VPN（<code>vpn.sjtu.edu.cn</code>）；在校内连接 <code>SJTU</code> 或 <code>SJTU-Premium</code> 即可直接使用。'
+  },
+  {
+    question: 'Windows 首次运行提示“Windows 已保护你的电脑 (SmartScreen)”如何处理？',
+    answer:
+      '此为未购买昂贵商业代码签名证书的开源软件正常提示。点击弹窗内的「<strong>更多信息</strong>」，随后点击右下角出现的「<strong>仍要运行</strong>」即可正常启动。'
+  },
+  {
+    question: '下载的文件默认保存在哪里？可以自定义路径吗？',
+    answer:
+      '默认保存在系统「下载」目录下的 <code>SJTU-Downloader</code> 文件夹，完整保留学期与课程树状层级。可在客户端设置中随时更换为移动硬盘或自定义目录。'
+  }
+];
+---
+
+<section
+  id="faq"
+  class={`py-20 sm:py-24 relative overflow-hidden bg-slate-50/50 dark:bg-sjtu-night/20 border-t border-slate-200/60 dark:border-slate-800/60 ${className}`}
+  aria-label="常见问题"
+>
+  <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Header (干净无副标题) -->
+    <div class="text-center mb-12 sm:mb-14">
+      <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        常见问题
+      </h2>
+    </div>
+
+    <!-- Accordion List using Semantic <details> -->
+    <div class="space-y-4">
+      {
+        faqs.map((faq, index) => (
+          <details
+            class="group rounded-2xl bg-white dark:bg-sjtu-dark/80 border border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all duration-200 open:border-sjtu-blue/50 dark:open:border-blue-700/60"
+            open={index === 0}
+          >
+            <summary class="flex items-center justify-between p-5 cursor-pointer list-none select-none text-left rounded-2xl focus:outline-none">
+              <span class="text-base font-bold text-slate-900 dark:text-white group-hover:text-sjtu-blue dark:group-hover:text-blue-400 transition-colors pr-4">
+                {faq.question}
+              </span>
+              <span class="flex-shrink-0 w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-transform duration-200 group-open:rotate-180 group-open:bg-blue-50 dark:group-open:bg-blue-950/60 group-open:text-sjtu-blue dark:group-open:text-blue-300">
+                <Icons name="chevron-down" class="w-3.5 h-3.5" />
+              </span>
+            </summary>
+            <div class="px-5 pb-5 pt-1 text-sm text-slate-600 dark:text-slate-300 leading-relaxed border-t border-slate-100 dark:border-slate-800/60 mt-1">
+              <p set:html={faq.answer} />
+            </div>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>

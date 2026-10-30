@@ -107,9 +107,12 @@ export function buildVEvent(
   }
 
   // 标题
-  const summary = event.type === 'assignment_ddl'
-    ? `[DDL] ${event.title}`
-    : event.title
+  let summary = event.title
+  if (event.type === 'assignment_ddl') {
+    summary = summary.startsWith('[DDL]') ? summary : `[DDL] ${summary}`
+  } else if (event.type === 'exam') {
+    summary = summary.startsWith('[考试]') ? summary : `[考试] ${summary}`
+  }
   lines.push(`SUMMARY:${escapeIcsText(summary)}`)
 
   // 地点
@@ -122,6 +125,8 @@ export function buildVEvent(
   if (event.teacher) descParts.push(`授课教师: ${event.teacher}`)
   if (event.courseName && event.courseName !== event.title) descParts.push(`所属课程: ${event.courseName}`)
   if (event.weekInfo) descParts.push(`周次校历: ${event.weekInfo}`)
+  if (event.examType) descParts.push(`考试类别: ${event.examType}`)
+  if (event.conflictCourseTitle) descParts.push(`时段排课冲突: 占用日常课程「${event.conflictCourseTitle}」`)
   if (event.description) descParts.push(event.description)
 
   if (descParts.length > 0) {
@@ -141,6 +146,23 @@ export function buildVEvent(
     lines.push('ACTION:DISPLAY')
     lines.push(`DESCRIPTION:作业截止提醒: ${escapeIcsText(event.title)}`)
     lines.push('END:VALARM')
+  } else if (event.type === 'exam') {
+    const examHours = options.alarmExamHoursBefore ?? 24
+    if (examHours > 0) {
+      lines.push('BEGIN:VALARM')
+      lines.push(`TRIGGER:-PT${examHours}H`)
+      lines.push('ACTION:DISPLAY')
+      lines.push(`DESCRIPTION:考试备考提醒 (考前 ${examHours} 小时): ${escapeIcsText(event.title)}`)
+      lines.push('END:VALARM')
+    }
+    const examMins = options.alarmExamMinutesBefore ?? 120
+    if (examMins > 0) {
+      lines.push('BEGIN:VALARM')
+      lines.push(`TRIGGER:-PT${examMins}M`)
+      lines.push('ACTION:DISPLAY')
+      lines.push(`DESCRIPTION:考试出发提醒 (考前 ${Math.round(examMins / 60)} 小时): ${escapeIcsText(event.title)}`)
+      lines.push('END:VALARM')
+    }
   }
 
   lines.push('END:VEVENT')
@@ -155,14 +177,18 @@ export function generateIcsContent(
   options: IcsExportOptions = {
     includeCourses: true,
     includeDdl: true,
+    includeExams: true,
     alarmMinutesBefore: 20,
-    alarmDdlHoursBefore: 24
+    alarmDdlHoursBefore: 24,
+    alarmExamHoursBefore: 24,
+    alarmExamMinutesBefore: 120
   }
 ): string {
   const filtered = events.filter(e => {
     if (e.type === 'course') return options.includeCourses !== false
     if (e.type === 'activity') return options.includeActivities !== false
     if (e.type === 'assignment_ddl') return options.includeDdl !== false
+    if (e.type === 'exam') return options.includeExams !== false
     return true
   })
 

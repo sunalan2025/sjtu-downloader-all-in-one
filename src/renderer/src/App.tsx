@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore, type Stage } from './store/app'
 import { TitleBar, applyTheme } from './components/TitleBar'
 import { WindowConfirmModal } from './components/WindowConfirmModal'
@@ -6,16 +6,18 @@ import { SetupWizardModal } from './components/SetupWizardModal'
 import pkg from '../../../package.json'
 import { Welcome } from './pages/Welcome'
 import { Login } from './pages/Login'
-import { AuditedCourses } from './pages/AuditedCourses'
 import { CanvasBrowser } from './pages/CanvasBrowser'
-import { CnmoocBrowser } from './pages/CnmoocBrowser'
-import { TransferCenter } from './pages/TransferCenter'
-import { Settings } from './pages/Settings'
-import { CloudPanExplorer } from './pages/CloudPanExplorer'
-import { ScheduleBrowser } from './pages/ScheduleBrowser'
-import { useDownloadProgressSubscription } from './hooks/useSharedBrowserHooks'
+import { useDownloadProgressSubscription, useGlobalDownloadCompletion } from './hooks/useSharedBrowserHooks'
 import { prefetchCanvasCourses, prefetchCnmoocCourses, prefetchCloudConnection } from './services/prefetch'
 import type { ActiveTab } from '@shared/types'
+
+const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
+const TransferCenter = lazy(() => import('./pages/TransferCenter').then(m => ({ default: m.TransferCenter })))
+const CloudPanExplorer = lazy(() => import('./pages/CloudPanExplorer').then(m => ({ default: m.CloudPanExplorer })))
+const ScheduleBrowser = lazy(() => import('./pages/ScheduleBrowser').then(m => ({ default: m.ScheduleBrowser })))
+const ResourceLibrary = lazy(() => import('./pages/ResourceLibrary').then(m => ({ default: m.ResourceLibrary })))
+const AuditedCourses = lazy(() => import('./pages/AuditedCourses').then(m => ({ default: m.AuditedCourses })))
+const CnmoocBrowser = lazy(() => import('./pages/CnmoocBrowser').then(m => ({ default: m.CnmoocBrowser })))
 
 function StagePane({ stage, children }: { stage: Stage; children: React.ReactNode }) {
   return <div key={stage} className="animate-fadeIn absolute inset-0 flex flex-col">{children}</div>
@@ -56,12 +58,10 @@ export default function App() {
     }
   }
 
-  const handleBackToCourses = () => {
-    setActiveTab(previousCourseTab)
-  }
-
   // Subscribe to download progress once at App level
   useDownloadProgressSubscription()
+  // [Bug Fix / 重载语义] 接管快照恢复批次的收尾（页面级 hook 在重载后不会收尾）
+  useGlobalDownloadCompletion()
 
   const handleLogout = useCallback(async () => {
     try {
@@ -114,14 +114,6 @@ export default function App() {
     }
   }, [setAuth, setStage])
 
-  const cleanedRef = useRef(false)
-  useEffect(() => {
-    if (cleanedRef.current) return
-    cleanedRef.current = true
-    const localDestRoot = useAppStore.getState().localDestRoot || ''
-    window.api.cleanupStaleDownloads(localDestRoot).catch(() => undefined)
-  }, [])
-
   const prefetchedRef = useRef(false)
   useEffect(() => {
     if (stage !== 'browser') {
@@ -150,12 +142,12 @@ export default function App() {
   }, [activeTab])
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-full min-h-0 min-w-0 w-full flex-col">
       <TitleBar
         onOpenSettings={handleSettingsClick}
         onOpenTransfer={handleTransferClick}
       />
-      <main className="relative flex flex-1 flex-col overflow-hidden">
+      <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {stage === 'welcome' && (
           <StagePane stage="welcome">
             <Welcome />
@@ -168,42 +160,45 @@ export default function App() {
         )}
         {stage === 'browser' && (
           <StagePane stage="browser">
-            <div className="relative flex-1 overflow-hidden">
-              {visitedTabs.has('audited') && (
-                <div className={`h-full w-full flex-col ${activeTab === 'audited' ? 'flex' : 'hidden'}`}>
-                  <AuditedCourses />
-                </div>
-              )}
-              {visitedTabs.has('canvas') && (
-                <div className={`h-full w-full flex-col ${activeTab === 'canvas' ? 'flex' : 'hidden'}`}>
-                  <CanvasBrowser />
-                </div>
-              )}
-              {visitedTabs.has('cnmooc') && (
-                <div className={`h-full w-full flex-col ${activeTab === 'cnmooc' ? 'flex' : 'hidden'}`}>
-                  <CnmoocBrowser />
-                </div>
-              )}
-              {visitedTabs.has('schedule') && (
-                <div className={`h-full w-full flex-col ${activeTab === 'schedule' ? 'flex' : 'hidden'}`}>
-                  <ScheduleBrowser />
-                </div>
-              )}
-              {visitedTabs.has('transfer') && (
-                <div className={`h-full w-full flex-col ${activeTab === 'transfer' ? 'flex' : 'hidden'}`}>
-                  <TransferCenter onBack={handleBackToCourses} />
-                </div>
-              )}
-              {visitedTabs.has('settings') && (
-                <div className={`h-full w-full flex-col ${activeTab === 'settings' ? 'flex' : 'hidden'}`}>
-                  <Settings onBack={handleBackToCourses} onLogout={() => void handleLogout()} />
-                </div>
-              )}
-              {visitedTabs.has('cloudpan') && (
-                <div className={`h-full w-full flex-col ${activeTab === 'cloudpan' ? 'flex' : 'hidden'}`}>
-                  <CloudPanExplorer onBack={handleBackToCourses} />
-                </div>
-              )}
+            <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden flex flex-col">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-3 text-xs animate-pulse">加载中…</div>}>
+                {activeTab === 'library' && <ResourceLibrary />}
+                {visitedTabs.has('audited') && (
+                  <div className={`h-full min-h-0 min-w-0 w-full flex-col ${activeTab === 'audited' ? 'flex' : 'hidden'}`}>
+                    <AuditedCourses />
+                  </div>
+                )}
+                {visitedTabs.has('canvas') && (
+                  <div className={`h-full min-h-0 min-w-0 w-full flex-col ${activeTab === 'canvas' ? 'flex' : 'hidden'}`}>
+                    <CanvasBrowser />
+                  </div>
+                )}
+                {visitedTabs.has('cnmooc') && (
+                  <div className={`h-full min-h-0 min-w-0 w-full flex-col ${activeTab === 'cnmooc' ? 'flex' : 'hidden'}`}>
+                    <CnmoocBrowser />
+                  </div>
+                )}
+                {visitedTabs.has('schedule') && (
+                  <div className={`h-full min-h-0 min-w-0 w-full flex-col ${activeTab === 'schedule' ? 'flex' : 'hidden'}`}>
+                    <ScheduleBrowser />
+                  </div>
+                )}
+                {visitedTabs.has('transfer') && (
+                  <div className={`h-full min-h-0 min-w-0 w-full flex-col ${activeTab === 'transfer' ? 'flex' : 'hidden'}`}>
+                    <TransferCenter />
+                  </div>
+                )}
+                {visitedTabs.has('settings') && (
+                  <div className={`h-full min-h-0 min-w-0 w-full flex-col ${activeTab === 'settings' ? 'flex' : 'hidden'}`}>
+                    <Settings onLogout={() => void handleLogout()} />
+                  </div>
+                )}
+                {visitedTabs.has('cloudpan') && (
+                  <div className={`h-full min-h-0 min-w-0 w-full flex-col ${activeTab === 'cloudpan' ? 'flex' : 'hidden'}`}>
+                    <CloudPanExplorer />
+                  </div>
+                )}
+              </Suspense>
             </div>
           </StagePane>
         )}

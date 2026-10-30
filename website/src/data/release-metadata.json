@@ -1,0 +1,44 @@
+{
+  "version": "2.5.1",
+  "tagName": "v2.5.1",
+  "publishedAt": "2026-10-30T12:38:06Z",
+  "checksums": {
+    "sjtu-course-downloader-2.5.1-linux-x86_64.AppImage": "4be6dcdbf4b7973ab591d9f13d66780297dc812bd20e228b3c4772fc82104203",
+    "sjtu-course-downloader-2.5.1-mac-arm64.dmg": "9bdbbeb7eb0a1d307da73f0da9452f811c202bbb81aaf9528f88319c2b101831",
+    "sjtu-course-downloader-2.5.1-mac-arm64.zip": "f0c3da4cd21e44ff0eddc65d8dcaa7b115aeaf1b86f0fb656617e8a5e9abeedc",
+    "sjtu-course-downloader-2.5.1-win-x64.exe": "a65539bf450b91526cbf3ba5d15945a248f01e3fdbf3eede72ac9afec6465efb",
+    "sjtu-course-downloader-2.5.1-win-x64.msi": "7b5806a5a401c4502e4a5c461a995955163d52dfe532b22ee642583d94e490ca"
+  },
+  "assets": {
+    "win-exe": {
+      "filename": "sjtu-course-downloader-2.5.1-win-x64.exe",
+      "sizeMb": 126,
+      "sha256": "a65539bf450b91526cbf3ba5d15945a248f01e3fdbf3eede72ac9afec6465efb",
+      "url": "https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/download/v2.5.1/sjtu-course-downloader-2.5.1-win-x64.exe"
+    },
+    "win-msi": {
+      "filename": "sjtu-course-downloader-2.5.1-win-x64.msi",
+      "sizeMb": 133.4,
+      "sha256": "7b5806a5a401c4502e4a5c461a995955163d52dfe532b22ee642583d94e490ca",
+      "url": "https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/download/v2.5.1/sjtu-course-downloader-2.5.1-win-x64.msi"
+    },
+    "mac-arm64": {
+      "filename": "sjtu-course-downloader-2.5.1-mac-arm64.dmg",
+      "sizeMb": 135.9,
+      "sha256": "9bdbbeb7eb0a1d307da73f0da9452f811c202bbb81aaf9528f88319c2b101831",
+      "url": "https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/download/v2.5.1/sjtu-course-downloader-2.5.1-mac-arm64.dmg"
+    },
+    "mac-x64": {
+      "filename": "sjtu-course-downloader-2.5.1-mac-arm64.zip",
+      "sizeMb": 130.7,
+      "sha256": "f0c3da4cd21e44ff0eddc65d8dcaa7b115aeaf1b86f0fb656617e8a5e9abeedc",
+      "url": "https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/download/v2.5.1/sjtu-course-downloader-2.5.1-mac-arm64.zip"
+    },
+    "linux-appimage": {
+      "filename": "sjtu-course-downloader-2.5.1-linux-x86_64.AppImage",
+      "sizeMb": 147.6,
+      "sha256": "4be6dcdbf4b7973ab591d9f13d66780297dc812bd20e228b3c4772fc82104203",
+      "url": "https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/download/v2.5.1/sjtu-course-downloader-2.5.1-linux-x86_64.AppImage"
+    }
+  }
+}

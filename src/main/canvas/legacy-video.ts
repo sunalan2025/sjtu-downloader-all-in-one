@@ -1,4 +1,3 @@
-import { BrowserWindow } from 'electron'
 import type Electron from 'electron'
 import { CANVAS_BASE_URL, type CanvasVideoSession } from '../../shared/types'
 import { safeFetch } from './safe-fetch'
@@ -14,19 +13,61 @@ function withLegacyLtiLock<T>(fn: () => Promise<T>): Promise<T> {
   return next
 }
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+export class LegacyLtiError extends Error {}
 
-// ─── Legacy LTI Token 提取 ────────────────────────────────────
+// ─── Legacy LTI Form 解析与 Token 提取 ────────────────────────
+
+/**
+ * 从 Canvas Tab 页面 HTML 中解析带预签名 OAuth 1.0 参数的 #tool_form 表单。
+ */
+export function parseLtiForm(html: string): { action: string; params: URLSearchParams } | null {
+  if (!html) return null
+  const formMatch = html.match(/<form\b[^>]*?(?:id=["']tool_form["']|action=["'][^"']*courses\.sjtu\.edu\.cn[^"']*)[^>]*>([\s\S]*?)<\/form>/i)
+  if (!formMatch) return null
+
+  const formTag = formMatch[0].slice(0, formMatch[0].indexOf('>') + 1)
+  const actionMatch = formTag.match(/action=["']([^"']+)["']/i)
+  if (!actionMatch) return null
+  const action = actionMatch[1]
+
+  const formBody = formMatch[1]
+  const params = new URLSearchParams()
+  const inputRegex = /<input\b[^>]*?>/gi
+  let m: RegExpExecArray | null
+  while ((m = inputRegex.exec(formBody)) !== null) {
+    const inputTag = m[0]
+    const nameMatch = inputTag.match(/name=(["'])(.*?)\1/i)
+    if (!nameMatch) continue
+    const name = nameMatch[2]
+    const valMatch = inputTag.match(/value=(["'])(.*?)\1/i)
+    const value = valMatch ? valMatch[2] : ''
+    const entityMap: Record<string, string> = {
+      '&quot;': '"',
+      '&#39;': "'",
+      '&lt;': '<',
+      '&gt;': '>',
+      '&amp;': '&'
+    }
+    const decodedVal = value.replace(/&(?:quot|#39|lt|gt|amp);/g, (match) => entityMap[match] || match)
+    params.append(name, decodedVal)
+  }
+
+  return { action, params }
+}
 
 /**
  * 从 Canvas 旧版录播 Tab 中提取 `canvasCourseId`（加密串）。
- * 流程：通过后台隐藏 BrowserWindow 加载 Tab 页面，自动提交 `#tool_form` 至 `https://courses.sjtu.edu.cn/lti/launch`，
- * 毫秒级捕获重定向 URL 中的 `canvasCourseId` 参数，随后销毁窗口并返回。
+ * 纯 HTTP 管道流程：
+ * 1. safeFetch(ses, fullUrl) 获取 Canvas 外部工具页面 HTML；
+ * 2. parseLtiForm 提取带 34 个预签名 OAuth 1.0 参数的 #tool_form 表单；
+ * 3. safeFetch(ses, form.action, { method: 'POST', body: params.toString() }) 发起 LTI 启动；
+ * 4. 从 302 重定向 URL 或响应内容中正则提取 canvasCourseId 并返回。
+ * 耗时约 50-150ms，彻底消除后台 BrowserWindow 句柄占用与 iframe 跨域阻塞。
  */
 export async function extractLegacyLtiToken(
   ses: Electron.Session,
   tabHtmlUrl: string,
-  timeoutMs = 8000
+  timeoutMs = 15000
 ): Promise<{ canvasCourseId: string } | null> {
   return withLegacyLtiLock(() => doExtractLegacyLtiToken(ses, tabHtmlUrl, timeoutMs))
 }
@@ -34,102 +75,87 @@ export async function extractLegacyLtiToken(
 async function doExtractLegacyLtiToken(
   ses: Electron.Session,
   tabHtmlUrl: string,
-  timeoutMs = 8000
+  timeoutMs = 15000
 ): Promise<{ canvasCourseId: string } | null> {
   const fullUrl = tabHtmlUrl.startsWith('http')
     ? tabHtmlUrl
     : `${CANVAS_BASE_URL}${tabHtmlUrl}`
 
-  console.log('[legacy-lti] 打开 Canvas tab:', fullUrl)
-  const win = new BrowserWindow({
-    show: false,
-    width: 1000,
-    height: 700,
-    webPreferences: {
-      session: ses,
-      nodeIntegration: false,
-      contextIsolation: true,
-      backgroundThrottling: false
-    }
-  })
-  win.webContents?.setAudioMuted?.(true)
-
-  let capturedCourseId: string | null = null
-
-  const checkUrl = (url: string) => {
-    if (!url || capturedCourseId) return
-    const m = url.match(/[?&#]canvasCourseId=([^&#]+)/)
-    if (m && m[1]) {
-      try {
-        capturedCourseId = decodeURIComponent(m[1])
-      } catch {
-        capturedCourseId = m[1]
-      }
-    }
-  }
-
-  // 监听所有跳转与导航事件，一旦 URL 出现 canvasCourseId 立即捕获
-  win.webContents.on?.('will-redirect', (_e, url) => checkUrl(url))
-  win.webContents.on?.('did-redirect-navigation', (_e, url) => checkUrl(url))
-  win.webContents.on?.('did-navigate', (_e, url) => checkUrl(url))
-  win.webContents.on?.('did-frame-navigate', (_e, url) => checkUrl(url))
-  win.webContents.on?.('will-navigate', (_e, url) => checkUrl(url))
+  console.log('[legacy-lti] 请求 Canvas Tab 页面:', fullUrl)
 
   const startTime = Date.now()
   try {
-    await win.loadURL(fullUrl).catch(err => {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (!msg.includes('ERR_ABORTED')) {
-        console.log('[legacy-lti] loadURL 信息:', msg)
+    // 1. 获取 Tab 页面 HTML
+    const pageResp = await safeFetch(ses, fullUrl, undefined, 2, timeoutMs)
+    if (!pageResp.ok) {
+      console.warn(`[legacy-lti] 获取 Tab 页面失败: HTTP ${pageResp.status}`)
+      return null
+    }
+    const html = await pageResp.text()
+
+    // 2. 解析表单
+    const parsed = parseLtiForm(html)
+    if (!parsed || !parsed.action) {
+      console.warn('[legacy-lti] 页面未包含有效的 #tool_form 表单')
+      return null
+    }
+
+    // 3. POST 提交表单至 LTI 启动地址 (courses.sjtu.edu.cn/lti/launch)
+    const ltiResp = await safeFetch(
+      ses,
+      parsed.action,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Referer': fullUrl,
+          'Origin': CANVAS_BASE_URL
+        },
+        body: parsed.params.toString()
+      },
+      2,
+      timeoutMs
+    )
+
+    // 4. 提取 canvasCourseId
+    let capturedId: string | null = null
+
+    // 优先从最终 URL 提取 (跟随 302 重定向后的 URL)
+    if (ltiResp.url) {
+      const mUrl = ltiResp.url.match(/[?&#]canvasCourseId=([^&#]+)/)
+      if (mUrl && mUrl[1]) {
+        capturedId = mUrl[1]
       }
-    })
+    }
 
-    // 检查初始 URL 是否已包含 canvasCourseId
-    checkUrl(win.webContents.getURL())
-
-    // 尝试提交 #tool_form（如果页面未自动提交）
-    if (!capturedCourseId) {
-      try {
-        await win.webContents.executeJavaScript(`
-          (() => {
-            const form = document.querySelector('#tool_form') || document.querySelector('form[action*="courses.sjtu.edu.cn"]');
-            if (form) {
-              form.target = '';
-              form.submit();
-              return true;
-            }
-            return false;
-          })()
-        `)
-      } catch {
-        // frame not ready
+    // 若未自动跟随重定向，从 Location 响应头中提取
+    if (!capturedId) {
+      const loc = ltiResp.headers.get('location') || ''
+      const mLoc = loc.match(/[?&#]canvasCourseId=([^&#]+)/)
+      if (mLoc && mLoc[1]) {
+        capturedId = mLoc[1]
       }
     }
 
-    // 轮询检查 URL（通常 500ms~1000ms 命中）
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline && !capturedCourseId) {
-      if (win.isDestroyed?.() || win.webContents.isDestroyed?.()) break
-      checkUrl(win.webContents.getURL())
-      if (capturedCourseId) break
-
-      await sleep(150)
+    // 若 URL 未保留 query，从返回的 HTML 页面内联脚本中提取 (var canvasCourseId="...")
+    if (!capturedId) {
+      const text = await ltiResp.text()
+      const mScript = text.match(/canvasCourseId\s*=\s*["']([^"']+)["']/)
+      if (mScript && mScript[1]) {
+        capturedId = mScript[1]
+      }
     }
 
-    if (capturedCourseId) {
-      console.log(`[legacy-lti] canvasCourseId 捕获成功: ${capturedCourseId} (耗时 ${Date.now() - startTime}ms)`)
-      return { canvasCourseId: capturedCourseId }
+    if (capturedId) {
+      console.log(`[legacy-lti] 纯 HTTP 管道凭据提取成功 (耗时 ${Date.now() - startTime}ms):`, capturedId.slice(0, 16) + '...')
+      return { canvasCourseId: capturedId }
     }
 
-    console.log(`[legacy-lti] 超时：未捕获到 canvasCourseId (耗时 ${Date.now() - startTime}ms)`)
+    console.warn('[legacy-lti] 响应未包含 canvasCourseId 凭据')
     return null
   } catch (err) {
-    console.log('[legacy-lti] 异常:', err)
+    console.warn('[legacy-lti] 提取异常:', err instanceof Error ? err.message : String(err))
     return null
-  } finally {
-    if (!win.isDestroyed?.()) {
-      win.destroy()
-    }
   }
 }
 
@@ -139,7 +165,7 @@ async function doExtractLegacyLtiToken(
  * 拉取旧版录播系统讲次列表。
  * 调用 POST `https://courses.sjtu.edu.cn/lti/vodVideo/findVodVideoList`，
  * 并将 `body.list` 归一化转换为 `CanvasVideoSession[]`。
- * 遇非云录播教室或错误时优雅返回空数组。
+ * 未安排录播返回空数组；网络和鉴权错误交给扫描器单独报告。
  */
 export async function fetchLegacyVodVideoList(
   ses: Electron.Session,
@@ -149,7 +175,8 @@ export async function fetchLegacyVodVideoList(
     const form = new URLSearchParams()
     form.append('pageIndex', '1')
     form.append('pageSize', '1000')
-    form.append('canvasCourseId', encCourseId)
+    const rawParam = encCourseId.includes('%') ? encCourseId : encodeURIComponent(encCourseId)
+    form.append('canvasCourseId', rawParam)
 
     const resp = await safeFetch(
       ses,
@@ -166,8 +193,7 @@ export async function fetchLegacyVodVideoList(
     )
 
     if (!resp.ok) {
-      console.warn(`[legacy-video] findVodVideoList HTTP ${resp.status}`)
-      return []
+      throw new Error(`旧版录播列表请求失败 (HTTP ${resp.status})`)
     }
 
     const data = (await resp.json()) as Record<string, unknown>
@@ -177,7 +203,7 @@ export async function fetchLegacyVodVideoList(
       data.code === '400' ||
       String(data.msg || data.message || '').includes('非云录播教室')
     ) {
-      console.log(`[legacy-video] 课程 ${encCourseId} 无录播记录或为非云录播教室`)
+      console.log('[legacy-video] 无录播记录或为非云录播教室')
       return []
     }
 
@@ -219,8 +245,7 @@ export async function fetchLegacyVodVideoList(
 
     return sessions
   } catch (err) {
-    console.warn('[legacy-video] fetchLegacyVodVideoList 异常:', err)
-    return []
+    throw new Error(err instanceof Error ? err.message : '旧版录播列表读取失败')
   }
 }
 
@@ -257,8 +282,7 @@ export async function fetchLegacyVodStreamUrls(
     )
 
     if (!resp.ok) {
-      console.warn(`[legacy-video] getVodVideoInfos HTTP ${resp.status}`)
-      return {}
+      throw new Error(`旧版录播播放地址请求失败 (HTTP ${resp.status})`)
     }
 
     const data = (await resp.json()) as Record<string, unknown>
@@ -284,9 +308,9 @@ export async function fetchLegacyVodStreamUrls(
       }
     }
 
+    if (!teacherUrl && !pptUrl) throw new Error('旧版录播没有可用的视频流，可能尚未开放点播')
     return { teacherUrl, pptUrl }
   } catch (err) {
-    console.warn('[legacy-video] fetchLegacyVodStreamUrls 异常:', err)
-    return {}
+    throw new Error(err instanceof Error ? err.message : '旧版录播播放地址读取失败')
   }
 }

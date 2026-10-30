@@ -1,0 +1,84 @@
+/* global module */
+const createColorWithFallback = (defaultVar, rgbVar) => ({ opacityVariable, opacityValue } = {}) => {
+  if (opacityVariable !== undefined) return `var(${defaultVar})`
+  if (opacityValue !== undefined) return `rgba(var(${rgbVar}), ${opacityValue})`
+  return `var(${defaultVar})`
+}
+
+module.exports = {
+  colors: {
+    base: 'var(--bg-base)',
+    'surface-1': 'var(--bg-surface-1)',
+    'surface-2': 'var(--bg-surface-2)',
+    'surface-3': 'var(--bg-surface-3)',
+    'surface-4': 'var(--bg-surface-4)',
+    'text-1': 'var(--text-primary)',
+    'text-2': 'var(--text-secondary)',
+    'text-3': 'var(--text-tertiary)',
+    'text-4': 'var(--text-muted)',
+    'text-muted': 'var(--text-muted)',
+    bd: createColorWithFallback('--border-default', '--color-bd-rgb'),
+    'bd-strong': createColorWithFallback('--border-strong', '--color-bd-rgb'),
+    accent: {
+      DEFAULT: createColorWithFallback('--accent', '--color-accent-rgb'),
+      light: 'var(--accent-light)',
+      dark: 'var(--accent-dark)',
+      '5': 'var(--accent-5)',
+      '10': 'var(--accent-10)',
+      '15': 'var(--accent-15)',
+      '20': 'var(--accent-20)',
+      '25': 'var(--accent-25)',
+      '30': 'var(--accent-30)',
+      '40': 'var(--accent-40)',
+      '50': 'var(--accent-50)',
+      '60': 'var(--accent-60)',
+      '80': 'var(--accent-80)',
+      '85': 'var(--accent-85)',
+    },
+    cloud: {
+      DEFAULT: createColorWithFallback('--cloud', '--color-cloud-rgb'),
+      light: 'var(--cloud-light)',
+      dim: 'var(--cloud-dim)',
+      '25': 'var(--cloud-25)',
+      '40': 'var(--cloud-40)',
+    },
+    success: {
+      DEFAULT: createColorWithFallback('--success', '--color-success-rgb'),
+      bg: 'var(--success-bg)',
+      ring: 'var(--success-ring)',
+    },
+    warning: {
+      DEFAULT: createColorWithFallback('--warning', '--color-warning-rgb'),
+      bg: 'var(--warning-bg)',
+      ring: 'var(--warning-ring)',
+    },
+    info: {
+      DEFAULT: 'var(--info)',
+      bg: 'var(--info-bg)',
+      ring: 'var(--info-ring)',
+    },
+    danger: {
+      DEFAULT: createColorWithFallback('--danger', '--color-danger-rgb'),
+      bg: 'var(--danger-bg)',
+      ring: 'var(--danger-ring)',
+    },
+    amber: createColorWithFallback('--amber', '--color-amber-rgb'),
+    emerald: createColorWithFallback('--emerald', '--color-emerald-rgb'),
+    sky: createColorWithFallback('--sky', '--color-sky-rgb'),
+    rose: createColorWithFallback('--rose', '--color-rose-rgb'),
+    task: {
+      done: 'var(--task-done-bg)',
+      downloading: 'var(--task-downloading-bg)',
+      paused: 'var(--task-paused-bg)',
+      error: 'var(--task-error-bg)',
+      queue: 'var(--queue)',
+    },
+  },
+  boxShadow: {
+    glow: '0 10px 40px -10px var(--accent-40)',
+    'glow-sm': '0 4px 20px -6px var(--accent-30)',
+    'glow-cloud': '0 8px 30px -8px var(--cloud-40)',
+    card: '0 2px 12px rgba(0,0,0,0.15), 0 0 0 1px var(--border-default)',
+    'card-hover': '0 8px 30px rgba(0,0,0,0.2), 0 0 0 1px var(--border-strong)',
+  }
+}

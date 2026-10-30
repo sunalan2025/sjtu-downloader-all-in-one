@@ -13,6 +13,8 @@ import { join } from 'node:path'
 import { getAccountName, getStudentId } from './auth'
 import { getSpeedEma } from './concurrency'
 import { formatBytes, isSafeExternalUrl } from '../shared/utils'
+import { THEME_TOKENS } from '../shared/theme'
+import { setIpcGuardWindowGetter } from './utils/ipc-guard'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -21,6 +23,8 @@ let tray: Tray | null = null
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
+
+setIpcGuardWindowGetter(getMainWindow)
 
 export function getIsQuitting(): boolean {
   return isQuitting
@@ -69,6 +73,55 @@ export function resolveAppIcon(): string {
     : join(process.resourcesPath, 'icons', sub, '256.png')
 }
 
+/**
+ * 校验 Webview 目标地址是否属于交大及可信教学服务域
+ * - 允许空字符串或 'about:blank'（未初始化或空白占位）
+ * - 其余必须为 https: 协议
+ * - 域名必须属于 sjtu.edu.cn、sjtu.cn、cnmooc.org 及其子域名
+ * - 拒绝 http:、javascript:、file: 或非信任外部域名
+ */
+export function isSafeWebviewOrigin(rawUrl: string): boolean {
+  if (typeof rawUrl !== 'string') return false
+  const trimmed = rawUrl.trim()
+  if (!trimmed || trimmed === 'about:blank') return true
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false
+    const h = parsed.hostname.toLowerCase()
+    const allowedDomains = ['sjtu.edu.cn', 'sjtu.cn', 'cnmooc.org']
+    return allowedDomains.some(d => h === d || h.endsWith(`.${d}`))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Webview 附加安全守卫：
+ * 1. 强制剔除 preload 脚本注入
+ * 2. 强制关闭 Node 集成与不安全能力（nodeIntegration, nodeIntegrationInWorker, allowRunningInsecureContent）
+ * 3. 强制开启 contextIsolation 与 webSecurity
+ * 4. 校验 params.src，若为非安全域名则阻止附加 (event.preventDefault())
+ */
+export function attachWebviewSecurityGuard(
+  event: { preventDefault: () => void },
+  webPreferences: Record<string, unknown> | Electron.WebPreferences,
+  params: { src?: string }
+): void {
+  delete (webPreferences as Record<string, unknown>).preload
+  webPreferences.nodeIntegration = false
+  webPreferences.nodeIntegrationInWorker = false
+  webPreferences.contextIsolation = true
+  webPreferences.webSecurity = true
+  webPreferences.allowRunningInsecureContent = false
+
+  const src = params.src || ''
+  if (!isSafeWebviewOrigin(src)) {
+    console.warn('[security] 拦截未授权 webview 目标地址:', src)
+    event.preventDefault()
+  }
+}
+
 export function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -79,7 +132,7 @@ export function createMainWindow(): void {
     center: true,
     autoHideMenuBar: true,
     icon: resolveAppIcon(),
-    backgroundColor: '#f5f7fa',
+    backgroundColor: THEME_TOKENS.dark.surface.base,
     // macOS 用 hiddenInset：保留原生交通灯（红黄绿）并 inset 进内容区，与自绘标题栏融合；
     // Win/Linux 用 hidden：无原生按钮，由 renderer 自绘 Mac 风格交通灯（CaptionButtons）。
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
@@ -104,6 +157,25 @@ export function createMainWindow(): void {
       void shell.openExternal(d.url)
     }
     return { action: 'deny' }
+  })
+
+  // 阻断主窗口顶层导航逃逸：仅允许本地 file:// 或 Vite 开发服务器，防止远程页面直接接管 preload API
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const isAllowedLocal =
+      navigationUrl.startsWith('file://') ||
+      (Boolean(process.env['ELECTRON_RENDERER_URL']) && navigationUrl.startsWith(process.env['ELECTRON_RENDERER_URL']!))
+
+    if (!isAllowedLocal) {
+      event.preventDefault()
+      console.warn('[security] 拦截主窗口外部顶层导航:', navigationUrl)
+      if (isSafeExternalUrl(navigationUrl)) {
+        void shell.openExternal(navigationUrl)
+      }
+    }
+  })
+
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    attachWebviewSecurityGuard(event, webPreferences, params)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

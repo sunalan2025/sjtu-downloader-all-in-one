@@ -12,6 +12,7 @@ import { sjtuSession } from './session'
 import { setCachedUserToken } from './cloudpan'
 import { calculateBackoffMs } from './download-engine/domain-guard'
 import { sanitizeForLog } from './canvas/safe-fetch'
+import { encryptSecret, decryptSecret } from './credentials'
 
 export interface PersistedSession {
   version: 1
@@ -31,8 +32,20 @@ export interface AuthInfo {
   expired?: boolean
 }
 
-/** 获取 session.json 文件路径 */
+/** 获取加密会话文件 session.enc 路径 */
 function getSessionFilePath(): string {
+  try {
+    if (app && typeof app.getPath === 'function') {
+      return join(app.getPath('userData'), 'session.enc')
+    }
+  } catch {
+    /* ignore */
+  }
+  return ''
+}
+
+/** 获取遗留旧版明文 session.json 路径（用于安全擦除） */
+function getLegacySessionFilePath(): string {
   try {
     if (app && typeof app.getPath === 'function') {
       return join(app.getPath('userData'), 'session.json')
@@ -48,6 +61,12 @@ export function saveSessionStore(data: Partial<PersistedSession>): void {
   const filePath = getSessionFilePath()
   if (!filePath) return
   try {
+    // 擦除可能遗留的旧版明文 session.json
+    const legacyPath = getLegacySessionFilePath()
+    if (legacyPath && existsSync(legacyPath)) {
+      try { unlinkSync(legacyPath) } catch { /* ignore */ }
+    }
+
     const existing = loadSessionStoreRaw() || { version: 1, jwtToken: null, updatedAt: Date.now() }
     const merged: PersistedSession = {
       version: 1,
@@ -58,23 +77,32 @@ export function saveSessionStore(data: Partial<PersistedSession>): void {
       cloudUserToken: data.cloudUserToken !== undefined ? data.cloudUserToken : existing.cloudUserToken,
       updatedAt: Date.now()
     }
+    const plainJson = JSON.stringify(merged, null, 2)
+    const encrypted = encryptSecret(plainJson)
     const tmp = filePath + '.tmp'
-    writeFileSync(tmp, JSON.stringify(merged, null, 2), 'utf-8')
+    writeFileSync(tmp, encrypted, 'utf-8')
     renameSync(tmp, filePath)
   } catch (err) {
-    console.warn('[auth] 保存 session.json 失败:', err instanceof Error ? err.message : err)
+    console.warn('[auth] 保存 session.enc 失败:', err instanceof Error ? err.message : err)
   }
 }
 
 /** 从 session.json 读取原始会话对象，处理文件不存在或 JSON 损坏 */
 export function loadSessionStoreRaw(): PersistedSession | null {
+  // 发现旧版明文 session.json 时立即安全擦除，防止敏感凭据泄漏
+  const legacyPath = getLegacySessionFilePath()
+  if (legacyPath && existsSync(legacyPath)) {
+    try { unlinkSync(legacyPath) } catch { /* ignore */ }
+  }
+
   const filePath = getSessionFilePath()
   if (!filePath || !existsSync(filePath)) return null
   try {
     const raw = readFileSync(filePath, 'utf-8')
-    return JSON.parse(raw) as PersistedSession
+    const decrypted = decryptSecret(raw)
+    return JSON.parse(decrypted) as PersistedSession
   } catch (err) {
-    console.warn('[auth] 读取 session.json 失败:', err instanceof Error ? err.message : err)
+    console.warn('[auth] 读取 session.enc 失败:', err instanceof Error ? err.message : err)
     return null
   }
 }
@@ -82,11 +110,16 @@ export function loadSessionStoreRaw(): PersistedSession | null {
 /** 删除持久化 session.json 文件 */
 export function clearSessionStore(): void {
   const filePath = getSessionFilePath()
-  if (!filePath) return
-  try {
-    if (existsSync(filePath)) unlinkSync(filePath)
-  } catch (err) {
-    console.warn('[auth] 删除 session.json 失败:', err instanceof Error ? err.message : err)
+  if (filePath) {
+    try {
+      if (existsSync(filePath)) unlinkSync(filePath)
+    } catch (err) {
+      console.warn('[auth] 删除 session.enc 失败:', err instanceof Error ? err.message : err)
+    }
+  }
+  const legacyPath = getLegacySessionFilePath()
+  if (legacyPath && existsSync(legacyPath)) {
+    try { unlinkSync(legacyPath) } catch { /* ignore */ }
   }
 }
 

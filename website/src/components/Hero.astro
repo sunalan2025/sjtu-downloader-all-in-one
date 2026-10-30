@@ -1,0 +1,61 @@
+---
+import SmartDownload from './SmartDownload.astro';
+import AppPreview from './AppPreview.astro';
+import { CURRENT_RELEASE_VERSION } from '../utils/releaseInfo';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+---
+
+<section
+  id="hero"
+  class={`relative pt-10 pb-16 sm:pt-14 sm:pb-24 lg:pt-16 lg:pb-28 overflow-hidden ${className}`}
+  aria-label="SJTU 课程下载器产品介绍首屏"
+>
+  <!-- Background Glow & Decorative Accents -->
+  <div
+    class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-7xl h-[420px] bg-gradient-to-b from-sjtu-blue/15 via-sjtu-navy/5 to-transparent blur-3xl pointer-events-none -z-10"
+    aria-hidden="true"
+  ></div>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center text-center">
+    <!-- Top Announcement Pill -->
+    <a
+      href="#changelog"
+      class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-blue-50/90 dark:bg-blue-950/70 border border-blue-200/80 dark:border-blue-800/70 text-sjtu-navy dark:text-blue-300 shadow-sm hover:border-sjtu-blue/50 dark:hover:border-blue-700 hover:bg-blue-100/70 dark:hover:bg-blue-900/60 transition-all duration-200 mb-6 group"
+    >
+      <span class="flex h-2 w-2 relative">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sjtu-blue opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2 w-2 bg-sjtu-blue"></span>
+      </span>
+      <span data-hero-version>v{CURRENT_RELEASE_VERSION} 更新日志 ›</span>
+    </a>
+
+    <!-- Eye-catching Headline -->
+    <h1
+      class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-slate-900 dark:text-white leading-[1.12]"
+    >
+      交大课程资源，<span class="bg-gradient-to-r from-sjtu-navy via-sjtu-blue to-sjtu-cyan bg-clip-text text-transparent">一键归档</span>
+    </h1>
+
+    <!-- Subtitle -->
+    <p
+      class="mt-4 sm:mt-5 max-w-2xl text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed font-normal"
+    >
+      同步 Canvas 课件录播、旁听视频、好大学在线与交大云盘
+    </p>
+
+    <!-- Smart Download CTA Zone -->
+    <div class="mt-8 sm:mt-10 w-full flex justify-center">
+      <SmartDownload />
+    </div>
+
+    <!-- Realistic App Mockup Showcase -->
+    <div class="mt-12 sm:mt-16 w-full">
+      <AppPreview />
+    </div>
+  </div>
+</section>

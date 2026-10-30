@@ -125,6 +125,12 @@ export async function fetchCourses(ses: Electron.Session, maxPages = 10): Promis
     const directResp = await safeFetch(ses, CNMOOC_MY_COURSES_URL)
     if (directResp.ok) {
       const directHtml = await directResp.text()
+      if (directResp.url && directResp.url.includes('login.mooc')) {
+        throw new Error('好大学在线会话已过期，需要重新登录 (login.mooc)')
+      }
+      if (/login\.mooc|使用JAccount|请登录|账号密码登录/i.test(directHtml)) {
+        throw new Error('好大学在线会话已过期，需要重新登录 (login.mooc)')
+      }
       const initial = parseCourseHtml(directHtml)
       if (initial.length > 0) {
         for (const c of initial) {
@@ -146,7 +152,10 @@ export async function fetchCourses(ses: Electron.Session, maxPages = 10): Promis
         return allCourses
       }
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && /login\.mooc|登录/i.test(err.message)) {
+      throw err
+    }
     /* 继续降级至 BrowserWindow */
   }
 
@@ -174,6 +183,10 @@ export async function fetchCourses(ses: Electron.Session, maxPages = 10): Promis
           check()
         }))()
       `)
+      const currentUrl = win.webContents.getURL()
+      if (currentUrl.includes('login.mooc') || (/login\.mooc|使用JAccount|请登录|账号密码登录/i.test(html) && !html.includes('/portal/session/index/'))) {
+        throw new Error('好大学在线会话已过期，需要重新登录 (login.mooc)')
+      }
       const pageCourses = parseCourseHtml(html)
       if (pageCourses.length === 0) break
       let added = 0

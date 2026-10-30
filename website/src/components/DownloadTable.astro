@@ -1,0 +1,350 @@
+---
+import Icons from './icons/Icons.astro';
+import {
+  CURRENT_RELEASE_VERSION,
+  getAllPlatformMatrix
+} from '../utils/releaseInfo';
+
+export interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+const currentVersion = `v${CURRENT_RELEASE_VERSION}`;
+const allAssets = getAllPlatformMatrix(null, CURRENT_RELEASE_VERSION);
+const winMsiAsset = allAssets.find((a) => a.id === 'win-msi');
+
+// 4 核心平台分发展现：Windows (.exe), Mac ARM64, Mac Intel, Linux
+const platformCards = [
+  allAssets.find((a) => a.id === 'win-exe')!,
+  allAssets.find((a) => a.id === 'mac-arm64')!,
+  allAssets.find((a) => a.id === 'mac-x64')!,
+  allAssets.find((a) => a.id === 'linux-appimage')!
+].filter(Boolean);
+
+const changelogHighlights = [
+  {
+    title: 'Canvas 课程资源子文件夹自选下载',
+    desc: '课件树支持逐级下钻自选，按需勾选特定章节或子文件夹下载，告别全量冗余同步。'
+  },
+  {
+    title: 'Canvas 作业说明与附件一键提取',
+    desc: '全面覆盖作业正文要求与教师上传附件，支持截止倒计时预警与本地智能归档。'
+  },
+  {
+    title: '交大云盘文件管理器重构与极速浏览',
+    desc: '支持网格/列表/分栏多重视图，多选批量移动、重命名与极速秒级加载。'
+  },
+  {
+    title: '私有轻量工作线程与安全隔离',
+    desc: '遵循校园网安全规范，凭据物理隔离不留痕迹，严格本地环回保护。'
+  },
+  {
+    title: '排课日程同步与交互体验工程解耦',
+    desc: '排课日程多端同步、悬浮智能指挥岛芯片交互与渲染性能优化。'
+  }
+];
+---
+
+<section
+  id="download"
+  class={`py-20 sm:py-28 relative overflow-hidden ${className}`}
+  aria-label="下载中心"
+>
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <!-- Header (干净无副标题) -->
+    <div class="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+      <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        下载安装
+      </h2>
+    </div>
+
+    <!-- 4 极简平台卡片 Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+      {
+        platformCards.map((asset) => {
+          const iconName = asset.platform === 'mac' ? 'apple' : asset.platform;
+          return (
+            <div
+              class="spotlight-card group rounded-3xl p-6 sm:p-7 border border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 backdrop-blur-xl shadow-sm hover:shadow-xl hover:border-sjtu-blue/40 dark:hover:border-sjtu-blue/40 transition-all duration-300 flex flex-col justify-between"
+            >
+              <div>
+                <div class="flex items-center justify-between mb-5">
+                  <div class="w-11 h-11 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 flex items-center justify-center group-hover:text-sjtu-blue group-hover:bg-blue-50 dark:group-hover:bg-blue-950/60 transition-colors">
+                    <Icons name={iconName} class="w-5 h-5" />
+                  </div>
+                  <span class="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-blue-50 dark:bg-blue-950/60 text-sjtu-blue dark:text-blue-300">
+                    {asset.format}
+                  </span>
+                </div>
+
+                <h3 class="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
+                  {asset.name}
+                </h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  {asset.arch} · 约 <span data-size-for={asset.id}>{asset.sizeMb}</span> MB
+                </p>
+              </div>
+
+              <div class="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80 space-y-3">
+                <a
+                  href={asset.url}
+                  data-url-for={asset.id}
+                  class="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-sjtu-blue dark:bg-white dark:hover:bg-blue-400 text-white dark:text-slate-900 transition-colors shadow-sm"
+                >
+                  <Icons name="download" class="w-4 h-4" />
+                  <span>立即下载</span>
+                </a>
+
+                <div class="flex items-center justify-between text-[11px] text-slate-400">
+                  {asset.sha256 ? (
+                    <>
+                      <span class="font-mono truncate max-w-[140px]" title={asset.sha256} data-sha-for={asset.id}>
+                        SHA: {asset.sha256.substring(0, 10)}...
+                      </span>
+                      <button
+                        type="button"
+                        class="copy-sha-btn text-sjtu-blue hover:underline cursor-pointer font-medium"
+                        data-hash={asset.sha256}
+                        data-hash-btn={asset.id}
+                      >
+                        复制哈希
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span class="font-mono truncate max-w-[140px] text-[11px] text-slate-400 italic" data-sha-for={asset.id}>
+                        SHA256: 见 Release
+                      </span>
+                      <button
+                        type="button"
+                        class="copy-sha-btn text-sjtu-blue hover:underline cursor-pointer font-medium"
+                        data-hash=""
+                        data-hash-btn={asset.id}
+                      >
+                        复制哈希
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {asset.id === 'win-exe' && winMsiAsset && (
+                  <div class="pt-2 text-[11px] text-slate-500 dark:text-slate-400 border-t border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <a href={winMsiAsset.url} data-url-for="win-msi" class="text-sjtu-blue hover:underline font-medium truncate max-w-[140px]">
+                      或下载 .msi 便携包 (<span data-size-for="win-msi">{winMsiAsset.sizeMb}</span> MB)
+                    </a>
+                    {winMsiAsset.sha256 ? (
+                      <button
+                        type="button"
+                        class="copy-sha-btn text-slate-400 hover:text-sjtu-blue cursor-pointer font-medium shrink-0"
+                        data-hash={winMsiAsset.sha256}
+                        data-hash-btn="win-msi"
+                        title="复制 .msi SHA-256 校验码"
+                      >
+                        复制哈希
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        class="copy-sha-btn text-slate-400 hover:text-sjtu-blue cursor-pointer font-medium shrink-0"
+                        data-hash=""
+                        data-hash-btn="win-msi"
+                        title="复制 .msi SHA-256 校验码"
+                      >
+                        复制哈希
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })
+      }
+    </div>
+
+    <!-- 📋 版本更新日志折叠抽屉 -->
+    <div id="changelog" class="max-w-4xl mx-auto scroll-mt-24">
+      <details class="group rounded-2xl bg-white/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-slate-800 shadow-sm transition-all duration-200">
+        <summary class="flex items-center justify-between p-5 cursor-pointer list-none select-none text-left rounded-2xl focus:outline-none">
+          <div class="flex items-center gap-3">
+            <div class="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-sjtu-blue dark:text-blue-300 flex items-center justify-center text-xs font-bold">
+              ✦
+            </div>
+            <div>
+              <span class="text-sm font-bold text-slate-900 dark:text-white" data-changelog-title>
+                查看 {currentVersion} 详细更新日志 (Changelog)
+              </span>
+              <span class="text-xs text-slate-400 ml-2 hidden sm:inline">全平台架构与特性升级</span>
+            </div>
+          </div>
+          <span class="text-xs text-slate-500 dark:text-slate-400 transition-transform duration-200 group-open:rotate-180">
+            <Icons name="chevron-down" class="w-4 h-4" />
+          </span>
+        </summary>
+        <div class="px-5 pb-5 pt-1 text-xs text-slate-600 dark:text-slate-300 border-t border-slate-100 dark:border-slate-800/60 mt-1">
+          <div class="space-y-3 pt-3">
+            {
+              changelogHighlights.map((log) => (
+                <div class="flex items-start gap-2.5">
+                  <span class="text-sjtu-blue mt-0.5">•</span>
+                  <div>
+                    <div class="font-bold text-slate-800 dark:text-slate-200">{log.title}</div>
+                    <div class="text-slate-500 dark:text-slate-400 mt-0.5">{log.desc}</div>
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- 浮动复制反馈 Toast 气泡 -->
+  <div
+    id="sha-toast"
+    class="fixed bottom-6 right-6 z-50 transform translate-y-24 opacity-0 pointer-events-none transition-all duration-300 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900/90 dark:bg-white/90 text-white dark:text-slate-900 text-xs font-medium shadow-2xl backdrop-blur-md"
+  >
+    <Icons name="check" class="w-4 h-4 text-emerald-400 dark:text-emerald-600" />
+    <span>已复制 SHA-256 校验码到剪贴板</span>
+  </div>
+</section>
+
+<script>
+  function setupShaCopy() {
+    const cards = document.querySelectorAll<HTMLElement>('#download .spotlight-card');
+    cards.forEach((card) => {
+      if (card.dataset.spotlightBound) return;
+      card.dataset.spotlightBound = 'true';
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        card.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
+        card.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
+      });
+    });
+
+    const copyBtns = document.querySelectorAll<HTMLButtonElement>('.copy-sha-btn');
+    const toast = document.getElementById('sha-toast');
+
+    copyBtns.forEach((btn) => {
+      if (btn.dataset.bound) return;
+      btn.dataset.bound = 'true';
+
+      btn.addEventListener('click', async () => {
+        const hash = btn.getAttribute('data-hash');
+        if (!hash) return;
+
+        const originalText = btn.textContent || '复制哈希';
+
+        try {
+          await navigator.clipboard.writeText(hash);
+
+          // 原位触觉反馈：切换为翠绿色 ✓ 已复制
+          btn.textContent = '✓ 已复制';
+          btn.classList.add('text-emerald-500', 'font-semibold');
+          btn.classList.remove('text-sjtu-blue', 'text-slate-400');
+
+          setTimeout(() => {
+            btn.textContent = originalText;
+            btn.classList.remove('text-emerald-500', 'font-semibold');
+            if (btn.closest('.border-dashed')) {
+              btn.classList.add('text-slate-400');
+            } else {
+              btn.classList.add('text-sjtu-blue');
+            }
+          }, 2000);
+
+          if (toast) {
+            toast.classList.remove('translate-y-24', 'opacity-0', 'pointer-events-none');
+            toast.classList.add('translate-y-0', 'opacity-100');
+            setTimeout(() => {
+              toast.classList.add('translate-y-24', 'opacity-0', 'pointer-events-none');
+              toast.classList.remove('translate-y-0', 'opacity-100');
+            }, 2500);
+          }
+        } catch {
+          // fallback
+        }
+      });
+    });
+  }
+
+  setupShaCopy();
+  document.addEventListener('astro:page-load', setupShaCopy);
+
+  async function hydrateLiveRelease() {
+    try {
+      const res = await fetch('https://api.github.com/repos/sunalan2025/sjtu-downloader-all-in-one/releases/latest');
+      if (!res.ok) return;
+      const release = await res.json();
+      if (!release || !release.assets) return;
+
+      if (release.tag_name) {
+        document.querySelectorAll('[data-hero-version]').forEach((el) => {
+          el.textContent = `${release.tag_name} 更新日志 ›`;
+        });
+        const changelogTitle = document.querySelector('[data-changelog-title]');
+        if (changelogTitle) {
+          changelogTitle.textContent = `查看 ${release.tag_name} 详细更新日志 (Changelog)`;
+        }
+      }
+
+      const checksumAsset = release.assets.find((a: any) => a.name.toLowerCase() === 'sha256sums.txt');
+      const checksumMap: Record<string, string> = {};
+      if (checksumAsset?.browser_download_url) {
+        try {
+          const sumRes = await fetch(checksumAsset.browser_download_url);
+          if (sumRes.ok) {
+            const sumText = await sumRes.text();
+            sumText.split(/\r?\n/).forEach((line: string) => {
+              const match = line.trim().match(/^([a-fA-F0-9]{64})\s+[*]?(.+)$/);
+              if (match) {
+                checksumMap[match[2].trim()] = match[1].toLowerCase();
+              }
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const matchers: Record<string, (name: string) => boolean> = {
+        'win-exe': (n) => n.endsWith('.exe') && !n.includes('blockmap') && !n.includes('elevate') && !n.includes('ffmpeg'),
+        'win-msi': (n) => n.endsWith('.msi'),
+        'mac-arm64': (n) => n.endsWith('.dmg') && (n.includes('arm64') || n.includes('aarch64')),
+        'mac-x64': (n) => n.endsWith('.zip') && (n.includes('mac') || n.includes('darwin') || n.includes('x64')),
+        'linux-appimage': (n) => n.endsWith('.appimage')
+      };
+
+      for (const [id, matcher] of Object.entries(matchers)) {
+        const asset = release.assets.find((a: any) => matcher(a.name.toLowerCase()));
+        if (!asset) continue;
+
+        const sizeMb = Math.round((asset.size / (1024 * 1024)) * 10) / 10;
+        const hash = checksumMap[asset.name];
+
+        const urlEl = document.querySelector(`[data-url-for="${id}"]`) as HTMLAnchorElement | null;
+        if (urlEl) urlEl.href = asset.browser_download_url;
+
+        const sizeEl = document.querySelector(`[data-size-for="${id}"]`);
+        if (sizeEl) sizeEl.textContent = String(sizeMb);
+
+        if (hash) {
+          const shaEl = document.querySelector(`[data-sha-for="${id}"]`);
+          if (shaEl) {
+            shaEl.textContent = `SHA: ${hash.substring(0, 10)}...`;
+            shaEl.setAttribute('title', hash);
+          }
+          const btnEl = document.querySelector(`[data-hash-btn="${id}"]`);
+          if (btnEl) btnEl.setAttribute('data-hash', hash);
+        }
+      }
+    } catch {
+      // quiet fallback
+    }
+  }
+
+  hydrateLiveRelease();
+  document.addEventListener('astro:page-load', hydrateLiveRelease);
+</script>
