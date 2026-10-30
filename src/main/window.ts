@@ -14,6 +14,7 @@ import { getAccountName, getStudentId } from './auth'
 import { getSpeedEma } from './concurrency'
 import { formatBytes, isSafeExternalUrl } from '../shared/utils'
 import { THEME_TOKENS } from '../shared/theme'
+import { setIpcGuardWindowGetter } from './utils/ipc-guard'
 
 let mainWindow: BrowserWindow | null = null
 let isQuitting = false
@@ -22,6 +23,8 @@ let tray: Tray | null = null
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
+
+setIpcGuardWindowGetter(getMainWindow)
 
 export function getIsQuitting(): boolean {
   return isQuitting
@@ -84,7 +87,7 @@ export function isSafeWebviewOrigin(rawUrl: string): boolean {
 
   try {
     const parsed = new URL(trimmed)
-    if (parsed.protocol !== 'https:') return false
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false
     const h = parsed.hostname.toLowerCase()
     const allowedDomains = ['sjtu.edu.cn', 'sjtu.cn', 'cnmooc.org']
     return allowedDomains.some(d => h === d || h.endsWith(`.${d}`))
@@ -154,6 +157,21 @@ export function createMainWindow(): void {
       void shell.openExternal(d.url)
     }
     return { action: 'deny' }
+  })
+
+  // 阻断主窗口顶层导航逃逸：仅允许本地 file:// 或 Vite 开发服务器，防止远程页面直接接管 preload API
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const isAllowedLocal =
+      navigationUrl.startsWith('file://') ||
+      (Boolean(process.env['ELECTRON_RENDERER_URL']) && navigationUrl.startsWith(process.env['ELECTRON_RENDERER_URL']!))
+
+    if (!isAllowedLocal) {
+      event.preventDefault()
+      console.warn('[security] 拦截主窗口外部顶层导航:', navigationUrl)
+      if (isSafeExternalUrl(navigationUrl)) {
+        void shell.openExternal(navigationUrl)
+      }
+    }
   })
 
   mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {

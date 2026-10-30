@@ -388,10 +388,8 @@ export async function resolveDirectUrl(
       }
       try {
         const channels = await getVodChannelsCached(sjtuSession(), cs.canvasVideoToken, cs.canvasVideoId)
-        let ch = channels[cs.canvasStreamIdx ?? 0]
-        if (!ch && channels.length > 0) {
-          ch = channels[0]
-        }
+        const role = cs.canvasStreamIdx === 1 ? 'PPT' : '教师'
+        const ch = channels.find(channel => channel.label === role)
         if (!ch?.url) throw new Error(`未找到该路视频流（streamIdx=${cs.canvasStreamIdx ?? 0}）`)
         t.spec.url = ch.url
         t.spec.isHls = ch.url.includes('.m3u8')
@@ -541,7 +539,7 @@ export function isCnmoocSpec(spec: DownloadTaskSpec): boolean {
 /** 判断任务是否为 HLS 视频流任务（需要通过 HLS 管道下载 TS 切片并 remux 转码） */
 export function isHlsStreamTask(spec: any): boolean {
   if (!spec) return false
-  if (spec.source === 'canvas-class-video') return true
+  // The same Canvas source now serves both MP4 and HLS. Resolve its URL first.
   if (spec.isHls === true) return true
   const url = String(spec.url || '').toLowerCase()
   if (url.endsWith('.m3u8') || url.includes('.m3u8?') || url.includes('.m3u8#')) return true

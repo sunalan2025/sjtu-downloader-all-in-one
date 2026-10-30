@@ -20,6 +20,7 @@ export const sharedDownloadAgent = new HttpsAgent({
 import { type DownloadState } from '../../shared/types'
 import {
   assertDownloadIntegrity,
+  FileIntegrityError,
   verifyDownloadIntegrity,
   isHtmlExtension
 } from './integrity'
@@ -59,6 +60,7 @@ import { emitProgress } from './progress'
 import { notifyConcurrencySlotAvailable } from '../canvas/orchestrator'
 import { sanitizeForLog } from '../canvas/safe-fetch'
 import { globalSpeedLimiter } from '../../shared/utils'
+import { updateBackupRuntimeSpec } from '../backup/runtime'
 
 export function scheduleNext(): void {
   if (getIsQuitting()) return
@@ -110,7 +112,9 @@ async function runTask(t: TaskRuntime): Promise<void> {
   if (strategy === 'overwrite') {
     // 覆盖模式：绝不在下载开始前删除已有成品 t.filePath！
     // 仅清掉旧有的 .part 临时文件，待完整下载并验证成功后再通过 renameSync 原子覆盖替换。
-    try { unlinkSync(t.partPath) } catch { /* ignore */ }
+    if (!t.spec.resumeFromPartial) {
+      try { unlinkSync(t.partPath) } catch { /* ignore */ }
+    }
   } else {
     // skip 策略：检查已存在文件是否有效；若既有文件损坏（0 字节或非允许 HTML 错误页），则删除以自愈重新下载
     const existing = statSync(t.filePath, { throwIfNoEntry: false })
@@ -143,6 +147,7 @@ async function runTask(t: TaskRuntime): Promise<void> {
 
   // 按需解析直链（lazy resolution，与 cloudRunTask 共用；含 cancel 竞态守卫）
   if (!await resolveDirectUrl(t, false)) return
+  updateBackupRuntimeSpec(t.spec, t.filePath, t.partPath)
 
   t.state = 'downloading'
   emitProgress({
@@ -296,16 +301,14 @@ async function runTask(t: TaskRuntime): Promise<void> {
       // cancelTask 已 emit
       return
     }
-    // 真正的下载错误：释放句柄并清理损坏的 .part 文件
+    // Network failures keep resumable bytes. Only rejected content is discarded.
     try {
       t.ws?.destroy()
     } catch {
       /* ignore */
     }
-    try {
-      unlinkSync(t.partPath)
-    } catch {
-      /* ignore */
+    if (err instanceof FileIntegrityError) {
+      try { unlinkSync(t.partPath) } catch { /* ignore */ }
     }
     t.state = 'error'
     destroyLocalHandles(t, 'download error')
@@ -368,12 +371,23 @@ function downloadStream(t: TaskRuntime): Promise<void> {
       get received() { return t.received },
       get total() { return t.total },
       getRangeFrom: () => resumeFrom,
+      get ifRange() { return t.spec.httpValidator },
       agent: sharedDownloadAgent
     }
     const cb: CdnFetchCallbacks = {
       fail,
       // 2xx 但带 Range 且 CDN 返回 200（不支持续传）：把现有 .part 丢掉重头来
-      onHeaders: (_resp, status) => {
+      onHeaders: (response, status) => {
+        if (resumeFrom > 0 && status === 206) {
+          const range = /^bytes (\d+)-\d+\/(\d+|\*)$/.exec(String(response.headers['content-range'] || ''))
+          const validator = response.headers.etag || response.headers['last-modified']
+          if (!range || Number(range[1]) !== resumeFrom || (t.spec.httpValidator && validator && t.spec.httpValidator !== validator)) {
+            try { unlinkSync(t.partPath) } catch { /* retried without an unsafe partial */ }
+            response.destroy()
+            fail(new Error('续传来源或偏移发生变化，将重新下载'))
+            return false
+          }
+        }
         if (resumeFrom > 0 && status === 200) {
           try {
             unlinkSync(t.partPath)
@@ -382,6 +396,12 @@ function downloadStream(t: TaskRuntime): Promise<void> {
           }
           resumeFrom = 0
           t.received = 0
+        }
+        const etag = response.headers.etag
+        const validator = etag && !etag.startsWith('W/') ? etag : response.headers['last-modified']
+        if (typeof validator === 'string') {
+          t.spec.httpValidator = validator
+          updateBackupRuntimeSpec(t.spec, t.filePath, t.partPath)
         }
         return true
       },
@@ -486,6 +506,7 @@ function downloadStream(t: TaskRuntime): Promise<void> {
 
 /** 把一个 paused 的本地 spec 重新入待处理队列（resume 用） */
 export function reEnqueueLocal(p: PendingSpec): void {
+  p.spec.resumeFromPartial = true
   // [Bug Fix] 清掉已解析的直链，强制 resolveDirectUrl 重新解析。
   // Canvas 签名 URL / vod 流直链都有 TTL，任务暂停数小时或出错后恢复时，
   // 旧 url 往往已 403；若不清空，resolveDirectUrl 见 t.spec.url 非空直接 return，
@@ -494,6 +515,9 @@ export function reEnqueueLocal(p: PendingSpec): void {
   if (
     src === 'canvas-files' ||
     src === 'canvas-video' ||
+    src === 'canvas-class-video' ||
+    src === 'canvas-exttool-video' ||
+    src === 'canvas-exturl-video' ||
     (src === 'cloudpan' && (p.spec as any).cloudRemotePath)
   ) {
     p.spec.url = ''
@@ -561,6 +585,10 @@ function cancelTaskCore(id: string): void {
   const foundPending = removeFromSpecArray(pendingLocal, id)
   const foundPaused = removeFromSpecArray(pausedLocal, id)
   if (foundPending || foundPaused) {
+    const stopped = foundPending || foundPaused
+    if (stopped && stopped.partPath === stopped.filePath + '.part') {
+      try { unlinkSync(stopped.partPath) } catch { /* already removed or locked; never touch the completed file */ }
+    }
     emitProgress({ taskId: id, state: 'cancelled', received: 0, total: 0, message: '已取消' })
     pendingLocalIds.delete(id)
     pausedLocalIds.delete(id)
@@ -604,16 +632,7 @@ export function pauseAll(): void {
 }
 export function cancelAll(): void {
   for (const id of [...tasks.keys()]) cancelTaskCore(id)
-  for (const p of pendingLocal) {
-    emitProgress({ taskId: p.spec.taskId, state: 'cancelled', received: 0, total: 0, message: '已取消' })
-  }
-  pendingLocal.length = 0
-  pendingLocalIds.clear()
-  for (const p of pausedLocal) {
-    emitProgress({ taskId: p.spec.taskId, state: 'cancelled', received: 0, total: 0, message: '已取消' })
-  }
-  pausedLocal.length = 0
-  pausedLocalIds.clear()
+  for (const p of [...pendingLocal, ...pausedLocal]) cancelTaskCore(p.spec.taskId)
   scheduleNext()
 }
 export function resumeAll(): void {

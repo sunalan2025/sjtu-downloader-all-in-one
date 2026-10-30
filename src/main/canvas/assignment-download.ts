@@ -113,6 +113,15 @@ export function compileAssignmentMarkdown(item: CanvasAssignmentItem): string {
   lines.push(convertHtmlToMarkdown(item.descriptionHtml))
   lines.push('')
 
+  if (item.submissionBody && item.submissionBody.trim()) {
+    lines.push('---')
+    lines.push('')
+    lines.push('## 在线文本提交记录')
+    lines.push('')
+    lines.push(convertHtmlToMarkdown(item.submissionBody))
+    lines.push('')
+  }
+
   if (item.teacherAttachments && item.teacherAttachments.length > 0) {
     lines.push('---')
     lines.push('')
@@ -143,6 +152,11 @@ export function compileAssignmentMarkdown(item: CanvasAssignmentItem): string {
       const timeStr = c.createdAt ? ` (${c.createdAt.replace('T', ' ').replace('Z', '')})` : ''
       lines.push(`> **${c.authorName || '评阅人'}${timeStr}**:`)
       lines.push(`> ${c.comment.replace(/\n/g, '\n> ')}`)
+      if (c.attachments && c.attachments.length > 0) {
+        for (const att of c.attachments) {
+          lines.push(`> - 📎 批注附件: [${att.name}](./submissions/${encodeURIComponent(`[批注]_${att.name}`)})`)
+        }
+      }
       lines.push('')
     }
   }
@@ -155,6 +169,40 @@ function canvasCoursePath(courseName: string, term?: string): string {
   const parts = term ? [sanitizeFsName(term)] : []
   parts.push(sanitizeFsName(courseName))
   return parts.join('/')
+}
+
+/** 从题目说明 HTML 富文本中提取教师内嵌的参考课件/试题附件 */
+export function extractTeacherAttachmentsFromHtml(html?: string): CanvasAssignmentFile[] {
+  if (!html || !html.trim()) return []
+  try {
+    const $ = cheerio.load(html)
+    const files: CanvasAssignmentFile[] = []
+    const seenIds = new Set<number>()
+
+    $('a').each((_, el) => {
+      const $el = $(el)
+      const href = $el.attr('href') || ''
+      const dataApi = $el.attr('data-api-endpoint') || ''
+      const title = $el.attr('title') || $el.text().trim()
+
+      const match = href.match(/\/files\/(\d+)/) || dataApi.match(/\/files\/(\d+)/)
+      if (match) {
+        const fileId = Number(match[1])
+        if (fileId && !seenIds.has(fileId)) {
+          seenIds.add(fileId)
+          const name = sanitizeFsName(title || `attachment_${fileId}`)
+          files.push({
+            id: fileId,
+            name,
+            url: `${CANVAS_BASE_URL}/files/${fileId}/download?download_frd=1`
+          })
+        }
+      }
+    })
+    return files
+  } catch {
+    return []
+  }
 }
 
 /** 获取单门课程的全部作业列表（包含题目描述、附件、学生本人提交、打分与评语） */
@@ -184,14 +232,20 @@ export async function fetchCourseAssignments(
       const sub = (raw.submission || {}) as Record<string, unknown>
       const hasSubmission = Boolean(sub.workflow_state && sub.workflow_state !== 'unsubmitted')
 
-      // 提取题目附件
+      // 提取题目附件（优先从 description HTML 提取，并兼容显式 attachments 数组）
+      const descAtts = extractTeacherAttachmentsFromHtml(String(raw.description || ''))
       const rawAtts = (raw.attachments as Array<Record<string, unknown>>) || []
-      const teacherAttachments: CanvasAssignmentFile[] = rawAtts.map(a => ({
+      const explicitAtts: CanvasAssignmentFile[] = rawAtts.map(a => ({
         id: Number(a.id || 0),
         name: sanitizeFsName(String(a.display_name || a.filename || 'attachment')),
         url: String(a.url || ''),
         size: Number(a.size || 0)
       })).filter(a => !!a.url)
+
+      const teacherAttachmentsMap = new Map<number, CanvasAssignmentFile>()
+      for (const a of explicitAtts) if (a.id) teacherAttachmentsMap.set(a.id, a)
+      for (const a of descAtts) if (a.id && !teacherAttachmentsMap.has(a.id)) teacherAttachmentsMap.set(a.id, a)
+      const teacherAttachments = Array.from(teacherAttachmentsMap.values())
 
       // 提取学生本人提交文件
       const rawSubs = (sub.attachments as Array<Record<string, unknown>>) || []
@@ -202,13 +256,40 @@ export async function fetchCourseAssignments(
         size: Number(s.size || 0)
       })).filter(s => !!s.url)
 
-      // 提取助教评语
+      // 提取助教评语与批注原件
       const rawComments = (sub.submission_comments as Array<Record<string, unknown>>) || []
-      const comments: CanvasAssignmentComment[] = rawComments.map(c => ({
-        authorName: String(c.author_name || '助教'),
-        comment: String(c.comment || '').trim(),
-        createdAt: String(c.created_at || '')
-      })).filter(c => !!c.comment)
+      const comments: CanvasAssignmentComment[] = rawComments.map(c => {
+        const rawCAtts = (c.attachments as Array<Record<string, unknown>>) || []
+        const cAttachments: CanvasAssignmentFile[] = rawCAtts.map(a => ({
+          id: Number(a.id || 0),
+          name: sanitizeFsName(String(a.display_name || a.filename || 'comment_file')),
+          url: String(a.url || ''),
+          size: Number(a.size || 0)
+        })).filter(a => !!a.url)
+        return {
+          authorName: String(c.author_name || '助教'),
+          comment: String(c.comment || '').trim(),
+          createdAt: String(c.created_at || ''),
+          attachments: cAttachments.length > 0 ? cAttachments : undefined
+        }
+      }).filter(c => !!c.comment || (c.attachments && c.attachments.length > 0))
+
+      // 若助教回传了批注原件，并入 submissionFiles
+      for (const c of comments) {
+        if (c.attachments) {
+          for (const a of c.attachments) {
+            if (!submissionFiles.some(sf => sf.id === a.id)) {
+              submissionFiles.push({
+                ...a,
+                name: `[批注]_${a.name}`
+              })
+            }
+          }
+        }
+      }
+
+      // 提取在线文本提交
+      const submissionBody = typeof sub.body === 'string' && sub.body.trim() ? sub.body : undefined
 
       return {
         id: Number(raw.id),
@@ -219,6 +300,7 @@ export async function fetchCourseAssignments(
         submittedAt: sub.submitted_at ? String(sub.submitted_at) : undefined,
         submissionScore: sub.score !== undefined ? Number(sub.score) : undefined,
         submissionGrade: sub.grade !== undefined ? String(sub.grade) : undefined,
+        submissionBody,
         htmlUrl: raw.html_url ? String(raw.html_url) : undefined,
         descriptionHtml: raw.description ? String(raw.description) : undefined,
         teacherAttachments,
@@ -261,6 +343,7 @@ export interface AssignmentDownloadOpts {
   term?: string
   conflictStrategy?: 'skip' | 'overwrite'
   cloudUserToken?: string
+  cloudDestRoot?: string
   options?: CanvasAssignmentExportOptions
 }
 
@@ -271,7 +354,7 @@ export async function downloadAssignmentArchive(
   onProgress?: (phase: string) => void
 ): Promise<{ ok: boolean; path?: string; skipped?: boolean; error?: string }> {
   try {
-    const { courseName, assignment, destRoot, term, conflictStrategy = 'skip', options } = opts
+    const { courseName, assignment, destRoot, term, conflictStrategy = 'skip', options, cloudUserToken, cloudDestRoot } = opts
     const base = destRoot || mkdtempSync(join(tmpdir(), 'sjtu-canvas-assign-'))
     const cPath = canvasCoursePath(courseName, term)
     const assignDirName = sanitizeFsName(assignment.name)
@@ -317,6 +400,62 @@ export async function downloadAssignmentArchive(
           console.warn(`[assignment] 提交原件 ${sub.name} 下载异常:`, e)
         })
       }
+    }
+
+    // 4. 若传入 cloudUserToken，同步上传作业归档至交大云盘
+    if (cloudUserToken) {
+      try {
+        const { uploadLocalFileToCloud } = await import('../cloudpan')
+        const remoteCoursePath = canvasCoursePath(courseName, term)
+        const rootPrefix = cloudDestRoot ? `${cloudDestRoot.replace(/^\/+|\/+$/g, '')}/` : ''
+        const remoteAssignDir = `${rootPrefix}Canvas课程/${remoteCoursePath}/assignments/${assignDirName}`
+
+        if (exportMd) {
+          const mdPath = join(outDir, '作业说明与评语.md')
+          if (existsSync(mdPath)) {
+            onProgress?.(`上传说明文档至云盘: ${assignment.name}`)
+            await uploadLocalFileToCloud(cloudUserToken, mdPath, `${remoteAssignDir}/作业说明与评语.md`, conflictStrategy)
+          }
+        }
+
+        if (dlAtt && assignment.teacherAttachments.length > 0) {
+          const attDir = join(outDir, 'attachments')
+          if (existsSync(attDir)) {
+            for (let i = 0; i < assignment.teacherAttachments.length; i++) {
+              const att = assignment.teacherAttachments[i]
+              const dest = join(attDir, att.name)
+              if (existsSync(dest)) {
+                onProgress?.(`上传题目附件至云盘 (${i + 1}/${assignment.teacherAttachments.length}): ${att.name}`)
+                await uploadLocalFileToCloud(cloudUserToken, dest, `${remoteAssignDir}/attachments/${att.name}`, conflictStrategy)
+              }
+            }
+          }
+        }
+
+        if (dlSub && assignment.submissionFiles.length > 0) {
+          const subDir = join(outDir, 'submissions')
+          if (existsSync(subDir)) {
+            for (let i = 0; i < assignment.submissionFiles.length; i++) {
+              const sub = assignment.submissionFiles[i]
+              const dest = join(subDir, sub.name)
+              if (existsSync(dest)) {
+                onProgress?.(`上传提交原件至云盘 (${i + 1}/${assignment.submissionFiles.length}): ${sub.name}`)
+                await uploadLocalFileToCloud(cloudUserToken, dest, `${remoteAssignDir}/submissions/${sub.name}`, conflictStrategy)
+              }
+            }
+          }
+        }
+      } catch (cloudErr) {
+        console.warn(`[assignment] 上传至交大云盘异常:`, cloudErr)
+      }
+    }
+
+    // 仅云盘上传模式下清理本地临时目录
+    if (!destRoot && cloudUserToken && existsSync(outDir)) {
+      try {
+        const { rmSync } = await import('node:fs')
+        rmSync(base, { recursive: true, force: true })
+      } catch {}
     }
 
     return { ok: true, path: outDir }

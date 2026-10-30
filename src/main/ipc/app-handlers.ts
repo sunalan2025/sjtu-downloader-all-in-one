@@ -4,10 +4,9 @@ import {
   ipcMain,
   nativeImage,
   Notification,
-  shell,
-  type IpcMainInvokeEvent
+  shell
 } from 'electron'
-import { join } from 'node:path'
+import { join, extname, normalize } from 'node:path'
 import { tmpdir } from 'node:os'
 import { request as httpsRequest } from 'node:https'
 import type {
@@ -19,6 +18,7 @@ import { cancelAll } from '../download-engine/local'
 import { cloudCancelAll } from '../download-engine/cloud'
 import { hasOngoingTasks } from '../download-engine/shared'
 import { cleanupStaleDownloads } from '../cleanup'
+import { checkpointBackupBeforeQuit, getBackupCatalog } from '../backup/runtime'
 import {
   matchAsset,
   downloadUpdate,
@@ -61,19 +61,8 @@ const UPDATE_REPO = 'sunalan2025/sjtu-downloader-all-in-one'
 const UPDATE_CHECK_TTL = 60 * 60 * 1000 // 1h 节流，避免触发 GitHub 未认证 60 次/h 限流
 let _updateCache: { result: UpdateCheckResult; ts: number } | null = null
 
-/**
- * 校验 IPC 调用发送方来源安全性
- * 仅允许应用顶层主 Frame 发起，严格拒绝嵌套 iframe / webview 跨上下文越权
- */
-export function validateIpcSender(event: IpcMainInvokeEvent): boolean {
-  if (!event || !event.senderFrame) return false
-  // 仅允许顶层主 frame 调用，严禁嵌套 iframe / webview 越权
-  if (event.senderFrame.parent !== null) return false
-  const url = event.senderFrame.url || ''
-  if (url.startsWith('file://')) return true
-  if (process.env['ELECTRON_RENDERER_URL'] && url.startsWith(process.env['ELECTRON_RENDERER_URL'])) return true
-  return false
-}
+import { validateIpcSender, DEFAULT_UNTRUSTED_IPC_ERROR } from '../utils/ipc-guard'
+export { validateIpcSender, DEFAULT_UNTRUSTED_IPC_ERROR }
 
 /**
  * 注册应用基础设施、窗口控制、自动更新、凭据保险库与私有中转相关 IPC 通道
@@ -112,6 +101,12 @@ export function registerAppHandlers(): void {
     return { ok: true }
   })
   ipcMain.handle('window:has-ongoing-tasks', () => ({ ongoing: hasOngoingTasks() }))
+  ipcMain.handle('window:pause-and-quit', () => {
+    checkpointBackupBeforeQuit()
+    setIsQuitting(true)
+    app.quit()
+    return { ok: true }
+  })
   ipcMain.handle('window:toggle-maximize', () => {
     const w = getMainWindow()
     if (w) {
@@ -131,6 +126,7 @@ export function registerAppHandlers(): void {
   })
 
   ipcMain.handle('app:cleanup-stale-downloads', (event, localDestRoot?: unknown): { ok: boolean; error?: string } => {
+    if (getBackupCatalog()?.storageError) return { ok: false, error: '资源清单读取异常，已暂停清理以保护未完成文件' }
     if (!validateIpcSender(event)) {
       return { ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
     }
@@ -138,7 +134,13 @@ export function registerAppHandlers(): void {
       return { ok: false, error: '路径参数包含非法字符' }
     }
     try {
-      cleanupStaleDownloads(typeof localDestRoot === 'string' ? localDestRoot : undefined)
+      const protectedPaths = getBackupCatalog()?.protectedPaths()
+      const dest = typeof localDestRoot === 'string' ? localDestRoot : undefined
+      if (protectedPaths) {
+        cleanupStaleDownloads(dest, protectedPaths)
+      } else {
+        cleanupStaleDownloads(dest)
+      }
     } catch (e) {
       console.error('[startup] 清理残留文件失败（不阻塞）:', e)
     }
@@ -229,7 +231,10 @@ export function registerAppHandlers(): void {
   })
 
   // ─── 打开外部 URL ───
-  ipcMain.handle('app:open-external', async (_e, url: string): Promise<{ ok: boolean; error?: string }> => {
+  ipcMain.handle('app:open-external', async (event, url: string): Promise<{ ok: boolean; error?: string }> => {
+    if (!validateIpcSender(event)) {
+      return { ok: false, error: DEFAULT_UNTRUSTED_IPC_ERROR }
+    }
     if (!isSafeExternalUrl(url)) {
       return { ok: false, error: '仅支持打开合法的 HTTP/HTTPS 网页链接' }
     }
@@ -267,7 +272,7 @@ export function registerAppHandlers(): void {
 
   ipcMain.handle('app:open-path', async (event, fullPath?: unknown): Promise<{ ok: boolean; error?: string }> => {
     if (!validateIpcSender(event)) {
-      return { ok: false, error: '安全拦截：拒绝来自未受信任来源的高权限系统调用' }
+      return { ok: false, error: DEFAULT_UNTRUSTED_IPC_ERROR }
     }
     if (fullPath !== undefined && (typeof fullPath !== 'string' || fullPath.includes('\0'))) {
       return { ok: false, error: '路径参数包含非法字符' }
@@ -280,8 +285,18 @@ export function registerAppHandlers(): void {
         target = app.getPath('home')
       }
     }
+    const normalizedTarget = normalize(target)
+    const ext = extname(normalizedTarget).toLowerCase()
+    const DANGEROUS_EXTENSIONS = new Set([
+      '.exe', '.bat', '.cmd', '.msi', '.ps1', '.vbs', '.vbe',
+      '.js', '.jse', '.wsf', '.wsh', '.scr', '.com', '.pif',
+      '.app', '.sh', '.bash', '.bin'
+    ])
+    if (ext && DANGEROUS_EXTENSIONS.has(ext)) {
+      return { ok: false, error: '安全拦截：出于系统安全考虑，禁止直接打开可执行程序与脚本文件' }
+    }
     try {
-      const err = await shell.openPath(target)
+      const err = await shell.openPath(normalizedTarget)
       if (err) return { ok: false, error: err }
       return { ok: true }
     } catch (e) {

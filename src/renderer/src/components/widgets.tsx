@@ -141,6 +141,16 @@ export function FileTypeBadge({
 
   const badgeClass = className || 'h-[22px] w-[18px] shrink-0 drop-shadow-2xs'
 
+  if (ext === 'ASSIGNMENT' || ext === 'ASSIGN') {
+    return (
+      <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <title>作业归档</title>
+        <path d="M3 2C2.44772 2 2 2.44772 2 3V21C2 21.5523 2.44772 22 3 22H17C17.5523 22 18 21.5523 18 21V7L13 2H3Z" fill="#8B5CF6"/>
+        <path d="M13 2V6C13 6.55228 13.4477 7 14 7H18L13 2Z" fill="#DDD6FE"/>
+        <path d="M6 12l1.5 1.5 3-3M6 16.5l1.5 1.5 3-3" stroke="#FFFFFF" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
   if (ext === 'PDF') {
     return (
       <svg width={18} height={22} className={badgeClass} viewBox="0 0 20 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -285,6 +295,9 @@ export interface DropdownSelectProps<T extends string | number = string> {
   align?: 'left' | 'right'
   title?: string
   disabled?: boolean
+  size?: 'sm' | 'md'
+  fullWidth?: boolean
+  placeholder?: string
 }
 
 export interface DropdownKeyboardNavigationParams<T extends string | number = string> {
@@ -395,7 +408,10 @@ export function DropdownSelect<T extends string | number = string>({
   menuClassName = '',
   align = 'left',
   title,
-  disabled = false
+  disabled = false,
+  size = 'md',
+  fullWidth = false,
+  placeholder
 }: DropdownSelectProps<T>) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -460,7 +476,7 @@ export function DropdownSelect<T extends string | number = string>({
     })
   }
 
-  const selectedOpt = allOptions.find(o => o.value === value) || allOptions[0]
+  const selectedOpt = allOptions.find(o => o.value === value)
 
   const renderOptionItem = (opt: DropdownOption<T>, idx: number) => {
     const isSelected = opt.value === value
@@ -502,11 +518,13 @@ export function DropdownSelect<T extends string | number = string>({
     )
   }
 
+  const isSmall = size === 'sm'
+
   return (
     <div
       ref={containerRef}
       onKeyDown={handleKeyDown}
-      className={`relative inline-block text-left ${open ? 'z-50' : ''} ${className}`}
+      className={`relative ${fullWidth ? 'block w-full' : 'inline-block'} text-left ${open ? 'z-50' : ''} ${className}`}
       title={title}
     >
       <button
@@ -516,21 +534,31 @@ export function DropdownSelect<T extends string | number = string>({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={toggleOpen}
-        className={`h-9 inline-flex items-center justify-between gap-2 rounded-xl border bg-surface-1 px-3 text-xs font-medium text-text-1 shadow-2xs transition-all hover:bg-surface-2 cursor-pointer select-none ${
+        className={`${
+          isSmall ? 'h-8 px-2.5 text-2xs' : 'h-9 px-3 text-xs'
+        } ${
+          fullWidth ? 'w-full flex' : 'inline-flex'
+        } items-center justify-between gap-2 rounded-xl border bg-surface-1 font-medium text-text-1 shadow-2xs transition-all hover:bg-surface-2 cursor-pointer select-none ${
           disabled ? 'opacity-40 cursor-not-allowed hover:bg-surface-1' : ''
         } ${
           open ? 'border-accent ring-2 ring-accent/15 bg-surface-1' : 'border-bd hover:border-bd-strong'
         } ${buttonClassName}`}
       >
         <div className="flex items-center gap-1.5 min-w-0">
-          {icon && <span className="text-xs">{icon}</span>}
-          <span className="truncate max-w-[200px]">{selectedOpt?.label ?? String(value)}</span>
+          {icon && <span className={isSmall ? 'text-2xs' : 'text-xs'}>{icon}</span>}
+          {selectedOpt ? (
+            <span className={`truncate ${fullWidth ? 'max-w-none' : 'max-w-[200px]'}`}>{selectedOpt.label}</span>
+          ) : placeholder ? (
+            <span className={`truncate text-text-4 font-normal ${fullWidth ? 'max-w-none' : 'max-w-[200px]'}`}>{placeholder}</span>
+          ) : (
+            <span className={`truncate ${fullWidth ? 'max-w-none' : 'max-w-[200px]'}`}>{String(value ?? '')}</span>
+          )}
           {typeof selectedOpt?.count === 'number' && (
             <span className="text-text-4 font-normal ml-1.5">{selectedOpt.count}</span>
           )}
         </div>
         <svg
-          className={`h-3.5 w-3.5 text-text-3 transition-transform duration-200 shrink-0 ${open ? 'rotate-180 text-accent' : ''}`}
+          className={`${isSmall ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-text-3 transition-transform duration-200 shrink-0 ${open ? 'rotate-180 text-accent' : ''}`}
           viewBox="0 0 20 20"
           fill="currentColor"
         >
@@ -550,7 +578,9 @@ export function DropdownSelect<T extends string | number = string>({
           aria-activedescendant={`dropdown-opt-${highlightedIndex}`}
           className={`animate-fadeIn absolute ${
             align === 'right' ? 'right-0' : 'left-0'
-          } top-[calc(100%+6px)] z-50 min-w-full w-max max-w-[340px] max-h-72 overflow-y-auto rounded-2xl border border-black/[0.08] dark:border-bd-strong bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-2xl ${menuClassName}`}
+          } top-[calc(100%+6px)] z-50 ${
+            fullWidth ? 'w-full min-w-full' : 'min-w-full w-max max-w-[340px]'
+          } max-h-72 overflow-y-auto rounded-2xl border border-black/[0.08] dark:border-bd-strong bg-surface-1 dark:bg-[#1e1e22] p-1.5 shadow-2xl ${menuClassName}`}
         >
           {groups && groups.length > 0 ? (
             groups.map((group, gIdx) => (
@@ -656,8 +686,13 @@ export function MacOSDocumentIcon({
   let isVideo = false
   let isAudio = false
   let isImage = false
+  let isAssignment = false
 
-  if (ext === 'PDF') {
+  if (ext === 'ASSIGNMENT' || ext === 'ASSIGN') {
+    ribbonColor = '#8B5CF6'
+    label = '作业'
+    isAssignment = true
+  } else if (ext === 'PDF') {
     ribbonColor = '#EF4444'
     label = 'PDF'
   } else if (ext === 'PPT' || ext === 'PPTX') {
@@ -714,7 +749,14 @@ export function MacOSDocumentIcon({
         strokeLinejoin="round"
       />
       {/* 中心特色徽标 */}
-      {isVideo ? (
+      {isAssignment ? (
+        <g stroke={ribbonColor} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none">
+          <path d="M22 31l3 3 6-6" />
+          <path d="M35 31h15" />
+          <path d="M22 43l3 3 6-6" />
+          <path d="M35 43h15" />
+        </g>
+      ) : isVideo ? (
         <>
           <circle cx="36" cy="40" r="13" fill={ribbonColor} fillOpacity="0.15" />
           <polygon points="32,33 44,40 32,47" fill={ribbonColor} />
@@ -794,70 +836,151 @@ export function MacOSCircleCheckbox({
   )
 }
 
-/** 网盘式导航视图模式切换器（对齐 macOS Finder 顺序：图标 / 列表 / 分栏，带平滑滑动胶囊动效） */
+/** 网盘式导航视图模式切换器（对齐 macOS Finder 顺序：图标 / 列表 / 分栏，带平滑滑动胶囊动效，支持动态 modes 裁剪） */
 export function NetdiskViewModeSwitch({
   mode,
-  onChange
+  onChange,
+  modes = ['grid', 'list', 'column']
 }: {
   mode: CourseViewMode
   onChange: (m: CourseViewMode) => void
+  modes?: CourseViewMode[]
 }) {
-  // 对齐 macOS Finder 标准工具栏顺序: [图标 (grid)] [列表 (list)] [分栏 (column)]
-  const modes: CourseViewMode[] = ['grid', 'list', 'column']
   const activeIdx = modes.indexOf(mode)
 
   return (
     <div className="relative flex h-9 items-center rounded-xl border border-bd bg-surface-2 p-0.5 shadow-2xs select-none">
       {/* 弹性滑动胶囊背景 (Sliding Pill Indicator) */}
-      <div
-        className="absolute top-0.5 bottom-0.5 w-8 rounded-lg bg-surface-1 shadow-2xs transition-transform duration-200 ease-out pointer-events-none"
-        style={{
-          transform: `translateX(${Math.max(0, activeIdx) * 32}px)`
-        }}
+      {activeIdx >= 0 && (
+        <div
+          className="absolute top-0.5 bottom-0.5 w-8 rounded-lg bg-surface-1 shadow-2xs transition-transform duration-200 ease-out pointer-events-none"
+          style={{
+            transform: `translateX(${activeIdx * 32}px)`
+          }}
+        />
+      )}
+      {modes.includes('grid') && (
+        <button
+          type="button"
+          onClick={() => onChange('grid')}
+          className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+            mode === 'grid' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
+          }`}
+          title="图标视图"
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="2" y="2" width="5" height="5" rx="1.2" />
+            <rect x="9" y="2" width="5" height="5" rx="1.2" />
+            <rect x="2" y="9" width="5" height="5" rx="1.2" />
+            <rect x="9" y="9" width="5" height="5" rx="1.2" />
+          </svg>
+        </button>
+      )}
+      {modes.includes('list') && (
+        <button
+          type="button"
+          onClick={() => onChange('list')}
+          className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+            mode === 'list' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
+          }`}
+          title="列表视图"
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <line x1="2.5" y1="3.5" x2="13.5" y2="3.5" />
+            <line x1="2.5" y1="8" x2="13.5" y2="8" />
+            <line x1="2.5" y1="12.5" x2="13.5" y2="12.5" />
+          </svg>
+        </button>
+      )}
+      {modes.includes('column') && (
+        <button
+          type="button"
+          onClick={() => onChange('column')}
+          className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
+            mode === 'column' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
+          }`}
+          title="分栏视图"
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <rect x="2" y="2" width="3.5" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
+            <rect x="6.5" y="2" width="3.5" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
+            <rect x="11" y="2" width="3" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
+          </svg>
+        </button>
+      )}
+    </div>
+  )
+}
+
+export interface SearchInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
+  value: string
+  onChange: (value: string) => void
+  onClear?: () => void
+  containerClassName?: string
+}
+
+export function SearchInput({
+  value,
+  onChange,
+  onClear,
+  placeholder = '搜索…',
+  className = 'h-9 w-48',
+  containerClassName = '',
+  onKeyDown,
+  ...rest
+}: SearchInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const handleClear = () => {
+    onChange('')
+    onClear?.()
+    inputRef.current?.focus()
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape' && value) {
+      e.stopPropagation()
+      e.preventDefault()
+      handleClear()
+    }
+    onKeyDown?.(e)
+  }
+
+  return (
+    <div className={`relative flex items-center ${containerClassName}`}>
+      <svg
+        className="pointer-events-none absolute left-3 h-4 w-4 text-text-4 select-none shrink-0"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+      >
+        <path
+          fillRule="evenodd"
+          d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"
+          clipRule="evenodd"
+        />
+      </svg>
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        className={`rounded-xl border border-bd bg-surface-2 pl-9 pr-8 text-xs text-text-1 placeholder:text-text-4 shadow-2xs hover:border-bd-strong focus:border-accent focus:bg-surface-1 focus:outline-none transition-all duration-200 ${className}`}
+        {...rest}
       />
-      <button
-        type="button"
-        onClick={() => onChange('grid')}
-        className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'grid' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
-        }`}
-        title="图标视图"
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="currentColor">
-          <rect x="2" y="2" width="5" height="5" rx="1.2" />
-          <rect x="9" y="2" width="5" height="5" rx="1.2" />
-          <rect x="2" y="9" width="5" height="5" rx="1.2" />
-          <rect x="9" y="9" width="5" height="5" rx="1.2" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange('list')}
-        className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'list' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
-        }`}
-        title="列表视图"
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-          <line x1="2.5" y1="3.5" x2="13.5" y2="3.5" />
-          <line x1="2.5" y1="8" x2="13.5" y2="8" />
-          <line x1="2.5" y1="12.5" x2="13.5" y2="12.5" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange('column')}
-        className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-lg transition-colors cursor-pointer ${
-          mode === 'column' ? 'text-accent font-semibold' : 'text-text-3 hover:text-text-1'
-        }`}
-        title="分栏视图"
-      >
-        <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
-          <rect x="2" y="2" width="3.5" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
-          <rect x="6.5" y="2" width="3.5" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
-          <rect x="11" y="2" width="3" height="12" rx="1" fill="currentColor" fillOpacity="0.2" />
-        </svg>
-      </button>
+      {value.length > 0 && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label="清空搜索"
+          title="清空 (Esc)"
+          onClick={handleClear}
+          className="absolute right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-surface-3 text-text-3 hover:bg-surface-4 hover:text-text-1 transition-colors cursor-pointer text-2xs leading-none"
+        >
+          ✕
+        </button>
+      )}
     </div>
   )
 }

@@ -1,3 +1,4 @@
+import { PageHeader } from '../components/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useShallow } from 'zustand/shallow'
 import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/app'
@@ -11,6 +12,7 @@ import {
   ProgressBar,
   ResourceTypeSegmented,
   TaskCtrlButtons,
+  SearchInput,
   triStateFromCount
 } from '../components/DownloadUI'
 import {
@@ -460,53 +462,32 @@ export function CnmoocBrowser() {
   ])
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="ui-page">
+      <PageHeader title="好大学在线" description="浏览课程章节、课件与视频" />
       {/* 顶部单行置顶操作栏 (对齐设计图：搜索框 + 资源类型筛选 + 统计 + 全选 + 立即下载) */}
-      <div className="sticky top-0 z-30 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 dark:bg-[#1e1e22] px-6 py-2.5 shadow-xs">
+      <div className="ui-toolbar justify-between sticky top-0 z-30 no-drag">
         {/* 左侧：搜索框 + 资源类型筛选胶囊 + 刷新 */}
-        <div className="flex items-center gap-3">
-          <div className="relative flex items-center">
-            <svg className="pointer-events-none absolute left-3 h-4 w-4 text-text-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="搜索课程/章节/课件..."
-              className="h-10 w-48 rounded-xl border border-bd bg-surface-2 pl-9 pr-3 text-xs text-text-1 placeholder:text-text-4 shadow-2xs hover:border-bd-strong focus:w-60 focus:border-accent focus:outline-none transition-all duration-200"
-            />
-          </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="搜索课程/章节/课件..."
+            className="h-9 w-48"
+          />
 
           <div className="flex items-center gap-2">
             <ResourceTypeSegmented value={resourceFilter} onChange={setResourceFilter} />
           </div>
-
-          <NetdiskViewModeSwitch
-            mode={courseViewMode}
-            onChange={setCourseViewMode}
-          />
 
           {scanState === 'scanning' && (
             <span className="inline-flex items-center gap-1.5 text-xs text-text-2">
               <Spinner size={12} /> {scanMessage}
             </span>
           )}
-
-          {scanState === 'done' && courses.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void runScan()}
-              title="重新扫描好大学在线课程"
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-bd bg-surface-2 text-text-3 hover:border-bd-strong hover:bg-surface-1 hover:text-text-1 transition-all shadow-2xs cursor-pointer text-sm"
-            >
-              ↻
-            </button>
-          )}
         </div>
 
-        {/* 右侧：下载控制 */}
-        <div className="flex items-center gap-3">
+        {/* 右侧：下载控制 + 视图切换 */}
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           {downloading && (
             <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
               <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
@@ -514,6 +495,11 @@ export function CnmoocBrowser() {
               <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
             </div>
           )}
+
+          <NetdiskViewModeSwitch
+            mode={courseViewMode}
+            onChange={setCourseViewMode}
+          />
         </div>
       </div>
 

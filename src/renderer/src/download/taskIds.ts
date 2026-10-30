@@ -96,7 +96,7 @@ export function cnmoocTaskId(courseId: string, itemId: string): string {
 export interface ParsedTaskId {
   /** 任务来源 */
   source: 'canvas-file' | 'canvas-lecture' | 'canvas-mvid' | 'canvas-exttool' | 'canvas-exturl'
-    | 'canvas-assignment' | 'canvas-ppt-pdf' | 'canvas-assign-batch' | 'canvas-transcript'
+    | 'canvas-assignment' | 'canvas-ppt-pdf' | 'canvas-ppt-item' | 'canvas-assign-batch' | 'canvas-transcript'
     | 'audited' | 'cnmooc'
   /** 课程 id（audited: resourceId；canvas: courseId；cnmooc: courseId 字符串转 number，可能 NaN——cnmooc 的 courseId 本就是字符串） */
   courseId: number
@@ -112,6 +112,7 @@ const CANVAS_PREFIX_MAP: Record<string, ParsedTaskId['source']> = {
   canvas_exturl: 'canvas-exturl',
   canvas_assignment: 'canvas-assignment',
   canvas_ppt_pdf: 'canvas-ppt-pdf',
+  canvas_ppt_item: 'canvas-ppt-item',
   canvas_assign_batch: 'canvas-assign-batch',
   canvas_transcript: 'canvas-transcript'
 }

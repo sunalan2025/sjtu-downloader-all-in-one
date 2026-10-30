@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { DropdownSelect, type DropdownOption, type DropdownGroup } from '../../../components/widgets'
 import type React from 'react'
 import type { ScheduleWeek, ScheduleEvent, JiaowuScheduleResult } from '@shared/types'
@@ -49,6 +49,7 @@ interface WeekScheduleViewProps {
   handleOpenCourseModal: (title: string) => void
   handleCardMouseEnter: (item: PlacedEvent, e: React.MouseEvent<HTMLElement>) => void
   handleCardMouseLeave: () => void
+  examEvents?: ScheduleEvent[]
 }
 
 export function WeekScheduleView({
@@ -78,16 +79,32 @@ export function WeekScheduleView({
   setExpandNoonSlot,
   handleOpenCourseModal,
   handleCardMouseEnter,
-  handleCardMouseLeave
+  handleCardMouseLeave,
+  examEvents
 }: WeekScheduleViewProps) {
+  const [expandDeadlines, setExpandDeadlines] = useState(false)
+  const hasMoreDeadlines = weekDays.some(day => (dayTopEvents.get(day.dateStr)?.length ?? 0) > 2)
   const currentWeekGroups: DropdownGroup<string>[] = useMemo(() => {
     const res: DropdownGroup<string>[] = [
       {
         label: `${semesterTitle || '秋季学期'} 正序`,
-        options: regularTermWeeks.map(w => ({
-          value: `${w.title || ''}_${w.week}`,
-          label: `${w.week}${w.week === currentWeek ? ' · 当前周' : ''}`
-        }))
+        options: regularTermWeeks.map(w => {
+          let examCount = 0
+          if (examEvents && examEvents.length > 0 && w.startTime && w.endTime) {
+            const wStart = w.startTime.slice(0, 10)
+            const wEnd = w.endTime.slice(0, 10)
+            examCount = examEvents.filter(ex => {
+              const exDate = ex.startTime ? ex.startTime.slice(0, 10) : ''
+              return exDate && exDate >= wStart && exDate <= wEnd
+            }).length
+          }
+          const currentSuffix = w.week === currentWeek ? ' · 当前周' : ''
+          const examSuffix = examCount > 0 ? ` (🚨 含 ${examCount} 门考试)` : ''
+          return {
+            value: `${w.title || ''}_${w.week}`,
+            label: `${w.week}${currentSuffix}${examSuffix}`
+          }
+        })
       }
     ]
     if (breakWeeks.length > 0) {
@@ -100,7 +117,7 @@ export function WeekScheduleView({
       })
     }
     return res
-  }, [regularTermWeeks, breakWeeks, currentWeek, semesterTitle])
+  }, [regularTermWeeks, breakWeeks, currentWeek, semesterTitle, examEvents])
 
   const jiaowuWeekOptions: DropdownOption<number>[] = useMemo(
     () => Array.from({ length: 18 }, (_, idx) => idx + 1).map(wNum => ({
@@ -112,8 +129,8 @@ export function WeekScheduleView({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 周次导航条 (声明 relative z-10 保证下拉弹层高于日历二维网格，且严格低于顶栏 sticky header) */}
-      <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-bd bg-surface-2/60 p-3 shadow-2xs backdrop-blur-sm">
+      {/* 周次导航条 (声明 relative z-30 保证下拉弹层高于日历二维网格卡片 z-10，且严格低于顶栏 sticky header z-40) */}
+      <div className="relative z-30 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-bd bg-surface-2/60 p-3 shadow-2xs backdrop-blur-sm">
         <div className="flex items-center gap-2">
           {isCurrentMode ? (
             <>
@@ -252,6 +269,16 @@ export function WeekScheduleView({
               <div className="min-w-0 flex flex-col items-center justify-center border-r border-bd p-2 text-2xs text-text-3 font-medium select-none">
                 <span>全天 / 截止</span>
                 <span className="text-3xs text-text-4 font-mono">DDL</span>
+                {hasMoreDeadlines && (
+                  <button
+                    type="button"
+                    aria-expanded={expandDeadlines}
+                    className="mt-2 rounded-md px-2 py-1 text-2xs text-accent hover:bg-accent/10 focus-visible:outline-accent"
+                    onClick={() => setExpandDeadlines(value => !value)}
+                  >
+                    {expandDeadlines ? '收起事项' : '展开全部'}
+                  </button>
+                )}
               </div>
               {weekDays.map(day => {
                 const topList = dayTopEvents.get(day.dateStr) || []
@@ -262,7 +289,7 @@ export function WeekScheduleView({
                       day.isToday ? 'bg-accent/[0.03]' : ''
                     }`}
                   >
-                    {topList.map(item => {
+                    {(expandDeadlines ? topList : topList.slice(0, 2)).map(item => {
                       const statusInfo = getAssignmentStatusInfo(item.submissionStatus, item.score)
                       const canOpen = Boolean(item.htmlUrl && isSafeExternalUrl(item.htmlUrl))
 
@@ -284,13 +311,8 @@ export function WeekScheduleView({
                           title={canOpen ? '点击前往 Canvas 查看作业详情 ↗' : undefined}
                         >
                           <div className="flex items-start justify-between gap-1">
-                            <span className="font-semibold line-clamp-2 leading-tight flex items-center gap-1">
+                            <span className="min-w-0 flex-1 font-semibold line-clamp-2 break-words leading-tight" title={cleanParenthesesInTitle(item.title)}>
                               {cleanParenthesesInTitle(item.title)}
-                              {canOpen && (
-                                <span className="opacity-0 group-hover:opacity-100 transition-opacity text-3xs shrink-0 font-normal">
-                                  ↗
-                                </span>
-                              )}
                             </span>
                             <span className="shrink-0 text-3xs font-bold">
                               {statusInfo.label}
@@ -306,6 +328,16 @@ export function WeekScheduleView({
                         </div>
                       )
                     })}
+                    {!expandDeadlines && topList.length > 2 && (
+                      <button
+                        type="button"
+                        className="w-full rounded-md px-1 py-1 text-2xs text-accent hover:bg-accent/10 focus-visible:outline-accent"
+                        aria-label={`${day.dayLabel}还有 ${topList.length - 2} 项截止事项，展开全部`}
+                        onClick={() => setExpandDeadlines(true)}
+                      >
+                        还有 {topList.length - 2} 项…
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -380,22 +412,18 @@ export function WeekScheduleView({
               SJTU_TIME_SLOTS.map(slot => {
                 const isNoonSlot = slot.id === 3
                 if (isNoonSlot && !hasNoonEvents && !expandNoonSlot) {
+                  if (day.dayIndex !== 0) return null
                   return (
-                    <div
-                      key={`bg-${day.dayIndex}-3`}
-                      style={{ gridColumn: day.dayIndex + 2, gridRow: 3 }}
+                    <button
+                      type="button"
+                      key="collapsed-noon"
+                      style={{ gridColumn: '2 / -1', gridRow: 3 }}
                       onClick={() => setExpandNoonSlot(true)}
-                      className={`min-w-0 border-b border-r border-bd bg-surface-2/20 hover:bg-surface-2/40 cursor-pointer flex items-center justify-center ${
-                        day.dayIndex === 6 ? 'border-r-0' : ''
-                      }`}
+                      className="min-w-0 border-b border-bd bg-surface-2 hover:bg-surface-3 cursor-pointer flex items-center justify-center px-3 text-xs text-text-2 focus-visible:outline-accent"
                       title="点击展开中午第 5-6 节"
                     >
-                      {day.dayIndex === 0 && (
-                        <span className="text-3xs text-text-4 font-sans select-none opacity-80">
-                          ☀️ 中午时段 (12:00 - 13:40) · 本周无排课 · 点击展开
-                        </span>
-                      )}
-                    </div>
+                      <span className="truncate">☀️ 中午时段 (12:00 - 13:40) · 本周无排课 · 点击展开</span>
+                    </button>
                   )
                 }
 
@@ -428,6 +456,58 @@ export function WeekScheduleView({
                   className="min-w-0 p-1.5 flex flex-row gap-1.5 pointer-events-auto h-full"
                 >
                   {cluster.events.map(item => {
+                    // 0. 考试卡片 (最高优先级展示，醒目玫瑰红主题、考前倒计时与冲突提示)
+                    if (item.type === 'exam') {
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleOpenCourseModal(item.title)}
+                          onMouseEnter={e => handleCardMouseEnter(item, e)}
+                          onMouseLeave={handleCardMouseLeave}
+                          className="group relative h-full flex flex-col justify-between rounded-xl border border-rose-500/40 dark:border-rose-500/50 bg-rose-500/10 dark:bg-[#2b181c] p-2 text-2xs hover:border-rose-500 hover:shadow-2xs transition-all overflow-hidden flex-1 min-w-0 cursor-pointer"
+                          title="点击查看考试与课程详情"
+                        >
+                          <div className="absolute left-0 top-1.5 bottom-1.5 w-1.5 rounded-r bg-rose-500 animate-pulse shadow-sm" />
+                          <div className="pl-2 flex flex-col h-full justify-between gap-1.5">
+                            <div>
+                              <div className="flex items-start justify-between gap-1">
+                                <span className="font-bold text-rose-700 dark:text-rose-300 text-xs leading-snug break-words">
+                                  {cleanParenthesesInTitle(item.title)}
+                                </span>
+                                <span className="shrink-0 rounded bg-rose-500/20 px-1.5 py-0.2 text-3xs font-bold text-rose-700 dark:text-rose-300">
+                                  🚨 {item.examType || '考试'}
+                                </span>
+                              </div>
+
+                              <div className="mt-1 space-y-0.5 text-3xs text-text-3 font-mono">
+                                <div className="text-rose-600 dark:text-rose-400 font-semibold">
+                                  🕒 {formatEventTime(item.startTime)} ~ {formatEventTime(item.endTime)}
+                                </div>
+                                {item.location && (
+                                  <div className="text-text-1 font-semibold truncate font-sans">
+                                    📍 {item.location}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="space-y-0.5">
+                              {item.conflictCourseTitle && (
+                                <div className="text-3xs text-rose-600 dark:text-rose-400 truncate font-sans">
+                                  ⚠️ 原排课: {item.conflictCourseTitle}
+                                </div>
+                              )}
+                              {item.leftDay !== undefined && (
+                                <div className="text-3xs font-semibold text-rose-700 dark:text-rose-300 font-sans">
+                                  ⏳ {item.leftDay === 0 ? '今日考试' : item.leftDay > 0 ? `距考试还剩 ${item.leftDay} 天` : '考试已结束'}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    }
+
                     // 1. 讲座/活动卡片
                     if (item.type === 'activity') {
                       return (

@@ -4,7 +4,7 @@
 import { existsSync, lstatSync, readdirSync, rmSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { normalizeComparePath } from '../shared/utils'
+import { normalizeComparePath } from './utils/paths'
 
 // 应用子目录名（Canvas / 好大学在线 / 旁听课程），下载根下统一。
 export const APP_COURSE_DIRS = ['Canvas课程', '好大学在线', 'SJTU旁听课程']
@@ -12,7 +12,7 @@ export const APP_COURSE_DIRS = ['Canvas课程', '好大学在线', 'SJTU旁听�
 /** 递归遍历 dir，仅清理 *.part 临时未完成文件。
  *  保留 *.mp4、*.ts 等所有合法文件与课件代码——用户选定目录里的成品与文件绝不误删。
  *  遇到符号链接时跳过，严禁穿越软链接。 */
-export function cleanupHalfDownloaded(dir: string): void {
+export function cleanupHalfDownloaded(dir: string, protectedPaths: readonly string[] = []): void {
   let entries: string[]
   try {
     entries = readdirSync(dir)
@@ -33,8 +33,9 @@ export function cleanupHalfDownloaded(dir: string): void {
     if (!st || st.isSymbolicLink()) continue
 
     if (st.isDirectory()) {
-      cleanupHalfDownloaded(p)
+      cleanupHalfDownloaded(p, protectedPaths)
     } else if (name.endsWith('.part')) {
+      if (protectedPaths.some(kept => normalizeComparePath(kept) === normalizeComparePath(p))) continue
       try {
         unlinkSync(p)
       } catch (err) {
@@ -51,7 +52,7 @@ export function cleanupHalfDownloaded(dir: string): void {
  *  - OS tmpdir/sjtu-ppt-*：PPT 图片临时目录，rmSync。
  *  - localDestRoot（用户选定目录）应用子目录：仅删除 *.part，保留全部成品与代码文件。
  *  跳过 sjtu-update*（updater 自管）。任一步失败不抛、不阻塞启动。 */
-export function cleanupStaleDownloads(localDestRoot?: string): void {
+export function cleanupStaleDownloads(localDestRoot?: string, protectedPaths: readonly string[] = []): void {
   const tempRoot = process.platform === 'win32' ? 'C:/tmp' : '/tmp'
   // 1) cloud-only 临时根 + OS tmpdir 下的应用子目录：整目录删（纯中间产物）。
   //    若用户恰好把 localDestRoot 设成了 tempRoot/tmpdir，通过 normalizeComparePath 规范化比较跳过整删。
@@ -59,6 +60,11 @@ export function cleanupStaleDownloads(localDestRoot?: string): void {
     if (localDestRoot && normalizeComparePath(base) === normalizeComparePath(localDestRoot)) continue
     for (const d of APP_COURSE_DIRS) {
       const targetDir = join(base, d)
+      const normalizedTarget = normalizeComparePath(targetDir).replace(/\\/g, '/')
+      if (protectedPaths.some(kept => {
+        const normalized = normalizeComparePath(kept).replace(/\\/g, '/')
+        return normalized === normalizedTarget || normalized.startsWith(normalizedTarget + '/')
+      })) continue
       if (!existsSync(targetDir)) continue
       try {
         rmSync(targetDir, { recursive: true, force: true })
@@ -91,7 +97,7 @@ export function cleanupStaleDownloads(localDestRoot?: string): void {
   // 3) localDestRoot 应用子目录：仅清理半下载 .part 文件，保留 .mp4 等所有成品及代码文件。
   if (localDestRoot) {
     for (const d of APP_COURSE_DIRS) {
-      cleanupHalfDownloaded(join(localDestRoot, d))
+      cleanupHalfDownloaded(join(localDestRoot, d), protectedPaths)
     }
   }
 }

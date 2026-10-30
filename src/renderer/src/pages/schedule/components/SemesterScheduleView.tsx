@@ -10,6 +10,7 @@ import type {
 } from '../schedule-types'
 import { SJTU_TIME_SLOTS } from '../schedule-helpers'
 import { LockDeadlineBadge, AssignmentStatusBadge } from './ScheduleBadges'
+import { SearchInput } from '../../../components/DownloadUI'
 
 export type { SemesterCourseCardItem, JiaowuOverviewSummary }
 
@@ -228,16 +229,12 @@ export function SemesterScheduleView({
             </div>
           )}
 
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="搜索课程、教师、教室或作业…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-56 md:w-64 rounded-xl border border-bd bg-surface-1 py-1.5 pl-8 pr-3 text-xs text-text-1 placeholder:text-text-3 focus:border-accent focus:outline-none shadow-2xs"
-            />
-            <span className="absolute left-2.5 top-2 text-text-3 text-xs">🔍</span>
-          </div>
+          <SearchInput
+            placeholder="搜索课程、教师、教室或作业…"
+            value={searchQuery}
+            onChange={setSearchQuery}
+            className="w-56 md:w-64"
+          />
         </div>
       </div>
 

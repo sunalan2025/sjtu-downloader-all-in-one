@@ -8,6 +8,7 @@
 
 import type { DownloadProgress } from '../../shared/types'
 import { getMainWindow } from '../window'
+import { recordBackupProgress } from '../backup/runtime'
 
 let progressBatch: Map<string, DownloadProgress> | null = null
 let progressScheduled = false
@@ -74,6 +75,7 @@ export function emitProgress(p: DownloadProgress): void {
     courseName: p.courseName || existing?.courseName
   }
   taskSnapshotRegistry.set(p.taskId, merged)
+  recordBackupProgress(merged)
 
   if (!progressBatch) progressBatch = new Map()
   progressBatch.set(p.taskId, merged)

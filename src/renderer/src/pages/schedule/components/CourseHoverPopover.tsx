@@ -65,6 +65,16 @@ export function CourseHoverPopover({
                 讲座 / 活动
               </span>
             )}
+            {item.type === 'exam' && (
+              <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-3xs font-bold text-rose-600 dark:text-rose-400">
+                🚨 {item.examType || '考试'}
+              </span>
+            )}
+            {item.type === 'exam' && item.leftDay !== undefined && (
+              <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-3xs font-semibold text-rose-700 dark:text-rose-300">
+                {item.leftDay === 0 ? '今日考试' : item.leftDay > 0 ? `距考试还剩 ${item.leftDay} 天` : '已结束'}
+              </span>
+            )}
           </div>
         </div>
 
@@ -72,7 +82,7 @@ export function CourseHoverPopover({
         <div className="space-y-1.5 pt-2 border-t border-bd text-xs">
           <div className="flex items-start gap-1.5 text-2xs">
             <span className="text-text-4 shrink-0 font-medium">🕒 时间:</span>
-            <span className="font-mono text-accent font-medium leading-tight">
+            <span className={`font-mono font-medium leading-tight ${item.type === 'exam' ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-accent'}`}>
               {item.endTime && item.endTime.includes('周')
                 ? `${item.startTime} (${item.endTime})`
                 : getEventDisplayTime(item)}
@@ -80,10 +90,16 @@ export function CourseHoverPopover({
           </div>
           {item.location && item.location !== '不排教室' && (
             <div className="flex items-start gap-1.5 text-2xs">
-              <span className="text-text-4 shrink-0 font-medium">📍 地点:</span>
-              <span className="font-medium text-text-1 leading-tight break-words">
+              <span className="text-text-4 shrink-0 font-medium">{item.type === 'exam' ? '📍 考场:' : '📍 地点:'}</span>
+              <span className={`font-medium leading-tight break-words ${item.type === 'exam' ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-text-1'}`}>
                 {item.location}
               </span>
+            </div>
+          )}
+          {item.conflictCourseTitle && (
+            <div className="flex items-start gap-1.5 text-2xs text-rose-600 dark:text-rose-400">
+              <span className="shrink-0 font-medium">⚠️ 冲突:</span>
+              <span className="leading-tight">原排课「{item.conflictCourseTitle}」时段已被考试占用</span>
             </div>
           )}
           {item.teacher && (

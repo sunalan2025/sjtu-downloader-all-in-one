@@ -1,7 +1,6 @@
 /**
  * 共享工具函数
  */
-import path from 'node:path'
 import type { DownloadMode } from './types'
 import { APP_DEFAULTS } from './config/defaults'
 
@@ -515,14 +514,4 @@ export function isNewerVersion(latest: string, current: string): boolean {
     if (ai < bi) return false
   }
   return false
-}
-
-/**
- * 规范化比较路径
- * 统一步析为绝对路径，Windows 下转换为小写并消除正反斜杠差异，便于安全比对
- */
-export function normalizeComparePath(p: string): string {
-  if (!p) return ''
-  const resolved = path.resolve(p)
-  return (typeof process !== 'undefined' && process.platform === 'win32') ? resolved.toLowerCase() : resolved
 }

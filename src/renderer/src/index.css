@@ -1,4 +1,6 @@
 @import '../../shared/theme/theme.css';
+@import './styles/layout.css';
+@import './styles/motion.css';
 
 @tailwind base;
 @tailwind components;

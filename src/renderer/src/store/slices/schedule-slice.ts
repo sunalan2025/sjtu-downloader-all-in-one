@@ -4,17 +4,18 @@ import type { AppState } from '../app'
 export interface ScheduleSlice {
   scheduleSelectedSemesterKey: string
   scheduleViewMode: 'week' | 'semester'
-  scheduleLayerFilter: { course: boolean; activity: boolean; ddl: boolean }
+  scheduleLayerFilter: { course: boolean; activity: boolean; ddl: boolean; exam: boolean }
   scheduleExpandNoonSlot: boolean
   setScheduleSelectedSemesterKey: (key: string) => void
   setScheduleViewMode: (mode: 'week' | 'semester') => void
   setScheduleLayerFilter: (
     filter:
-      | Partial<{ course: boolean; activity: boolean; ddl: boolean }>
-      | ((prev: { course: boolean; activity: boolean; ddl: boolean }) => {
+      | Partial<{ course: boolean; activity: boolean; ddl: boolean; exam: boolean }>
+      | ((prev: { course: boolean; activity: boolean; ddl: boolean; exam: boolean }) => {
           course: boolean
           activity: boolean
           ddl: boolean
+          exam: boolean
         })
   ) => void
   setScheduleExpandNoonSlot: (expand: boolean) => void
@@ -23,7 +24,7 @@ export interface ScheduleSlice {
 export const createScheduleSlice: StateCreator<AppState, [], [], ScheduleSlice> = set => ({
   scheduleSelectedSemesterKey: 'current',
   scheduleViewMode: 'week',
-  scheduleLayerFilter: { course: true, activity: true, ddl: true },
+  scheduleLayerFilter: { course: true, activity: true, ddl: true, exam: true },
   scheduleExpandNoonSlot: false,
   setScheduleSelectedSemesterKey: scheduleSelectedSemesterKey => set({ scheduleSelectedSemesterKey }),
   setScheduleViewMode: scheduleViewMode => set({ scheduleViewMode }),
@@ -36,7 +37,8 @@ export const createScheduleSlice: StateCreator<AppState, [], [], ScheduleSlice> 
                 course: boolean
                 activity: boolean
                 ddl: boolean
-              }) => { course: boolean; activity: boolean; ddl: boolean }
+                exam: boolean
+              }) => { course: boolean; activity: boolean; ddl: boolean; exam: boolean }
             )(state.scheduleLayerFilter)
           : { ...state.scheduleLayerFilter, ...filter }
     })),

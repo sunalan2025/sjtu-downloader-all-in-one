@@ -4,7 +4,7 @@ import { useAppStore } from '../store/app'
 /** 窗口动作：minimize=最小化按钮，close=关闭按钮（或 Alt+F4） */
 type WindowAction = 'minimize' | 'close'
 /** 用户选择：minimize=最小化到托盘，taskbar=最小化到任务栏，quit=退出应用，cancel=取消（保持窗口） */
-type WindowChoice = 'minimize' | 'taskbar' | 'quit' | 'cancel'
+type WindowChoice = 'minimize' | 'taskbar' | 'quit' | 'save_quit' | 'cancel'
 
 // ─── 模块级单例：让 CaptionButtons / close-requested 都能触发同一个弹窗 ───
 //
@@ -34,6 +34,7 @@ export async function resolveWindowAction(action: WindowAction): Promise<WindowC
     return windowCloseAction === 'taskbar' ? 'taskbar' : 'minimize'
   }
   if (exitWhenDownloading === 'pause_quit') return 'quit'
+  if (exitWhenDownloading === 'save_quit') return 'save_quit'
 
   if (!openFn) return 'cancel' // 弹窗未就绪，安全回退
   return openFn(action)
@@ -49,6 +50,8 @@ export async function handleWindowAction(action: WindowAction): Promise<void> {
     await window.api.window.minimizeToTaskbar()
   } else if (choice === 'quit') {
     await window.api.window.cancelAndQuit()
+  } else if (choice === 'save_quit') {
+    await window.api.window.pauseAndQuit()
   }
   // cancel → 什么都不做
 }
@@ -232,6 +235,13 @@ export function WindowConfirmModal() {
             className="h-9 rounded-lg bg-accent text-sm font-medium text-white transition-all hover:brightness-110 active:scale-[0.98]"
           >
             {windowCloseAction === 'taskbar' ? '最小化到任务栏' : '最小化到托盘'}
+          </button>
+          <button
+            type="button"
+            onClick={() => close('save_quit')}
+            className="h-9 rounded-lg border border-bd text-sm font-medium text-text-1 hover:bg-surface-3"
+          >
+            保存任务并退出
           </button>
           <button
             type="button"

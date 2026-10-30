@@ -1,11 +1,15 @@
+import { PageHeader } from '../components/ui'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useAppStore } from '../store/app'
 import { formatBytes } from '../components/DownloadUI'
 import { formatDate } from '../../../shared/utils'
 import { aggregateTaskState } from '../download/progress'
 import type { TransferSpeed } from '@shared/types'
+import { useLibrarySnapshot } from '../features/resource-library/useLibrarySnapshot'
+import { RecoverableTransfers } from '../features/transfers/RecoverableTransfers'
 
 export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'history' }) {
+  const saved = useLibrarySnapshot('transfers')
   const storeHistory = useAppStore(s => s.downloadHistory)
   const history = typeof useAppStore.getState === 'function' ? useAppStore.getState().downloadHistory : storeHistory
   const removeHistoryItem = useAppStore(s => s.removeDownloadHistoryItem)
@@ -24,15 +28,16 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
   const [activeTab, setActiveTab] = useState<'active' | 'failed' | 'history'>(() => {
     if (props?.initialTab) return props.initialTab
     const prog = useAppStore.getState().progress
-    const hasActive = Object.values(prog).some(p =>
-      (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') &&
-      !p.taskId.endsWith('_cloud') && !p.taskId.includes('_scan_')
+    const hasActive = Object.values(prog).some(
+      p =>
+        (p.state === 'downloading' || p.state === 'pending' || p.state === 'paused') &&
+        !p.taskId.endsWith('_cloud') &&
+        !p.taskId.includes('_scan_')
     )
     if (hasActive) return 'active'
     const hist = useAppStore.getState().downloadHistory
-    const hasFinished = Object.values(prog).some(p =>
-      (p.state === 'done' || p.state === 'skipped') &&
-      !p.taskId.endsWith('_cloud') && !p.taskId.includes('_scan_')
+    const hasFinished = Object.values(prog).some(
+      p => (p.state === 'done' || p.state === 'skipped') && !p.taskId.endsWith('_cloud') && !p.taskId.includes('_scan_')
     )
     if (hist.length > 0 || hasFinished) return 'history'
     return 'active'
@@ -57,9 +62,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
 
       // 解析课程名称：优先本地任务元数据，无则通过 ID 中的数字反查全局课程
       const courseIdMatch = id.match(/_(\d+)(?:_|$)/)
-      const matchedCourse = courseIdMatch
-        ? canvasCourses?.find(c => String(c.courseId) === courseIdMatch[1])
-        : undefined
+      const matchedCourse = courseIdMatch ? canvasCourses?.find(c => String(c.courseId) === courseIdMatch[1]) : undefined
       const courseName = local.courseName || cloud?.courseName || matchedCourse?.name
 
       // 解析规范化文件名，消除裸露的数字 ID
@@ -67,7 +70,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
       if (!fileName || /^\d+$/.test(fileName) || fileName === id) {
         if (id.includes('_ppt_')) {
           fileName = courseName ? `${courseName} · 课堂讲义 (PPT/PDF)` : '课堂讲义 (PPT/PDF)'
-        } else if (id.includes('_assign_')) {
+        } else if (id.includes('_assign_') || id.includes('_assignment_')) {
           fileName = courseName ? `${courseName} · 课程作业归档` : '课程作业归档'
         } else if (id.includes('_transcript_')) {
           fileName = courseName ? `${courseName} · 课堂逐字稿与字幕` : '课堂逐字稿与字幕'
@@ -80,6 +83,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
         taskId: id,
         fileName,
         courseName,
+        manualUpload: id.startsWith('cloudpan_up_'),
         storageMode: local.storageMode || cloud?.storageMode,
         aggregate,
         isBoth: !!cloud
@@ -88,16 +92,18 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
   }, [progress, cloudLinkedIds, downloadMode, canvasCourses])
 
   const activeTasks = useMemo(() => {
-    return logicalTasks.filter(t => (
-      t.aggregate.state === 'downloading' ||
-      t.aggregate.state === 'pending' ||
-      t.aggregate.state === 'paused'
-    ))
+    return logicalTasks.filter(
+      t => t.aggregate.state === 'downloading' || t.aggregate.state === 'pending' || t.aggregate.state === 'paused'
+    )
   }, [logicalTasks])
 
   const failedTasks = useMemo(() => {
     return logicalTasks.filter(t => t.aggregate.state === 'error')
   }, [logicalTasks])
+  const recoverable = saved.data.recoverableTasks.filter(task => !progress[task.spec.taskId] || task.recovered)
+  const [historyPage, setHistoryPage] = useState(0)
+  const historyPages = Math.max(1, Math.ceil(history.length / 50))
+  const currentHistoryPage = Math.min(historyPage, historyPages - 1)
 
   // 兜底补齐：若当前会话内存中已有完成/跳过任务，但 downloadHistory 中未记录（如旧版本遗留未落盘）
   // 自动将其合入 downloadHistory，保证看板与顶栏计数完全一致
@@ -114,9 +120,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
 
       const rawLocal = progress[item.taskId]
       const rawCloud = cloudLinkedIds[item.taskId] ? progress[cloudLinkedIds[item.taskId]] : undefined
-      const fileSize = item.aggregate.total > 0
-        ? item.aggregate.total
-        : (item.aggregate.received > 0 ? item.aggregate.received : undefined)
+      const fileSize = item.aggregate.total > 0 ? item.aggregate.total : item.aggregate.received > 0 ? item.aggregate.received : undefined
       useAppStore.getState().addDownloadHistory({
         taskId: item.taskId,
         fileName: item.fileName,
@@ -153,6 +157,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
 
   const handleRetryAllFailed = () => {
     for (const task of failedTasks) {
+      if (task.manualUpload) continue
       void window.api.download.resume(task.taskId)
     }
   }
@@ -200,8 +205,8 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
     const bgClass = isPpt
       ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
       : isMedia
-      ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20'
-      : 'bg-accent/10 text-accent border border-accent/20'
+        ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20'
+        : 'bg-accent/10 text-accent border border-accent/20'
 
     return (
       <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-mono text-xs font-bold shadow-2xs ${bgClass}`}>
@@ -211,10 +216,11 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
   }
 
   return (
-    <div className="flex h-full flex-col bg-surface-1">
+    <div className="ui-page">
+      <PageHeader title="传输中心" description="查看进行中的任务、处理异常与管理传输历史" />
       {/* 顶部实时速率与操作看板 */}
-      <div className="flex shrink-0 items-center justify-between border-b border-bd bg-surface-2 px-6 py-3.5 shadow-sm">
-        <div className="flex items-center gap-4">
+      <div className="ui-toolbar justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 rounded-xl bg-surface-3 px-3 py-1.5 shadow-sm">
             <span className="text-xs text-text-3">活跃传输</span>
             <span className="font-mono text-sm font-bold text-accent">{activeTasks.length}</span>
@@ -222,17 +228,13 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
 
           <div className="flex items-center gap-2 rounded-xl bg-surface-3 px-3 py-1.5 shadow-sm">
             <span className="text-xs text-text-3">下载速度</span>
-            <span className="font-mono text-sm font-bold text-text-1">
-              {speed.down > 0 ? `${formatBytes(speed.down)}/s` : '0 B/s'}
-            </span>
+            <span className="font-mono text-sm font-bold text-text-1">{speed.down > 0 ? `${formatBytes(speed.down)}/s` : '0 B/s'}</span>
           </div>
 
           {speed.up > 0 && (
             <div className="flex items-center gap-2 rounded-xl bg-surface-3 px-3 py-1.5 shadow-sm">
               <span className="text-xs text-text-3">上传速度</span>
-              <span className="font-mono text-sm font-bold text-sky-600 dark:text-sky-400">
-                {`${formatBytes(speed.up)}/s`}
-              </span>
+              <span className="font-mono text-sm font-bold text-sky-600 dark:text-sky-400">{`${formatBytes(speed.up)}/s`}</span>
             </div>
           )}
 
@@ -244,9 +246,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
               type="button"
               onClick={() => setActiveTab('active')}
               className={`rounded-lg px-3.5 py-1 text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'active'
-                  ? 'bg-surface-1 text-text-1 shadow-2xs'
-                  : 'text-text-3 hover:text-text-2'
+                activeTab === 'active' ? 'bg-surface-1 text-text-1 shadow-2xs' : 'text-text-3 hover:text-text-2'
               }`}
             >
               正在传输 ({activeTasks.length})
@@ -268,9 +268,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
               type="button"
               onClick={() => setActiveTab('history')}
               className={`rounded-lg px-3.5 py-1 text-xs font-semibold transition-all cursor-pointer ${
-                activeTab === 'history'
-                  ? 'bg-surface-1 text-text-1 shadow-2xs'
-                  : 'text-text-3 hover:text-text-2'
+                activeTab === 'history' ? 'bg-surface-1 text-text-1 shadow-2xs' : 'text-text-3 hover:text-text-2'
               }`}
             >
               已完成历史 ({history.length})
@@ -279,20 +277,23 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
         </div>
 
         {/* 顶部右侧操作栏 */}
-        <div className="flex items-center gap-2">
+        <div className="ui-actions">
           {activeTab === 'active' && (
             <>
               <button
                 type="button"
+                disabled={!activeTasks.some(task => !task.manualUpload && task.aggregate.state !== 'paused')}
+                title="暂停支持任务控制的传输；本地文件上传不支持暂停"
                 onClick={() => void window.api.download.pauseAll()}
-                className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
+                className="ui-button border border-bd bg-surface-1 font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
               >
                 全部暂停
               </button>
               <button
                 type="button"
+                disabled={!activeTasks.some(task => !task.manualUpload && task.aggregate.state === 'paused')}
                 onClick={() => void window.api.download.resumeAll()}
-                className="rounded-xl bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
+                className="ui-button bg-accent font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
               >
                 全部继续
               </button>
@@ -304,14 +305,15 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
               <button
                 type="button"
                 onClick={handleCancelAllFailed}
-                className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
+                className="ui-button border border-bd bg-surface-1 font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
               >
                 全部移除
               </button>
               <button
                 type="button"
+                disabled={!failedTasks.some(task => !task.manualUpload)}
                 onClick={handleRetryAllFailed}
-                className="rounded-xl bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
+                className="ui-button bg-accent font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
               >
                 全部重试
               </button>
@@ -323,14 +325,14 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
               <button
                 type="button"
                 onClick={clearHistory}
-                className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
+                className="ui-button border border-bd bg-surface-1 font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
               >
                 清空已完成
               </button>
               <button
                 type="button"
                 onClick={() => void handleOpenDownloadFolder()}
-                className="rounded-xl bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
+                className="ui-button bg-accent font-medium text-white shadow-2xs transition-all hover:bg-accent-light cursor-pointer active:scale-[0.98]"
               >
                 打开下载文件夹
               </button>
@@ -340,7 +342,9 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
       </div>
 
       {/* 主体任务列表区 */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="ui-content">
+        {(saved.error || saved.data.storageError) && <p className="mb-4 text-sm text-danger" role="alert">{saved.error || saved.data.storageError}</p>}
+        <RecoverableTransfers tasks={recoverable} onChanged={saved.refresh} />
         {/* 正在传输空态 */}
         {activeTab === 'active' && activeTasks.length === 0 && (
           <div className="flex h-64 flex-col items-center justify-center text-sm text-text-3">
@@ -397,9 +401,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
                           </span>
                         )}
                       </div>
-                      <span className="ml-3 shrink-0 font-mono text-xs font-medium text-text-2">
-                        {formatProgressCount(task)}
-                      </span>
+                      <span className="ml-3 shrink-0 font-mono text-xs font-medium text-text-2">{formatProgressCount(task)}</span>
                     </div>
 
                     <div className="h-2 w-full overflow-hidden rounded-full bg-surface-3">
@@ -413,7 +415,14 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
 
                     <div className="mt-1.5 flex items-center justify-between text-xs text-text-2">
                       <span className="truncate font-medium">
-                        {agg.message || (agg.phase === 'uploading' ? '正在上传至交大云盘…' : '正在下载…')}
+                        {agg.message ||
+                          (task.manualUpload
+                            ? agg.state === 'pending'
+                              ? '等待上传…'
+                              : '正在上传至交大云盘…'
+                            : agg.phase === 'uploading'
+                              ? '正在上传至交大云盘…'
+                              : '正在下载…')}
                       </span>
                       {agg.phase === 'uploading' && (
                         <span className="shrink-0 text-amber-600 dark:text-amber-400 font-semibold text-2xs ml-2">本地已就绪</span>
@@ -421,32 +430,36 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {agg.state === 'paused' ? (
+                  {task.manualUpload ? (
+                    <span className="max-w-28 shrink-0 text-xs text-text-3">本地文件上传暂不支持暂停或取消</span>
+                  ) : (
+                    <div className="flex items-center gap-2 shrink-0">
+                      {agg.state === 'paused' ? (
+                        <button
+                          type="button"
+                          onClick={() => void window.api.download.resume(task.taskId)}
+                          className="rounded-xl bg-accent px-3 py-1 text-xs font-medium text-white shadow-2xs hover:bg-accent-light transition-all cursor-pointer active:scale-[0.98]"
+                        >
+                          继续
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void window.api.download.pause(task.taskId)}
+                          className="rounded-xl border border-bd bg-surface-1 px-3 py-1 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-all cursor-pointer shadow-2xs active:scale-[0.98]"
+                        >
+                          暂停
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => void window.api.download.resume(task.taskId)}
-                        className="rounded-xl bg-accent px-3 py-1 text-xs font-medium text-white shadow-2xs hover:bg-accent-light transition-all cursor-pointer active:scale-[0.98]"
+                        onClick={() => void window.api.download.cancel(task.taskId)}
+                        className="rounded-xl border border-rose/30 bg-rose/10 px-3 py-1 text-xs font-medium text-rose hover:bg-rose/20 transition-all cursor-pointer shadow-2xs active:scale-[0.98]"
                       >
-                        继续
+                        取消
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void window.api.download.pause(task.taskId)}
-                        className="rounded-xl border border-bd bg-surface-1 px-3 py-1 text-xs font-medium text-text-2 hover:bg-surface-3 hover:text-text-1 transition-all cursor-pointer shadow-2xs active:scale-[0.98]"
-                      >
-                        暂停
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => void window.api.download.cancel(task.taskId)}
-                      className="rounded-xl border border-rose/30 bg-rose/10 px-3 py-1 text-xs font-medium text-rose hover:bg-rose/20 transition-all cursor-pointer shadow-2xs active:scale-[0.98]"
-                    >
-                      取消
-                    </button>
-                  </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -463,7 +476,10 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
               </div>
             ) : (
               failedTasks.map(task => (
-                <div key={task.taskId} className="flex items-center gap-4 rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 shadow-card">
+                <div
+                  key={task.taskId}
+                  className="flex items-center gap-4 rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 shadow-card"
+                >
                   {renderFileIcon(task.fileName, task.taskId)}
 
                   <div className="min-w-0 flex-1">
@@ -494,13 +510,17 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => void window.api.download.resume(task.taskId)}
-                      className="rounded-xl bg-accent px-3 py-1 text-xs font-medium text-white shadow-2xs hover:bg-accent-light transition-all cursor-pointer active:scale-[0.98]"
-                    >
-                      重试
-                    </button>
+                    {task.manualUpload ? (
+                      <span className="text-xs text-text-3">请从云盘页重新上传</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void window.api.download.resume(task.taskId)}
+                        className="rounded-xl bg-accent px-3 py-1 text-xs font-medium text-white shadow-2xs hover:bg-accent-light transition-all cursor-pointer active:scale-[0.98]"
+                      >
+                        重试
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -530,17 +550,17 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
         {/* 已完成历史列表 */}
         {activeTab === 'history' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {history.map(item => (
+            {history.slice(currentHistoryPage * 50, currentHistoryPage * 50 + 50).map(item => (
               <div key={item.taskId} className="flex items-center gap-3.5 rounded-2xl border border-bd bg-surface-2 p-4 shadow-card">
                 {renderFileIcon(item.fileName, item.taskId)}
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 min-w-0 mb-1">
-                    <span className="truncate text-sm font-semibold text-text-1" title={item.fileName}>
+                  <div className="flex flex-wrap items-center gap-2 min-w-0 mb-1">
+                    <span className="w-full truncate text-sm font-semibold text-text-1" title={item.fileName}>
                       {item.fileName}
                     </span>
                     {item.courseName && (
-                      <span className="shrink-0 rounded-md bg-surface-3 px-2 py-0.5 text-2xs text-text-2 font-medium border border-bd/60">
+                      <span title={item.courseName} className="min-w-0 max-w-full truncate rounded-md bg-surface-3 px-2 py-0.5 text-2xs text-text-2 font-medium border border-bd/60">
                         {item.courseName}
                       </span>
                     )}
@@ -570,7 +590,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
                     <button
                       type="button"
                       onClick={() => handleCopyServerPath(item.filePath || item.cloudPath || '')}
-                      className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
+                      className="ui-button border border-bd bg-surface-1 font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
                       title={item.filePath || item.cloudPath || ''}
                     >
                       复制服务器路径
@@ -579,7 +599,7 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
                     <button
                       type="button"
                       onClick={() => handleShowInFolder(item.filePath!)}
-                      className="rounded-xl border border-bd bg-surface-1 px-3.5 py-1.5 text-xs font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
+                      className="ui-button border border-bd bg-surface-1 font-medium text-text-2 transition-all hover:bg-surface-3 hover:text-text-1 shadow-2xs cursor-pointer active:scale-[0.98]"
                     >
                       在文件夹中显示
                     </button>
@@ -597,6 +617,11 @@ export function TransferCenter(props?: { initialTab?: 'active' | 'failed' | 'his
             ))}
           </div>
         )}
+        {activeTab === 'history' && historyPages > 1 && <div className="mt-4 flex justify-center items-center gap-3 text-xs">
+          <button className="ui-button ui-button-secondary" disabled={!currentHistoryPage} onClick={() => setHistoryPage(currentHistoryPage - 1)}>上一页</button>
+          <span>{currentHistoryPage + 1} / {historyPages}</span>
+          <button className="ui-button ui-button-secondary" disabled={currentHistoryPage + 1 >= historyPages} onClick={() => setHistoryPage(currentHistoryPage + 1)}>下一页</button>
+        </div>}
       </div>
     </div>
   )

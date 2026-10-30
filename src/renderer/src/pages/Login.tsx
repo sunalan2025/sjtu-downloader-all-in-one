@@ -1,1010 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '../store/app'
-import { SJTU_PARTITION, VSJTU_JWT_LS_KEY, type MaskedCredential } from '@shared/types'
+import { SJTU_PARTITION, VSJTU_JWT_LS_KEY } from '@shared/types'
 import { Spinner } from '../components/Spinner'
 import pkg from '../../../../package.json'
-
-/**
- * 直接加载上海交通大学统一身份认证 OAuth2 授权入口
- * 避免经由 v.sjtu 中转单页应用导致的超时与路由事件误触发
- */
-const JACCOUNT_AUTH_URL =
-  'https://jaccount.sjtu.edu.cn/oauth2/authorize?response_type=code&scope=openid&client_id=pmZTZ9QZEAwXGLGheU99&redirect_uri=https%3A%2F%2Fv.sjtu.edu.cn%2F%23%2Flogin'
-
-/**
- * 统一样式与主题注入：
- * 1. 强制采用 Flexbox 双栏横向排布：左侧扫码登录 + 纵向分割线 + 右侧账密/短信登录；
- * 2. 破除 jAccount 响应式媒体查询中的折行与隐藏，保证二维码和表单始终水平并列；
- * 3. 彻底清除外层多余背景（如灰底 #dce3e6）、页眉、页脚及浮动条，实现与客户端窗口主题完美无缝融合；
- * 4. 深度契合客户端深浅色主题，动态注入色彩变量与精致圆角微阴影；
- * 5. 锁定 overflow: hidden，杜绝页面滚动条与局部溢出。
- */
-function getJAccountEmbedCss(isDark: boolean): string {
-  const vars = isDark
-    ? `
-      --theme-bg: #161618;
-      --theme-text: #F4F4F5;
-      --theme-text-sub: #A1A1AA;
-      --theme-text-muted: #71717A;
-      --theme-border: rgba(255, 255, 255, 0.08);
-      --theme-qr-bg: #FFFFFF;
-      --theme-qr-border: rgba(255, 255, 255, 0.12);
-      --theme-input-bg: #232326;
-      --theme-input-border: rgba(255, 255, 255, 0.10);
-      --theme-input-text: #F4F4F5;
-      --theme-placeholder: #71717A;
-      --theme-accent: #0A84FF;
-      --theme-accent-hover: #409CFF;
-      --theme-accent-ring: rgba(10, 132, 255, 0.25);
-      --theme-accent-shadow: rgba(10, 132, 255, 0.2);
-      --theme-warn-bg: #2E2316;
-      --theme-warn-text: #FF9F0A;
-    `
-    : `
-      --theme-bg: #FFFFFF;
-      --theme-text: #1D1D1F;
-      --theme-text-sub: #6E6E73;
-      --theme-text-muted: #86868B;
-      --theme-border: rgba(60, 60, 67, 0.12);
-      --theme-qr-bg: #FFFFFF;
-      --theme-qr-border: rgba(60, 60, 67, 0.16);
-      --theme-input-bg: #F5F5F7;
-      --theme-input-border: rgba(60, 60, 67, 0.12);
-      --theme-input-text: #1D1D1F;
-      --theme-placeholder: #AEAEB2;
-      --theme-accent: #0071E3;
-      --theme-accent-hover: #409CFF;
-      --theme-accent-ring: rgba(0, 113, 227, 0.20);
-      --theme-accent-shadow: rgba(0, 113, 227, 0.15);
-      --theme-warn-bg: #FFF7E6;
-      --theme-warn-text: #D46B08;
-    `
-
-  return `
-    :root {
-      ${vars}
-    }
-
-    /* 隐藏所有多余的页眉、页脚、背景图、APP快速登录浮窗 */
-    header,
-    footer,
-    #header,
-    #footer,
-    .header,
-    .footer,
-    .copyright,
-    .login-bg,
-    .bg-img,
-    #login-app,
-    .app-link {
-      display: none !important;
-    }
-
-    html, body {
-      background: var(--theme-bg) !important;
-      background-color: var(--theme-bg) !important;
-      color: var(--theme-text) !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      width: 100% !important;
-      height: 100% !important;
-      overflow-x: hidden !important;
-      overflow-y: auto !important;
-      scrollbar-width: none !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif !important;
-      -webkit-font-smoothing: antialiased !important;
-    }
-
-    ::-webkit-scrollbar {
-      display: none !important;
-      width: 0 !important;
-      height: 0 !important;
-    }
-
-    #page,
-    #content,
-    .container,
-    .login-layout {
-      background: transparent !important;
-      background-color: transparent !important;
-      border: none !important;
-      box-shadow: none !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      width: 100% !important;
-      min-height: 100% !important;
-      height: auto !important;
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      overflow: visible !important;
-    }
-
-    /* 核心卡片容器：支持 flex-wrap，自适应顶部提示与下层双栏（扫码 + 账密/二次验证） */
-    #login-form.login-card,
-    .login-card,
-    .login-box {
-      display: flex !important;
-      flex-flow: row wrap !important;
-      align-items: center !important;
-      justify-content: center !important;
-      box-shadow: none !important;
-      border: none !important;
-      margin: 0 auto !important;
-      padding: 0 !important;
-      background: transparent !important;
-      background-color: transparent !important;
-      width: 100% !important;
-      max-width: 540px !important;
-      box-sizing: border-box !important;
-    }
-
-    /* 顶部提示栏（如二次验证说明、推送确认等非扫码和非表单的直接子元素）：独占第一行全宽并居中 */
-    #login-form > :not(.login-qr):not(.form-login):not(script):not(style),
-    .confirm-title,
-    .confirm-msg,
-    .confirm-msg-left {
-      width: 100% !important;
-      flex: 0 0 100% !important;
-      text-align: center !important;
-      margin: 0 0 16px 0 !important;
-      padding: 0 12px !important;
-      order: 1 !important;
-      box-sizing: border-box !important;
-      color: var(--theme-text) !important;
-    }
-
-    #login-form > :not(.login-qr):not(.form-login) h1,
-    #login-form > :not(.login-qr):not(.form-login) h2,
-    #login-form > :not(.login-qr):not(.form-login) h3,
-    #login-form > :not(.login-qr):not(.form-login) strong {
-      font-size: 16px !important;
-      font-weight: 600 !important;
-      color: var(--theme-text) !important;
-      margin-bottom: 4px !important;
-      line-height: 1.4 !important;
-    }
-
-    #login-form > :not(.login-qr):not(.form-login) p,
-    #login-form > :not(.login-qr):not(.form-login) span {
-      font-size: 13px !important;
-      color: var(--theme-text-sub) !important;
-      line-height: 1.5 !important;
-    }
-
-    /* 左侧二维码扫码专区：透明无缝融入主题底色 */
-    .login-qr,
-    .login-qr-wrapper,
-    .qr-container,
-    .qr-box,
-    .qr-card {
-      display: flex !important;
-      flex-direction: column !important;
-      align-items: center !important;
-      justify-content: center !important;
-      order: 2 !important;
-      float: none !important;
-      flex: 0 0 220px !important;
-      width: 220px !important;
-      min-width: 220px !important;
-      margin: 0 !important;
-      padding: 4px 24px 4px 0 !important;
-      background: transparent !important;
-      background-color: transparent !important;
-      border: none !important;
-      border-right: 1px solid var(--theme-border) !important;
-      border-radius: 0 !important;
-      box-shadow: none !important;
-      box-sizing: border-box !important;
-    }
-
-    .login-qr .qr-title,
-    .qr-title {
-      font-size: 14px !important;
-      font-weight: 600 !important;
-      margin-bottom: 12px !important;
-      color: var(--theme-text) !important;
-      background: transparent !important;
-      text-align: center !important;
-    }
-
-    .login-qr .qr-title span,
-    .qr-title span {
-      color: var(--theme-text) !important;
-    }
-
-    .login-qr .bolder-blue,
-    .qr-title .bolder-blue,
-    .qr-tips .bolder-blue {
-      color: var(--theme-accent) !important;
-      font-weight: 600 !important;
-    }
-
-    #qr-mask {
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      width: 172px !important;
-      height: 172px !important;
-      padding: 6px !important;
-      background: #FFFFFF !important;
-      border-radius: 14px !important;
-      border: 1px solid var(--theme-qr-border) !important;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
-      box-sizing: border-box !important;
-    }
-
-    #qr-img {
-      display: block !important;
-      width: 156px !important;
-      height: 156px !important;
-      border-radius: 8px !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-    }
-
-    .qr-tips {
-      font-size: 12px !important;
-      color: var(--theme-text-sub) !important;
-      background: transparent !important;
-      margin-top: 12px !important;
-      text-align: center !important;
-    }
-
-    .qr-tips span {
-      color: var(--theme-text-sub) !important;
-    }
-
-    /* 右侧表单专区（账号密码 / 短信 / 二次验证）：第二行右侧 */
-    .form-login {
-      display: flex !important;
-      flex-direction: column !important;
-      justify-content: center !important;
-      order: 3 !important;
-      float: none !important;
-      flex: 0 0 260px !important;
-      width: 260px !important;
-      min-width: 260px !important;
-      margin: 0 !important;
-      padding: 4px 0 4px 20px !important;
-      box-sizing: border-box !important;
-    }
-
-    .form-login .login-header {
-      margin-bottom: 14px !important;
-    }
-
-    .form-login .login-title {
-      font-size: 16px !important;
-      font-weight: 600 !important;
-      color: var(--theme-text) !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      line-height: 1.4 !important;
-    }
-
-    .input-control {
-      position: relative !important;
-      margin-bottom: 10px !important;
-    }
-
-    .input-control .icon {
-      position: absolute !important;
-      left: 10px !important;
-      top: 50% !important;
-      transform: translateY(-50%) !important;
-      z-index: 2 !important;
-      opacity: ${isDark ? '0.7' : '0.85'} !important;
-    }
-
-    .form-input,
-    #input-login-user,
-    #input-login-pass,
-    #input-login-captcha,
-    #input-login-mobile,
-    #input-login-sms {
-      width: 100% !important;
-      height: 38px !important;
-      line-height: 38px !important;
-      padding: 0 10px 0 34px !important;
-      border-radius: 8px !important;
-      border: 1px solid var(--theme-input-border) !important;
-      background-color: var(--theme-input-bg) !important;
-      color: var(--theme-input-text) !important;
-      font-size: 13px !important;
-      outline: none !important;
-      box-sizing: border-box !important;
-      transition: border-color 0.15s, box-shadow 0.15s !important;
-    }
-
-    .form-input:focus,
-    #input-login-user:focus,
-    #input-login-pass:focus,
-    #input-login-captcha:focus,
-    #input-login-mobile:focus,
-    #input-login-sms:focus {
-      border-color: var(--theme-accent) !important;
-      box-shadow: 0 0 0 2px var(--theme-accent-ring) !important;
-    }
-
-    .form-input::placeholder,
-    #input-login-user::placeholder,
-    #input-login-pass::placeholder,
-    #input-login-captcha::placeholder,
-    #input-login-mobile::placeholder,
-    #input-login-sms::placeholder {
-      color: var(--theme-placeholder) !important;
-    }
-
-    /* 验证码输入框及图片 */
-    .captcha-input {
-      position: relative !important;
-      display: flex !important;
-      align-items: center !important;
-    }
-
-    #captcha-img {
-      height: 34px !important;
-      cursor: pointer !important;
-      border-radius: 6px !important;
-      margin-left: 6px !important;
-      border: 1px solid var(--theme-input-border) !important;
-    }
-
-    /* 登录/提交按钮 */
-    .form-submit,
-    .btn-primary,
-    input[type="submit"],
-    button[type="submit"],
-    input[value="提交"],
-    #submit-password-button,
-    #submit-sms-button {
-      width: 100% !important;
-      height: 38px !important;
-      line-height: 38px !important;
-      padding: 0 !important;
-      background: var(--theme-accent) !important;
-      color: #ffffff !important;
-      border: none !important;
-      border-radius: 8px !important;
-      font-size: 14px !important;
-      font-weight: 500 !important;
-      letter-spacing: 2px !important;
-      cursor: pointer !important;
-      box-shadow: 0 2px 6px var(--theme-accent-shadow) !important;
-      transition: opacity 0.15s, transform 0.05s !important;
-      margin-top: 8px !important;
-    }
-
-    .form-submit:hover,
-    .btn-primary:hover,
-    input[type="submit"]:hover,
-    button[type="submit"]:hover,
-    #submit-password-button:hover,
-    #submit-sms-button:hover {
-      opacity: 0.9 !important;
-    }
-
-    .form-submit:active,
-    .btn-primary:active,
-    input[type="submit"]:active,
-    button[type="submit"]:active,
-    #submit-password-button:active,
-    #submit-sms-button:active {
-      transform: scale(0.99) !important;
-    }
-
-    /* 辅助链接（忘记密码、注册等） */
-    .action-control,
-    #login-action {
-      display: flex !important;
-      justify-content: space-between !important;
-      align-items: center !important;
-      margin-top: 10px !important;
-      font-size: 12px !important;
-    }
-
-    .action-control a,
-    #login-action a,
-    .form-login a {
-      color: var(--theme-text-sub) !important;
-      text-decoration: none !important;
-      font-size: 12px !important;
-      transition: color 0.15s !important;
-    }
-
-    .action-control a:hover,
-    #login-action a:hover,
-    .form-login a:hover {
-      color: var(--theme-accent) !important;
-      text-decoration: underline !important;
-    }
-
-    .form-login div[style*="margin-top: 30px"],
-    .form-login div[style*="margin-top:30px"] {
-      margin-top: 10px !important;
-      text-align: center !important;
-    }
-
-    /* 提示信息 */
-    .warn-info,
-    #div_warn {
-      padding: 6px 10px !important;
-      border-radius: 6px !important;
-      background-color: var(--theme-warn-bg) !important;
-      color: var(--theme-warn-text) !important;
-      font-size: 12px !important;
-      margin-bottom: 8px !important;
-    }
-
-    /* 短信验证码发送按钮 */
-    .captcha-input #sms-btn,
-    #sms-btn {
-      display: flex !important;
-      align-items: center !important;
-      justify-content: center !important;
-      background: var(--theme-accent) !important;
-      border-radius: 0 8px 8px 0 !important;
-      color: #ffffff !important;
-      height: 38px !important;
-      line-height: 38px !important;
-      padding: 0 12px !important;
-      font-size: 12px !important;
-      cursor: pointer !important;
-      white-space: nowrap !important;
-      user-select: none !important;
-      box-sizing: border-box !important;
-    }
-
-    /* 交我办移动端推送确认 / 提示 */
-    .confirm-title {
-      font-size: 15px !important;
-      font-weight: 600 !important;
-      color: var(--theme-text) !important;
-      margin: 12px 0 6px 0 !important;
-      text-align: center !important;
-    }
-
-    .confirm-msg {
-      font-size: 13px !important;
-      color: var(--theme-text-sub) !important;
-      margin-bottom: 12px !important;
-      text-align: center !important;
-    }
-
-    .confirm-cancel {
-      color: var(--theme-text-muted) !important;
-      text-decoration: underline !important;
-      font-size: 12px !important;
-      cursor: pointer !important;
-      text-align: center !important;
-    }
-
-    /* 二次验证 (2FA) 细部交互适配 */
-    .form-login input[type="radio"] {
-      accent-color: var(--theme-accent) !important;
-      margin-right: 8px !important;
-      cursor: pointer !important;
-      vertical-align: middle !important;
-    }
-
-    .form-login input[type="checkbox"] {
-      accent-color: var(--theme-accent) !important;
-      margin-right: 8px !important;
-      cursor: pointer !important;
-      vertical-align: middle !important;
-    }
-
-    .form-select,
-    .form-login .radio-group,
-    .form-login .form-group,
-    .form-login label:has(input[type="radio"]),
-    .form-login div:has(input[type="radio"]) {
-      font-size: 13px !important;
-      color: var(--theme-text) !important;
-      cursor: pointer !important;
-      display: inline-flex !important;
-      align-items: center !important;
-      margin-bottom: 24px !important;
-    }
-
-    .form-login label:has(input[type="checkbox"]),
-    .form-login div:has(input[type="checkbox"]) {
-      font-size: 12px !important;
-      color: var(--theme-text-sub) !important;
-      margin: 12px 0 10px 0 !important;
-      display: flex !important;
-      align-items: center !important;
-      cursor: pointer !important;
-    }
-
-    /* 气泡提示自适应，避免与上方单选框遮挡 */
-    .tooltip-wrapper {
-      z-index: 100 !important;
-      margin-bottom: 2px !important;
-    }
-
-    .tooltip {
-      border-radius: 6px !important;
-      font-size: 12px !important;
-      line-height: 1.4 !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
-      background-color: ${isDark ? 'rgba(34, 197, 94, 0.15)' : '#f0f9eb'} !important;
-      border-color: ${isDark ? 'rgba(34, 197, 94, 0.5)' : '#67c23a'} !important;
-    }
-
-    .tooltip-message {
-      color: ${isDark ? '#4ade80' : '#67c23a'} !important;
-      font-size: 12px !important;
-    }
-
-    .tooltip-arrow:after {
-      border-top-color: ${isDark ? 'rgba(34, 197, 94, 0.5)' : '#67c23a'} !important;
-    }
-  `
-}
-
-type WebviewElement = HTMLElement & {
-  src: string
-  partition: string
-  loadURL: (url: string) => Promise<void>
-  getURL: () => string
-  reload: () => void
-  insertCSS: (css: string) => Promise<string>
-  executeJavaScript: (script: string) => Promise<unknown>
-  addEventListener(type: string, listener: (e: Event) => void): void
-  removeEventListener(type: string, listener: (e: Event) => void): void
-}
-
-const ALLOWED_NAV_DOMAINS = ['sjtu.edu.cn', 'sjtu.cn']
-
-export function isAllowedNavDomain(url: string): boolean {
-  try {
-    const u = new URL(url)
-    if (u.protocol !== 'https:') return false
-    const host = u.hostname
-    return ALLOWED_NAV_DOMAINS.some(d => host === d || host.endsWith('.' + d))
-  } catch {
-    return false
-  }
-}
-
-export function isTrustedJAccountOrigin(rawUrl: string): boolean {
-  try {
-    const u = new URL(rawUrl)
-    return u.protocol === 'https:' && u.hostname === 'jaccount.sjtu.edu.cn'
-  } catch {
-    return false
-  }
-}
-
-/**
- * 生成在 jAccount 认证页面中执行的安全自动填充与多账号悬浮面板脚本：
- * 1. 捕获表单输入与提交事件：通过 __SJTU_CRED_CAPTURED__ 通知宿主；
- * 2. 单账号时：自动将用户名与密码安全回填至对应输入框；
- * 3. 多账号时：默认回填最近账号，并在用户名输入框容器注入 Chrome/Edge 风格原生悬浮卡片；
- *    点击任一账号触发 __SJTU_CRED_SELECT__，点击删除按钮触发 __SJTU_CRED_DELETE__；
- * 4. 关键安全与交互准则：绝不自动提交表单！仅填充输入框。
- */
-export function getAutofillScript(
-  accounts: MaskedCredential[],
-  isDark: boolean,
-  defaultFill?: { username?: string; password?: string } | null
-): string {
-  const jsonAccounts = JSON.stringify(accounts)
-  const jsonDefaultFill = JSON.stringify(defaultFill || null)
-  const darkBool = Boolean(isDark)
-
-  return `(() => {
-  try {
-    if (window.location.origin !== 'https://jaccount.sjtu.edu.cn') {
-      console.warn('[Security] 凭据填充已阻止：页面 Origin 不匹配');
-      return;
-    }
-
-    const accounts = ${jsonAccounts};
-    const defaultFill = ${jsonDefaultFill};
-    const isDark = ${darkBool};
-
-    function setInputValue(el, val) {
-      if (!el || val == null) return;
-      try {
-        el.focus();
-        const proto = Object.getPrototypeOf(el);
-        const desc = Object.getOwnPropertyDescriptor(proto, 'value') || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-        if (desc && desc.set) {
-          desc.set.call(el, val);
-        } else {
-          el.value = val;
-        }
-      } catch (e) {
-        el.value = val;
-      }
-      el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-    }
-
-    function findUserEl() {
-      return document.querySelector('#input-login-user, #user, input[name="user"], input[name="username"]');
-    }
-    function findPassEl() {
-      return document.querySelector('#input-login-pass, #pass, input[name="pass"], input[type="password"]');
-    }
-
-    window.__sjtuFillCred = function(username, password) {
-      const uEl = findUserEl();
-      const pEl = findPassEl();
-      if (uEl && username) setInputValue(uEl, username);
-      if (pEl && password) setInputValue(pEl, password);
-    };
-
-    function captureCredentials() {
-      const uEl = findUserEl();
-      const pEl = findPassEl();
-      if (uEl && pEl) {
-        const user = (uEl.value || '').trim();
-        const pass = pEl.value || '';
-        if (user && pass) {
-          console.log('__SJTU_CRED_CAPTURED__:' + JSON.stringify({ user, pass }));
-        }
-      }
-    }
-
-    if (!window.__sjtuCaptureBound) {
-      window.__sjtuCaptureBound = true;
-
-      document.addEventListener('submit', function() {
-        captureCredentials();
-      }, true);
-
-      document.addEventListener('click', function(e) {
-        const target = e.target;
-        const el = target && target.nodeType === 1 ? target : (target && target.parentElement);
-        if (el && typeof el.closest === 'function') {
-          const btn = el.closest('#submit-password-button, #submit-sms-button, input[type="submit"], button[type="submit"], .form-submit, .btn-primary');
-          if (btn) {
-            captureCredentials();
-          }
-
-          const qrEl = el.closest('#switch-to-qr, .qr-login, .login-qr, #qr-mask, #qr-img, .qr-tips, .qr-box, #qrcode, .qrcode, [data-type="qr"], [data-tab="qr"], a[href*="qr"], .qr-btn, .switch-qr');
-          if (qrEl) {
-            console.log('__SJTU_CRED_CLEAR__');
-          }
-        }
-      }, true);
-
-      document.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-          const uEl = findUserEl();
-          const pEl = findPassEl();
-          if (document.activeElement === uEl || document.activeElement === pEl) {
-            captureCredentials();
-          }
-        }
-      }, true);
-    }
-
-    function performAutofill() {
-      if (defaultFill && defaultFill.username) {
-        const uEl = findUserEl();
-        const pEl = findPassEl();
-        if (uEl) setInputValue(uEl, defaultFill.username);
-        if (pEl && defaultFill.password) setInputValue(pEl, defaultFill.password);
-      }
-    }
-    performAutofill();
-    setTimeout(performAutofill, 150);
-    setTimeout(performAutofill, 400);
-
-    function renderDropdown(accs) {
-      const oldDropdown = document.getElementById('__sjtu_cred_dropdown');
-      if (oldDropdown) oldDropdown.remove();
-      const oldToggle = document.getElementById('__sjtu_cred_toggle');
-      if (oldToggle) oldToggle.remove();
-
-      if (!accs || accs.length <= 1) return;
-
-      const userEl = findUserEl();
-      if (!userEl) return;
-
-      const container = userEl.closest('.input-control') || userEl.parentElement;
-      if (!container) return;
-
-      if (window.getComputedStyle(container).position === 'static') {
-        container.style.position = 'relative';
-      }
-
-      userEl.style.paddingRight = '68px';
-
-      const bg = isDark ? '#232323' : '#FFFFFF';
-      const text = isDark ? '#F5F5F5' : '#1D2129';
-      const textSub = isDark ? '#A0A0A0' : '#86909C';
-      const border = isDark ? '#3D3D3D' : '#E5E6EB';
-      const hoverBg = isDark ? '#2D2D2D' : '#F2F3F5';
-      const shadow = isDark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.12)';
-      const accent = isDark ? '#4080FF' : '#165DFF';
-      const badgeBg = isDark ? 'rgba(64,128,255,0.18)' : 'rgba(22,93,255,0.08)';
-      const badgeColor = isDark ? '#69B1FF' : '#165DFF';
-
-      const toggle = document.createElement('div');
-      toggle.id = '__sjtu_cred_toggle';
-      toggle.title = '切换已保存的 jAccount 账号';
-      toggle.style.position = 'absolute';
-      toggle.style.right = '8px';
-      toggle.style.top = '50%';
-      toggle.style.transform = 'translateY(-50%)';
-      toggle.style.zIndex = '5';
-      toggle.style.fontSize = '11px';
-      toggle.style.fontWeight = '500';
-      toggle.style.padding = '2px 7px';
-      toggle.style.borderRadius = '4px';
-      toggle.style.background = badgeBg;
-      toggle.style.color = badgeColor;
-      toggle.style.cursor = 'pointer';
-      toggle.style.userSelect = 'none';
-      toggle.style.display = 'flex';
-      toggle.style.alignItems = 'center';
-      toggle.style.gap = '3px';
-      toggle.style.transition = 'opacity 0.15s';
-
-      const toggleSpan = document.createElement('span');
-      toggleSpan.textContent = accs.length + '个账号';
-      const arrowSpan = document.createElement('span');
-      arrowSpan.style.fontSize = '9px';
-      arrowSpan.textContent = '▼';
-      toggle.appendChild(toggleSpan);
-      toggle.appendChild(arrowSpan);
-      container.appendChild(toggle);
-
-      const dropdown = document.createElement('div');
-      dropdown.id = '__sjtu_cred_dropdown';
-      dropdown.style.position = 'absolute';
-      dropdown.style.top = 'calc(100% + 4px)';
-      dropdown.style.left = '0';
-      dropdown.style.width = '100%';
-      dropdown.style.boxSizing = 'border-box';
-      dropdown.style.background = bg;
-      dropdown.style.border = '1px solid ' + border;
-      dropdown.style.borderRadius = '10px';
-      dropdown.style.boxShadow = shadow;
-      dropdown.style.zIndex = '99999';
-      dropdown.style.display = 'none';
-      dropdown.style.maxHeight = '220px';
-      dropdown.style.overflowY = 'auto';
-      dropdown.style.fontFamily = 'inherit';
-
-      accs.forEach(function(acc) {
-        const itemEl = document.createElement('div');
-        itemEl.className = '__sjtu_cred_item';
-        itemEl.setAttribute('data-id', acc.id);
-        itemEl.style.display = 'flex';
-        itemEl.style.alignItems = 'center';
-        itemEl.style.justifyContent = 'space-between';
-        itemEl.style.padding = '8px 12px';
-        itemEl.style.cursor = 'pointer';
-        itemEl.style.borderBottom = '1px solid ' + border;
-        itemEl.style.transition = 'background 0.12s';
-
-        const infoEl = document.createElement('div');
-        infoEl.style.flex = '1';
-        infoEl.style.minWidth = '0';
-        infoEl.style.paddingRight = '8px';
-
-        const topRow = document.createElement('div');
-        topRow.style.display = 'flex';
-        topRow.style.alignItems = 'center';
-        topRow.style.gap = '6px';
-        topRow.style.marginBottom = '2px';
-
-        const userSpan = document.createElement('span');
-        userSpan.style.fontSize = '13px';
-        userSpan.style.fontWeight = '600';
-        userSpan.style.color = text;
-        userSpan.style.overflow = 'hidden';
-        userSpan.style.textOverflow = 'ellipsis';
-        userSpan.style.whiteSpace = 'nowrap';
-        userSpan.textContent = acc.username;
-        topRow.appendChild(userSpan);
-
-        if (acc.label) {
-          const labelBadge = document.createElement('span');
-          labelBadge.style.fontSize = '10px';
-          labelBadge.style.padding = '1px 5px';
-          labelBadge.style.borderRadius = '4px';
-          labelBadge.style.background = badgeBg;
-          labelBadge.style.color = badgeColor;
-          labelBadge.style.fontWeight = '500';
-          labelBadge.textContent = acc.label;
-          topRow.appendChild(labelBadge);
-        }
-        infoEl.appendChild(topRow);
-
-        const botRow = document.createElement('div');
-        botRow.style.fontSize = '11px';
-        botRow.style.color = textSub;
-        botRow.style.display = 'flex';
-        botRow.style.alignItems = 'center';
-        botRow.style.gap = '4px';
-
-        const passSpan = document.createElement('span');
-        passSpan.style.letterSpacing = '1px';
-        passSpan.textContent = acc.maskedPassword || '••••••••';
-        botRow.appendChild(passSpan);
-        infoEl.appendChild(botRow);
-
-        itemEl.appendChild(infoEl);
-
-        const delBtn = document.createElement('button');
-        delBtn.type = 'button';
-        delBtn.className = '__sjtu_cred_del_btn';
-        delBtn.setAttribute('data-id', acc.id);
-        delBtn.title = '删除此账号';
-        delBtn.textContent = '✕';
-        delBtn.style.background = 'transparent';
-        delBtn.style.border = 'none';
-        delBtn.style.color = textSub;
-        delBtn.style.cursor = 'pointer';
-        delBtn.style.padding = '4px 6px';
-        delBtn.style.borderRadius = '4px';
-        delBtn.style.fontSize = '13px';
-        delBtn.style.lineHeight = '1';
-        delBtn.style.transition = 'all 0.12s';
-
-        delBtn.onmouseenter = function() {
-          delBtn.style.color = '#FF4D4F';
-          delBtn.style.background = isDark ? 'rgba(255,77,79,0.2)' : 'rgba(255,77,79,0.1)';
-        };
-        delBtn.onmouseleave = function() {
-          delBtn.style.color = textSub;
-          delBtn.style.background = 'transparent';
-        };
-        delBtn.onclick = function(e) {
-          e.stopPropagation();
-          console.log('__SJTU_CRED_DELETE__:' + acc.id);
-          itemEl.remove();
-          const remaining = dropdown.querySelectorAll('.__sjtu_cred_item');
-          if (remaining.length <= 1) {
-            dropdown.remove();
-            toggle.remove();
-            userEl.style.paddingRight = '10px';
-          } else {
-            toggleSpan.textContent = remaining.length + '个账号';
-          }
-        };
-
-        itemEl.appendChild(delBtn);
-
-        itemEl.onmouseenter = function() {
-          itemEl.style.background = hoverBg;
-        };
-        itemEl.onmouseleave = function() {
-          itemEl.style.background = 'transparent';
-        };
-        itemEl.onclick = function(e) {
-          if (e.target && e.target.closest('.__sjtu_cred_del_btn')) return;
-          console.log('__SJTU_CRED_SELECT__:' + acc.id);
-          closeMenu();
-        };
-
-        dropdown.appendChild(itemEl);
-      });
-
-      const newAccEl = document.createElement('div');
-      newAccEl.className = '__sjtu_cred_new_acc';
-      newAccEl.style.display = 'flex';
-      newAccEl.style.alignItems = 'center';
-      newAccEl.style.gap = '6px';
-      newAccEl.style.padding = '8px 12px';
-      newAccEl.style.cursor = 'pointer';
-      newAccEl.style.fontSize = '12px';
-      newAccEl.style.color = accent;
-      newAccEl.style.fontWeight = '500';
-      newAccEl.style.transition = 'background 0.12s';
-      newAccEl.innerHTML = '<span>+</span><span>使用其他账号登录</span>';
-      newAccEl.onmouseenter = function() {
-        newAccEl.style.background = hoverBg;
-      };
-      newAccEl.onmouseleave = function() {
-        newAccEl.style.background = 'transparent';
-      };
-      newAccEl.onclick = function() {
-        const uEl = findUserEl();
-        const pEl = findPassEl();
-        if (uEl) {
-          setInputValue(uEl, '');
-          uEl.focus();
-        }
-        if (pEl) {
-          setInputValue(pEl, '');
-        }
-        closeMenu();
-      };
-      dropdown.appendChild(newAccEl);
-
-      container.appendChild(dropdown);
-
-      function openMenu() {
-        dropdown.style.display = 'block';
-      }
-      function closeMenu() {
-        dropdown.style.display = 'none';
-      }
-      function toggleMenu() {
-        if (dropdown.style.display === 'block') {
-          closeMenu();
-        } else {
-          openMenu();
-        }
-      }
-
-      toggle.onclick = function(e) {
-        e.stopPropagation();
-        toggleMenu();
-      };
-      userEl.onfocus = function() {
-        openMenu();
-      };
-      userEl.onclick = function(e) {
-        e.stopPropagation();
-        openMenu();
-      };
-
-      if (!window.__sjtuDropdownGlobalBound) {
-        window.__sjtuDropdownGlobalBound = true;
-
-        document.addEventListener('click', function(e) {
-          const curDropdown = document.getElementById('__sjtu_cred_dropdown');
-          const curToggle = document.getElementById('__sjtu_cred_toggle');
-          const curUserEl = findUserEl();
-          if (curDropdown && curDropdown.style.display !== 'none') {
-            const target = e.target;
-            if (
-              !curDropdown.contains(target) &&
-              target !== curUserEl &&
-              (!curToggle || !curToggle.contains(target))
-            ) {
-              curDropdown.style.display = 'none';
-            }
-          }
-        });
-
-        document.addEventListener('keydown', function(e) {
-          if (e.key === 'Escape') {
-            const curDropdown = document.getElementById('__sjtu_cred_dropdown');
-            if (curDropdown) {
-              curDropdown.style.display = 'none';
-            }
-          }
-        });
-      }
-    }
-
-    renderDropdown(accounts);
-
-    window.__sjtuUpdateAccounts = function(updatedAccs) {
-      renderDropdown(updatedAccs);
-    };
-  } catch (err) {
-    console.error('[SJTU-Autofill] error in injected script:', err);
-  }
-})()`;
-}
-
-/** 准确判定是否属于已成功通过 jAccount 认证的回调或进入主页 */
-function isLoginSuccessUrl(url: string): boolean {
-  try {
-    const u = new URL(url)
-    if (u.searchParams.has('code') || u.hash.includes('code=')) return true
-    if (u.hash.includes('/home') || u.hash.includes('/index') || u.hash.includes('/dashboard')) return true
-    if (u.pathname.includes('/home') || u.pathname.includes('/index') || u.pathname.includes('/dashboard')) return true
-    return false
-  } catch {
-    return url.includes('code=') || url.includes('/home')
-  }
-}
+import {
+  JACCOUNT_AUTH_URL,
+  isAllowedNavDomain,
+  isTrustedJAccountOrigin,
+  isLoginSuccessUrl,
+  type WebviewElement
+} from './login/login-security'
+import { getJAccountEmbedCss } from './login/jaccount-embed-css'
+import { getAutofillScript } from './login/autofill-script'
+import { SaveCredentialModal } from './login/SaveCredentialModal'
+import { AutoLoginOverlay, LoginSuccessOverlay } from './login/AutoLoginOverlay'
+
+// 向后兼容导出（供外部单测及模块直接引用）
+export { isAllowedNavDomain, isTrustedJAccountOrigin } from './login/login-security'
+export { getAutofillScript } from './login/autofill-script'
 
 export function Login() {
   const webviewRef = useRef<WebviewElement | null>(null)
@@ -1020,8 +33,16 @@ export function Login() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [statusMsg, setStatusMsg] = useState('正在加载交大统一身份认证…')
+  const [isAutoLoginActive, setIsAutoLoginActive] = useState(false)
+  const isAutoLoginActiveRef = useRef(false)
+  const [autoLoginStep, setAutoLoginStep] = useState<1 | 2 | 3 | 4>(1)
+  const [activeAccountUser, setActiveAccountUser] = useState<string>('')
+  const [isLoginSuccessOverlay, setIsLoginSuccessOverlay] = useState(false)
+  const isAutoLoginCancelledRef = useRef(false)
 
   const capturedCredRef = useRef<{ username: string; password: string } | null>(null)
+  const isSolvingCaptchaRef = useRef(false)
+  const lastSolvedDataUrlRef = useRef<string | null>(null)
   const [pendingSaveCred, setPendingSaveCred] = useState<{
     username: string
     password: string
@@ -1029,6 +50,30 @@ export function Login() {
   } | null>(null)
   const [customLabel, setCustomLabel] = useState('')
   const [isSavingCred, setIsSavingCred] = useState(false)
+
+  const handleCancelAutoLogin = useCallback(async (): Promise<void> => {
+    isAutoLoginCancelledRef.current = true
+    isAutoLoginActiveRef.current = false
+    setIsAutoLoginActive(false)
+    setAutoLoginStep(1)
+    setStatusMsg('已取消自动登录，请手动登录或扫码')
+    const wv = webviewRef.current
+    if (wv) {
+      try {
+        await wv.executeJavaScript(`
+          if (typeof window.__sjtuCancelAutoLogin === 'function') {
+            window.__sjtuCancelAutoLogin();
+          }
+          if (typeof window.__sjtuClearInputs === 'function') {
+            window.__sjtuClearInputs();
+          }
+        `)
+        await wv.loadURL(JACCOUNT_AUTH_URL)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
 
   const navigateToBrowser = useCallback(() => {
     const currentVersion = window.api?.version || pkg.version
@@ -1038,13 +83,23 @@ export function Login() {
       useAppStore.getState().setShowSetupWizardModal(true)
     }
     const currentTab = useAppStore.getState().activeTab
-    if (currentTab === 'settings' || currentTab === 'transfer') {
+    if (currentTab === 'settings') {
       useAppStore.getState().setActiveTab(useAppStore.getState().lastCourseTab || 'canvas')
     }
+    setIsLoginSuccessOverlay(false)
     setStage('browser')
   }, [setStage])
 
   const proceedAfterLogin = useCallback(async (): Promise<void> => {
+    // 自动登录场景：所用账号密码本就来自已保存凭据，绝不二次弹窗打扰用户，平滑延时展示动画后直接进入主页
+    if (isAutoLoginActiveRef.current) {
+      capturedCredRef.current = null
+      setTimeout(() => {
+        navigateToBrowser()
+      }, 500)
+      return
+    }
+
     const captured = capturedCredRef.current
     if (captured && captured.username && captured.password) {
       try {
@@ -1142,6 +197,113 @@ export function Login() {
     }
   }, [])
 
+  const handleSolveCaptcha = useCallback(async (dataUrl: string): Promise<void> => {
+    const wv = webviewRef.current
+    if (!wv || !dataUrl || dataUrl.length < 100) return
+    if (isAutoLoginCancelledRef.current) return
+    if (isSolvingCaptchaRef.current || lastSolvedDataUrlRef.current === dataUrl) return
+    isSolvingCaptchaRef.current = true
+    lastSolvedDataUrlRef.current = dataUrl
+    if (!isAutoLoginCancelledRef.current) {
+      setAutoLoginStep(2)
+      setStatusMsg('正在自动识别验证码…')
+    }
+    try {
+      console.log('[Login] 收到验证码图片，正在调用极客验证码接口识别...')
+      const res = await window.api.auth.solveCaptcha(dataUrl)
+      if (res.ok && res.code) {
+        console.log('[Login] 验证码自动识别结果:', res.code)
+        if (!isAutoLoginCancelledRef.current) {
+          setAutoLoginStep(2)
+          setStatusMsg(`验证码识别成功 (${res.code})，正在填入并准备登录…`)
+        }
+        const execRes = await wv.executeJavaScript(`
+          (() => {
+            try {
+              if (typeof window.__sjtuFillCaptchaAndSubmit === 'function') {
+                window.__sjtuFillCaptchaAndSubmit(${JSON.stringify(res.code)});
+                return { ok: true, via: '__sjtuFillCaptchaAndSubmit' };
+              }
+              const cEl = document.querySelector('#passwordForm #input-login-captcha, #input-login-captcha');
+              if (cEl) {
+                cEl.value = ${JSON.stringify(res.code)};
+                cEl.dispatchEvent(new Event('input', { bubbles: true }));
+                cEl.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+              const btn = document.querySelector('#submit-password-button, #passwordForm input[type="submit"], input[type="submit"]');
+              if (typeof window.checkForm === 'function' && btn) {
+                window.checkForm(btn);
+                return { ok: true, via: 'direct_checkForm' };
+              }
+              if (btn && typeof btn['click'] === 'function') {
+                btn['click']();
+                return { ok: true, via: 'direct_click' };
+              }
+              return { ok: false, error: 'no_submit_btn' };
+            } catch (e) {
+              return { ok: false, error: String(e) };
+            }
+          })()
+        `)
+        console.log('[Login] 验证码填入与提交执行结果:', execRes)
+      } else {
+        console.warn('[Login] 验证码自动识别未获取到结果:', res.error)
+        setStatusMsg('验证码识别未成功，请点击图片刷新或手动输入')
+      }
+    } catch (err) {
+      console.warn('[Login] 验证码自动识别异常:', err)
+      setStatusMsg('验证码识别未成功，请点击图片刷新或手动输入')
+    } finally {
+      isSolvingCaptchaRef.current = false
+    }
+  }, [])
+
+  const triggerActiveCaptchaCheck = useCallback(async (): Promise<void> => {
+    const wv = webviewRef.current
+    if (!wv || !isTrustedJAccountOrigin(wv.getURL())) return
+    if (isAutoLoginCancelledRef.current) return
+    try {
+      const dataUrl = await wv.executeJavaScript(`
+        (() => {
+          try {
+            if (window.__sjtuAutoLoginCancelled) return null;
+            if (typeof window.__sjtuGetCaptchaDataUrl === 'function') {
+              return window.__sjtuGetCaptchaDataUrl();
+            }
+            const img = document.querySelector('#passwordForm #captcha-img, #captcha-img');
+            if (!img || !img.complete || img.naturalWidth === 0) return null;
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || 110;
+            canvas.height = img.naturalHeight || 40;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+            ctx.drawImage(img, 0, 0);
+            return canvas.toDataURL('image/jpeg', 0.95);
+          } catch {
+            return null;
+          }
+        })()
+      `)
+      if (dataUrl && typeof dataUrl === 'string' && dataUrl.length > 100) {
+        if (!isAutoLoginCancelledRef.current) {
+          await handleSolveCaptcha(dataUrl)
+        }
+      } else {
+        if (!isAutoLoginCancelledRef.current) {
+          await wv
+            .executeJavaScript(`
+            if (typeof window.__sjtuCheckNoCaptchaAndSubmit === 'function') {
+              window.__sjtuCheckNoCaptchaAndSubmit();
+            }
+          `)
+            .catch(() => undefined)
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [handleSolveCaptcha])
+
   const onConsoleMsg = useCallback(
     (e: any): void => {
       const msg = (e && typeof e.message === 'string' ? e.message : '') as string
@@ -1160,9 +322,46 @@ export function Login() {
       } else if (msg.startsWith('__SJTU_CRED_DELETE__:')) {
         const id = msg.slice(21)
         void handleDeleteAccountFromWebview(id)
+      } else if (msg.startsWith('__SJTU_SOLVE_CAPTCHA__:')) {
+        const dataUrl = msg.slice(23)
+        void handleSolveCaptcha(dataUrl)
+      } else if (msg.startsWith('__SJTU_AUTOLOGIN_PHASE__:')) {
+        const phase = msg.slice(25)
+        if (!isAutoLoginCancelledRef.current) {
+          if (phase === 'username') {
+            setAutoLoginStep(1)
+            setStatusMsg('正在填入已保存账号…')
+          } else if (phase === 'password') {
+            setAutoLoginStep(1)
+            setStatusMsg('已填入账号，正在填入密码…')
+          } else if (phase === 'check_captcha') {
+            setAutoLoginStep(2)
+            setStatusMsg('已填入账号密码，正在检测环境与验证码…')
+          } else if (phase === 'submitting') {
+            setAutoLoginStep(3)
+            setStatusMsg('验证完成，正在提交登录认证…')
+          }
+        }
+      } else if (msg === '__SJTU_AUTOLOGIN_CANCELLED__') {
+        isAutoLoginActiveRef.current = false
+        setIsAutoLoginActive(false)
+        setAutoLoginStep(1)
+        setStatusMsg('已取消自动登录，请手动登录或扫码')
+      } else if (msg.startsWith('__SJTU_LOGIN_ERROR__:')) {
+        const errText = msg.slice(22)
+        console.warn('[Login] jAccount 页面返回错误提示:', errText)
+        if (errText.includes('验证码') || errText.toLowerCase().includes('captcha')) {
+          setStatusMsg(`验证码校验未通过 (${errText})，正在自动刷新并重新识别…`)
+          setAutoLoginStep(2)
+          lastSolvedDataUrlRef.current = null
+        } else {
+          isAutoLoginActiveRef.current = false
+          setIsAutoLoginActive(false)
+          setStatusMsg(`登录失败: ${errText}，请核对账号密码`)
+        }
       }
     },
-    [handleDeleteAccountFromWebview, handleSelectAccount]
+    [handleDeleteAccountFromWebview, handleSelectAccount, handleSolveCaptcha]
   )
 
   const injectAutofill = useCallback(async (): Promise<void> => {
@@ -1175,18 +374,32 @@ export function Login() {
     try {
       const accounts = await window.api.credentials.list()
       let defaultFill: { username?: string; password?: string } | null = null
-      if (accounts.length > 0) {
+      if (!isAutoLoginCancelledRef.current && accounts.length > 0) {
         const fillRes = await window.api.credentials.getFillData(accounts[0].id)
         if (fillRes.ok && fillRes.username && fillRes.password) {
           defaultFill = { username: fillRes.username, password: fillRes.password }
         }
       }
+      if (defaultFill) {
+        isAutoLoginActiveRef.current = true
+        setIsAutoLoginActive(true)
+        setActiveAccountUser(defaultFill.username || '')
+        setAutoLoginStep(1)
+        setStatusMsg('检测到已保存账号，准备自动登录…')
+      } else {
+        isAutoLoginActiveRef.current = false
+        setIsAutoLoginActive(false)
+        setAutoLoginStep(1)
+      }
       const script = getAutofillScript(accounts, isDarkRef.current, defaultFill)
       await wv.executeJavaScript(script)
+
+      setTimeout(() => void triggerActiveCaptchaCheck(), 600)
+      setTimeout(() => void triggerActiveCaptchaCheck(), 1500)
     } catch (err) {
       console.error('[Login] failed to inject autofill script:', err)
     }
-  }, [])
+  }, [triggerActiveCaptchaCheck])
 
   const checkAuth = useCallback(async (force = false): Promise<boolean> => {
     try {
@@ -1322,6 +535,7 @@ export function Login() {
     }
 
     isFinishingRef.current = false
+    setIsLoginSuccessOverlay(false)
     setReady(true)
     setError('会话同步耗时较长，请点击下方「刷新」重试')
     setStatusMsg('登录同步超时')
@@ -1360,6 +574,7 @@ export function Login() {
             const url = wv.getURL()
             if (isLoginSuccessUrl(url)) {
               isFinishingRef.current = true
+              setIsLoginSuccessOverlay(true)
               setReady(false)
               setStatusMsg('登录成功，正在进入主页…')
               void handleLoginCompletion()
@@ -1392,6 +607,8 @@ export function Login() {
         if (token) {
           const a = await checkAuth(false)
           if (a) {
+            isFinishingRef.current = true
+            setIsLoginSuccessOverlay(true)
             await proceedAfterLogin()
             return
           }
@@ -1434,7 +651,7 @@ export function Login() {
       if (isLoginSuccessUrl(url)) {
         if (!isFinishingRef.current) {
           isFinishingRef.current = true
-          setReady(false)
+          setIsLoginSuccessOverlay(true)
           setStatusMsg('登录成功，正在进入主页…')
           void handleLoginCompletion()
         }
@@ -1481,7 +698,7 @@ export function Login() {
       // 真正登录成功的判定：URL 携带 OAuth code，或到达 home 首页
       if (isLoginSuccessUrl(url) && !isFinishingRef.current) {
         isFinishingRef.current = true
-        setReady(false)
+        setIsLoginSuccessOverlay(true)
         setStatusMsg('登录成功，正在进入主页…')
         void handleLoginCompletion()
       }
@@ -1512,6 +729,13 @@ export function Login() {
   const onReload = useCallback((): void => {
     isFinishingRef.current = false
     capturedCredRef.current = null
+    lastSolvedDataUrlRef.current = null
+    isSolvingCaptchaRef.current = false
+    isAutoLoginCancelledRef.current = false
+    isAutoLoginActiveRef.current = false
+    setIsAutoLoginActive(false)
+    setAutoLoginStep(1)
+    setIsLoginSuccessOverlay(false)
     setPendingSaveCred(null)
     setReady(false)
     setError(null)
@@ -1536,7 +760,22 @@ export function Login() {
       <div className="w-full max-w-2xl transition-all duration-300">
         <header className="mb-6 text-center">
           <h1 className="text-xl font-bold text-text-1">jAccount 统一身份认证</h1>
-          <p className="mt-2 text-sm text-text-3">{statusMsg}</p>
+          <div className="mt-2.5 flex items-center justify-center gap-2.5">
+            <div className="inline-flex items-center gap-2 rounded-full border border-bd bg-surface-2 px-3.5 py-1 text-xs text-text-2 shadow-xs transition-all duration-200">
+              {isAutoLoginActive && (
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+                </span>
+              )}
+              <span>{statusMsg}</span>
+            </div>
+          </div>
+          {isAutoLoginActive && (
+            <div className="mx-auto mt-2.5 h-0.5 w-44 overflow-hidden rounded-full bg-surface-3">
+              <div className="h-full w-full bg-accent/80 transition-all duration-300 animate-pulse" />
+            </div>
+          )}
         </header>
 
         <div className="relative rounded-2xl border border-bd bg-surface-1 p-6 shadow-card backdrop-blur">
@@ -1544,11 +783,17 @@ export function Login() {
             {!ready && !error && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface-1 backdrop-blur-sm">
                 <Spinner size={28} />
-                <div className="text-sm text-text-3">
-                  {isFinishingRef.current ? '登录成功，正在进入主页…' : '正在加载认证界面…'}
-                </div>
+                <div className="text-sm text-text-3">正在加载认证界面…</div>
               </div>
             )}
+            {isAutoLoginActive && !isLoginSuccessOverlay && (
+              <AutoLoginOverlay
+                autoLoginStep={autoLoginStep}
+                activeAccountUser={activeAccountUser}
+                onCancel={handleCancelAutoLogin}
+              />
+            )}
+            {isLoginSuccessOverlay && <LoginSuccessOverlay />}
             {error && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-surface-1 px-6 text-center backdrop-blur-sm">
                 <div className="text-sm font-medium text-amber">{error}</div>
@@ -1616,68 +861,14 @@ export function Login() {
       </div>
 
       {pendingSaveCred && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-2xl border border-bd bg-surface-1 p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-lg text-accent">
-                🔐
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-text-1">记住此账号密码？</h3>
-                <p className="text-xs text-text-3">下次登录将自动为您填好，安全便捷</p>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-bd bg-surface-2 p-3 space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-text-3">登录账号</span>
-                <span className="font-mono font-medium text-text-1">{pendingSaveCred.username}</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-text-3">密码保护</span>
-                <span className="font-medium text-emerald-500">🛡️ 系统硬件级加密保护</span>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-text-2">
-                账号备注别名 <span className="font-normal text-text-3">(可选)</span>
-              </label>
-              <input
-                type="text"
-                value={customLabel}
-                onChange={e => setCustomLabel(e.target.value)}
-                placeholder="例如：本科账号、研究生账号、科研账号"
-                maxLength={30}
-                autoFocus
-                onKeyDown={e => {
-                  if (e.key === 'Enter') void handleConfirmSaveCred()
-                  if (e.key === 'Escape') handleSkipSaveCred()
-                }}
-                className="w-full rounded-xl border border-bd bg-surface-2 px-3 py-2 text-xs text-text-1 placeholder:text-text-4 outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/15"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                disabled={isSavingCred}
-                onClick={handleSkipSaveCred}
-                className="flex-1 rounded-xl border border-bd bg-surface-2 py-2 text-xs font-medium text-text-2 transition hover:bg-surface-3 disabled:opacity-50"
-              >
-                暂不保存
-              </button>
-              <button
-                type="button"
-                disabled={isSavingCred}
-                onClick={() => void handleConfirmSaveCred()}
-                className="flex-1 rounded-xl bg-accent py-2 text-xs font-medium text-white shadow-sm transition hover:bg-accent-hover disabled:opacity-50"
-              >
-                {isSavingCred ? '正在保存…' : '记住此账号'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <SaveCredentialModal
+          pendingSaveCred={pendingSaveCred}
+          customLabel={customLabel}
+          setCustomLabel={setCustomLabel}
+          isSavingCred={isSavingCred}
+          onConfirm={() => void handleConfirmSaveCred()}
+          onSkip={handleSkipSaveCred}
+        />
       )}
     </div>
   )

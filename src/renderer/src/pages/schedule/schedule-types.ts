@@ -58,6 +58,7 @@ export interface SemesterCourseDetail {
     weekHint?: string
   }>
   assignments?: ScheduleEvent[]
+  exams?: ScheduleEvent[]
 }
 
 /** 教务去重课程聚合项 */

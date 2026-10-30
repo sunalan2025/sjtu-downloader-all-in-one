@@ -22,6 +22,7 @@ import {
 import { cloudRemotePath } from './cloud'
 import { getCachedUserToken } from '../cloudpan'
 import { getWorkerAuthToken } from '../credentials'
+import { persistDownloadBatch, updateBackupRuntimeSpec } from '../backup/runtime'
 
 export { isWorkerDelegated }
 
@@ -204,7 +205,7 @@ export async function pollWorkerTaskProgress(
       if (task.status === 'cancelled') {
         emitProgress({
           taskId,
-          state: 'paused',
+          state: 'cancelled',
           received: receivedBytes,
           total: totalBytes,
           fileName,
@@ -280,6 +281,9 @@ export async function dispatchWorkerBatch(
   const isServerLocal = worker.storageMode === 'server_local'
   const cachedToken = getCachedUserToken()
 
+  try { persistDownloadBatch(specs.map(spec => ({ spec, backend: 'worker', options: { ...options, mode: 'cloud' } }))) }
+  catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) } }
+
   for (const spec of specs) {
     const course = effectiveCourseName(spec)
     const rawSpec = spec as { fileSize?: number; destRelPath?: string; categoryName?: string }
@@ -329,6 +333,7 @@ export async function dispatchWorkerBatch(
               total: fileSize
             }
             const resolvedOk = await resolveDirectUrl(taskCtx, !isServerLocal)
+            updateBackupRuntimeSpec(spec)
             if (!resolvedOk || !spec.url) {
               emitProgress({
                 taskId: spec.taskId,

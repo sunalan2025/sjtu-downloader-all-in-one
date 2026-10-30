@@ -43,6 +43,7 @@ import {
   ensureNetworkResumeTimer
 } from '../concurrency'
 import { getIsQuitting } from '../window'
+import { updateBackupRuntimeSpec } from '../backup/runtime'
 import { emitProgress } from './progress'
 import { notifyConcurrencySlotAvailable } from '../canvas/orchestrator'
 import { sanitizeForLog } from '../canvas/safe-fetch'
@@ -59,6 +60,9 @@ export function reEnqueueCloud(spec: DownloadTaskSpec): void {
   if (
     src === 'canvas-files' ||
     src === 'canvas-video' ||
+    src === 'canvas-class-video' ||
+    src === 'canvas-exttool-video' ||
+    src === 'canvas-exturl-video' ||
     (src === 'cloudpan' && (spec as any).cloudRemotePath)
   ) {
     spec.url = ''
@@ -131,6 +135,7 @@ async function cloudRunTask(t: CloudTaskRuntime): Promise<void> {
 
   // 按需解析直链（lazy resolution，与 runTask 共用；含 cancel 竞态守卫）
   if (!await resolveDirectUrl(t, true)) return
+  updateBackupRuntimeSpec(t.spec)
 
   // 替换模式：上传前先删除云盘上已存在的同名文件，避免 startChunkedUpload
   // 的 HEAD 检查抛 FileExistsError。断点续传（uploaderState 非空）时跳过——

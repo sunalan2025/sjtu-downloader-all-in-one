@@ -8,9 +8,12 @@ interface ScheduleExportModalProps {
   setIncludeActivities: (v: boolean) => void
   includeDdl: boolean
   setIncludeDdl: (v: boolean) => void
+  includeExams: boolean
+  setIncludeExams: (v: boolean) => void
   courseEventsCount: number
   activityEventsCount: number
   ddlEventsCount: number
+  examEventsCount: number
   alarmMinutesBefore: number
   setAlarmMinutesBefore: (v: number) => void
   alarmDdlHoursBefore: number
@@ -30,9 +33,12 @@ export function ScheduleExportModal({
   setIncludeActivities,
   includeDdl,
   setIncludeDdl,
+  includeExams,
+  setIncludeExams,
   courseEventsCount,
   activityEventsCount,
   ddlEventsCount,
+  examEventsCount,
   alarmMinutesBefore,
   setAlarmMinutesBefore,
   alarmDdlHoursBefore,
@@ -96,6 +102,21 @@ export function ScheduleExportModal({
             />
             <span className="font-medium text-text-1">
               包含 Canvas 作业截止时间 ({ddlEventsCount} 项)
+            </span>
+          </label>
+
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeExams}
+              onChange={e => setIncludeExams(e.target.checked)}
+              className="rounded accent-rose-500"
+            />
+            <span className="font-medium text-text-1 flex items-center gap-1.5 flex-wrap">
+              <span>包含考试日程 ({examEventsCount} 场)</span>
+              <span className="rounded bg-rose-500/15 px-1.5 py-0.2 text-3xs font-semibold text-rose-600 dark:text-rose-400">
+                考前 24h & 2h 提醒
+              </span>
             </span>
           </label>
         </div>

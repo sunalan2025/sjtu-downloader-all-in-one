@@ -6,7 +6,7 @@ export interface AppDefaultsConfig {
   downloadMode: DownloadMode
   fileConflictStrategy: FileConflictStrategy
   windowCloseAction: 'tray' | 'taskbar' | 'quit'
-  exitWhenDownloadingPolicy: 'prompt' | 'background' | 'pause_quit'
+  exitWhenDownloadingPolicy: 'prompt' | 'background' | 'pause_quit' | 'save_quit'
   videoQualityOption: VideoQualityOption
   videoPerspectivePreference: VideoPerspective
   defaultLocalDestRoot: string

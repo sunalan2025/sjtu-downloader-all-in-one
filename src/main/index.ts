@@ -1,7 +1,7 @@
 import { app, Menu, nativeTheme, shell } from 'electron'
 import { electronApp } from '@electron-toolkit/utils'
-import { existsSync, unlinkSync } from 'node:fs'
-import { join } from 'node:path'
+import { initializeBackupService, stopBackupService } from './backup/service'
+import { checkpointBackupBeforeQuit, getBackupCatalog } from './backup/runtime'
 import { setSession } from './cloudpan'
 import {
   setCanvasSession,
@@ -46,7 +46,8 @@ import {
   getIsQuitting,
   createTray,
   applyThemeIcons,
-  destroyTray
+  destroyTray,
+  isSafeWebviewOrigin
 } from './window'
 import { emitProgress } from './download-engine/progress'
 import {
@@ -116,10 +117,11 @@ app.whenReady().then(async () => {
   })
 
   electronApp.setAppUserModelId('edu.sjtu.course-downloader')
+  initializeBackupService()
 
   // ─── 启动清理：清理上次异常退出的临时沙盒与中间产物 (A01) ───
   try {
-    cleanupStaleDownloads()
+    if (!getBackupCatalog()?.storageError) cleanupStaleDownloads(undefined, getBackupCatalog()?.protectedPaths())
   } catch (err) {
     console.warn('[cleanup] 启动临时目录清理异常（不阻塞启动）:', err)
   }
@@ -127,9 +129,21 @@ app.whenReady().then(async () => {
   // 移除默认应用菜单，避免误触开发者工具等
   Menu.setApplicationMenu(null)
 
-  // webview 内任何 window.open 都走外部安全浏览器
+  // webview 底层网络守卫：拦截未授权导航与重定向，限制外跳弹窗走系统默认浏览器
   app.on('web-contents-created', (_, contents) => {
     if (contents.getType() === 'webview') {
+      contents.on('will-navigate', (e, navUrl) => {
+        if (!isSafeWebviewOrigin(navUrl)) {
+          console.warn('[security] 拦截 webview 运行时未授权导航:', navUrl)
+          e.preventDefault()
+        }
+      })
+      contents.on('will-redirect', (e, redirectUrl) => {
+        if (!isSafeWebviewOrigin(redirectUrl)) {
+          console.warn('[security] 拦截 webview 运行时未授权重定向:', redirectUrl)
+          e.preventDefault()
+        }
+      })
       contents.setWindowOpenHandler(d => {
         if (isSafeExternalUrl(d.url)) {
           void shell.openExternal(d.url)
@@ -203,12 +217,6 @@ app.whenReady().then(async () => {
   createTray()
   startSpeedTicker()
 
-  // 清理可能遗留的陈旧任务队列文件
-  try {
-    const oldQueueFile = join(app.getPath('userData'), 'download_queue.json')
-    if (existsSync(oldQueueFile)) unlinkSync(oldQueueFile)
-  } catch { /* ignore */ }
-
   // 系统深浅主题切换 → 同步窗口/托盘图标
   nativeTheme.on('updated', applyThemeIcons)
 
@@ -221,6 +229,8 @@ app.whenReady().then(async () => {
 
 /** 退出前清理：销毁所有活跃的 HTTP 请求、文件流、定时器 */
 function cleanupOnQuit(): void {
+  checkpointBackupBeforeQuit()
+  stopBackupService()
   setIsQuitting(true)
 
   cancelUpdate()

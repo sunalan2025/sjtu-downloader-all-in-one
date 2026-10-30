@@ -11,33 +11,79 @@ import {
   renameCloudItem,
   getFileDownloadUrl
 } from '../cloudpan'
-import {
-  downloadCloudFile,
-  uploadCloudFiles,
-  openCloudInBrowser
-} from '../cloudpan-transfer'
+import { operateCloudEntries, queryCloudTasks } from '../cloudpan/operations'
+import type { CloudOperationRequest } from '../../shared/cloud-drive'
+import { listCloudTrash, mutateCloudTrash } from '../cloudpan/trash'
+import { downloadCloudFile, downloadCloudEntries, uploadCloudFiles, openCloudInBrowser } from '../cloudpan-transfer'
 import { saveSessionStore, loadSessionStoreRaw } from '../auth'
 import { sjtuSession } from '../session'
+import { validateIpcSender, DEFAULT_UNTRUSTED_IPC_ERROR } from '../utils/ipc-guard'
 
 /**
  * 注册交大云盘 (pan.sjtu.edu.cn) 所有 IPC 通道 (cloudpan:*)
  */
 export function registerCloudPanHandlers(): void {
-  ipcMain.handle('cloudpan:get-cached-token', () => getCachedUserToken())
+  const handle: typeof ipcMain.handle = (channel, listener) =>
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!validateIpcSender(event)) {
+        return { ok: false, error: DEFAULT_UNTRUSTED_IPC_ERROR }
+      }
+      return listener(event, ...args)
+    })
+  handle('cloudpan:operate', async (_event, request: CloudOperationRequest) => {
+    const token = getCachedUserToken()
+    if (!token) return { ok: false, error: '未登录云盘' }
+    try {
+      return { ok: true, results: await operateCloudEntries(token, request) }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : '操作失败' }
+    }
+  })
+  handle('cloudpan:query-tasks', async (_event, ids: string[]) => {
+    const token = getCachedUserToken()
+    if (!token) return { ok: false, error: '未登录云盘' }
+    try {
+      return { ok: true, results: await queryCloudTasks(token, ids) }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : '查询失败' }
+    }
+  })
+  handle('cloudpan:download-entries', (_event, entries, targetDir) => downloadCloudEntries(entries, targetDir))
+  handle('cloudpan:list-trash', async (_event, page = 1) => {
+    const token = getCachedUserToken()
+    if (!token) return { ok: false, error: '未登录云盘' }
+    try {
+      return { ok: true, data: await listCloudTrash(token, page) }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : '回收站不可用' }
+    }
+  })
+  for (const action of ['restore', 'purge'] as const)
+    handle(`cloudpan:${action}-trash`, async (_event, id: string) => {
+      const token = getCachedUserToken()
+      if (!token) return { ok: false, error: '未登录云盘' }
+      try {
+        await mutateCloudTrash(token, id, action === 'restore')
+        return { ok: true }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : '回收站操作失败' }
+      }
+    })
+  handle('cloudpan:get-cached-token', () => getCachedUserToken())
 
-  ipcMain.handle('cloudpan:set-cached-token', (_e, token: string | null) => {
+  handle('cloudpan:set-cached-token', (_e, token: string | null) => {
     setCachedUserToken(token)
-    saveSessionStore({ cloudUserToken: token ?? undefined })
+    saveSessionStore({ cloudUserToken: token ?? '' })
     return { ok: true }
   })
 
-  ipcMain.handle('cloudpan:validate-token', async () => {
+  handle('cloudpan:validate-token', async () => {
     const userToken = getCachedUserToken()
     if (!userToken) return { ok: false, error: '未登录云盘' }
     return validateUserToken(userToken)
   })
 
-  ipcMain.handle('cloudpan:space-info', async () => {
+  handle('cloudpan:space-info', async () => {
     const userToken = getCachedUserToken()
     if (!userToken) return { ok: false, error: '未登录云盘' }
     try {
@@ -48,108 +94,84 @@ export function registerCloudPanHandlers(): void {
     }
   })
 
-  ipcMain.handle('cloudpan:logout', () => {
+  handle('cloudpan:logout', () => {
     clearCachedCredentials()
-    saveSessionStore({ cloudUserToken: undefined })
+    saveSessionStore({ cloudUserToken: '' })
     return { ok: true }
   })
 
-  ipcMain.handle(
-    'cloudpan:list-dir',
-    async (_e, dirPath: string[] = [], page = 1, pageSize = 100) => {
-      const userToken = getCachedUserToken()
-      if (!userToken) return { ok: false, error: '未登录云盘' }
-      try {
-        const data = await listDirectoryContents(userToken, dirPath, page, pageSize)
-        return { ok: true, data }
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : '获取目录列表失败' }
-      }
+  handle('cloudpan:list-dir', async (_e, dirPath: string[] = [], page = 1, pageSize = 100) => {
+    const userToken = getCachedUserToken()
+    if (!userToken) return { ok: false, error: '未登录云盘' }
+    try {
+      const data = await listDirectoryContents(userToken, dirPath, page, pageSize)
+      return { ok: true, data }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : '获取目录列表失败' }
     }
-  )
+  })
 
-  ipcMain.handle(
-    'cloudpan:create-dir',
-    async (_e, dirPath: string[]) => {
-      const userToken = getCachedUserToken()
-      if (!userToken) return { ok: false, error: '未登录云盘' }
-      try {
-        await createDirectory(userToken, dirPath)
-        return { ok: true }
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : '创建目录失败' }
-      }
+  handle('cloudpan:create-dir', async (_e, dirPath: string[]) => {
+    const userToken = getCachedUserToken()
+    if (!userToken) return { ok: false, error: '未登录云盘' }
+    try {
+      await createDirectory(userToken, dirPath)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : '创建目录失败' }
     }
-  )
+  })
 
-  ipcMain.handle(
-    'cloudpan:delete-item',
-    async (_e, targetPath: string[], isDir: boolean) => {
-      const userToken = getCachedUserToken()
-      if (!userToken) return { ok: false, error: '未登录云盘' }
-      try {
-        await deleteCloudItem(userToken, targetPath, isDir)
-        return { ok: true }
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : '删除失败' }
-      }
+  handle('cloudpan:delete-item', async (_e, targetPath: string[], isDir: boolean) => {
+    const userToken = getCachedUserToken()
+    if (!userToken) return { ok: false, error: '未登录云盘' }
+    try {
+      await deleteCloudItem(userToken, targetPath, isDir)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : '删除失败' }
     }
-  )
+  })
 
-  ipcMain.handle(
-    'cloudpan:rename-item',
-    async (_e, oldPath: string[], newName: string, isDir: boolean) => {
-      const userToken = getCachedUserToken()
-      if (!userToken) return { ok: false, error: '未登录云盘' }
-      try {
-        await renameCloudItem(userToken, oldPath, newName, isDir)
-        return { ok: true }
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : '重命名失败' }
-      }
+  handle('cloudpan:rename-item', async (_e, oldPath: string[], newName: string, isDir: boolean) => {
+    const userToken = getCachedUserToken()
+    if (!userToken) return { ok: false, error: '未登录云盘' }
+    try {
+      await renameCloudItem(userToken, oldPath, newName, isDir)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : '重命名失败' }
     }
-  )
+  })
 
-  ipcMain.handle(
-    'cloudpan:get-download-url',
-    async (_e, filePath: string[]) => {
-      const userToken = getCachedUserToken()
-      if (!userToken) return { ok: false, error: '未登录云盘' }
-      try {
-        const url = await getFileDownloadUrl(userToken, filePath)
-        return { ok: true, url }
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : '获取下载链接失败' }
-      }
+  handle('cloudpan:get-download-url', async (_e, filePath: string[]) => {
+    const userToken = getCachedUserToken()
+    if (!userToken) return { ok: false, error: '未登录云盘' }
+    try {
+      const url = await getFileDownloadUrl(userToken, filePath)
+      return { ok: true, url }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : '获取下载链接失败' }
     }
-  )
+  })
 
-  ipcMain.handle(
-    'cloudpan:download-file',
-    async (_e, remotePath: string[], targetDir?: string) => {
-      return downloadCloudFile(remotePath, targetDir)
-    }
-  )
+  handle('cloudpan:download-file', async (_e, remotePath: string[], targetDir?: string) => {
+    return downloadCloudFile(remotePath, targetDir)
+  })
 
-  ipcMain.handle(
-    'cloudpan:upload-files',
-    async (_e, targetDirPath: string[] = []) => {
-      return uploadCloudFiles(targetDirPath)
-    }
-  )
+  handle('cloudpan:upload-files', async (_e, targetDirPath: string[] = [], folder = false) => {
+    return uploadCloudFiles(targetDirPath, folder)
+  })
 
-  ipcMain.handle(
-    'cloudpan:open-web',
-    async (_e, remotePath: string[] = []) => {
-      return openCloudInBrowser(remotePath)
-    }
-  )
+  handle('cloudpan:open-web', async (_e, remotePath: string[] = []) => {
+    return openCloudInBrowser(remotePath)
+  })
 
   /**
    * 利用已有的 jAccount session 直接完成 pan SSO 登录。
    * 用隐藏 BrowserWindow 加载 pan → 点击"jAccount登录" → SSO 自动跳转 → 拿 UserToken cookie。
    */
-  ipcMain.handle('cloudpan:direct-login', async () => {
+  handle('cloudpan:direct-login', async () => {
     const ses = sjtuSession()
     try {
       const cachedToken = getCachedUserToken() || loadSessionStoreRaw()?.cloudUserToken
@@ -163,8 +185,9 @@ export function registerCloudPanHandlers(): void {
       }
 
       const existingCookies = await ses.cookies.get({ url: 'https://pan.sjtu.edu.cn' })
-      const existingUt = existingCookies.find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
-        || (await ses.cookies.get({ domain: 'sjtu.edu.cn' })).find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
+      const existingUt =
+        existingCookies.find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32) ||
+        (await ses.cookies.get({ domain: 'sjtu.edu.cn' })).find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
       if (existingUt) {
         const valid = await validateUserToken(existingUt.value)
         if (valid.ok) {
@@ -214,8 +237,9 @@ export function registerCloudPanHandlers(): void {
         for (let i = 0; i < 40; i++) {
           await new Promise(r => setTimeout(r, 500))
           const cookies = await ses.cookies.get({ url: 'https://pan.sjtu.edu.cn' })
-          const ut = cookies.find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
-            || (await ses.cookies.get({ domain: 'sjtu.edu.cn' })).find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
+          const ut =
+            cookies.find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32) ||
+            (await ses.cookies.get({ domain: 'sjtu.edu.cn' })).find(c => c.name === 'USER_TOKEN' && c.value && c.value.length >= 32)
           if (ut) {
             setCachedUserToken(ut.value)
             saveSessionStore({ cloudUserToken: ut.value })

@@ -1,3 +1,4 @@
+import type { CloudDriveApi } from './cloud-drive'
 // ─────────────────────────────────────────────────────────────
 // 站点与 webview 相关常量
 // ─────────────────────────────────────────────────────────────
@@ -494,6 +495,7 @@ export interface CanvasAssignmentComment {
   authorName: string
   comment: string
   createdAt: string
+  attachments?: CanvasAssignmentFile[]
 }
 
 /** Canvas 作业关联文件（题目附件或学生提交原件） */
@@ -514,6 +516,7 @@ export interface CanvasAssignmentItem {
   submittedAt?: string
   submissionScore?: number
   submissionGrade?: string
+  submissionBody?: string
   htmlUrl?: string
   descriptionHtml?: string
   teacherAttachments: CanvasAssignmentFile[]
@@ -790,7 +793,7 @@ export interface DownloadTaskMeta {
 // Window API 契约（渲染进程与主进程 IPC）
 // ─────────────────────────────────────────────────────────────
 
-export interface CloudPanApi {
+export interface CloudPanApi extends CloudDriveApi {
   getCachedToken: () => Promise<string | null>
   setCachedToken: (token: string | null) => Promise<{ ok: boolean }>
   validateToken: () => Promise<{ ok: boolean; error?: string }>
@@ -803,7 +806,7 @@ export interface CloudPanApi {
   renameItem: (oldPath: string[], newName: string, isDir: boolean) => Promise<{ ok: boolean; error?: string }>
   getDownloadUrl: (filePath: string[]) => Promise<{ ok: boolean; url?: string; error?: string }>
   downloadFile: (remotePath: string[], targetDir?: string) => Promise<{ ok: boolean; taskId?: string; error?: string }>
-  uploadFiles: (targetDirPath: string[]) => Promise<{ ok: boolean; count?: number; error?: string }>
+  uploadFiles: (targetDirPath: string[], folder?: boolean) => Promise<{ ok: boolean; count?: number; error?: string }>
   openInBrowser: (remotePath?: string[]) => Promise<{ ok: boolean; error?: string }>
 }
 
@@ -848,7 +851,7 @@ export interface ScheduleEvent {
   location?: string
   startTime: string // "YYYY-MM-DD HH:mm" 或 ISO
   endTime: string   // "YYYY-MM-DD HH:mm" 或 ISO
-  type: 'course' | 'activity' | 'assignment_ddl'
+  type: 'course' | 'activity' | 'assignment_ddl' | 'exam'
   courseName?: string
   teacher?: string
   weekInfo?: string
@@ -868,6 +871,10 @@ export interface ScheduleEvent {
   jxbmc?: string
   isLabOrLongSession?: boolean
   courseType?: string
+  // 考试专属字段 (学在交大 / 教务考试)
+  examType?: string
+  leftDay?: number
+  conflictCourseTitle?: string
 }
 
 /** 课表学期周次信息 */
@@ -885,8 +892,11 @@ export interface IcsExportOptions {
   includeCourses: boolean
   includeActivities?: boolean
   includeDdl: boolean
+  includeExams?: boolean // 是否导出考试安排
   alarmMinutesBefore: number // 默认 20
   alarmDdlHoursBefore: number // 默认 24
+  alarmExamHoursBefore?: number // 默认 24 (考前 24 小时预备)
+  alarmExamMinutesBefore?: number // 默认 120 (考前 2 小时出发)
   targetFilePath?: string
 }
 

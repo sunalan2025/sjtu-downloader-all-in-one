@@ -22,6 +22,13 @@ function applyTheme(theme: Theme): void {
 
 export { applyTheme }
 
+const HEADER_CAPSULE_BASE_CLS =
+  'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all shadow-2xs cursor-pointer active:scale-[0.98]'
+const HEADER_CAPSULE_ACTIVE_CLS =
+  'bg-accent text-white border-accent shadow-glow-sm'
+const HEADER_CAPSULE_INACTIVE_CLS =
+  'border-bd bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
+
 export function TitleBar({
   onOpenSettings,
   onOpenTransfer
@@ -38,6 +45,16 @@ export function TitleBar({
   const progress = useAppStore(s => s.progress)
 
   const [speed, setSpeed] = useState<{ down: number; up: number }>({ down: 0, up: 0 })
+  const [recoverableCount, setRecoverableCount] = useState(0)
+  const [updateCourseCount, setUpdateCourseCount] = useState(0)
+  useEffect(() => {
+    if (stage !== 'browser' || !window.api.backup) return
+    let mounted = true
+    const refresh = (): void => { void window.api.backup.status().then(s => { if (mounted) { setRecoverableCount(s.recoverableCount || 0); setUpdateCourseCount(s.updateCourseCount || 0) } }).catch(() => {}) }
+    refresh()
+    const unsubscribe = window.api.backup.onChanged(refresh)
+    return () => { mounted = false; unsubscribe() }
+  }, [stage])
   useEffect(() => {
     return window.api.download.onTransferSpeed(s => setSpeed(s))
   }, [])
@@ -85,7 +102,7 @@ export function TitleBar({
     { key: 'schedule', label: '课表与日程' }
   ]
 
-  const isDetailView = activeTab === 'settings' || activeTab === 'transfer' || activeTab === 'cloudpan'
+  const isDetailView = activeTab === 'settings' || activeTab === 'transfer' || activeTab === 'cloudpan' || activeTab === 'library'
 
   return (
     <div
@@ -109,7 +126,7 @@ export function TitleBar({
             </button>
             <span className="text-text-4 font-mono text-xs">/</span>
             <span className="text-xs font-semibold text-text-1">
-              {activeTab === 'transfer' ? '📥 传输中心' : activeTab === 'cloudpan' ? '☁️ 交大云盘' : '⚙️ 全局设置'}
+              {activeTab === 'library' ? '资源库' : activeTab === 'transfer' ? '📥 传输中心' : activeTab === 'cloudpan' ? '☁️ 交大云盘' : '⚙️ 全局设置'}
             </span>
           </div>
         ) : (
@@ -131,6 +148,29 @@ export function TitleBar({
       
       {stage === 'browser' && (
         <div className={`no-drag flex items-center gap-3 ${!isMac ? 'mr-3' : ''}`}>
+          {/* 资源库快速入口胶囊 */}
+          <button
+            type="button"
+            aria-label={`资源库${updateCourseCount ? `，${updateCourseCount} 门收藏课程有待下载更新` : ''}`}
+            title={activeTab === 'library' ? '点击返回课程列表' : '收藏课程与待下载更新'}
+            onClick={() => setActiveTab(activeTab === 'library' ? lastCourseTab || 'canvas' : 'library')}
+            className={`${HEADER_CAPSULE_BASE_CLS} ${
+              activeTab === 'library' ? HEADER_CAPSULE_ACTIVE_CLS : HEADER_CAPSULE_INACTIVE_CLS
+            }`}
+          >
+            <span aria-hidden="true">▤</span>
+            <span>资源库</span>
+            {updateCourseCount > 0 && (
+              <span
+                className={`rounded-full px-1.5 font-mono text-2xs ${
+                  activeTab === 'library' ? 'bg-white/20 text-white' : 'bg-accent/15 text-accent'
+                }`}
+              >
+                {updateCourseCount}
+              </span>
+            )}
+          </button>
+
           {/* 交大云盘快速入口胶囊 */}
           <button
             type="button"
@@ -143,11 +183,11 @@ export function TitleBar({
                 setActiveTab('cloudpan')
               }
             }}
-            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all shadow-2xs cursor-pointer ${
+            className={`${HEADER_CAPSULE_BASE_CLS} ${
               activeTab === 'cloudpan'
-                ? 'bg-accent text-white border-accent shadow-glow-sm'
+                ? HEADER_CAPSULE_ACTIVE_CLS
                 : cloudUserToken
-                  ? 'border-bd bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
+                  ? HEADER_CAPSULE_INACTIVE_CLS
                   : 'border-bd bg-surface-2 text-text-3 hover:bg-surface-1 hover:border-bd-strong hover:text-text-2'
             }`}
             title={
@@ -183,14 +223,14 @@ export function TitleBar({
           <button
             type="button"
             onClick={onOpenTransfer}
-            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all ${
+            className={`${HEADER_CAPSULE_BASE_CLS} ${
               activeTab === 'transfer'
-                ? 'bg-accent text-white border-accent shadow-glow-sm'
+                ? HEADER_CAPSULE_ACTIVE_CLS
                 : activeCount > 0
-                  ? 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
-                  : 'border-bd bg-surface-2 text-text-3 hover:bg-surface-3 hover:text-text-1'
+                  ? 'border border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 hover:border-accent/50'
+                  : HEADER_CAPSULE_INACTIVE_CLS
             }`}
-            title={`传输中心：${activeCount > 0 ? `${activeCount} 项任务进行中` : '查看传输队列与历史'}`}
+            title={`传输中心：${recoverableCount ? `${recoverableCount} 项任务待恢复 · ` : ''}${activeCount > 0 ? `${activeCount} 项任务进行中` : '查看传输队列与历史'}`}
           >
             {activeCount > 0 ? (
               <>
@@ -207,8 +247,21 @@ export function TitleBar({
             ) : (
               <>
                 <span>📥 传输中心</span>
+                {recoverableCount > 0 && (
+                  <span
+                    className={`rounded-full px-1.5 font-mono text-2xs ${
+                      activeTab === 'transfer' ? 'bg-white/20 text-white' : 'bg-danger text-white'
+                    }`}
+                  >
+                    {recoverableCount}
+                  </span>
+                )}
                 {doneCount > 0 && (
-                  <span className="rounded-full bg-surface-3 px-1.5 py-0.2 font-mono text-2xs text-text-3">
+                  <span
+                    className={`rounded-full px-1.5 py-0.2 font-mono text-2xs ${
+                      activeTab === 'transfer' ? 'bg-white/20 text-white' : 'bg-surface-3 text-text-3'
+                    }`}
+                  >
                     {doneCount}
                   </span>
                 )}
@@ -221,12 +274,10 @@ export function TitleBar({
           <button
             type="button"
             onClick={onOpenSettings}
-            className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-all shadow-2xs cursor-pointer ${
-              activeTab === 'settings'
-                ? 'bg-accent text-white border-accent shadow-glow-sm'
-                : 'border-bd bg-surface-2 text-text-2 hover:bg-surface-1 hover:border-bd-strong hover:text-text-1'
+            className={`${HEADER_CAPSULE_BASE_CLS} ${
+              activeTab === 'settings' ? HEADER_CAPSULE_ACTIVE_CLS : HEADER_CAPSULE_INACTIVE_CLS
             }`}
-            title="全局设置与偏好"
+            title={activeTab === 'settings' ? '点击返回课程列表' : '全局设置与偏好'}
           >
             <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="3" />

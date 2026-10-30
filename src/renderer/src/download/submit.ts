@@ -15,6 +15,7 @@
 import type { DownloadTaskSpec } from '@shared/types'
 import { useAppStore } from '../store/app'
 import { pruneSettledLinks } from './progress'
+import { resolveLocalDestination } from './destination'
 
 export interface SubmitBatchOptions {
   /** both 模式：本地↔云端镜像 taskId 映射将由此建立 */
@@ -81,7 +82,8 @@ export async function submitDownloadBatch(
   // IPC 提交；异常/失败回滚
   let result: { ok: boolean; error?: string }
   try {
-    result = await window.api.download.start(store.localDestRoot, specs, options)
+    const localDestRoot = await resolveLocalDestination(downloadMode, store.localDestRoot)
+    result = await window.api.download.start(localDestRoot, specs, { ...options, localDestRoot: localDestRoot || undefined })
   } catch (err) {
     result = { ok: false, error: err instanceof Error ? err.message : 'IPC 通信失败' }
   }

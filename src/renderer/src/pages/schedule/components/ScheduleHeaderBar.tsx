@@ -9,6 +9,7 @@ interface LayerFilter {
   course: boolean
   activity: boolean
   ddl: boolean
+  exam: boolean
 }
 
 interface ScheduleHeaderBarProps {
@@ -23,13 +24,14 @@ interface ScheduleHeaderBarProps {
   courseEventsCount: number
   activityEventsCount: number
   ddlEventsCount: number
+  examEventsCount: number
   studentName?: string
   studentId?: string
   onOpenExportModal: () => void
-  onRefresh: () => void
-  loading: boolean
-  refreshing: boolean
-  jiaowuLoading: boolean
+  onRefresh?: () => void
+  loading?: boolean
+  refreshing?: boolean
+  jiaowuLoading?: boolean
 }
 
 export function ScheduleHeaderBar({
@@ -44,13 +46,14 @@ export function ScheduleHeaderBar({
   courseEventsCount,
   activityEventsCount,
   ddlEventsCount,
+  examEventsCount,
   studentName,
   studentId,
   onOpenExportModal,
-  onRefresh,
-  loading,
-  refreshing,
-  jiaowuLoading
+  onRefresh: _onRefresh,
+  loading: _loading,
+  refreshing: _refreshing,
+  jiaowuLoading: _jiaowuLoading
 }: ScheduleHeaderBarProps) {
   const semesterGroups: DropdownGroup<string>[] = useMemo(() => [
     {
@@ -68,7 +71,7 @@ export function ScheduleHeaderBar({
     }
   ], [semesters])
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-bd bg-surface-1 dark:bg-[#1e1e22] px-6 py-3.5 shadow-xs sticky top-0 z-40">
+    <div className="ui-toolbar justify-between sticky top-0 z-40">
       {/* 左侧：学期选择器 + 视图切换 (周视图 / 学期总览) */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
@@ -153,6 +156,19 @@ export function ScheduleHeaderBar({
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
               <span>作业 · {ddlEventsCount}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => onToggleLayer('exam')}
+              className={`inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-2xs font-medium transition-all cursor-pointer ${
+                layerFilter.exam
+                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 font-semibold'
+                  : 'opacity-40 text-text-3 hover:opacity-70'
+              }`}
+              title="切换考试日程提醒显示"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+              <span>考试 · {examEventsCount}</span>
+            </button>
           </div>
         )}
 
@@ -169,24 +185,13 @@ export function ScheduleHeaderBar({
           <button
             type="button"
             onClick={onOpenExportModal}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 hover:border-bd-strong hover:text-text-1 hover:bg-surface-2 transition-all cursor-pointer shadow-2xs"
+            className="ui-button inline-flex items-center gap-1.5 border border-bd bg-surface-1 font-medium text-text-2 hover:border-bd-strong hover:text-text-1 hover:bg-surface-2 transition-all cursor-pointer shadow-2xs"
             title="导出为 Apple/Outlook/Google 日历 (.ics)"
           >
             <span>🗓️</span>
             <span>导出日历</span>
           </button>
         )}
-
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={loading || refreshing || jiaowuLoading}
-          className="inline-flex items-center gap-1.5 rounded-xl border border-bd bg-surface-1 px-3 py-1.5 text-xs font-medium text-text-2 hover:border-bd-strong hover:text-text-1 hover:bg-surface-2 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
-          title="重新同步数据"
-        >
-          <span className={refreshing || jiaowuLoading ? 'animate-spin' : ''}>↻</span>
-          <span>{refreshing || jiaowuLoading ? '正在同步…' : '重新同步'}</span>
-        </button>
       </div>
     </div>
   )

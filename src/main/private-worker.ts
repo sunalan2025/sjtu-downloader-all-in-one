@@ -96,14 +96,16 @@ export async function stopEmbeddedDevWorker(): Promise<void> {
 registerDevWorkerCleanupHook(stopEmbeddedDevWorker)
 
 /**
- * 在本地自动拉起轻量开发测试中转节点（带端口冲突自动递增自愈机制）
+ * 优先尝试指定端口范围；全被占用或被系统保留时由系统分配回环端口。
  */
 export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): Promise<string | null> {
   if (embeddedServer && embeddedWorkerUrl) {
     return embeddedWorkerUrl
   }
 
-  for (let port = startPort; port <= maxPort; port++) {
+  if (!Number.isInteger(startPort) || !Number.isInteger(maxPort) || startPort < 0 || maxPort > 65535 || startPort > maxPort) return null
+  const ports = new Set([...Array.from({ length: maxPort - startPort + 1 }, (_, index) => startPort + index), 0])
+  for (const port of ports) {
     try {
       const server = http.createServer(async (req, res) => {
         if (req.method === 'OPTIONS') {
@@ -259,21 +261,20 @@ export async function startEmbeddedDevWorker(startPort = 6880, maxPort = 6889): 
       })
 
       const started = await new Promise<boolean>(resolve => {
-        server.once('error', (err: { code?: string }) => {
-          if (err.code === 'EADDRINUSE') {
-            resolve(false)
-          } else {
-            resolve(false)
-          }
-        })
+        server.once('error', () => resolve(false))
         server.listen(port, '127.0.0.1', () => {
           resolve(true)
         })
       })
 
       if (started) {
+        const address = server.address()
+        if (!address || typeof address === 'string') {
+          server.close()
+          continue
+        }
         embeddedServer = server
-        embeddedWorkerUrl = `http://127.0.0.1:${port}`
+        embeddedWorkerUrl = `http://127.0.0.1:${address.port}`
         return embeddedWorkerUrl
       }
     } catch {

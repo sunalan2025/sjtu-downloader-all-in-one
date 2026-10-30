@@ -44,6 +44,7 @@ export interface CdnFetchContext {
   /** Range 起点：getter 形式，重定向跟随/重试发起时动态读取
    *  （本地 = .part 已有字节，可能被 200 回退清零；云端 = uploader 已收字节） */
   getRangeFrom: () => number
+  ifRange?: string
   /** keep-alive Agent（本地用 sharedDownloadAgent 复用连接；云端不传用全局默认） */
   agent?: import('node:https').Agent
   workerConfig?: PrivateWorkerConfig
@@ -101,6 +102,7 @@ export function cdnFetchOnce(
   }
   const rangeFrom = ctx.getRangeFrom()
   if (rangeFrom > 0) headers.Range = `bytes=${rangeFrom}-`
+  if (rangeFrom > 0 && ctx.ifRange) headers['If-Range'] = ctx.ifRange
   if (isWorkerProxied && workerConfig?.authToken?.trim()) {
     headers.Authorization = `Bearer ${workerConfig.authToken.trim()}`
   }

@@ -20,6 +20,7 @@ import { ScheduleExportModal } from './schedule/components/ScheduleExportModal'
 import { CourseDetailModal } from './schedule/components/CourseDetailModal'
 import { CourseHoverPopover } from './schedule/components/CourseHoverPopover'
 import { ScheduleHeaderBar } from './schedule/components/ScheduleHeaderBar'
+import { PageHeader } from '../components/ui'
 import { WeekScheduleView } from './schedule/components/WeekScheduleView'
 import { SemesterScheduleView } from './schedule/components/SemesterScheduleView'
 import { useScheduleWeekGrid, useScheduleSemesterGrid } from './schedule/useScheduleGridData'
@@ -91,6 +92,7 @@ export function ScheduleBrowser() {
   const [includeCourses, setIncludeCourses] = useState(true)
   const [includeActivities, setIncludeActivities] = useState(true)
   const [includeDdl, setIncludeDdl] = useState(true)
+  const [includeExams, setIncludeExams] = useState(true)
   const [alarmMinutesBefore, setAlarmMinutesBefore] = useState(20)
   const [alarmDdlHoursBefore, setAlarmDdlHoursBefore] = useState(24)
   const [exporting, setExporting] = useState(false)
@@ -257,10 +259,11 @@ export function ScheduleBrowser() {
   const isCurrentMode = selectedSemesterKey === 'current'
   const currentJiaowuResult = !isCurrentMode ? jiaowuCache[selectedSemesterKey] : null
 
-  // 三大类事件分流（当前学期模式）
+  // 四大类事件分流（当前学期模式）
   const courseEvents = useMemo(() => events.filter(e => e.type === 'course'), [events])
   const activityEvents = useMemo(() => events.filter(e => e.type === 'activity'), [events])
   const ddlEvents = useMemo(() => events.filter(e => e.type === 'assignment_ddl'), [events])
+  const examEvents = useMemo(() => events.filter(e => e.type === 'exam'), [events])
   // 筛选既无 due_at 也无 lock_at 的活跃作业（无截止时限容灾）
   const undatedAssignments = useMemo(() => {
     if (!isCurrentMode) return []
@@ -338,6 +341,7 @@ export function ScheduleBrowser() {
       if (e.type === 'course' && !layerFilter.course) return false
       if (e.type === 'activity' && !layerFilter.activity) return false
       if (e.type === 'assignment_ddl' && !layerFilter.ddl) return false
+      if (e.type === 'exam' && !layerFilter.exam) return false
       return true
     })
   }, [events, layerFilter])
@@ -521,6 +525,31 @@ export function ScheduleBrowser() {
       if (isCurrentMode) {
         const matchedEvents = courseEvents.filter(e => e.title === courseName)
         const matchedDdl = ddlEvents.filter(d => d.courseName === courseName)
+        const matchedExams = examEvents.filter(
+          e => e.title === courseName || (e.courseName && e.courseName === courseName)
+        )
+
+        if (matchedEvents.length === 0 && matchedExams.length > 0) {
+          const firstExam = matchedExams[0]
+          setSelectedCourseForModal({
+            courseName,
+            titleEn: firstExam.titleEn,
+            teachers: firstExam.teacher || '主讲教学团队',
+            locations: firstExam.location || '考场地点待公布',
+            periodAndWeeks: `共 ${matchedExams.length} 场考试安排`,
+            scheduleSessions: matchedExams.map(ex => ({
+              dateStr: getEventDateStr(ex.startTime),
+              timeStr: `${formatEventTime(ex.startTime)} ~ ${formatEventTime(ex.endTime || '')}`,
+              location: ex.location,
+              teacher: ex.teacher,
+              weekHint: ex.examType || '考试'
+            })),
+            assignments: matchedDdl,
+            exams: matchedExams
+          })
+          return
+        }
+
         const first = matchedEvents[0]
         const locations = Array.from(new Set(matchedEvents.map(e => e.location).filter(Boolean))).join(' / ')
         const teachers = Array.from(new Set(matchedEvents.map(e => e.teacher).filter(Boolean))).join(', ')
@@ -540,7 +569,8 @@ export function ScheduleBrowser() {
           locations: locations || first?.location || '校内教室',
           periodAndWeeks: `全学期共 ${matchedEvents.length} 讲课时`,
           scheduleSessions: sessions,
-          assignments: matchedDdl
+          assignments: matchedDdl,
+          exams: matchedExams
         })
       } else if (currentJiaowuResult?.courses) {
         const items = currentJiaowuResult.courses.filter(c => c.kcmc === courseName)
@@ -571,7 +601,7 @@ export function ScheduleBrowser() {
         })
       }
     },
-    [isCurrentMode, courseEvents, ddlEvents, currentJiaowuResult, handleCardMouseLeave]
+    [isCurrentMode, courseEvents, ddlEvents, examEvents, currentJiaowuResult, handleCardMouseLeave]
   )
 
   // 导出 ICS 日历
@@ -584,6 +614,7 @@ export function ScheduleBrowser() {
         includeCourses,
         includeActivities,
         includeDdl,
+        includeExams,
         alarmMinutesBefore,
         alarmDdlHoursBefore
       }
@@ -606,7 +637,8 @@ export function ScheduleBrowser() {
   }, [ddlEvents])
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-surface-1 text-text-1">
+    <div className="ui-page">
+      <PageHeader title="课程日程" description="查看课程安排、截止日期与个人日程" />
       <ScheduleHeaderBar
         selectedSemesterKey={selectedSemesterKey}
         onSemesterChange={handleSemesterChange}
@@ -619,6 +651,7 @@ export function ScheduleBrowser() {
         courseEventsCount={courseEvents.length}
         activityEventsCount={activityEvents.length}
         ddlEventsCount={ddlEvents.length}
+        examEventsCount={examEvents.length}
         studentName={currentJiaowuResult?.studentName}
         studentId={currentJiaowuResult?.studentId}
         onOpenExportModal={() => setShowExportModal(true)}
@@ -635,7 +668,7 @@ export function ScheduleBrowser() {
       />
 
       {/* ─── 主体区 ─── */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="ui-content space-y-4">
         {loading || jiaowuLoading ? (
           <div className="flex h-72 flex-col items-center justify-center gap-3 text-text-3">
             <Spinner className="h-8 w-8 text-accent" />
@@ -663,6 +696,7 @@ export function ScheduleBrowser() {
         ) : viewMode === 'week' ? (
           <WeekScheduleView
             isCurrentMode={isCurrentMode}
+            examEvents={examEvents}
             weeks={weeks}
             selectedWeekKey={selectedWeekKey}
             setSelectedWeekKey={setSelectedWeekKey}
@@ -735,9 +769,12 @@ export function ScheduleBrowser() {
         setIncludeActivities={setIncludeActivities}
         includeDdl={includeDdl}
         setIncludeDdl={setIncludeDdl}
+        includeExams={includeExams}
+        setIncludeExams={setIncludeExams}
         courseEventsCount={courseEvents.length}
         activityEventsCount={activityEvents.length}
         ddlEventsCount={ddlEvents.length}
+        examEventsCount={examEvents.length}
         alarmMinutesBefore={alarmMinutesBefore}
         setAlarmMinutesBefore={setAlarmMinutesBefore}
         alarmDdlHoursBefore={alarmDdlHoursBefore}

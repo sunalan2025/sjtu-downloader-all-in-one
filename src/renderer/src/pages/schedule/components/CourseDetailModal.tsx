@@ -125,6 +125,72 @@ export function CourseDetailModal({ course, onClose }: CourseDetailModalProps) {
             </div>
           </div>
 
+          {/* 关联考试安排 */}
+          {course.exams && course.exams.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <h4 className="text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>🚨</span>
+                  <span>关联考试与考场安排 ({course.exams.length} 场)</span>
+                </h4>
+                <span className="text-3xs text-text-4">交大官方考场与备考提醒</span>
+              </div>
+
+              <div className="space-y-2">
+                {course.exams.map(exam => (
+                  <div
+                    key={exam.id}
+                    className="rounded-xl border border-rose-500/30 bg-rose-500/5 dark:bg-[#2b181c] p-3.5 text-xs space-y-2 shadow-2xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-text-1 flex items-center gap-2">
+                          <span>{exam.title}</span>
+                          <span className="rounded bg-rose-500/20 px-1.5 py-0.2 text-3xs font-bold text-rose-700 dark:text-rose-300">
+                            {exam.examType || '考试'}
+                          </span>
+                        </div>
+                        <div className="text-3xs text-text-3 font-mono">
+                          🕒 {getEventDateStr(exam.startTime)} {formatEventTime(exam.startTime)} ~ {formatEventTime(exam.endTime || '')}
+                        </div>
+                      </div>
+                      {exam.leftDay !== undefined && (
+                        <span
+                          className={`shrink-0 rounded-full px-2.5 py-0.5 text-2xs font-bold ${
+                            exam.leftDay === 0
+                              ? 'bg-rose-500 text-white animate-pulse'
+                              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                          }`}
+                        >
+                          {exam.leftDay === 0
+                            ? '今日考试'
+                            : exam.leftDay > 0
+                              ? `距考试还剩 ${exam.leftDay} 天`
+                              : '已结束'}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-2xs text-text-2 pt-2 border-t border-rose-500/15">
+                      <div className="flex items-center gap-1">
+                        <span className="text-text-4 font-medium">📍 考场地点:</span>
+                        <span className="font-semibold text-rose-600 dark:text-rose-400">
+                          {exam.location || '考场地点待公布'}
+                        </span>
+                      </div>
+                      {exam.conflictCourseTitle && (
+                        <div className="flex items-center gap-1 text-rose-600 dark:text-rose-400">
+                          <span>⚠️</span>
+                          <span>原排课冲突:「{exam.conflictCourseTitle}」时段已被本次考试占用</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 关联 Canvas 作业与任务 */}
           {course.assignments && course.assignments.length > 0 && (
             <div>

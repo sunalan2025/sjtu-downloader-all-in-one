@@ -151,14 +151,23 @@ export const createDownloadSlice: StateCreator<AppState, [], [], DownloadSlice> 
           let nextHistory = state.downloadHistory
           for (const [tid, prog] of batch) {
             const prev = next[tid]
+            // 防御性终态保护：若先前任务已处于终态 (done / skipped / error / cancelled)，
+            // 且新到的进度事件是普通非终态 (downloading / pending)，严禁回退状态，防止异步乱序覆盖！
+            const isPrevTerminal = prev?.state === 'done' || prev?.state === 'skipped' || prev?.state === 'error' || prev?.state === 'cancelled'
+            const isNewTerminal = prog.state === 'done' || prog.state === 'skipped' || prog.state === 'error' || prog.state === 'cancelled'
+            const targetState = (isPrevTerminal && !isNewTerminal) ? prev.state : (prog.state || prev?.state)
+
             next[tid] = {
               ...prev,
               ...prog,
+              state: targetState,
               fileName: prog.fileName || prev?.fileName,
               courseName: prog.courseName || prev?.courseName,
+              filePath: prog.filePath || prev?.filePath,
+              cloudPath: prog.cloudPath || prev?.cloudPath,
               storageMode: prog.storageMode || prev?.storageMode
             }
-            const isFinished = prog.state === 'done' || prog.state === 'skipped'
+            const isFinished = targetState === 'done' || targetState === 'skipped'
             if (isFinished && !tid.includes('_scan_')) {
               const baseId = tid.replace(/_cloud$/, '')
               const mergedFilePath = prog.filePath || prev?.filePath
@@ -206,7 +215,7 @@ export const createDownloadSlice: StateCreator<AppState, [], [], DownloadSlice> 
                 if (!fileName || /^\d+$/.test(fileName) || fileName === tid) {
                   if (tid.includes('_ppt_')) {
                     fileName = mergedCourseName ? `${mergedCourseName} · 课堂讲义 (PPT/PDF)` : '课堂讲义 (PPT/PDF)'
-                  } else if (tid.includes('_assign_')) {
+                  } else if (tid.includes('_assign_') || tid.includes('_assignment_')) {
                     fileName = mergedCourseName ? `${mergedCourseName} · 课程作业归档` : '课程作业归档'
                   } else if (tid.includes('_transcript_')) {
                     fileName = mergedCourseName ? `${mergedCourseName} · 课堂逐字稿与字幕` : '课堂逐字稿与字幕'

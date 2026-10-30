@@ -215,6 +215,7 @@ export async function fetchCourseFiles(
     filename: (f.filename as string) || `file_${f.id}`,
     url: (f.url as string) || '',
     size: Number(f.size || 0),
+    updatedAt: String(f.modified_at || f.updated_at || ''),
     folderId: f.folder_id != null ? Number(f.folder_id) : null,
     locked: Boolean(f.locked || f.hidden || f.locked_for_user)
   }))
@@ -226,11 +227,12 @@ export async function fetchCourseFiles(
 export async function fetchFileMeta(
   ses: Electron.Session,
   fileId: number
-): Promise<{ url: string; displayName: string; size: number; folderId: number | null } | null> {
+): Promise<{ url: string; displayName: string; size: number; folderId: number | null; updatedAt?: string } | null> {
   const f = await canvasFetch<Record<string, unknown>>(ses, `/files/${fileId}`)
   return {
     url: (f.url as string) || '',
     displayName: (f.display_name as string) || (f.filename as string) || `file_${fileId}`,
+    updatedAt: String(f.modified_at || f.updated_at || ''),
     size: Number(f.size || 0),
     folderId: f.folder_id != null ? Number(f.folder_id) : null
   }

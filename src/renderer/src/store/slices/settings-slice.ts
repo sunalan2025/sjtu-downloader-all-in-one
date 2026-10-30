@@ -12,7 +12,7 @@ import type { AppState } from '../app'
 
 export type Theme = 'light' | 'dark' | 'system'
 export type WindowCloseAction = 'tray' | 'taskbar' | 'quit'
-export type ExitWhenDownloadingPolicy = 'prompt' | 'background' | 'pause_quit'
+export type ExitWhenDownloadingPolicy = 'prompt' | 'background' | 'pause_quit' | 'save_quit'
 export type CourseViewMode = 'grid' | 'list' | 'column'
 
 export interface SettingsSlice {

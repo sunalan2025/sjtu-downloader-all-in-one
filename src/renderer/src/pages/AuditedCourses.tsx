@@ -1,3 +1,4 @@
+import { PageHeader } from '../components/ui'
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useAppStore, useDownloadStats, useEffectiveProgress } from '../store/app'
 import { useShallow } from 'zustand/shallow'
@@ -19,6 +20,7 @@ import {
   ProgressBar,
   NetdiskViewModeSwitch,
   TaskCtrlButtons,
+  SearchInput,
   triStateFromCount
 } from '../components/DownloadUI'
 import {
@@ -243,14 +245,6 @@ export function AuditedCourses() {
     scanStartedRef.current = true
     void runScan()
   }, [runScan, scanState])
-
-  // 刷新键（与好大学在线页一致）：重走 runScan。
-  // scanAudit 调用即登录校验 —— 已登录则直接重载课程列表；
-  // 登录态失效则 runScan 内部跳登录页，登录成功后回到本页自动重扫（见上方 resetScanResults 注释）。
-  const onRefresh = useCallback((): void => {
-    void runScan()
-  }, [runScan])
-
 
   // 全任务都到 final 状态时收尾（使用共享 hook）
   // [Bug 29 Fix] 传入 skipWhenEmpty=true：当 selectedTaskIds 为空时不要立即判定完成，
@@ -497,26 +491,16 @@ export function AuditedCourses() {
   }, [setAuth, resetScanResults, setStage])
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="ui-page">
+      <PageHeader title="旁听课程" description="浏览旁听课程与录播资源" />
       {/* 顶部粘性操作栏 (搜索 + 刷新 + 已选统计 + 全选 + 立即下载) */}
-      <div className="sticky top-0 z-30 no-drag flex flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1 dark:bg-[#1e1e22] px-6 py-2.5 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="relative flex items-center">
-            <svg className="pointer-events-none absolute left-3 h-4 w-4 text-text-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="搜索旁听课程/教师..."
-              className="h-10 w-48 rounded-xl border border-bd bg-surface-2 pl-9 pr-3 text-xs text-text-1 placeholder:text-text-4 shadow-2xs hover:border-bd-strong focus:w-60 focus:border-accent focus:outline-none transition-all duration-200"
-            />
-          </div>
-
-          <NetdiskViewModeSwitch
-            mode={courseViewMode}
-            onChange={setCourseViewMode}
+      <div className="ui-toolbar justify-between sticky top-0 z-30 no-drag">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="搜索旁听课程/教师..."
+            className="h-9 w-48"
           />
 
           {scanState === 'scanning' && (
@@ -524,21 +508,10 @@ export function AuditedCourses() {
               <Spinner size={12} /> {scanMessage}
             </span>
           )}
-
-          {scanState === 'done' && courses.length > 0 && (
-            <button
-              type="button"
-              onClick={onRefresh}
-              title="重新校验登录态并完整重载课程列表"
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-bd bg-surface-2 text-text-3 hover:border-bd-strong hover:bg-surface-1 hover:text-text-1 transition-all shadow-2xs cursor-pointer text-sm"
-            >
-              ↻
-            </button>
-          )}
         </div>
 
-        {/* 右侧：下载控制 */}
-        <div className="flex items-center gap-3">
+        {/* 右侧：下载控制 + 视图切换 */}
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           {downloading && (
             <div className="flex items-center gap-1 rounded-xl bg-surface-2 p-1">
               <GlobalCtrlButton kind="pause" onClick={onPauseAll} title="暂停全部下载任务" />
@@ -546,6 +519,11 @@ export function AuditedCourses() {
               <GlobalCtrlButton kind="cancel" onClick={onCancelAll} title="取消全部下载任务" />
             </div>
           )}
+
+          <NetdiskViewModeSwitch
+            mode={courseViewMode}
+            onChange={setCourseViewMode}
+          />
         </div>
       </div>
 

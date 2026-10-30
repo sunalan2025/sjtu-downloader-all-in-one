@@ -145,7 +145,7 @@ export const useAppStore = create<AppState>()(
         if (version < 3 && state) {
           state.theme = 'system'
         }
-        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')) {
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan' || state.activeTab === 'library')) {
           state.activeTab = (state.lastCourseTab as string) || 'canvas'
         }
         if (state && Array.isArray(state.downloadHistory) && state.downloadHistory.length > 300) {
@@ -156,7 +156,7 @@ export const useAppStore = create<AppState>()(
       merge: (persistedState: unknown, currentState: AppState) => {
         const persisted = (persistedState ?? {}) as Partial<AppState>
         const activeTab =
-          persisted.activeTab === 'settings' || persisted.activeTab === 'transfer' || persisted.activeTab === 'cloudpan'
+          persisted.activeTab === 'settings' || persisted.activeTab === 'transfer' || persisted.activeTab === 'cloudpan' || persisted.activeTab === 'library'
             ? persisted.lastCourseTab || currentState.lastCourseTab || 'canvas'
             : (persisted.activeTab ?? currentState.activeTab)
         const canvasExportSrt = typeof persisted.canvasExportSrt === 'boolean'
@@ -181,7 +181,7 @@ export const useAppStore = create<AppState>()(
         }
       },
       onRehydrateStorage: () => state => {
-        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')) {
+        if (state && (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan' || state.activeTab === 'library')) {
           state.activeTab = state.lastCourseTab || 'canvas'
         }
         if (state && typeof state.concurrency === 'number') {
@@ -205,7 +205,7 @@ export const useAppStore = create<AppState>()(
       }),
       partialize: state => ({
         theme: state.theme,
-        activeTab: (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan')
+        activeTab: (state.activeTab === 'settings' || state.activeTab === 'transfer' || state.activeTab === 'cloudpan' || state.activeTab === 'library')
           ? (state.lastCourseTab || 'canvas')
           : state.activeTab,
         concurrency: state.concurrency,

@@ -14,6 +14,7 @@ import {
   exchangeVsjtuJwtByCode,
   ensureVsjtuLogin
 } from '../auth'
+import { validateIpcSender, DEFAULT_UNTRUSTED_IPC_ERROR } from '../utils/ipc-guard'
 
 /**
  * 彻底清除 SJTU 会话与各子系统登录态缓存
@@ -30,26 +31,34 @@ export async function clearSjtuSession(): Promise<void> {
  * 注册用户认证与交大在线 (auth:*, vsjtu:*) 相关 IPC 通道
  */
 export function registerAuthHandlers(): void {
-  ipcMain.handle('auth:set-jwt-token', (_e, token: string | null, userInfo?: { name?: string; studentId?: string }) => {
+  const handle: typeof ipcMain.handle = (channel, listener) =>
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!validateIpcSender(event)) {
+        return { ok: false, error: DEFAULT_UNTRUSTED_IPC_ERROR }
+      }
+      return listener(event, ...args)
+    })
+
+  handle('auth:set-jwt-token', (_e, token: string | null, userInfo?: { name?: string; studentId?: string }) => {
     setJwtToken(token, userInfo)
     return { ok: true }
   })
 
-  ipcMain.handle('auth:logout', async () => {
+  handle('auth:logout', async () => {
     clearAuthState()
     clearCachedCredentials()
     await clearSjtuSession()
     return { loggedIn: false, checkedAt: new Date().toISOString() }
   })
 
-  ipcMain.handle('auth:clear', async () => {
+  handle('auth:clear', async () => {
     clearAuthState()
     clearCachedCredentials()
     await clearSjtuSession()
     return { loggedIn: false, checkedAt: new Date().toISOString() }
   })
 
-  ipcMain.handle('auth:status', async (_e, force?: boolean) => {
+  handle('auth:status', async (_e, force?: boolean) => {
     const info = await getAuthInfo(force)
     return {
       loggedIn: info.loggedIn,
@@ -65,13 +74,51 @@ export function registerAuthHandlers(): void {
     }
   })
 
-  ipcMain.handle('auth:exchange-code', async (_e, code: string) => {
+  handle('auth:exchange-code', async (_e, code: string) => {
     if (!code) return { success: false }
     const token = await exchangeVsjtuJwtByCode(code)
     return { success: !!token, token }
   })
 
-  ipcMain.handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
+  handle('auth:solve-captcha', async (_e, dataUrl: string) => {
+    if (!dataUrl || typeof dataUrl !== 'string') {
+      console.warn('[auth:solve-captcha] 无效的 dataUrl')
+      return { ok: false, error: 'invalid_data_url' }
+    }
+    try {
+      const commaIdx = dataUrl.indexOf(',')
+      const base64Str = commaIdx !== -1 ? dataUrl.slice(commaIdx + 1) : dataUrl
+      const buf = Buffer.from(base64Str, 'base64')
+
+      const formData = new FormData()
+      formData.append('image', new Blob([buf], { type: 'image/jpeg' }), 'captcha.jpg')
+
+      console.log(`[auth:solve-captcha] 正在向 geek.sjtu.edu.cn 请求验证码识别 (图片大小: ${buf.length} 字节)...`)
+      const resp = await fetch('https://geek.sjtu.edu.cn/captcha-solver/', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!resp.ok) {
+        console.warn(`[auth:solve-captcha] 识别服务返回 HTTP ${resp.status}`)
+        return { ok: false, error: `HTTP ${resp.status}` }
+      }
+      const data = (await resp.json()) as { error?: string; result?: string | null }
+      if (data.result && typeof data.result === 'string') {
+        const code = data.result.trim()
+        console.log(`[auth:solve-captcha] 验证码识别成功: ${code}`)
+        return { ok: true, code }
+      }
+      console.warn('[auth:solve-captcha] 识别服务未返回识别结果:', data)
+      return { ok: false, error: data.error || 'no_result' }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.warn('[auth:solve-captcha] 请求异常:', errMsg)
+      return { ok: false, error: errMsg }
+    }
+  })
+
+  handle('vsjtu:scan-audit', async (_e, pageNo = 1, pageSize = 100) => {
     await ensureVsjtuLogin()
 
     const first = (await vsjtuFetch(V_SJTU_API.auditCourseMy, {
@@ -120,7 +167,7 @@ export function registerAuthHandlers(): void {
     return first
   })
 
-  ipcMain.handle('vsjtu:audit-course-detail', async (_e, resourceId: number) => {
+  handle('vsjtu:audit-course-detail', async (_e, resourceId: number) => {
     await ensureVsjtuLogin()
     const r = await vsjtuFetch(V_SJTU_API.auditCourseDetail, {
       method: 'POST',

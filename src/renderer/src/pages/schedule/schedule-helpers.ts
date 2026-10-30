@@ -211,7 +211,12 @@ export function getSlotIdFromTime(timeStr: string): number {
 /** 将同一天内的事件按时段重叠区间进行分组聚类，避免 CSS Grid 重叠遮挡 */
 export function clusterDayEvents(events: PlacedEvent[]): DayEventCluster[] {
   if (events.length === 0) return []
-  const sorted = [...events].sort((a, b) => a.startSlot - b.startSlot || b.span - a.span)
+  const sorted = [...events].sort((a, b) => {
+    if (a.startSlot !== b.startSlot) return a.startSlot - b.startSlot
+    if (a.type === 'exam' && b.type !== 'exam') return -1
+    if (b.type === 'exam' && a.type !== 'exam') return 1
+    return b.span - a.span
+  })
   const clusters: DayEventCluster[] = []
   let currentCluster: PlacedEvent[] = [sorted[0]]
   let clusterStart = sorted[0].startSlot

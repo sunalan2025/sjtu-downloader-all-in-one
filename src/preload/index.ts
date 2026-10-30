@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { CloudDriveApi } from '../shared/cloud-drive'
 import type {
   ApiEnvelope,
   AuditCourseDetail,
@@ -44,6 +45,7 @@ import type {
 } from '../shared/types'
 
 import pkg from '../../package.json'
+import type { BackupApi } from '../shared/backup'
 
 /** 通用订阅器：注册 ipcRenderer 监听并返回取消订阅函数 */
 const subscribe = <T>(channel: string, cb: (p: T) => void): (() => void) => {
@@ -54,6 +56,21 @@ const subscribe = <T>(channel: string, cb: (p: T) => void): (() => void) => {
 
 /** 暴露给 renderer 进程的完整 API 表面，通过 contextBridge 挂载到 window.api */
 const api = {
+  backup: {
+    status: () => ipcRenderer.invoke('backup:status'),
+    snapshot: scope => ipcRenderer.invoke('backup:snapshot', scope),
+    courses: source => ipcRenderer.invoke('backup:courses', source),
+    saveSubscription: input => ipcRenderer.invoke('backup:save-subscription', input),
+    removeSubscription: id => ipcRenderer.invoke('backup:remove-subscription', id),
+    checkSubscription: id => ipcRenderer.invoke('backup:check', id),
+    fillMissing: id => ipcRenderer.invoke('backup:fill', id),
+    recover: ids => ipcRenderer.invoke('backup:recover', ids),
+    dismissRecovery: ids => ipcRenderer.invoke('backup:dismiss', ids),
+    cancelRecovery: ids => ipcRenderer.invoke('backup:cancel-recovery', ids),
+    verifyLocal: () => ipcRenderer.invoke('backup:verify'),
+    openCopy: (resourceId, copyKey) => ipcRenderer.invoke('backup:open-copy', resourceId, copyKey),
+    onChanged: cb => subscribe('backup:changed', cb)
+  } satisfies BackupApi,
   /** 应用当前版本号（直接从 package.json 读取，与安装包和 GitHub Release 对齐） */
   version: pkg.version,
   /** 主进程平台标识（darwin/win32/linux），renderer 据此做平台分支（如 macOS 用原生交通灯） */
@@ -102,6 +119,7 @@ const api = {
     quit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('window:quit'),
     /** 取消所有下载并退出（确认窗"取消下载并退出"） */
     cancelAndQuit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('window:cancel-and-quit'),
+    pauseAndQuit: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('window:pause-and-quit'),
     /** 查询是否有进行中任务（决定是否弹确认窗） */
     hasOngoingTasks: (): Promise<{ ongoing: boolean }> => ipcRenderer.invoke('window:has-ongoing-tasks'),
     /** 最大化/还原切换 */
@@ -130,7 +148,10 @@ const api = {
       ipcRenderer.invoke('auth:set-jwt-token', token, userInfo),
     /** 使用 OAuth2 授权 Code 直接换取交大视频 JWT Token */
     exchangeCode: (code: string): Promise<{ success: boolean; token?: string | null }> =>
-      ipcRenderer.invoke('auth:exchange-code', code)
+      ipcRenderer.invoke('auth:exchange-code', code),
+    /** 调用极客协会验证码识别服务自动识别验证码 */
+    solveCaptcha: (dataUrl: string): Promise<{ ok: boolean; code?: string; error?: string }> =>
+      ipcRenderer.invoke('auth:solve-captcha', dataUrl)
   },
   vsjtu: {
     /** 分页扫描旁听课程申请列表 */
@@ -183,6 +204,12 @@ const api = {
     onTransferSpeed: (cb: (s: TransferSpeed) => void) => subscribe<TransferSpeed>('transfer:speed', cb)
   },
   cloudpan: {
+    listTrash: ((page) => ipcRenderer.invoke('cloudpan:list-trash', page)) as CloudDriveApi['listTrash'],
+    restoreTrash: ((id) => ipcRenderer.invoke('cloudpan:restore-trash', id)) as CloudDriveApi['restoreTrash'],
+    purgeTrash: ((id) => ipcRenderer.invoke('cloudpan:purge-trash', id)) as CloudDriveApi['purgeTrash'],
+    operate: ((request) => ipcRenderer.invoke('cloudpan:operate', request)) as CloudDriveApi['operate'],
+    queryTasks: ((ids) => ipcRenderer.invoke('cloudpan:query-tasks', ids)) as CloudDriveApi['queryTasks'],
+    downloadEntries: ((entries, targetDir) => ipcRenderer.invoke('cloudpan:download-entries', entries, targetDir)) as CloudDriveApi['downloadEntries'],
     /** 获取 main 进程缓存的 USER_TOKEN */
     getCachedToken: (): Promise<string | null> =>
       ipcRenderer.invoke('cloudpan:get-cached-token'),
@@ -223,8 +250,8 @@ const api = {
     downloadFile: (remotePath: string[], targetDir?: string): Promise<{ ok: boolean; taskId?: string; error?: string }> =>
       ipcRenderer.invoke('cloudpan:download-file', remotePath, targetDir),
     /** 调起本地文件选择框并将选中文件上传到交大云盘 */
-    uploadFiles: (targetDirPath: string[]): Promise<{ ok: boolean; count?: number; error?: string }> =>
-      ipcRenderer.invoke('cloudpan:upload-files', targetDirPath),
+    uploadFiles: (targetDirPath: string[], folder?: boolean): Promise<{ ok: boolean; count?: number; error?: string }> =>
+      ipcRenderer.invoke('cloudpan:upload-files', targetDirPath, folder),
     /** 在系统默认浏览器中打开交大云盘网页版 */
     openInBrowser: (remotePath?: string[]): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('cloudpan:open-web', remotePath)
@@ -256,6 +283,7 @@ const api = {
       token?: string
       canvasCourseId?: string
       legacyCourseId?: string
+        warning?: string
       error?: string
     }> =>
       ipcRenderer.invoke('canvas:class-video-scan', courseId),
@@ -333,6 +361,8 @@ const api = {
       term?: string
       conflictStrategy?: FileConflictStrategy
       options?: CanvasAssignmentExportOptions
+      cloudUserToken?: string
+      cloudDestRoot?: string
     }): Promise<{
       ok: boolean
       results?: Array<{ assignmentName: string; ok: boolean; path?: string; error?: string }>
@@ -410,6 +440,7 @@ const api = {
      *  taskId 存在时进度通过 canvas:ppt-progress 推送（用于 UI 进度条）。
      *  destRoot 空 = cloud-only（PDF 仅作上传中间产物，上传后清理）。 */
     download: (opts: {
+      ltiToken?: string
       taskId?: string
       /** vod 系统的 videoId（加密串，非数值）。主进程用 resolveIvsVideoId 解析成 PPT API 需要的数值型 ivsVideoId。 */
       ivsVideoId: string
@@ -427,6 +458,7 @@ const api = {
     /** 批量下载多讲 PPT 课件（可选云盘上传）。进度事件 canvas:ppt-progress 带 taskId，
      *  current/total 为讲次级（X/Y 讲），单讲内图片进度折进 phase。 */
     downloadBatch: (opts: {
+      ltiToken?: string
       taskId?: string
       lectures: Array<{ ivsVideoId: string; lectureName: string; videoSession?: { beginTime: string; teacher: string; classroom: string } }>
       courseName: string

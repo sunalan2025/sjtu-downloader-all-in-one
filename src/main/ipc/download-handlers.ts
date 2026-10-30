@@ -3,9 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
   DownloadMode,
-  FileConflictStrategy,
-  DownloadTaskSpec,
-  PrivateWorkerConfig
+  DownloadTaskSpec
 } from '../../shared/types'
 import { getCachedUserToken } from '../cloudpan'
 import { getConcurrency, setConcurrency } from '../concurrency'
@@ -58,26 +56,18 @@ import {
   isWorkerTask
 } from '../download-engine/worker-dispatch'
 import { globalSpeedLimiter, formatPathFromTemplate } from '../../shared/utils'
+import type { DownloadOptions } from '../../shared/backup'
+import { persistDownloadBatch, tryRecoverBackupTask } from '../backup/runtime'
+import { validateIpcSender, DEFAULT_UNTRUSTED_IPC_ERROR } from '../utils/ipc-guard'
 
 /**
  * 注册下载子系统所有 IPC 通道 (download:*)
  */
-export function registerDownloadHandlers(): void {
-  ipcMain.handle(
-    'download:start',
-    async (
-      _e,
+export async function startDownloadBatch(
       destRoot: string,
       specs: DownloadTaskSpec[],
-      options?: {
-        mode?: DownloadMode
-        localDestRoot?: string
-        conflictStrategy?: FileConflictStrategy
-        namingTemplate?: string
-        cloudDestRoot?: string
-        privateWorker?: PrivateWorkerConfig
-      }
-    ): Promise<{ ok: boolean; error?: string }> => {
+      options?: DownloadOptions
+    ): Promise<{ ok: boolean; error?: string }> {
       try {
         const MAX_SPECS_PER_BATCH = 5000
         if (!Array.isArray(specs) || specs.length === 0) {
@@ -102,7 +92,8 @@ export function registerDownloadHandlers(): void {
 
         const cloudToken = getCachedUserToken()
 
-        if ((mode === 'cloud' || mode === 'both') && !cloudToken) {
+        const remoteLocal = options?.privateWorker?.enabled && options.privateWorker.storageMode === 'server_local'
+        if ((mode === 'cloud' || mode === 'both') && !remoteLocal && !cloudToken) {
           return {
             ok: false,
             error: mode === 'both'
@@ -132,10 +123,9 @@ export function registerDownloadHandlers(): void {
               '下载说明',
               '========',
               '',
-              '本目录下的 .part 文件是下载过程中的临时文件，支持会话内断点续传',
-              '（暂停→恢复不重下）。每次打开应用时会自动清理上次会话残留的 .part',
-              '和 remux 失败的孤立 .ts 文件，释放本地空间——因此跨重启不再续传，',
-              '如需重下直接发起即可。',
+              '未完成任务会保存到资源库，重启后可在「资源库 → 任务恢复」继续。',
+              '请保留 .part 文件。支持 Range 且资源版本未变时会继续下载；',
+              'HLS、云盘上传或无法验证来源的文件会安全地重新传输。',
               '',
               '已下载完成的 .mp4 视频不会被清理，可放心保留。',
               '',
@@ -145,6 +135,8 @@ export function registerDownloadHandlers(): void {
           } catch (e) {
             if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
           }
+          const admissions: { spec: DownloadTaskSpec; filePath: string; partPath: string }[] = []
+          const seen = new Set<string>()
           for (const spec of specs) {
             if (tasks.has(spec.taskId)) {
               const st = tasks.get(spec.taskId)!.state
@@ -152,6 +144,8 @@ export function registerDownloadHandlers(): void {
             }
             if (pendingLocalIds.has(spec.taskId)) continue
             if (pausedLocalIds.has(spec.taskId)) continue
+            if (seen.has(spec.taskId)) continue
+            seen.add(spec.taskId)
             const relPath = formatPathFromTemplate(options?.namingTemplate || '', {
               term: spec.term,
               course: effectiveCourseName(spec),
@@ -159,6 +153,10 @@ export function registerDownloadHandlers(): void {
             })
             const filePath = join(localBase, ...relPath.split('/'))
             const partPath = filePath + '.part'
+            admissions.push({ spec, filePath, partPath })
+          }
+          persistDownloadBatch(admissions.map(({ spec, filePath, partPath }) => ({ spec, backend: 'local', options: { ...options, localDestRoot: root, mode: 'local' }, paths: { filePath, partPath } })))
+          for (const { spec, filePath, partPath } of admissions) {
             pendingLocal.push({ spec: { ...spec, cloudUserToken: undefined }, filePath, partPath })
             pendingLocalIds.add(spec.taskId)
             if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
@@ -172,26 +170,29 @@ export function registerDownloadHandlers(): void {
         }
 
         // ─── 云盘上传 ───
-        if ((mode === 'cloud' || mode === 'both') && cloudToken) {
+        if ((mode === 'cloud' || mode === 'both') && (cloudToken || remoteLocal)) {
           const cloudSpecs = mode === 'both'
             ? specs.map(s => ({
                 ...s,
                 taskId: s.taskId + '_cloud',
-                cloudUserToken: cloudToken,
+                cloudUserToken: cloudToken || undefined,
                 cloudDestRoot: options?.cloudDestRoot ?? s.cloudDestRoot
               }))
             : specs.map(s => ({
                 ...s,
-                cloudUserToken: cloudToken,
+                cloudUserToken: cloudToken || undefined,
                 cloudDestRoot: options?.cloudDestRoot ?? s.cloudDestRoot
               }))
 
           if (isWorkerDelegated('cloud', options?.privateWorker)) {
-            void dispatchWorkerBatch(cloudSpecs, {
+            const result = await dispatchWorkerBatch(cloudSpecs, {
               ...options,
               mode: 'cloud'
             })
+            if (!result.ok) return result
           } else {
+            const admissions: DownloadTaskSpec[] = []
+            const seen = new Set<string>()
             for (const spec of cloudSpecs) {
               if (cloudTasks.has(spec.taskId)) {
                 const st = cloudTasks.get(spec.taskId)!.state
@@ -199,6 +200,12 @@ export function registerDownloadHandlers(): void {
               }
               if (pendingCloudIds.has(spec.taskId)) continue
               if (pausedCloudIds.has(spec.taskId)) continue
+              if (seen.has(spec.taskId)) continue
+              seen.add(spec.taskId)
+              admissions.push(spec)
+            }
+            persistDownloadBatch(admissions.map(spec => ({ spec, backend: 'cloud', options: { ...options, mode: 'cloud', cloudDestRoot: options?.cloudDestRoot ?? spec.cloudDestRoot } })))
+            for (const spec of admissions) {
               pendingCloud.push(spec)
               pendingCloudIds.add(spec.taskId)
               if (options?.conflictStrategy) conflictStrategyByTask.set(spec.taskId, options.conflictStrategy)
@@ -217,10 +224,20 @@ export function registerDownloadHandlers(): void {
         const msg = err instanceof Error ? err.message : String(err)
         return { ok: false, error: msg.slice(0, 300) }
       }
-    }
-  )
+}
 
-  ipcMain.handle('download:pause', (_e, id: string) => {
+export function registerDownloadHandlers(): void {
+  const handle: typeof ipcMain.handle = (channel, listener) =>
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!validateIpcSender(event)) {
+        return { ok: false, error: DEFAULT_UNTRUSTED_IPC_ERROR }
+      }
+      return listener(event, ...args)
+    })
+
+  handle('download:start', (_e, destRoot: string, specs: DownloadTaskSpec[], options?: DownloadOptions) => startDownloadBatch(destRoot, specs, options))
+
+  handle('download:pause', (_e, id: string) => {
     if (isWorkerTask(id) || (!id.endsWith('_cloud') && isWorkerTask(id + '_cloud'))) {
       return { ok: false, error: '中转任务不支持断点暂停，仅支持取消' }
     }
@@ -232,7 +249,7 @@ export function registerDownloadHandlers(): void {
     return { ok: true }
   })
 
-  ipcMain.handle('download:cancel', (_e, id: string) => {
+  handle('download:cancel', (_e, id: string) => {
     cancelTask(id)
     cloudCancelTask(id)
     const workerActive = isWorkerTask(id)
@@ -252,53 +269,55 @@ export function registerDownloadHandlers(): void {
     return { ok: true }
   })
 
-  ipcMain.handle('download:resume', (_e, id: string) => {
+  handle('download:resume', async (_e, id: string) => {
+    const recovered = await tryRecoverBackupTask(id)
+    if (recovered) return recovered
     resumeTask(id)
     cloudResumeTask(id)
     if (!id.endsWith('_cloud')) cloudResumeTask(id + '_cloud')
     return { ok: true }
   })
 
-  ipcMain.handle('download:get-snapshot', () => {
+  handle('download:get-snapshot', () => {
     return getDownloadSnapshot()
   })
 
-  ipcMain.handle('download:clear-finished-snapshots', () => {
+  handle('download:clear-finished-snapshots', () => {
     clearFinishedSnapshots()
     return { ok: true }
   })
 
-  ipcMain.handle('download:delete-snapshot', (_e, taskId: string) => {
+  handle('download:delete-snapshot', (_e, taskId: string) => {
     deleteSnapshot(taskId)
     return { ok: true }
   })
 
-  ipcMain.handle('download:pause-all', () => {
+  handle('download:pause-all', () => {
     pauseAll()
     cloudPauseAll()
     return { ok: true }
   })
 
-  ipcMain.handle('download:cancel-all', () => {
+  handle('download:cancel-all', () => {
     cancelAll()
     cloudCancelAll()
     return { ok: true }
   })
 
-  ipcMain.handle('download:resume-all', () => {
+  handle('download:resume-all', () => {
     resumeAll()
     cloudResumeAll()
     return { ok: true }
   })
 
-  ipcMain.handle('download:set-concurrency', (_e, n: number) => {
+  handle('download:set-concurrency', (_e, n: number) => {
     setConcurrency(Math.max(1, Math.min(16, Math.floor(Number(n)) || 3)))
     scheduleNext()
     cloudScheduleNext()
     return { ok: true, concurrency: getConcurrency() }
   })
 
-  ipcMain.handle('download:set-speed-limit', (_e, limitKBps: number) => {
+  handle('download:set-speed-limit', (_e, limitKBps: number) => {
     globalSpeedLimiter.setLimitKBps(limitKBps || 0)
     return { ok: true }
   })

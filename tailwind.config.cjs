@@ -1,12 +1,19 @@
 /** @type {import('tailwindcss').Config} */
 const sharedTheme = require('./src/shared/theme/tailwind-theme.cjs')
+// Keep the background token out of text colors: text-base is the 16px font utility.
+const { base: baseBackground, ...semanticColors } = sharedTheme.colors
 
 module.exports = {
   darkMode: ['class', '[data-theme="dark"]'],
   content: ['./src/renderer/index.html', './src/renderer/src/**/*.{ts,tsx}'],
   theme: {
     extend: {
-      colors: sharedTheme.colors,
+      // A semantic DEFAULT must not replace Tailwind's numbered palette (sky-500, etc.).
+      colors: {
+        ...semanticColors,
+        ...Object.fromEntries(['amber', 'emerald', 'sky', 'rose'].map(name => [name, { DEFAULT: semanticColors[name] }]))
+      },
+      backgroundColor: { base: baseBackground },
       fontFamily: {
         sans: [
           '-apple-system',
@@ -22,6 +29,7 @@ module.exports = {
         ]
       },
       fontSize: {
+        '3xs': ['0.625rem', { lineHeight: '1.4' }],
         '2xs': ['0.6875rem', { lineHeight: '1.4' }],
         xs: ['0.75rem', { lineHeight: '1.5' }],
         sm: ['0.875rem', { lineHeight: '1.5' }],
@@ -38,7 +46,9 @@ module.exports = {
         'hero-radial':
           'radial-gradient(1200px 600px at 20% -10%, var(--accent-15), transparent 60%), radial-gradient(900px 500px at 100% 20%, var(--bg-surface-2), transparent 60%)'
       },
-      boxShadow: sharedTheme.boxShadow,
+      boxShadow: { ...sharedTheme.boxShadow, '2xs': '0 1px 2px rgb(0 0 0 / 0.05)' },
+      spacing: { 0.2: '0.05rem' },
+      backdropBlur: { xs: '2px' },
       keyframes: {
         shimmer: {
           '0%': { transform: 'translateX(-100%)' },
