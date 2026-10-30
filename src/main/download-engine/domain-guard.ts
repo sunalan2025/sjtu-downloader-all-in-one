@@ -51,7 +51,7 @@ export function isAllowedSjtuUrl(urlStr: string, options?: DomainGuardOptions): 
 
   // 1. 回环地址校验 (测试环境放行)
   if (LOOPBACK_HOSTNAMES.has(hostname)) {
-    return allowLocal && (protocol === 'http:' || protocol === 'https:')
+    return Boolean(allowLocal && (protocol === 'http:' || protocol === 'https:'))
   }
 
   // 2. 生产网络环境强制要求 HTTPS 协议

@@ -14,14 +14,15 @@ import {
   type CanvasDownloadTaskSpec,
   type DownloadState,
   type DownloadTaskSpec,
-  type FileConflictStrategy
+  type FileConflictStrategy,
+  type PrivateWorkerConfig
 } from '../../shared/types'
 import { getHlsActive } from '../concurrency'
 import { emitProgress } from './progress'
 import { getIsQuitting } from '../window'
 import { sjtuSession } from '../session'
 import { vsjtuFetch } from '../auth'
-import type { ChunkedUploader, UploadSessionState } from '../cloudpan'
+import { getFileDownloadUrl, getCachedUserToken, type ChunkedUploader, type UploadSessionState } from '../cloudpan'
 import { getVodChannelsCached, getExtToolToken, fetchExtToolVodUrl, fetchVsharePlayUrl } from '../canvas/video-tokens'
 import { fetchLegacyVodStreamUrls } from '../canvas/legacy-video'
 import { sanitizeFsName } from '../../shared/utils'
@@ -118,6 +119,11 @@ export const CANVAS_HOST = new URL(CANVAS_BASE_URL).hostname
  *  任务完成由 scheduleCleanupTask 清理。 */
 export const cnmoocCookiesByTask = new Map<string, string>()
 
+/** 任务绑定的校内私有中转配置：taskId → PrivateWorkerConfig。
+ *  download:start 入队时写入，runTask / cdnFetchOnce 临下载时读取。
+ *  任务完成后由 scheduleCleanupTask 清理。 */
+export const workerConfigByTask = new Map<string, PrivateWorkerConfig>()
+
 /** cnmooc 会话 cookie 需注入的主机：cnmooc.sjtu.cn 及其子域（如 static.cnmooc.sjtu.cn 课件）。
  *  视频 flvUrl 多落在第三方 CDN，不在此列 → 不注入（避免把 cnmooc cookie 泄漏给无关域）。 */
 export function isCnmoocCookieHost(hostname: string): boolean {
@@ -171,6 +177,7 @@ export function scheduleCleanupTask(taskId: string, isCloud: boolean): void {
   conflictStrategyByTask.delete(taskId)
   canvasCookiesByTask.delete(taskId)
   cnmoocCookiesByTask.delete(taskId)
+  workerConfigByTask.delete(taskId)
 }
 
 // [2.8] Combined active count for shared concurrency limit across local + cloud
@@ -242,15 +249,33 @@ export async function resolveDirectUrl(
   t: { spec: DownloadTaskSpec; state: DownloadState; total: number; filePath?: string; partPath?: string },
   isCloud: boolean
 ): Promise<boolean> {
-  const src = (t.spec as CanvasDownloadTaskSpec).source
+  const src = t.spec.source as string | undefined
 
   // canvas-files：url 可能在 resume 时被清空（reEnqueueLocal/Cloud 强制重解析），
   // 按 fileId 重建 /files/{id}/download 端点。
   if (src === 'canvas-files' && !t.spec.url) {
-    const parts = t.spec.taskId.split('_')
-    const fileId = Number(parts[parts.length - 1])
-    if (fileId > 0) {
+    const rawFileId = (t.spec as CanvasDownloadTaskSpec).rawFileId
+    const fileId = rawFileId || (() => {
+      const cleanId = t.spec.taskId.replace(/_cloud$/, '')
+      const parts = cleanId.split('_')
+      return Number(parts[parts.length - 1])
+    })()
+    if (fileId > 0 && !Number.isNaN(fileId)) {
       t.spec.url = `${CANVAS_BASE_URL}/files/${fileId}/download?download_frd=1`
+    }
+  }
+
+  // cloudpan：url 在 resume 时被清空，通过 cloudRemotePath 重新获取直链
+  if (src === 'cloudpan' && !t.spec.url && (t.spec as any).cloudRemotePath) {
+    const userToken = getCachedUserToken()
+    if (userToken) {
+      try {
+        const rawPath = (t.spec as any).cloudRemotePath
+        const remotePath = Array.isArray(rawPath) ? rawPath : String(rawPath).split('/').filter(Boolean)
+        t.spec.url = await getFileDownloadUrl(userToken, remotePath)
+      } catch (err) {
+        console.warn('[download:cloudpan] 重新获取云盘直链失败:', err)
+      }
     }
   }
 
@@ -277,7 +302,6 @@ export async function resolveDirectUrl(
       t.state = 'error'
       const msg = err instanceof Error ? err.message : String(err)
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-      scheduleCleanupTask(t.spec.taskId, isCloud)
       return false
     }
   }
@@ -346,7 +370,6 @@ export async function resolveDirectUrl(
           t.state = 'error'
           const msg = err instanceof Error ? err.message : String(err)
           emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-          scheduleCleanupTask(t.spec.taskId, isCloud)
           return false
         }
       }
@@ -365,10 +388,8 @@ export async function resolveDirectUrl(
       }
       try {
         const channels = await getVodChannelsCached(sjtuSession(), cs.canvasVideoToken, cs.canvasVideoId)
-        let ch = channels[cs.canvasStreamIdx ?? 0]
-        if (!ch && channels.length > 0) {
-          ch = channels[0]
-        }
+        const role = cs.canvasStreamIdx === 1 ? 'PPT' : '教师'
+        const ch = channels.find(channel => channel.label === role)
         if (!ch?.url) throw new Error(`未找到该路视频流（streamIdx=${cs.canvasStreamIdx ?? 0}）`)
         t.spec.url = ch.url
         t.spec.isHls = ch.url.includes('.m3u8')
@@ -377,7 +398,6 @@ export async function resolveDirectUrl(
         t.state = 'error'
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-        scheduleCleanupTask(t.spec.taskId, isCloud)
         return false
       }
     }
@@ -416,7 +436,6 @@ export async function resolveDirectUrl(
         if (!t.spec.url) {
           t.state = 'error'
           emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-          scheduleCleanupTask(t.spec.taskId, isCloud)
           return false
         }
       }
@@ -442,7 +461,6 @@ export async function resolveDirectUrl(
         t.state = 'error'
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-        scheduleCleanupTask(t.spec.taskId, isCloud)
         return false
       }
     }
@@ -466,7 +484,6 @@ export async function resolveDirectUrl(
         t.state = 'error'
         const msg = err instanceof Error ? err.message : String(err)
         emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-        scheduleCleanupTask(t.spec.taskId, isCloud)
         return false
       }
     }
@@ -492,7 +509,6 @@ export async function resolveDirectUrl(
       t.state = 'error'
       const msg = err instanceof Error ? err.message : String(err)
       emitProgress({ taskId: t.spec.taskId, state: 'error', received: 0, total: 0, message: msg.slice(0, 240) })
-      scheduleCleanupTask(t.spec.taskId, isCloud)
       return false
     }
   }
@@ -523,7 +539,7 @@ export function isCnmoocSpec(spec: DownloadTaskSpec): boolean {
 /** 判断任务是否为 HLS 视频流任务（需要通过 HLS 管道下载 TS 切片并 remux 转码） */
 export function isHlsStreamTask(spec: any): boolean {
   if (!spec) return false
-  if (spec.source === 'canvas-class-video') return true
+  // The same Canvas source now serves both MP4 and HLS. Resolve its URL first.
   if (spec.isHls === true) return true
   const url = String(spec.url || '').toLowerCase()
   if (url.endsWith('.m3u8') || url.includes('.m3u8?') || url.includes('.m3u8#')) return true

@@ -4,6 +4,8 @@
 import { spawn, execSync, execFileSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { getSafeAvailablePort } from './port-helper.mjs'
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const env = { ...process.env }
@@ -35,7 +37,21 @@ if (process.argv.includes('dev') && process.platform === 'win32') {
   }
 }
 
+// 开发模式启动前：自动探活并规避 Windows EACCES / EADDRINUSE 受限或冲突端口（如 Hyper-V / TUN 模式）
+if (process.argv.includes('dev')) {
+
+  const defaultPort = Number(process.env.VITE_PORT) || 5173
+  const safePort = await getSafeAvailablePort(defaultPort, '127.0.0.1')
+  if (safePort !== defaultPort) {
+    console.log(
+      `[run-electron-vite] 端口 ${defaultPort} 在当前系统被排除/占用 (EACCES/EADDRINUSE)，已自动切换至可用开发端口: ${safePort}`
+    )
+  }
+  env.VITE_PORT = String(safePort)
+}
+
 const electronViteJs = path.join(
+
   __dirname,
   '..',
   'node_modules',

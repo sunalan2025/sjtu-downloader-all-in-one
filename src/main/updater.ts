@@ -30,6 +30,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { request as httpsRequest } from 'node:https'
+import { createHash } from 'node:crypto'
 import type { ClientRequest, IncomingMessage } from 'node:http'
 import type { UpdateAsset, UpdateProgress } from '../shared/types'
 
@@ -45,9 +46,33 @@ export function setUpdateEmitter(fn: UpdateEmitter): void {
 let activeReq: ClientRequest | null = null
 let activeStream: WriteStream | null = null
 let destPath: string | null = null
+let verifiedFilePath: string | null = null
 let downloading = false
 /** 安装已发起（spawn 了安装器）→ cancelUpdate 不再干预，避免删掉正在使用的临时文件 */
 let installing = false
+
+export function getVerifiedFilePath(): string | null {
+  return verifiedFilePath
+}
+
+/** 测试用重置更新模块运行态 */
+export function _resetUpdaterStateForTesting(): void {
+  if (activeReq) {
+    try { activeReq.destroy() } catch { /* ignore */ }
+    activeReq = null
+  }
+  if (activeStream) {
+    try { activeStream.destroy() } catch { /* ignore */ }
+    activeStream = null
+  }
+  if (destPath) {
+    try { unlinkSync(destPath) } catch { /* ignore */ }
+    destPath = null
+  }
+  verifiedFilePath = null
+  downloading = false
+  installing = false
+}
 
 /** 从 GitHub release 的 assets 里匹配当前平台的安装器资产。
  *  无匹配（平台/架构无对应 release）返回 null，渲染端回退「前往下载」。 */
@@ -55,6 +80,25 @@ interface GithubAsset {
   name: string
   browser_download_url: string
   size: number
+}
+
+/** 从 SHA256SUMS.txt 清单文本中提取目标文件的 64 位十六进制 SHA-256 哈希 */
+export function parseSha256Checksum(manifestText: string, targetFileName: string): string | null {
+  if (!manifestText || !targetFileName) return null
+  const lines = manifestText.split(/\r?\n/)
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const match = trimmed.match(/^([a-fA-F0-9]{64})\s+[*]?(.+)$/)
+    if (match) {
+      const hash = match[1].toLowerCase()
+      const file = match[2].trim()
+      if (file === targetFileName || file.endsWith('/' + targetFileName) || file.endsWith('\\' + targetFileName)) {
+        return hash
+      }
+    }
+  }
+  return null
 }
 
 export function matchAsset(assetsRaw: unknown): UpdateAsset | null {
@@ -78,14 +122,56 @@ export function matchAsset(assetsRaw: unknown): UpdateAsset | null {
     target = assets.find(a => new RegExp(`-linux-${arch}\\.AppImage$`).test(a.name))
   }
   if (!target) return null
+
+  // 匹配发布资产中的 SHA256SUMS.txt 清单
+  const shaAsset = assets.find(a => a.name.toLowerCase() === 'sha256sums.txt')
+
   return {
     url: target.browser_download_url,
     size: typeof target.size === 'number' && target.size > 0 ? target.size : null,
-    fileName: target.name
+    fileName: target.name,
+    sha256Url: shaAsset ? shaAsset.browser_download_url : null
   }
 }
 
+/** 简易拉取纯文本（跟随重定向，拉取 SHA256SUMS.txt 清单专用） */
+function fetchText(url: string, depth = 0): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (depth > 5) return reject(new Error('重定向过多'))
+    let u: URL
+    try { u = new URL(url) } catch (e) { return reject(e) }
+    const req = httpsRequest({
+      method: 'GET',
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      headers: {
+        'User-Agent': `sjtu-downloader/${app.getVersion()}`,
+        Accept: 'text/plain,*/*'
+      },
+      timeout: 10000
+    }, (resp) => {
+      const status = resp.statusCode ?? 0
+      if (status >= 300 && status < 400 && resp.headers.location) {
+        resp.resume()
+        return resolve(fetchText(new URL(resp.headers.location, url).toString(), depth + 1))
+      }
+      if (status !== 200) {
+        resp.resume()
+        return reject(new Error(`HTTP ${status}`))
+      }
+      let body = ''
+      resp.setEncoding('utf8')
+      resp.on('data', chunk => { body += chunk })
+      resp.on('end', () => resolve(body))
+    })
+    req.on('error', reject)
+    req.on('timeout', () => req.destroy(new Error('timeout')))
+    req.end()
+  })
+}
+
 /** 触发下载安装包。流式下载 + 手动跟随 302（GitHub release asset → objects.githubusercontent.com CDN）。
+ *  下载流式计算 SHA-256，完成时比对 Release 清单指纹；不匹配阻断安装并擦除文件。
  *  进度 1s 节流推送 update:progress，完成推 update:ready，失败/取消推 update:failed。
  *  幂等：已在下载则返回 error 不重复触发。 */
 export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: string } {
@@ -93,6 +179,7 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
   if (downloading) return { ok: false, error: '已有下载在进行' }
 
   downloading = true
+  verifiedFilePath = null
   const dir = join(app.getPath('temp'), 'sjtu-update')
   try { mkdirSync(dir, { recursive: true }) } catch { /* ignore */ }
   destPath = join(dir, asset.fileName)
@@ -103,6 +190,19 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
   activeStream = fileStream
   let loaded = 0
   let lastEmitTs = 0
+  const hasher = createHash('sha256')
+
+  let manifestPromise: Promise<string | null> | null = null
+  if (asset.sha256) {
+    manifestPromise = Promise.resolve(asset.sha256)
+  } else if (asset.sha256Url) {
+    manifestPromise = fetchText(asset.sha256Url).then(manifest => {
+      return parseSha256Checksum(manifest, asset.fileName)
+    }).catch(err => {
+      console.error('[updater] 获取或解析校验清单失败:', err)
+      return null
+    })
+  }
 
   const pushProgress = (total: number | null): void => {
     const now = Date.now()
@@ -120,6 +220,7 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
     if (!downloading) return
     downloading = false
     activeReq = null
+    verifiedFilePath = null
     try { fileStream.destroy() } catch { /* ignore */ }
     try { if (destPath) unlinkSync(destPath) } catch { /* ignore */ }
     destPath = null
@@ -160,14 +261,55 @@ export function downloadUpdate(asset: UpdateAsset): { ok: boolean; error?: strin
         loaded = 0
         resp.on('data', (chunk: Buffer) => {
           loaded += chunk.length
+          hasher.update(chunk)
           pushProgress(realTotal)
         })
         resp.pipe(fileStream)
-        fileStream.on('finish', () => {
+        fileStream.on('finish', async () => {
+          if (!downloading) return
+
+          let expectedHash: string | null = null
+          if (manifestPromise) {
+            try {
+              expectedHash = await manifestPromise
+            } catch {
+              expectedHash = null
+            }
+          }
+
           if (!downloading) return
           downloading = false
           activeReq = null
           activeStream = null
+
+          // 数字指纹完整性校验 (C-2)
+          const actualHash = hasher.digest('hex').toLowerCase()
+
+          if (asset.sha256Url && !expectedHash) {
+            try { if (destPath) unlinkSync(destPath) } catch { /* ignore */ }
+            destPath = null
+            verifiedFilePath = null
+            emit('update:failed', { error: '安装包完整性校验失败：无法获取官方发布校验清单，已中止更新以保护系统安全' })
+            return
+          }
+
+          if (expectedHash) {
+            if (actualHash !== expectedHash.toLowerCase()) {
+              try { if (destPath) unlinkSync(destPath) } catch { /* ignore */ }
+              destPath = null
+              verifiedFilePath = null
+              emit('update:failed', { error: '安装包完整性校验失败：文件指纹与发布清单不一致，已中止安装以保护系统安全' })
+              return
+            }
+          } else if (asset.size && loaded !== asset.size) {
+            try { if (destPath) unlinkSync(destPath) } catch { /* ignore */ }
+            destPath = null
+            verifiedFilePath = null
+            emit('update:failed', { error: '更新安装包大小不匹配，文件可能不完整' })
+            return
+          }
+
+          verifiedFilePath = destPath
           // 最终进度推 100%，再推 ready
           emit('update:progress', { loaded, total: realTotal, percent: 100 })
           emit('update:ready', { ok: true })
@@ -197,6 +339,7 @@ export function cancelUpdate(): void {
     activeStream = null
   }
   downloading = false
+  verifiedFilePath = null
   if (destPath) {
     try { unlinkSync(destPath) } catch { /* ignore */ }
     destPath = null
@@ -205,14 +348,34 @@ export function cancelUpdate(): void {
 
 /** 是否有已下载就绪待安装的包（渲染端状态判断用）。 */
 export function hasReadyInstaller(): boolean {
-  return !!destPath && existsSync(destPath)
+  return !!verifiedFilePath && verifiedFilePath === destPath && existsSync(destPath)
+}
+
+/** 严格白名单校验 macOS .app 安装路径（防御目录穿越与关键系统路径覆盖） */
+export function isSafeMacAppPath(p: string): boolean {
+  if (!p || typeof p !== 'string') return false
+  const trimmed = p.trim()
+  if (!trimmed.endsWith('.app')) return false
+  if (
+    trimmed === '/' ||
+    trimmed === '/Applications' ||
+    trimmed === '/Applications/' ||
+    trimmed.startsWith('/System') ||
+    trimmed.startsWith('/usr') ||
+    trimmed.startsWith('/bin') ||
+    trimmed.startsWith('/sbin')
+  ) {
+    return false
+  }
+  if (trimmed.includes('..')) return false
+  return true
 }
 
 /** 安装更新：spawn 安装器 / 替换 bundle 后退出当前进程让安装器接管。
  *  必须在 downloadUpdate 完成后调用（destPath 就绪）。 */
 export function installUpdate(): { ok: boolean; error?: string } {
-  if (!destPath || !existsSync(destPath)) {
-    return { ok: false, error: '没有已下载的安装包' }
+  if (!verifiedFilePath || verifiedFilePath !== destPath || !existsSync(destPath)) {
+    return { ok: false, error: '安装包尚未通过完整性校验，禁止执行' }
   }
   const installerPath = destPath
   installing = true
@@ -249,7 +412,7 @@ function installMac(zipPath: string): { ok: boolean; error?: string } {
   const idx = process.execPath.indexOf(marker)
   if (idx < 0) {
     installing = false
-    return { ok: false, error: '无法定位 .app 路径' }
+    return { ok: false, error: '无法定位应用安装目录，请前往官网重新下载' }
   }
   const appPath = process.execPath.slice(0, idx) // /.../SJTU 课程下载器.app
   const appName = appPath.split('/').pop() ?? 'App.app'
@@ -274,14 +437,23 @@ function installMac(zipPath: string): { ok: boolean; error?: string } {
     return { ok: false, error: '解压后未找到 .app' }
   }
 
-  // detached shell 脚本：等旧进程退出 → rm 旧 .app → mv 新 .app → 启动新版本
+  // 路径安全白名单断言 (C-3)
+  if (!isSafeMacAppPath(appPath) || !isSafeMacAppPath(newApp)) {
+    installing = false
+    return { ok: false, error: '无法定位应用安装目录，请前往官网重新下载' }
+  }
+
+  // 静态参数化 shell 脚本：位置参数 $1 为原 app，$2 为新 app，彻底消除字符串拼接注入风险 (C-3)
   const scriptPath = join(app.getPath('temp'), 'sjtu-update-replace.sh')
   const script = [
     '#!/bin/sh',
+    'set -e',
     'sleep 1',
-    `rm -rf "${appPath}"`,
-    `mv "${newApp}" "${appPath}"`,
-    `open -n "${appPath}"`,
+    'OLD_APP="$1"',
+    'NEW_APP="$2"',
+    'rm -rf "$OLD_APP"',
+    'mv "$NEW_APP" "$OLD_APP"',
+    'open -n "$OLD_APP"',
     ''
   ].join('\n')
   try {
@@ -290,7 +462,7 @@ function installMac(zipPath: string): { ok: boolean; error?: string } {
     installing = false
     return { ok: false, error: `写入替换脚本失败：${e instanceof Error ? e.message : String(e)}` }
   }
-  spawn('/bin/sh', [scriptPath], { detached: true, stdio: 'ignore' }).unref()
+  spawn('/bin/sh', [scriptPath, appPath, newApp], { detached: true, stdio: 'ignore' }).unref()
   setImmediate(() => app.quit())
   return { ok: true }
 }

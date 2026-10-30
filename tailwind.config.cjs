@@ -1,72 +1,19 @@
 /** @type {import('tailwindcss').Config} */
+const sharedTheme = require('./src/shared/theme/tailwind-theme.cjs')
+// Keep the background token out of text colors: text-base is the 16px font utility.
+const { base: baseBackground, ...semanticColors } = sharedTheme.colors
+
 module.exports = {
+  darkMode: ['class', '[data-theme="dark"]'],
   content: ['./src/renderer/index.html', './src/renderer/src/**/*.{ts,tsx}'],
   theme: {
     extend: {
+      // A semantic DEFAULT must not replace Tailwind's numbered palette (sky-500, etc.).
       colors: {
-        base: 'var(--bg-base)',
-        'surface-1': 'var(--bg-surface-1)',
-        'surface-2': 'var(--bg-surface-2)',
-        'surface-3': 'var(--bg-surface-3)',
-        'surface-4': 'var(--bg-surface-4)',
-        'text-1': 'var(--text-primary)',
-        'text-2': 'var(--text-secondary)',
-        'text-3': 'var(--text-tertiary)',
-        'text-4': 'var(--text-muted)',
-        'text-muted': 'var(--text-muted)',
-        'bd': 'var(--border-default)',
-        'bd-strong': 'var(--border-strong)',
-        accent: {
-          DEFAULT: 'var(--accent)',
-          light: 'var(--accent-light)',
-          dark: 'var(--accent-dark)',
-          '5': 'var(--accent-5)',
-          '10': 'var(--accent-10)',
-          '15': 'var(--accent-15)',
-          '20': 'var(--accent-20)',
-          '25': 'var(--accent-25)',
-          '30': 'var(--accent-30)',
-          '40': 'var(--accent-40)',
-          '50': 'var(--accent-50)',
-          '60': 'var(--accent-60)',
-          '80': 'var(--accent-80)',
-          '85': 'var(--accent-85)',
-        },
-        cloud: {
-          DEFAULT: 'var(--cloud)',
-          light: 'var(--cloud-light)',
-          dim: 'var(--cloud-dim)',
-          '25': 'var(--cloud-25)',
-          '40': 'var(--cloud-40)',
-        },
-        success: {
-          DEFAULT: 'var(--success)',
-          bg: 'var(--success-bg)',
-          ring: 'var(--success-ring)',
-        },
-        warning: {
-          DEFAULT: 'var(--warning)',
-          bg: 'var(--warning-bg)',
-          ring: 'var(--warning-ring)',
-        },
-        info: {
-          DEFAULT: 'var(--info)',
-          bg: 'var(--info-bg)',
-          ring: 'var(--info-ring)',
-        },
-        danger: {
-          DEFAULT: 'var(--danger)',
-          bg: 'var(--danger-bg)',
-          ring: 'var(--danger-ring)',
-        },
-        task: {
-          done: 'var(--task-done-bg)',
-          downloading: 'var(--task-downloading-bg)',
-          paused: 'var(--task-paused-bg)',
-          error: 'var(--task-error-bg)',
-          queue: 'var(--queue)',
-        },
+        ...semanticColors,
+        ...Object.fromEntries(['amber', 'emerald', 'sky', 'rose'].map(name => [name, { DEFAULT: semanticColors[name] }]))
       },
+      backgroundColor: { base: baseBackground },
       fontFamily: {
         sans: [
           '-apple-system',
@@ -82,6 +29,7 @@ module.exports = {
         ]
       },
       fontSize: {
+        '3xs': ['0.625rem', { lineHeight: '1.4' }],
         '2xs': ['0.6875rem', { lineHeight: '1.4' }],
         xs: ['0.75rem', { lineHeight: '1.5' }],
         sm: ['0.875rem', { lineHeight: '1.5' }],
@@ -98,13 +46,9 @@ module.exports = {
         'hero-radial':
           'radial-gradient(1200px 600px at 20% -10%, var(--accent-15), transparent 60%), radial-gradient(900px 500px at 100% 20%, var(--bg-surface-2), transparent 60%)'
       },
-      boxShadow: {
-        glow: '0 10px 40px -10px var(--accent-40)',
-        'glow-sm': '0 4px 20px -6px var(--accent-30)',
-        'glow-cloud': '0 8px 30px -8px var(--cloud-40)',
-        'card': '0 2px 12px rgba(0,0,0,0.15), 0 0 0 1px var(--border-default)',
-        'card-hover': '0 8px 30px rgba(0,0,0,0.2), 0 0 0 1px var(--border-strong)'
-      },
+      boxShadow: { ...sharedTheme.boxShadow, '2xs': '0 1px 2px rgb(0 0 0 / 0.05)' },
+      spacing: { 0.2: '0.05rem' },
+      backdropBlur: { xs: '2px' },
       keyframes: {
         shimmer: {
           '0%': { transform: 'translateX(-100%)' },

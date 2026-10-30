@@ -24,6 +24,7 @@ import {
   isCnmoocSessionValid
 } from './api'
 import { sanitizeFsName } from '../canvas/api'
+import { validateIpcSender, DEFAULT_UNTRUSTED_IPC_ERROR } from '../utils/ipc-guard'
 
 let ses: Electron.Session | null = null
 
@@ -55,6 +56,8 @@ function emitScanProgress(courseId: string, phase: string, message: string): voi
 
 /** SSO 是否已成功过（避免每次 API 调用都重走 SSO） */
 let _cnmoocLoginDone = false
+let _lastSessionValidateTime = 0
+const CNMOOC_SESSION_TTL_MS = 5 * 60 * 1000 // 5 分钟会话探活周期
 
 // [B4 Fix] SSO in-flight Promise：并发扫描多课程 / 下载时各调用方共用同一次 SSO attempt，
 // 避免同时开 N 个隐藏 BrowserWindow 走 SSO（镜像 vshare 的 _vshareLoginPromise）。
@@ -65,19 +68,22 @@ let _cnmoocLoginPromise: Promise<boolean> | null = null
 export function invalidateCnmoocLogin(): void {
   _cnmoocLoginDone = false
   _cnmoocLoginPromise = null
+  _lastSessionValidateTime = 0
 }
 
 /** 确保 cnmooc 已登录：先探现有会话，无效则隐藏窗口走 jAccount SSO，再失败弹可见窗口。 */
 export async function ensureCnmoocLogin(): Promise<boolean> {
-  if (_cnmoocLoginDone) return true
+  const now = Date.now()
+  if (_cnmoocLoginDone && (now - _lastSessionValidateTime < CNMOOC_SESSION_TTL_MS)) return true
   if (_cnmoocLoginPromise) return _cnmoocLoginPromise
   _cnmoocLoginPromise = (async () => {
-    if (_cnmoocLoginDone) return true
     const session = getSession()
     if (await isCnmoocSessionValid(session)) {
       _cnmoocLoginDone = true
+      _lastSessionValidateTime = Date.now()
       return true
     }
+    _cnmoocLoginDone = false
 
     // 预检：若无有效 jAccount 会话，跳过静默 SSO，绝不弹出可见窗口打扰用户
     const jaCookies = await session.cookies.get({ domain: 'jaccount.sjtu.edu.cn' }).catch(() => [])
@@ -90,6 +96,7 @@ export async function ensureCnmoocLogin(): Promise<boolean> {
     console.log('[cnmooc] 触发 jAccount SSO（隐藏窗口）…')
     if (await completeCnmoocSso(session, false)) {
       _cnmoocLoginDone = true
+      _lastSessionValidateTime = Date.now()
       return true
     }
     console.log('[cnmooc] 静默 SSO 失败，会话可能已失效')
@@ -159,10 +166,10 @@ async function completeCnmoocSso(session: Electron.Session, show: boolean): Prom
       }
     }
     // 超时排查：jaccount 会话不存在时 SSO 会停在 jaccount 登录页无法自动回跳，
-    // 提示用户先在应用内完成 v.sjtu 的 jAccount 登录。
+    // 提示用户先在应用内完成 jAccount 登录。
     const jaCookies = await session.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
     const jaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
-    console.log(`[cnmooc] SSO 超时（jaccount 会话${jaSession ? '存在' : '不存在，请先在应用内登录 v.sjtu'}）`)
+    console.log(`[cnmooc] SSO 超时（jaccount 会话${jaSession ? '存在' : '不存在，请先在应用内登录'}）`)
     return false
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -180,8 +187,15 @@ async function completeCnmoocSso(session: Electron.Session, show: boolean): Prom
 // ─── 注册所有 cnmooc IPC handler ───────────────────────────────
 
 export function registerCnmoocHandlers(): void {
+  const handle: typeof ipcMain.handle = (channel, listener) =>
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!validateIpcSender(event)) {
+        return { ok: false, error: DEFAULT_UNTRUSTED_IPC_ERROR }
+      }
+      return listener(event, ...args)
+    })
   // ─── 登录状态（含课程列表，未登录不报错由前端引导） ───
-  ipcMain.handle('cnmooc:status', async () => {
+  handle('cnmooc:status', async () => {
     try {
       const session = getSession()
       const loggedIn = await isCnmoocSessionValid(session)
@@ -201,7 +215,7 @@ export function registerCnmoocHandlers(): void {
   })
 
   // ─── 显式触发登录（前端「连接好大学在线」按钮） ───
-  ipcMain.handle('cnmooc:login', async () => {
+  handle('cnmooc:login', async () => {
     try {
       const ok = await ensureCnmoocLogin()
       return { ok }
@@ -211,19 +225,21 @@ export function registerCnmoocHandlers(): void {
   })
 
   // ─── 扫描课程列表 ───
-  ipcMain.handle('cnmooc:scan', async () => {
+  handle('cnmooc:scan', async () => {
     try {
       const loggedIn = await ensureCnmoocLogin()
-      if (!loggedIn) return { ok: false, error: '好大学在线登录失败，请先登录 jAccount（v.sjtu）' }
+      if (!loggedIn) return { ok: false, error: '好大学在线登录失败，请先登录 jAccount' }
       try {
         const courses = await fetchCourses(getSession())
         return { ok: true, courses }
       } catch (err) {
         // 课程列表 401/重定向 → session 可能过期，清缓存重试一次
         const msg = err instanceof Error ? err.message : String(err)
-        if (/401|403|登录|login/i.test(msg)) {
+        if (/401|403|登录|login|失效|过期/i.test(msg)) {
           console.log('[cnmooc] 课程列表拉取疑似会话过期，重走 SSO')
           _cnmoocLoginDone = false
+          _lastSessionValidateTime = 0
+          _cnmoocLoginPromise = null
           const ok2 = await ensureCnmoocLogin()
           if (!ok2) return { ok: false, error: '好大学在线登录失败' }
           const courses = await fetchCourses(getSession())
@@ -237,7 +253,7 @@ export function registerCnmoocHandlers(): void {
   })
 
   // ─── 扫描一门课的章节结构（仅 HTML 解析，快；不预探直链） ───
-  ipcMain.handle('cnmooc:scan-course', async (_e, courseId: string) => {
+  handle('cnmooc:scan-course', async (_e, courseId: string) => {
     try {
       emitScanProgress(courseId, 'chapters', '正在解析章节…')
       const chapters = await fetchChapters(getSession(), courseId)
@@ -251,7 +267,7 @@ export function registerCnmoocHandlers(): void {
   // ─── 构建下载 spec（占位 url，下载时懒解析） ───
   // courseName/courseId 用于落盘路径与 taskId；items 携带 chapter 用于子目录；
   // resourceFilter 由下载引擎按直链类型过滤（all 不过滤）。
-  ipcMain.handle(
+  handle(
     'cnmooc:build-specs',
     async (
       _e,

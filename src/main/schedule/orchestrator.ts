@@ -7,6 +7,7 @@ import { writeFileSync } from 'node:fs'
 import type { ScheduleEvent, IcsExportOptions, ScheduleFetchResult, IcsExportResult, JiaowuScheduleResult } from '../../shared/types'
 import { fetchAllScheduleEvents, fetchJiaowuSchedule } from './schedule-fetcher'
 import { generateIcsContent } from './ics-generator'
+import { validateIpcSender, DEFAULT_UNTRUSTED_IPC_ERROR } from '../utils/ipc-guard'
 
 let appSession: Electron.Session | null = null
 let mainWindowGetter: (() => BrowserWindow | null) | null = null
@@ -22,7 +23,15 @@ export function registerScheduleHandlers(
   appSession = ses
   mainWindowGetter = getMainWindow
 
-  ipcMain.handle(
+  const handle: typeof ipcMain.handle = (channel, listener) =>
+    ipcMain.handle(channel, (event, ...args) => {
+      if (!validateIpcSender(event)) {
+        return { ok: false, error: DEFAULT_UNTRUSTED_IPC_ERROR }
+      }
+      return listener(event, ...args)
+    })
+
+  handle(
     'schedule:fetch-events',
     async (_e, options?: { startDate?: string; endDate?: string }): Promise<ScheduleFetchResult> => {
       if (!appSession) {
@@ -32,7 +41,7 @@ export function registerScheduleHandlers(
     }
   )
 
-  ipcMain.handle(
+  handle(
     'schedule:fetch-jiaowu',
     async (_e, xnm?: string, xqm?: string): Promise<JiaowuScheduleResult> => {
       if (!appSession) {
@@ -49,7 +58,7 @@ export function registerScheduleHandlers(
     }
   )
 
-  ipcMain.handle(
+  handle(
     'schedule:export-ics',
     async (
       _e,

@@ -77,11 +77,17 @@ export function extractLectureDate(t: string | undefined): string {
 
 /** 判断两个 Session 是否代表同一堂课 */
 export function isSameLectureSession(a: CanvasVideoSession, b: CanvasVideoSession): boolean {
+  // Parallel classes can share a start time. Never merge known different teachers/rooms.
+  const known = (value: string | undefined) => value && !value.startsWith('未知')
+  if (known(a.teacher) && known(b.teacher) && a.teacher !== b.teacher) return false
+  if (known(a.classroom) && known(b.classroom) && a.classroom !== b.classroom) return false
   const normTimeA = normalizeLectureBeginTime(a.beginTime)
   const normTimeB = normalizeLectureBeginTime(b.beginTime)
   if (normTimeA && normTimeB && normTimeA === normTimeB) {
     return true
   }
+  // Known, different times must not be collapsed by a week number in a title.
+  if (normTimeA.includes(':') && normTimeB.includes(':')) return false
 
   const numA = extractLectureNum(a.videoName)
   const numB = extractLectureNum(b.videoName)
@@ -235,8 +241,8 @@ async function doExtractLtiToken(
       }
     })
 
-    // 快速轮询检查 URL 或 storage（最多 8 秒，通常 500ms~1000ms 即命中）
-    const deadline = Date.now() + 8000
+    // 快速轮询检查 URL 或 storage（最多 4.5 秒，通常 500ms~1000ms 即命中）
+    const deadline = Date.now() + 4500
     while (Date.now() < deadline && !capturedToken) {
       if (win.isDestroyed() || win.webContents.isDestroyed()) break
       checkUrl(win.webContents.getURL())
@@ -661,6 +667,8 @@ export const fetchVodVideoInfos = getVodVideoInfos
 // 第二次直接取对应 streamIdx 的 channel。TTL 短（5 分钟）避免 token 过期后用到陈旧结果。
 
 const vodChannelsCache = new Map<string, { ts: number; channels: CanvasClassVideoInfo[] }>()
+const vodChannelsInFlight = new Map<string, Promise<CanvasClassVideoInfo[]>>()
+let vodCacheGeneration = 0
 const VOD_CACHE_TTL = 5 * 60 * 1000
 // PERF: bound cache size to prevent unbounded memory growth for large course catalogs.
 // Evict oldest entry (Map insertion order) when limit is exceeded.
@@ -678,18 +686,31 @@ export async function getVodChannelsCached(
   const cacheKey = `${token}::${videoId}`
   const hit = vodChannelsCache.get(cacheKey)
   if (hit && Date.now() - hit.ts < VOD_CACHE_TTL) return hit.channels
-  const channels = await fetchVodVideoInfos(ses, token, videoId)
-  vodChannelsCache.set(cacheKey, { ts: Date.now(), channels })
-  // PERF: evict oldest entry when cache exceeds max size
-  if (vodChannelsCache.size > VOD_CACHE_MAX_SIZE) {
-    const oldest = vodChannelsCache.keys().next().value
-    if (oldest) vodChannelsCache.delete(oldest)
+  const pending = vodChannelsInFlight.get(cacheKey)
+  if (pending) return pending
+  const generation = vodCacheGeneration
+  const request = fetchVodVideoInfos(ses, token, videoId).then(channels => {
+    if (generation === vodCacheGeneration) {
+      vodChannelsCache.set(cacheKey, { ts: Date.now(), channels })
+      if (vodChannelsCache.size > VOD_CACHE_MAX_SIZE) {
+        const oldest = vodChannelsCache.keys().next().value
+        if (oldest) vodChannelsCache.delete(oldest)
+      }
+    }
+    return channels
+  })
+  vodChannelsInFlight.set(cacheKey, request)
+  try {
+    return await request
+  } finally {
+    if (vodChannelsInFlight.get(cacheKey) === request) vodChannelsInFlight.delete(cacheKey)
   }
-  return channels
 }
 
 /** 清空缓存（退出时调用，释放内存、丢弃可能过期的 token 关联结果） */
 export function clearVodChannelsCache(): void {
+  vodCacheGeneration++
+  vodChannelsInFlight.clear()
   vodChannelsCache.clear()
   ivsVideoIdCache.clear()
 }
@@ -967,7 +988,7 @@ export async function ensureVshareLogin(
     }
     const jaCookies = await ses.cookies.get({ domain: 'jaccount.sjtu.edu.cn' })
     const jaSession = jaCookies.some(c => c.name !== 'JATrustCookie')
-    console.log(`[vshare] SSO 失败（jaccount 会话${jaSession ? '存在但未落 vshare cookie' : '不存在，请先在应用内登录 v.sjtu'}）`)
+    console.log(`[vshare] SSO 失败（jaccount 会话${jaSession ? '存在但未落 vshare cookie' : '不存在，请先在应用内登录'}）`)
     return false
   })()
   try {

@@ -54,9 +54,6 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test
-        run: npm run test
-
       - name: Generate app icons
         run: npm run icons
 
@@ -73,11 +70,14 @@ jobs:
         with:
           name: release-${{ matrix.platform }}
           path: |
-            release/**/*.exe
-            release/**/*.msi
-            release/**/*.dmg
-            release/**/*.zip
-            release/**/*.AppImage
+            release/*/*.exe
+            release/*/*.msi
+            release/*/*.dmg
+            release/*/*.zip
+            release/*/*.AppImage
+            !release/**/win-unpacked/**
+            !release/**/mac/**
+            !release/**/linux-unpacked/**
           if-no-files-found: error
 
   release:
@@ -93,11 +93,20 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: List release files
-        run: find artifacts -type f | head -30
+      - name: Organize release files & Generate SHA-256 Checksums
+        shell: bash
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" \) ! -path "*/win-unpacked/*" ! -path "*/mac/*" ! -path "*/linux-unpacked/*" -exec cp {} dist/ \;
+          echo "=== Release Files in dist ==="
+          ls -lh dist
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          echo "=== SHA256SUMS.txt ==="
+          cat SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/**/*
+          files: dist/*

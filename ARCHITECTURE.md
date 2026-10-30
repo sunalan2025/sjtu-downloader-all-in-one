@@ -14,14 +14,14 @@
 │  src/renderer/src/                                                  │
 │    App.tsx → pages/ → components/ → store/app.ts                    │
 │    (CanvasBrowser / AuditedCourses / CnmoocBrowser /                │
-│     TransferCenter / Settings / Welcome / Login)                    │
+│     TransferCenter / Settings / Welcome / Login / ScheduleBrowser)  │
 │    hooks/useSharedBrowserHooks.ts                                   │
 │  技术栈: React 19 + Zustand + Tailwind CSS                          │
 ├─────────────────────────── contextBridge ────────────────────────────┤
 │  预加载脚本                                                          │
 │  src/preload/index.ts                                               │
 │    window.api = { auth, vsjtu, download, cloudpan, canvas,          │
-│                   cnmooc, ppt, updater }                            │
+│                   cnmooc, ppt, updater, schedule, credentials, ... }│
 │    contextIsolation: true, nodeIntegration: false                    │
 ├─────────────────────────── IPC invoke/on ────────────────────────────┤
 │  主进程 (Node.js)                                                   │
@@ -38,6 +38,8 @@
 │  src/main/cnmooc/orchestrator.ts ← 好大学在线 IPC + SSO 编排        │
 │  src/main/updater.ts        ← 应用内静默更新引擎                    │
 │  src/main/auth.ts           ← 会话恢复与 jAccount 认证状态校验       │
+│  src/main/schedule/         ← 校历、教务与考试日程拉取及 ICS 导出     │
+│  src/main/private-worker.ts ← 校内私有中转代理与 SSH 隧道通讯        │
 ├─────────────────────────── 共享模块与类型 ──────────────────────────┤
 │  src/shared/types.ts        ← 核心数据结构与 IPC 消息定义           │
 │  src/shared/utils.ts        ← 统一路径清洗、格式化与安全过滤工具     │
@@ -71,6 +73,8 @@
 | `src/main/concurrency.ts` | 并发限制管理、网络健康监测（DNS 失败/连续错误识别与 30s 自动恢复定时器）与平滑流速监控（EMA） |
 | `src/main/window.ts` | 主窗口生命周期管理、跨平台标题栏适配（Win/Linux 原生三键与 macOS 交通灯）、任务栏/托盘最小化策略与关闭拦截 |
 | `src/main/auth.ts` | jAccount 会话持久化与恢复、登录态缓存校验、v.sjtu 请求代理 |
+| `src/main/schedule/schedule-fetcher.ts` | 聚合校历、正方教务与 Canvas 截止期，考试解析与标准 ICS 文件生成 |
+| `src/main/private-worker.ts` | 校外免 VPN 极速代传代理：私有工作节点健康检测、任务调度与 SSH 隧道 |
 | `src/main/updater.ts` | 轻量化应用内静默更新机制：版本比对、断点续传下载安装包、三平台自适应安装与锁释放 |
 
 **关键设计模式：**

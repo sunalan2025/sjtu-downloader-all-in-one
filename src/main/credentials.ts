@@ -1,14 +1,42 @@
 import { app, safeStorage } from 'electron'
 import { join, dirname } from 'node:path'
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync } from 'node:fs'
-import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'node:crypto'
+import { randomBytes, createCipheriv, createDecipheriv } from 'node:crypto'
 import type { StoredCredential, MaskedCredential } from '../shared/types'
 
-// AES-256-GCM 兜底秘钥派生（当运行环境无 safeStorage 时使用）
-const FALLBACK_SALT = 'sjtu-course-downloader-fallback-salt-2026'
+// AES-256-GCM 兜底高熵独立秘钥管理（当运行环境无 safeStorage 时使用）
+let _cachedFallbackKey: Buffer | null = null
+let memoryWorkerTokenCache: string | null = null
+
+export function _resetFallbackKeyForTesting(): void {
+  _cachedFallbackKey = null
+  memoryWorkerTokenCache = null
+}
+
 function getFallbackKey(): Buffer {
-  const machineKey = `${process.env.COMPUTERNAME || process.env.HOSTNAME || 'sjtu-machine'}-${process.env.USERNAME || process.env.USER || 'default-user'}`
-  return scryptSync(machineKey, FALLBACK_SALT, 32)
+  if (_cachedFallbackKey) return _cachedFallbackKey
+  try {
+    if (app && typeof app.getPath === 'function') {
+      const keyDir = join(app.getPath('userData'), 'credentials')
+      mkdirSync(keyDir, { recursive: true })
+      const keyPath = join(keyDir, '.fallback.key')
+      if (existsSync(keyPath)) {
+        const key = readFileSync(keyPath)
+        if (key.length === 32) {
+          _cachedFallbackKey = key
+          return key
+        }
+      }
+      const newKey = randomBytes(32)
+      writeFileSync(keyPath, newKey, { mode: 0o600 })
+      _cachedFallbackKey = newKey
+      return newKey
+    }
+  } catch {
+    /* ignore and fallback to in-memory random bytes */
+  }
+  _cachedFallbackKey = randomBytes(32)
+  return _cachedFallbackKey
 }
 
 function fallbackEncrypt(plain: string): string {
@@ -71,6 +99,9 @@ export function decryptPassword(cipher: string): string {
   }
   return fallbackDecrypt(cipher)
 }
+
+export const encryptSecret = encryptPassword
+export const decryptSecret = decryptPassword
 
 function getCredentialsFilePath(): string {
   return join(app.getPath('userData'), 'credentials', 'accounts.enc.json')
@@ -201,10 +232,84 @@ export async function clearAllCredentials(): Promise<{ ok: boolean; error?: stri
       unlinkSync(filePath)
     }
     memoryCredentialsCache = []
+    const workerTokenPath = getWorkerTokenFilePath()
+    if (existsSync(workerTokenPath)) {
+      unlinkSync(workerTokenPath)
+    }
+    memoryWorkerTokenCache = ''
     return { ok: true }
   } catch (err: unknown) {
     return { ok: false, error: err instanceof Error ? err.message : 'Failed to clear credentials' }
   }
+}
+
+function getWorkerTokenFilePath(): string {
+  return join(app.getPath('userData'), 'credentials', 'worker.enc.json')
+}
+
+interface StoredWorkerTokenRecord {
+  encryptedToken: string
+  updatedAt: number
+}
+
+export async function saveWorkerAuthToken(token: string): Promise<void> {
+  const trimmed = typeof token === 'string' ? token.trim() : ''
+  const filePath = getWorkerTokenFilePath()
+  const dir = dirname(filePath)
+
+  if (!trimmed) {
+    if (existsSync(filePath)) {
+      try {
+        unlinkSync(filePath)
+      } catch {
+        /* ignore */
+      }
+    }
+    memoryWorkerTokenCache = ''
+    return
+  }
+
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  const encryptedToken = encryptSecret(trimmed)
+  const record: StoredWorkerTokenRecord = {
+    encryptedToken,
+    updatedAt: Date.now()
+  }
+
+  const tmpPath = filePath + '.tmp'
+  writeFileSync(tmpPath, JSON.stringify(record, null, 2), 'utf8')
+  renameSync(tmpPath, filePath)
+  memoryWorkerTokenCache = trimmed
+}
+
+export async function getWorkerAuthToken(): Promise<string> {
+  if (memoryWorkerTokenCache !== null) {
+    return memoryWorkerTokenCache
+  }
+
+  const filePath = getWorkerTokenFilePath()
+  if (!existsSync(filePath)) {
+    memoryWorkerTokenCache = ''
+    return ''
+  }
+
+  try {
+    const raw = readFileSync(filePath, 'utf8')
+    const parsed = JSON.parse(raw) as Partial<StoredWorkerTokenRecord>
+    if (parsed && typeof parsed.encryptedToken === 'string' && parsed.encryptedToken.trim()) {
+      const decrypted = decryptSecret(parsed.encryptedToken)
+      memoryWorkerTokenCache = decrypted
+      return decrypted
+    }
+  } catch (e) {
+    console.error('[credentials] failed to parse or decrypt worker token file:', e)
+  }
+
+  memoryWorkerTokenCache = ''
+  return ''
 }
 
 export async function getCredentialForFill(

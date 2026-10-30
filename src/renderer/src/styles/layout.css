@@ -1,0 +1,132 @@
+/* The common visual scale. Pages opt into these primitives instead of redefining spacing. */
+@layer components {
+  :root {
+    --page-gutter: 20px;
+    --panel-gap: 16px;
+    --control-height: 36px;
+    --row-height: 48px;
+  }
+  .ui-page {
+    @apply relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-surface-1 text-text-1;
+  }
+  .ui-page-header {
+    @apply flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-bd bg-surface-1;
+    min-height: 76px;
+    padding: 16px var(--page-gutter);
+  }
+  .ui-page-title {
+    @apply text-lg font-semibold leading-6 text-text-1;
+    overflow-wrap: anywhere;
+  }
+  .ui-page-description {
+    @apply mt-1 text-xs leading-5 text-text-2;
+  }
+  .ui-toolbar {
+    @apply flex shrink-0 flex-wrap items-center gap-2 border-b border-bd bg-surface-1;
+    padding: 10px var(--page-gutter);
+  }
+  .ui-actions {
+    @apply flex min-w-0 flex-wrap items-center gap-2;
+  }
+  .ui-content {
+    @apply min-h-0 min-w-0 flex-1 overflow-auto;
+    padding: var(--page-gutter);
+  }
+  .ui-panel {
+    @apply min-w-0 rounded-xl border border-bd bg-surface-1;
+    padding: var(--panel-gap);
+  }
+  .ui-button {
+    @apply inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-bd px-3 text-xs font-medium transition-colors;
+    min-height: var(--control-height);
+  }
+  .ui-button:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+  .ui-button-secondary {
+    @apply bg-surface-1 text-text-2 hover:bg-surface-2 hover:text-text-1;
+  }
+  .ui-button-primary {
+    @apply border-accent bg-accent text-white hover:brightness-110;
+  }
+  .ui-button-danger {
+    @apply border-danger/30 bg-danger-bg text-danger;
+  }
+  .ui-button:focus-visible,
+  .ui-field:focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-surface-1;
+  }
+  .ui-field {
+    @apply min-w-0 rounded-lg border border-bd bg-surface-1 px-3 text-sm text-text-1;
+    min-height: var(--control-height);
+  }
+  .ui-empty {
+    @apply flex flex-1 flex-col items-center justify-center px-6 py-12 text-center;
+  }
+  .ui-dialog {
+    @apply m-auto overflow-hidden rounded-2xl border border-bd bg-surface-1 p-0 text-text-1 shadow-2xl;
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100dvh - 32px);
+  }
+  .ui-dialog[open] {
+    @apply flex flex-col;
+  }
+  .ui-dialog::backdrop {
+    background: rgb(0 0 0 / 0.4);
+  }
+  .ui-dialog-header {
+    @apply flex shrink-0 items-center justify-between gap-3 border-b border-bd p-4;
+  }
+  .ui-dialog-body {
+    @apply min-h-0 space-y-4 overflow-auto p-4;
+  }
+  .ui-dialog-footer {
+    @apply flex shrink-0 flex-wrap justify-end gap-2 border-t border-bd p-4;
+  }
+  .ui-settings-row {
+    @apply flex flex-wrap items-start justify-between gap-4 py-4;
+  }
+  .ui-settings-row > * {
+    max-width: 100%;
+  }
+  .ui-settings-row > :last-child {
+    @apply min-w-0;
+  }
+  .ui-settings-controls {
+    @apply max-w-full overflow-x-auto pb-1;
+  }
+  .drive-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: var(--panel-gap);
+  }
+  .drive-columns {
+    @apply flex min-h-0 flex-1 overflow-x-auto;
+  }
+  .drive-column {
+    @apply flex h-full min-h-0 shrink-0 flex-col border-r border-bd;
+    width: clamp(240px, 28vw, 340px);
+  }
+  .drive-column-current {
+    @apply min-w-[280px];
+  }
+  .drive-column-heading {
+    @apply block shrink-0 truncate border-b border-bd px-4 py-3 text-xs font-semibold;
+  }
+  .drive-column-row {
+    @apply mx-2 my-0.5 flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 hover:bg-surface-2;
+    min-height: 40px;
+  }
+  .drive-card {
+    @apply relative flex min-w-0 flex-col items-center gap-2 rounded-xl p-3 pt-7 hover:bg-surface-2;
+  }
+  .drive-row {
+    @apply flex min-w-0 items-center gap-3 border-b border-bd px-4 py-2 hover:bg-surface-2;
+    min-height: var(--row-height);
+  }
+  @media (max-width: 1100px) {
+    :root {
+      --page-gutter: 16px;
+    }
+  }
+}
