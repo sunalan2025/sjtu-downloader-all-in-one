@@ -23,6 +23,14 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.database.Cursor;
+import android.os.Build;
+import android.provider.MediaStore;
+import java.io.FileInputStream;
+import java.io.OutputStream;
+import java.net.URLConnection;
 import android.graphics.Color;
 import android.os.Environment;
 import android.webkit.CookieManager;
@@ -1310,12 +1318,23 @@ public class SjtuCanvasPlugin extends Plugin {
                 String url = info.optString("url", "");
                 if (!url.startsWith("https://")) throw new Exception("Canvas 未提供有效 HTTPS 下载链接");
                 String name = cleanName(info.optString("display_name", info.optString("filename", "download-" + fileId)));
-                File root = new File(getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "SJTU Downloader");
+                File staging = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                if (staging == null) throw new Exception("手机存储不可用");
+                File root = new File(staging, "SJTU Downloader");
+                String publicFolder = "";
                 // Preserve desktop-style folder organization, never trust raw path fragments.
                 String term = call.getString("term", "");
                 String courseName = call.getString("courseName", "");
-                if (!term.trim().isEmpty()) root = new File(root, cleanName(term));
-                if (!courseName.trim().isEmpty()) root = new File(root, cleanName(courseName));
+                if (!term.trim().isEmpty()) {
+                    String safeTerm = cleanName(term);
+                    root = new File(root, safeTerm);
+                    publicFolder += safeTerm + "/";
+                }
+                if (!courseName.trim().isEmpty()) {
+                    String safeCourse = cleanName(courseName);
+                    root = new File(root, safeCourse);
+                    publicFolder += safeCourse + "/";
+                }
                 if (!root.exists() && !root.mkdirs()) throw new Exception("无法创建下载目录");
                 File target = uniqueFile(root, name);
                 temp = new File(root, "." + taskId.replaceAll("[^A-Za-z0-9_-]", "_") + ".part");
@@ -1342,16 +1361,151 @@ public class SjtuCanvasPlugin extends Plugin {
                     output.getFD().sync();
                 } finally { connection.disconnect(); }
                 if (cancelled.get()) throw new Exception("用户取消下载");
-                if (!temp.renameTo(target)) throw new Exception("保存文件失败");
+                final JSObject result;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // Android 10+: publish through MediaStore, so the file is
+                    // visible in the phone's normal Downloads folder, including
+                    // Files by Google, OEM Files apps, and USB MTP.
+                    result = publishPublicDownload(temp, name, publicFolder);
+                    temp.delete();
+                } else {
+                    // Legacy fallback remains app-private (no unsafe broad storage
+                    // permission); make this limitation explicit in the UI.
+                    if (!temp.renameTo(target)) throw new Exception("保存文件失败");
+                    result = new JSObject();
+                    result.put("uri", target.toURI().toString());
+                    result.put("fileName", target.getName());
+                    result.put("savedPath", "Android/data/" + getContext().getPackageName()
+                        + "/files/Download/SJTU Downloader/" + publicFolder + target.getName());
+                    result.put("publicDownload", false);
+                }
                 progress(taskId, name, bytes, total);
-                JSObject result = new JSObject();
-                result.put("uri", target.toURI().toString());
-                result.put("fileName", target.getName());
                 call.resolve(result);
             } catch (Exception e) {
                 if (temp != null) temp.delete();
                 call.reject(safeError(e));
             } finally { cancels.remove(taskId); }
+        });
+    }
+
+    /** Atomically expose completed files in Android's public Download collection. */
+    private JSObject publishPublicDownload(File source, String name, String subfolders) throws Exception {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) throw new IOException("需要 Android 10 以上系统");
+        String safeFolder = Environment.DIRECTORY_DOWNLOADS + "/SJTU Downloader/" + subfolders;
+        ContentResolver resolver = getContext().getContentResolver();
+        ContentValues data = new ContentValues();
+        String mime = URLConnection.guessContentTypeFromName(name);
+        data.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+        data.put(MediaStore.MediaColumns.MIME_TYPE,
+            mime == null || mime.trim().isEmpty() ? "application/octet-stream" : mime);
+        data.put(MediaStore.MediaColumns.RELATIVE_PATH, safeFolder);
+        data.put(MediaStore.MediaColumns.IS_PENDING, 1);
+        Uri published = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, data);
+        if (published == null) throw new IOException("系统下载目录创建文件失败");
+        boolean finished = false;
+        try {
+            try (InputStream input = new FileInputStream(source);
+                 OutputStream output = resolver.openOutputStream(published, "w")) {
+                if (output == null) throw new IOException("无法写入系统下载目录");
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                output.flush();
+            }
+            ContentValues ready = new ContentValues();
+            ready.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            if (resolver.update(published, ready, null, null) != 1) {
+                throw new IOException("下载文件发布失败");
+            }
+            finished = true;
+            String finalName = name;
+            try (Cursor cursor = resolver.query(published,
+                    new String[]{MediaStore.MediaColumns.DISPLAY_NAME}, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                    finalName = cursor.getString(0);
+                }
+            } catch (Exception ignored) { /* The original filename remains valid. */ }
+            JSObject result = new JSObject();
+            result.put("uri", published.toString());
+            result.put("fileName", finalName);
+            result.put("savedPath", "下载/SJTU Downloader/" + subfolders + finalName);
+            result.put("publicDownload", true);
+            return result;
+        } finally {
+            if (!finished) resolver.delete(published, null, null);
+        }
+    }
+
+    @PluginMethod
+    public void openDownloadedFile(PluginCall call) {
+        String value = call.getString("uri", "");
+        if (!value.startsWith("content://media/")) {
+            call.reject("只能打开本应用保存到系统下载目录的文件");
+            return;
+        }
+        getActivity().runOnUiThread(() -> {
+            try {
+                Uri target = Uri.parse(value);
+                String mime = getContext().getContentResolver().getType(target);
+                if (mime == null) mime = "application/octet-stream";
+                Intent view = new Intent(Intent.ACTION_VIEW);
+                view.setDataAndType(target, mime);
+                view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                getActivity().startActivity(Intent.createChooser(view, "打开已下载文件"));
+                JSObject result = new JSObject();
+                result.put("ok", true);
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("找不到可以打开此文件的应用：" + safeError(e));
+            }
+        });
+    }
+
+    /** Move downloads produced by older beta releases out of Android/data.
+        Imported items become visible in the phone's public Downloads folder. */
+    @PluginMethod
+    public void exportLegacyDownloads(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            call.reject("此功能需要 Android 10 或更新系统");
+            return;
+        }
+        io.execute(() -> {
+            try {
+                File staging = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                File oldRoot = staging == null ? null : new File(staging, "SJTU Downloader");
+                int count = 0;
+                int skipped = 0;
+                if (oldRoot != null && oldRoot.isDirectory()) {
+                    String prefix = oldRoot.getCanonicalPath() + File.separator;
+                    java.util.ArrayDeque<File> pending = new java.util.ArrayDeque<>();
+                    pending.add(oldRoot);
+                    while (!pending.isEmpty()) {
+                        File dir = pending.removeFirst();
+                        File[] children = dir.listFiles();
+                        if (children == null) continue;
+                        for (File child : children) {
+                            if (!child.getCanonicalPath().startsWith(prefix)) continue;
+                            if (child.isDirectory()) {
+                                pending.addLast(child);
+                            } else if (child.isFile() && !child.getName().endsWith(".part")) {
+                                String sub = dir.getCanonicalPath().substring(prefix.length())
+                                    .replace(File.separatorChar, '/');
+                                if (!sub.isEmpty()) sub += "/";
+                                try {
+                                    publishPublicDownload(child, child.getName(), sub);
+                                    if (child.delete()) count++;
+                                    else skipped++;
+                                } catch (Exception e) { skipped++; }
+                            }
+                        }
+                    }
+                }
+                JSObject result = new JSObject();
+                result.put("count", count);
+                result.put("skipped", skipped);
+                result.put("savedPath", "下载/SJTU Downloader/");
+                call.resolve(result);
+            } catch (Exception e) { call.reject(safeError(e)); }
         });
     }
 
