@@ -457,13 +457,24 @@ public class SjtuCanvasPlugin extends Plugin {
         if (!month.matches("20[0-9]{2}-(0[1-9]|1[0-2])")) { call.reject("月份格式不合法"); return; }
         io.execute(() -> {
             try {
+                JSArray official = new JSArray();
+                String officialWarning = "";
+                try { official = officialCalendarEvents(month); }
+                catch (Exception e) {
+                    officialWarning = "正式课表未连接，请点击下方“同步交大官方课表”完成独立登录。";
+                }
+                // Preserve useful official timetable even when Canvas-only API credentials fail.
+                final JSArray authorizedOfficial = official;
+                final String calendarInfo = officialWarning;
                 // Distinguish expired login from a single restricted endpoint.
                 try { getObject(BASE + "/api/v1/users/self/profile"); }
                 catch (Exception authError) {
                     JSObject result = new JSObject();
-                    result.put("items", new JSArray());
+                    result.put("items", authorizedOfficial);
                     result.put("authRequired", true);
-                    result.put("warning", "Canvas 登录会话可能失效，请重新登录后再同步。");
+                    result.put("warning", authorizedOfficial.length() > 0
+                        ? "正式课表已同步，但 Canvas 会话未授权，作业截止日期无法同步。"
+                        : "Canvas 登录会话失效或 API 不允许访问；" + calendarInfo);
                     call.resolve(result);
                     return;
                 }
@@ -590,6 +601,9 @@ public class SjtuCanvasPlugin extends Plugin {
                     }
                 }
                 JSArray items = new JSArray();
+                for (int i = 0; i < authorizedOfficial.length(); i++) {
+                    items.put(authorizedOfficial.get(i));
+                }
                 for (JSObject item : found.values()) items.put(item);
                 JSObject result = new JSObject();
                 result.put("items", items);
@@ -598,9 +612,10 @@ public class SjtuCanvasPlugin extends Plugin {
                     if (fallbackSucceeded || successfulAssignmentCourses > 0) {
                         result.put("warning", "Canvas 日历接口暂不可访问，已使用授权课程作业和近期事件作为备用来源，显示的日程可能不完整。");
                     } else {
-                        result.put("warning", "Canvas 日历接口未授权，备用接口也无法读取。请检查课程网页上的日历权限或重新登录。");
+                        result.put("warning", "Canvas 日历接口未授权且备用源也不可用。" + calendarInfo);
                     }
                 }
+                if (!result.has("warning") && !calendarInfo.isEmpty()) result.put("warning", calendarInfo);
                 call.resolve(result);
             } catch (Exception e) { call.reject(safeError(e)); }
         });
@@ -779,8 +794,8 @@ public class SjtuCanvasPlugin extends Plugin {
             c.setRequestProperty("User-Agent", "SJTU Downloader Android/0.1");
             c.setRequestProperty("Accept", "application/json, */*");
             if (referer != null) c.setRequestProperty("Referer", referer);
-            if (HOST.equalsIgnoreCase(url.getHost())) {
-                String cookie = CookieManager.getInstance().getCookie(BASE);
+            if (HOST.equalsIgnoreCase(url.getHost()) || "calendar.sjtu.edu.cn".equalsIgnoreCase(url.getHost())) {
+                String cookie = CookieManager.getInstance().getCookie("https://" + url.getHost());
                 if (cookie != null) c.setRequestProperty("Cookie", cookie);
             }
             int code = c.getResponseCode();
@@ -798,7 +813,12 @@ public class SjtuCanvasPlugin extends Plugin {
     }
 
     private JSONObject getObject(String url) throws Exception {
-        HttpURLConnection c = connect(url, BASE);
+        String referer = url.startsWith("https://calendar.sjtu.edu.cn/")
+            ? "https://calendar.sjtu.edu.cn/ui/calendar" : BASE;
+        HttpURLConnection c = connect(url, referer);
+        if (url.startsWith("https://calendar.sjtu.edu.cn/")) {
+            c.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+        }
         try {
             if (c.getResponseCode() != 200) throw new Exception("Canvas HTTP " + c.getResponseCode());
             String json;
