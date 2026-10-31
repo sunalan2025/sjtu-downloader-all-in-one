@@ -82,6 +82,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   const [view,setView]=useState<'week'|'month'>('week')
   const [display,setDisplay]=useState<'week'|'day'>('week')
   const [motionDirection,setMotionDirection]=useState<'forward'|'backward'>('forward')
+  const [hasNestedMotion,setHasNestedMotion]=useState(false)
   const selectedRef=useRef(selected)
   selectedRef.current=selected
   useEffect(()=>{
@@ -150,6 +151,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   const PX_PER_HOUR=53
   const position=(m:number)=>Math.max(0,(m-MIN_TIME)/60*PX_PER_HOUR)
   const shift=(offset:number)=>{
+    setHasNestedMotion(true)
     setMotionDirection(offset < 0 ? 'backward' : 'forward')
     const next=nextDay(selected,offset)
     setSelected(next)
@@ -157,6 +159,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     if(next.slice(0,7)!==month)onMonthChange(next.slice(0,7))
   }
   const select=(date:string)=>{
+    if (date !== selected) setHasNestedMotion(true)
     setMotionDirection(date < selected ? 'backward' : 'forward')
     setSelected(date)
     if(monday(date)!==monday(selected))onWeekChange(monday(date))
@@ -174,8 +177,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     <div className="page-intro calendar-head"><h1>课表</h1>
       <div className="calendar-head-actions">
         <div className="calendar-display-switch" role="group" aria-label="课表显示方式">
-          <button type="button" className={display==='week'?'on':''} onClick={()=>{setMotionDirection('backward');setDisplay('week')}}>周</button>
-          <button type="button" className={display==='day'?'on':''} onClick={()=>{setMotionDirection('forward');setDisplay('day')}}>日</button>
+          <button type="button" className={display==='week'?'on':''} onClick={()=>{if(display!=='week')setHasNestedMotion(true);setMotionDirection('backward');setDisplay('week')}}>周</button>
+          <button type="button" className={display==='day'?'on':''} onClick={()=>{if(display!=='day')setHasNestedMotion(true);setMotionDirection('forward');setDisplay('day')}}>日</button>
         </div>
         <button type="button" className="today-pill" onClick={()=>{select(today);setView('week');setDisplay('day')}}>今天</button>
         <button type="button" className="icon-button" aria-label="同步日程" disabled={busy} onClick={onRefresh}><Icon name="refresh" size={18}/></button>
@@ -205,7 +208,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     </section>
 
     <div key={display === 'week' ? 'week-' + weekStart + '-' + startWeekIndex : 'day-' + selected}
-      className={'calendar-panel-transition calendar-panel--' + motionDirection}>
+      className={'calendar-panel-transition' + (hasNestedMotion ? ' nested-motion' : '') + ' calendar-panel--' + motionDirection}>
     {display==='week' && <section className="week-overview glass" aria-label="适配手机的本周课程时间表">
       <div className="week-view-toolbar">
         <div className="week-view-caption">

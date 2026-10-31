@@ -60,6 +60,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   const [search, setSearch] = useState('')
   const [chosenCourses, setChosenCourses] = useState<Set<string>>(new Set())
   const [active, setActive] = useState<CanvasCourse | null>(null)
+  const [hasNestedMotion, setHasNestedMotion] = useState(false)
   const [files, setFiles] = useState<CanvasFile[]>([])
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [kind, setKind] = useState<Kind>('all')
@@ -70,6 +71,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
 
   const closeCourse = () => {
     if (!active) return false
+    setHasNestedMotion(true)
     fileRequestId.current++
     setActive(null)
     setFiles([])
@@ -135,6 +137,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     }
   }
   async function openCourse(course: CanvasCourse) {
+    setHasNestedMotion(true)
     setActive(course); setFiles([]); setSelectedFiles(new Set()); setKind('all'); setSearch('')
     await loadCourseFiles(course)
   }
@@ -186,7 +189,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     }
   }))
   return <div key={active ? 'detail' : 'list'}
-    className={'course-screen ' + (active ? 'course-screen--detail' : 'course-screen--list')}>
+    className={'course-screen ' + (hasNestedMotion ? 'nested-motion ' : '') + (active ? 'course-screen--detail' : 'course-screen--list')}>
     <div className="page-intro compact"><h1>{active ? active.name : '课程'}</h1></div>
     {!loggedIn ? <div className="empty-box"><div className="empty-picture"><Icon name="shield" size={28}/></div>
       <strong>登录后查看课程</strong>

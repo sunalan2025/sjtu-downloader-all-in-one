@@ -33,32 +33,18 @@ export default function App() {
     setSelection(previous => previous.count === next.count &&
       previous.busy === next.busy && previous.scope === next.scope ? previous : next)
   }, [])
-  const motionTimer = useRef<number | null>(null)
-  // No screenshots of outgoing pages: Android WebView can retain ghost frames
-  // when view transitions composite over translucent glass cards.
+  const [tabMotion, setTabMotion] = useState<'none' | 'forward' | 'backward'>('none')
+  // The outgoing panel unmounts immediately. Each new keyed panel receives
+  // its own fixed direction, so rapid taps cannot reverse an in-flight mask.
   const showTab = useCallback((next: Tab) => {
     const previous = tabRef.current
     if (previous === next) return
-    const direction = nav.findIndex(t => t.id === next) >
-      nav.findIndex(t => t.id === previous) ? 'forward' : 'backward'
-    const root = document.documentElement
-    if (motionTimer.current !== null) window.clearTimeout(motionTimer.current)
-    root.dataset.tabDirection = direction
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    root.dataset.screenMotion = reduced ? 'settled' : 'running'
+    setTabMotion(nav.findIndex(t => t.id === next) > nav.findIndex(t => t.id === previous)
+      ? 'forward' : 'backward')
     tabRef.current = next
     setTab(next)
     if (next !== 'courses') setSelection({ count: 0, busy: false, scope: null })
-    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
-    if (!reduced) {
-      motionTimer.current = window.setTimeout(() => {
-        root.dataset.screenMotion = 'settled'
-        motionTimer.current = null
-      }, 230)
-    }
-  }, [])
-  useEffect(() => () => {
-    if (motionTimer.current !== null) window.clearTimeout(motionTimer.current)
+    window.scrollTo(0, 0)
   }, [])
   const calendarRequestId = useRef(0)
   const lastCalendarFetch = useRef(0)
@@ -318,7 +304,7 @@ export default function App() {
       {notice && <div role="alert" className="notice glass"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}><Icon name="close" size={17}/></button></div>}
       {!isAndroid && <div className="preview-note">网页预览 · 登录、下载需在 Android 设备上测试</div>}
       <section className="content">
-        <div className="screen-motion" key={tab}>
+        <div className={'screen-motion screen-motion--' + tabMotion} key={tab}>
           {tab === 'home' && <>
             <section className="home-stage glass-panel">
               <div className="home-kicker">SJTU · CAMPUS</div>
