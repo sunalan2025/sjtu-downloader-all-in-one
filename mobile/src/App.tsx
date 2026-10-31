@@ -137,6 +137,7 @@ export default function App() {
   }, [jobs])
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [neighborEvents, setNeighborEvents] = useState<CalendarEvent[]>([])
+  const [homeSchoolEvents,setHomeSchoolEvents]=useState<CalendarEvent[]>([])
   const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>(readPersonalEvents)
   const [editingSchedule, setEditingSchedule] = useState<{current:PersonalEvent|null;date:string}|null>(null)
   useEffect(()=>{
@@ -250,6 +251,31 @@ export default function App() {
       document.removeEventListener('visibilitychange', check)
     }
   }, [weekStart, loggedIn])
+
+  // Home uses today's actual week and the next week, independently of
+  // whatever historical/future week the user last browsed in the calendar.
+  useEffect(()=>{
+    if(tab!=='home')return
+    if(!isAndroid||!loggedIn){setHomeSchoolEvents([]);return}
+    const todayWeek=currentWeekStart()
+    const weeks=[todayWeek,dateOffset(todayWeek,7)]
+    let disposed=false
+    const read=async(week:string)=>{
+      const cache=weeklyCache.current.get(week)
+      if(cache&&Date.now()-cache.savedAt<3*60_000)return cache.items
+      try {
+        const response=await native.calendarWeek({weekStart:week})
+        weeklyCache.current.set(week,{items:response.items,
+          officialConnected:!!response.officialConnected,
+          warning:response.warning||'',savedAt:Date.now()})
+        return response.items
+      }catch{return cache?.items||[]}
+    }
+    void Promise.all(weeks.map(read)).then(groups=>{
+      if(!disposed)setHomeSchoolEvents(groups.flat())
+    })
+    return ()=>{disposed=true}
+  },[tab,loggedIn])
 
   // Dates at the edges of the currently selected week still need their
   // previous/next day; also surface upcoming official events on Home.
@@ -430,7 +456,7 @@ export default function App() {
   const today = shanghaiDate(new Date().toISOString())
   const calendarEvents = [...events,...neighborEvents,...personalEvents.map(asCalendarEvent)]
   const lastAgendaDate=dateOffset(today,13)
-  const upcomingEvents=calendarEvents
+  const upcomingEvents=[...homeSchoolEvents,...personalEvents.map(asCalendarEvent)]
     .filter(event=>{
       const day=shanghaiDate(event.startTime)
       return day>=today&&day<=lastAgendaDate
