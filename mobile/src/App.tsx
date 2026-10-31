@@ -89,7 +89,6 @@ export default function App() {
         typeof item.uri === 'string').slice(0, 150)
     } catch { return [] }
   })
-  const [migrating, setMigrating] = useState(false)
   useEffect(() => {
     // Only persist completed files, not queued tasks that cannot survive a restart.
     try {
@@ -308,19 +307,12 @@ export default function App() {
     try { await native.openDownloadedFile({ uri }) }
     catch (e) { setNotice('打开文件失败：' + String(e)) }
   }
-  async function exportLegacyDownloads(): Promise<void> {
-    if (migrating) return
-    setMigrating(true)
-    try {
-      const result = await native.exportLegacyDownloads()
-      setNotice(result.count > 0
-        ? '已将 ' + result.count + ' 个旧版文件导出至「下载/SJTU Downloader」'
-          + (result.skipped ? '，还有 ' + result.skipped + ' 个未能导出。' : '。')
-        : result.skipped
-          ? '发现 ' + result.skipped + ' 个旧文件导出失败，请检查手机剩余存储空间。'
-          : '未发现需要迁移的旧版下载文件。')
-    } catch (e) { setNotice('导出旧文件失败：' + String(e)) }
-    finally { setMigrating(false) }
+  function clearFinishedHistory() {
+    const count = jobs.filter(job => job.state !== 'active' && job.state !== 'queued').length
+    if (!count) return
+    if (!window.confirm('清除 ' + count + ' 条下载历史？此操作不会删除手机中已保存的文件。')) return
+    setJobs(previous => previous.filter(job => job.state === 'active' || job.state === 'queued'))
+    setNotice('已清除历史记录，手机中的下载文件仍然保留。')
   }
 
   const active = jobs.filter(j => j.state === 'active').length
@@ -395,16 +387,18 @@ export default function App() {
               </div>
             </>)}
           {tab === 'downloads' && <>
-            <div className="page-intro"><h1>下载</h1><span className="muted-count">{active ? active + ' 项进行中' : jobs.length + ' 项任务'}</span></div>
+            <div className="page-intro downloads-head"><h1>下载</h1>
+              <div className="downloads-head-actions">
+                <span className="muted-count">{active ? active + ' 项进行中' : jobs.length + ' 项任务'}</span>
+                {jobs.some(job => job.state !== 'active' && job.state !== 'queued') &&
+                  <button className="clear-history-action" onClick={clearFinishedHistory}>清除历史</button>}
+              </div>
+            </div>
             <div className="download-location glass">
               <div className="download-location-text">
                 <strong>文件保存位置</strong>
                 <span>手机文件管理 → 下载 → SJTU Downloader</span>
               </div>
-              {isAndroid && <button type="button" className="legacy-import"
-                disabled={migrating} onClick={() => void exportLegacyDownloads()}>
-                {migrating ? '导出中…' : '找回旧版文件'}
-              </button>}
             </div>
             {!jobs.length ? <div className="empty-box glass"><Icon name="download" size={29}/><strong>暂无下载</strong></div>
               : <div className="job-list">{jobs.map(j => <div className="job-card glass" key={j.taskId}>

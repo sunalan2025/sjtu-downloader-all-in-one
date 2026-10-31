@@ -618,3 +618,7 @@ button:active:not(:disabled) { transform:scale(.965); }
   background:rgba(229,242,255,.87);color:#3775b2;
   padding:9px 10px;font-size:11px;font-weight:700;white-space:nowrap;
 }
+
+.downloads-head-actions{display:flex;align-items:center;gap:12px;}
+.clear-history-action{border:0;background:rgba(231,239,249,.8);color:#6682a4;font-size:11px;
+ padding:9px 12px;border-radius:11px;white-space:nowrap;}
