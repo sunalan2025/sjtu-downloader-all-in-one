@@ -127,7 +127,36 @@ public class SjtuCanvasPlugin extends Plugin {
                 "; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36");
             CookieManager.getInstance().setAcceptCookie(true);
             CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
-            panel.addView(browser, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            // WebView must load the official OAuth challenge to obtain a fresh UUID.
+            // Keep it covered by a native splash; users should see Jiaowoban, not
+            // the intermediate login webpage. Manual web login is always available.
+            FrameLayout browserHost = new FrameLayout(getActivity());
+            panel.addView(browserHost, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            browserHost.addView(browser, new FrameLayout.LayoutParams(-1, -1));
+            LinearLayout splash = new LinearLayout(getActivity());
+            splash.setOrientation(LinearLayout.VERTICAL);
+            splash.setGravity(Gravity.CENTER);
+            splash.setBackgroundResource(R.drawable.sjtu_glass_native_surface);
+            TextView launching = new TextView(getActivity());
+            launching.setGravity(Gravity.CENTER);
+            launching.setText("正在打开交我办…");
+            launching.setTextSize(17);
+            launching.setTextColor(0xFF385478);
+            splash.addView(launching);
+            android.widget.ProgressBar spinner = new android.widget.ProgressBar(getActivity());
+            LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(36), dp(36));
+            spinnerParams.topMargin = dp(22);
+            spinnerParams.bottomMargin = dp(22);
+            splash.addView(spinner, spinnerParams);
+            TextView fallback = glassAction("改用网页登录", false);
+            splash.addView(fallback);
+            browserHost.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+            AtomicBoolean appLaunched = new AtomicBoolean(false);
+            Runnable showWebFallback = () -> {
+                if (splash.getParent() != null) browserHost.removeView(splash);
+            };
+            fallback.setOnClickListener(v -> showWebFallback.run());
             AtomicBoolean settled = new AtomicBoolean(false);
             AtomicBoolean checking = new AtomicBoolean(false);
             AtomicBoolean jwbAutoClicked = new AtomicBoolean(false);
@@ -183,7 +212,12 @@ public class SjtuCanvasPlugin extends Plugin {
                     String scheme = uri.getScheme();
                     if ("https".equalsIgnoreCase(scheme)) return false;
                     if (shouldLaunchLoginApp(uri, view.getUrl(), request.hasGesture())) {
-                        openLoginAppLink(uri, browser);
+                        if (openLoginAppLink(uri, browser)) {
+                            appLaunched.set(true);
+                            launching.setText("请在交我办内完成登录");
+                        } else {
+                            showWebFallback.run();
+                        }
                     }
                     return true; // never load a non-HTTPS scheme in WebView
                 }
@@ -201,6 +235,21 @@ public class SjtuCanvasPlugin extends Plugin {
                     }
                 }
             });
+            // A login in another App does not necessarily trigger onPageFinished.
+            // Check the real Canvas profile after the user returns to our process.
+            Runnable[] loginPoll = new Runnable[1];
+            loginPoll[0] = () -> {
+                if (settled.get() || !dialog.isShowing()) return;
+                if (appLaunched.get()) verify.run();
+                loginHandler.postDelayed(loginPoll[0], 1800);
+            };
+            loginHandler.postDelayed(loginPoll[0], 1800);
+            loginHandler.postDelayed(() -> {
+                if (dialog.isShowing() && !settled.get() && !appLaunched.get()) {
+                    launching.setText("交我办无法自动启动");
+                    showWebFallback.run();
+                }
+            }, 6500);
             browser.setWebChromeClient(new WebChromeClient() {
                 @Override public boolean onCreateWindow(WebView view, boolean isDialog,
                     boolean isUserGesture, Message resultMsg) {
@@ -212,12 +261,22 @@ public class SjtuCanvasPlugin extends Plugin {
                         @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
                             Uri uri = request.getUrl();
                             if ("https".equalsIgnoreCase(uri.getScheme())) browser.loadUrl(uri.toString());
-                            else if (shouldLaunchLoginApp(uri, browser.getUrl(), true)) openLoginAppLink(uri, browser);
+                            else if (shouldLaunchLoginApp(uri, browser.getUrl(), true)) {
+                                if (openLoginAppLink(uri, browser)) {
+                                    appLaunched.set(true);
+                                    launching.setText("请在交我办内完成登录");
+                                } else showWebFallback.run();
+                            }
                             return true;
                         }
                         @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap icon) {
                             if (url.startsWith("https://")) browser.loadUrl(url);
-                            else if (shouldLaunchLoginApp(Uri.parse(url), browser.getUrl(), true)) openLoginAppLink(Uri.parse(url), browser);
+                            else if (shouldLaunchLoginApp(Uri.parse(url), browser.getUrl(), true)) {
+                                if (openLoginAppLink(Uri.parse(url), browser)) {
+                                    appLaunched.set(true);
+                                    launching.setText("请在交我办内完成登录");
+                                } else showWebFallback.run();
+                            }
                             panel.removeView(popup);
                             popup.destroy();
                         }
@@ -250,6 +309,7 @@ public class SjtuCanvasPlugin extends Plugin {
                 if (settled.compareAndSet(false, true)) call.reject("已取消登录");
             });
             dialog.setOnDismissListener(d -> {
+                loginHandler.removeCallbacks(loginPoll[0]);
                 browser.stopLoading();
                 browser.destroy();
                 if (settled.compareAndSet(false, true)) call.reject("登录窗口已关闭");
@@ -350,14 +410,14 @@ public class SjtuCanvasPlugin extends Plugin {
         return Math.round(value * getContext().getResources().getDisplayMetrics().density);
     }
 
-    private void openLoginAppLink(Uri uri, WebView browser) {
+    private boolean openLoginAppLink(Uri uri, WebView browser) {
         try {
             String scheme = uri.getScheme();
-            if (scheme == null) return;
+            if (scheme == null) return false;
             if (!("intent".equalsIgnoreCase(scheme) || "jaccount".equalsIgnoreCase(scheme) ||
                   "sjtu".equalsIgnoreCase(scheme) || "jwb".equalsIgnoreCase(scheme) ||
                   "weixin".equalsIgnoreCase(scheme) || "alipays".equalsIgnoreCase(scheme) ||
-                  "my".equalsIgnoreCase(scheme))) return;
+                  "my".equalsIgnoreCase(scheme))) return false;
             Intent intent;
             if ("intent".equalsIgnoreCase(scheme)) {
                 intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME);
@@ -369,6 +429,7 @@ public class SjtuCanvasPlugin extends Plugin {
             intent.setSelector(null);
             try {
                 getActivity().startActivity(intent);
+                return true;
             } catch (ActivityNotFoundException missing) {
                 String fallback = intent.getStringExtra("browser_fallback_url");
                 if (fallback != null) {
@@ -377,7 +438,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     if ("https".equalsIgnoreCase(target.getScheme()) &&
                         host != null && (host.equals("sjtu.edu.cn") || host.endsWith(".sjtu.edu.cn"))) {
                         browser.loadUrl(fallback);
-                        return;
+                        return false;
                     }
                 }
                 Toast.makeText(getContext(), "未找到对应 App，可选择网页账号登录", Toast.LENGTH_LONG).show();
@@ -385,6 +446,7 @@ public class SjtuCanvasPlugin extends Plugin {
         } catch (Exception e) {
             Toast.makeText(getContext(), "无法打开认证应用，请尝试网页账号登录", Toast.LENGTH_SHORT).show();
         }
+        return false;
     }
 
     private static boolean hasCalendarSessionCookie() {
