@@ -57,18 +57,17 @@ export function CalendarPage({ month, onMonthChange, events, busy, onRefresh, on
     setSelected(iso + '-01')
   }
   return <>
-    <div className="page-intro"><div className="eyebrow">STUDENT CALENDAR</div><h1>我的日程</h1><p>课程活动与作业截止，一眼掌握。</p></div>
+    <div className="page-intro compact"><h1>日历</h1></div>
     <section className="calendar-card">
       <div className="calendar-toolbar">
-        <div><div className="calendar-year">{y} 年</div><strong>{m} 月 <span className="subtle">/ {new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(y, m - 1, 1))}</span></strong></div>
+        <div><div className="calendar-year">{y}</div><strong>{m} 月</strong></div>
         <div className="calendar-actions"><button aria-label="上个月" onClick={() => move(-1)}><Icon name="left" size={18}/></button><button aria-label="下个月" onClick={() => move(1)}><Icon name="right" size={18}/></button></div>
       </div>
       <div className="calendar-grid weekdays">{weekNames.map(w => <span key={w}>{w}</span>)}</div>
       <div className="calendar-grid month-grid">{days.map(d => <button type="button" key={d.key} onClick={() => setSelected(d.key)} className={['calendar-day',!d.inMonth?'outside':'',d.key === today?'today':'',d.key === day?'picked':''].join(' ')}><span>{d.day}</span>{eventMap.has(d.key) && <i aria-label="有日程"/>}</button>)}</div>
     </section>
-    <div className="section-title"><div><h2>{Number(day.slice(-2))} 日安排</h2><p>{day} · {todayEvents.length} 项日程</p></div><button className="icon-button" aria-label="同步日程" disabled={busy} onClick={onRefresh}><Icon name="refresh" size={19}/></button></div>
-    {busy ? <div className="loading-note">正在同步 Canvas 日程…</div> : todayEvents.length ? <div className="agenda-list">{todayEvents.map(event => <div className="agenda-item" key={event.id}><div className={event.type==='assignment'?'agenda-icon violet':'agenda-icon'}><Icon name={event.type==='assignment'?'clock':event.type==='course'?'book':'calendar'} size={19}/></div><div className="agenda-text"><strong>{event.title}</strong><small>{eventHour(event.startTime)} · {event.courseName || (event.type==='assignment'?'作业截止':event.type==='course'?'正式课程':'课程活动')}</small></div><span className={'agenda-tag '+(event.type==='assignment'?'violet':'')}>{event.type==='assignment'?'DDL':event.type==='course'?'课程':'活动'}</span></div>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="calendar" size={30}/></div><strong>这一天暂无同步日程</strong><p>切换日期，或刷新查看新的 Canvas 日历活动。</p></div>}
-    <button className="official-card" onClick={onOfficial}><div className="official-icon"><Icon name="school" size={22}/></div><div><strong>同步交大官方课表</strong><small>在 App 内完成独立 SSO 后读取正式课表</small></div><Icon name="external" size={17}/></button>
-    <p className="disclaimer">当前同步 Canvas 日历事件及作业截止日期；正式课表需要通过上方入口单独授权；考试安排尚未集成。所有时间按北京时间显示。</p>
+    <div className="section-title"><div><h2>{Number(day.slice(-2))} 日 <span className="muted-count">{todayEvents.length ? todayEvents.length + ' 项' : ''}</span></h2></div><button className="icon-button" aria-label="刷新日历" disabled={busy} onClick={onRefresh}><Icon name="refresh" size={18}/></button></div>
+    {busy ? <div className="loading-note">正在同步 Canvas 日程…</div> : todayEvents.length ? <div className="agenda-list">{todayEvents.map(event => <div className="agenda-item" key={event.id}><div className={event.type==='assignment'?'agenda-icon violet':'agenda-icon'}><Icon name={event.type==='assignment'?'clock':event.type==='course'?'book':'calendar'} size={19}/></div><div className="agenda-text"><strong>{event.title}</strong><small>{eventHour(event.startTime)}{event.courseName ? ' · ' + event.courseName : ''}</small></div><span className={'agenda-tag '+(event.type==='assignment'?'violet':'')}>{event.type==='assignment'?'DDL':event.type==='course'?'课程':'活动'}</span></div>)}</div> : <div className="empty-box glass"><strong>这一天没有日程</strong></div>}
+    <button className="official-card" onClick={onOfficial}><div className="official-icon"><Icon name="calendar" size={20}/></div><div><strong>连接交大课表</strong></div><Icon name="right" size={17}/></button>
   </>
 }
