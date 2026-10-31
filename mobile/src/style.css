@@ -322,3 +322,14 @@ button:active:not(:disabled) { transform:scale(.965); }
     -webkit-backdrop-filter:none!important;backdrop-filter:none!important;border-color:#d7e2ef!important;}
   .muted-count,.file-info small {color:#506479;}
 }
+
+
+/* Recover from campus/VPN disconnects without a persistent global error banner. */
+.file-retry-panel {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:11px; padding:29px 22px; margin:13px 0; text-align:center;
+  border-radius:24px; color:#5175a0;
+}
+.file-retry-panel strong {font-size:14px; color:#2e4a70; font-weight:650;}
+.file-retry-panel span {font-size:12px; line-height:1.6; color:#7387a0; max-width:310px;}
+.file-retry-panel .primary {margin-top:4px;}
