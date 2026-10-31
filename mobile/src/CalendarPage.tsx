@@ -81,6 +81,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   const [selected,setSelected]=useState(today)
   const [view,setView]=useState<'week'|'month'>('week')
   const [display,setDisplay]=useState<'week'|'day'>('week')
+  const [motionDirection,setMotionDirection]=useState<'forward'|'backward'>('forward')
   const selectedRef=useRef(selected)
   selectedRef.current=selected
   useEffect(()=>{
@@ -120,12 +121,14 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   const PX_PER_HOUR=53
   const position=(m:number)=>Math.max(0,(m-MIN_TIME)/60*PX_PER_HOUR)
   const shift=(offset:number)=>{
+    setMotionDirection(offset < 0 ? 'backward' : 'forward')
     const next=nextDay(selected,offset)
     setSelected(next)
     if(monday(next)!==monday(selected))onWeekChange(monday(next))
     if(next.slice(0,7)!==month)onMonthChange(next.slice(0,7))
   }
   const select=(date:string)=>{
+    setMotionDirection(date < selected ? 'backward' : 'forward')
     setSelected(date)
     if(monday(date)!==monday(selected))onWeekChange(monday(date))
     if(date.slice(0,7)!==month)onMonthChange(date.slice(0,7))
@@ -142,8 +145,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     <div className="page-intro calendar-head"><h1>课表</h1>
       <div className="calendar-head-actions">
         <div className="calendar-display-switch" role="group" aria-label="课表显示方式">
-          <button type="button" className={display==='week'?'on':''} onClick={()=>setDisplay('week')}>周</button>
-          <button type="button" className={display==='day'?'on':''} onClick={()=>setDisplay('day')}>日</button>
+          <button type="button" className={display==='week'?'on':''} onClick={()=>{setMotionDirection('backward');setDisplay('week')}}>周</button>
+          <button type="button" className={display==='day'?'on':''} onClick={()=>{setMotionDirection('forward');setDisplay('day')}}>日</button>
         </div>
         <button type="button" className="today-pill" onClick={()=>{select(today);setView('week');setDisplay('day')}}>今天</button>
         <button type="button" className="icon-button" aria-label="同步日程" disabled={busy} onClick={onRefresh}><Icon name="refresh" size={18}/></button>
@@ -172,6 +175,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
       </div>}
     </section>
 
+    <div key={display === 'week' ? 'week-' + weekStart : 'day-' + selected}
+      className={'calendar-panel-transition calendar-panel--' + motionDirection}>
     {display==='week' && <section className="week-overview glass" aria-label="本周课程与截止日期">
       <div className="week-overview-track">
         {weekDates.map(d=>{
@@ -236,6 +241,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     {untimed.length>0&&<section className="schedule-extras glass"><div className="schedule-section-label">全天安排</div>
       {untimed.map(e=><div className="schedule-extra" key={e.id}><span className="event-dot"/>{e.title}</div>)}</section>}
     </>}
+    </div>
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
       <Icon name="school" size={18}/><span>连接正式课表</span><Icon name="right" size={16}/>
     </button>}

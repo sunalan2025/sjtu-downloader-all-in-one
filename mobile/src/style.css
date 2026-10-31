@@ -538,3 +538,25 @@ html[data-tab-direction="backward"]::view-transition-new(mobile-screen) {
 .week-overview-event.is-deadline .week-overview-time{color:#ae8248;}
 .week-more{border:0;background:transparent;color:#7b94b2;padding:5px;font-size:10px;text-align:left;}
 @media(min-width:850px){.week-overview-track{overflow-x:visible;}}
+
+/* Secondary navigation follows the same masked left/right language as the main tabs. */
+.course-screen {animation:courseListReveal .34s cubic-bezier(.2,.78,.2,1) both;}
+.course-screen--detail {animation-name:courseDetailReveal;}
+@keyframes courseDetailReveal {
+  from {opacity:.55;transform:translate3d(20px,0,0);clip-path:inset(0 0 0 17%);}
+  to {opacity:1;transform:none;clip-path:inset(0);}
+}
+@keyframes courseListReveal {
+  from {opacity:.55;transform:translate3d(-20px,0,0);clip-path:inset(0 17% 0 0);}
+  to {opacity:1;transform:none;clip-path:inset(0);}
+}
+.calendar-panel-transition {animation:calendarPanelForward .33s cubic-bezier(.2,.78,.2,1) both;}
+.calendar-panel--backward {animation-name:calendarPanelBackward;}
+@keyframes calendarPanelForward {
+  from {opacity:.52;transform:translate3d(17px,0,0);clip-path:inset(0 0 0 12%);}
+  to {opacity:1;transform:none;clip-path:inset(0);}
+}
+@keyframes calendarPanelBackward {
+  from {opacity:.52;transform:translate3d(-17px,0,0);clip-path:inset(0 12% 0 0);}
+  to {opacity:1;transform:none;clip-path:inset(0);}
+}

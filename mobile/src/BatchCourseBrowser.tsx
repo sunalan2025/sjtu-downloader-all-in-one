@@ -184,7 +184,8 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
       else setChosenCourses(new Set())
     }
   }))
-  return <>
+  return <div key={active ? 'detail' : 'list'}
+    className={'course-screen ' + (active ? 'course-screen--detail' : 'course-screen--list')}>
     <div className="page-intro compact"><h1>{active ? active.name : '课程'}</h1></div>
     {!loggedIn ? <div className="empty-box"><div className="empty-picture"><Icon name="shield" size={28}/></div>
       <strong>登录后查看课程</strong>
@@ -240,5 +241,5 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
         </div>)}</div>
         : <div className="empty-box"><div className="empty-picture"><Icon name="book" size={28}/></div><strong>暂无课程</strong></div>}
     </>}
-  </>
+  </div>
 })
