@@ -1,0 +1,166 @@
+import { useMemo, useState } from 'react'
+import { Icon } from './Icon'
+import native, { isAndroid, type CanvasCourse, type CanvasFile, type CourseDownloadItem } from './native'
+
+type Kind = 'all' | 'documents' | 'video' | 'other'
+const categoryNames: Record<Kind, string> = { all: '全部', documents: '文档课件', video: '视频文件', other: '其他' }
+function kindOf(file: CanvasFile): Exclude<Kind, 'all'> {
+  const ext = file.name.split('.').pop()?.toLowerCase() || ''
+  if (file.contentType.startsWith('video/') || ['mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v'].includes(ext)) return 'video'
+  if (['pdf', 'ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'zip', 'rar', '7z', 'md', 'key', 'pages'].includes(ext)) return 'documents'
+  return 'other'
+}
+const displayBytes = (bytes: number) => bytes > 1024 ** 2
+  ? (bytes / (1024 ** 2)).toFixed(1) + ' MB'
+  : bytes > 1024 ? (bytes / 1024).toFixed(0) + ' KB' : (bytes || 0) + ' B'
+
+export function BatchCourseBrowser({ courses, loggedIn, loading, onRefresh, onLogin, onBatchDownload, onNotice }: {
+  courses: CanvasCourse[]
+  loggedIn: boolean
+  loading: boolean
+  onRefresh: () => void
+  onLogin: () => void
+  onBatchDownload: (tasks: CourseDownloadItem[]) => Promise<void>
+  onNotice: (text: string) => void
+}) {
+  const [term, setTerm] = useState('')
+  const [search, setSearch] = useState('')
+  const [chosenCourses, setChosenCourses] = useState<Set<string>>(new Set())
+  const [active, setActive] = useState<CanvasCourse | null>(null)
+  const [files, setFiles] = useState<CanvasFile[]>([])
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+  const [kind, setKind] = useState<Kind>('all')
+  const [fetching, setFetching] = useState(false)
+  const [collecting, setCollecting] = useState(false)
+
+  const semesters = useMemo(() =>
+    Array.from(new Set(courses.map(c => c.term || '未分类学期'))).sort((a, b) => b.localeCompare(a, 'zh-CN')), [courses])
+  const courseList = useMemo(() => courses.filter(c => {
+    const matchesTerm = !term || (c.term || '未分类学期') === term
+    const q = search.trim().toLowerCase()
+    return matchesTerm && (!q || (c.name + ' ' + c.code + ' ' + c.term).toLowerCase().includes(q))
+  }), [courses, term, search])
+  const visibleFiles = useMemo(() => files.filter(f =>
+    (kind === 'all' || kindOf(f) === kind) &&
+    (!search.trim() || f.name.toLowerCase().includes(search.toLowerCase()))
+  ), [files, kind, search])
+  const selectableFiles = visibleFiles.filter(f => !f.locked)
+  const chosen = courses.filter(c => chosenCourses.has(c.id))
+
+  function toggleCourse(id: string) {
+    setChosenCourses(old => {
+      const copy = new Set(old)
+      if (copy.has(id)) copy.delete(id); else copy.add(id)
+      return copy
+    })
+  }
+  function toggleFile(id: string) {
+    setSelectedFiles(old => {
+      const copy = new Set(old)
+      if (copy.has(id)) copy.delete(id); else copy.add(id)
+      return copy
+    })
+  }
+  async function openCourse(course: CanvasCourse) {
+    setActive(course); setFiles([]); setSelectedFiles(new Set()); setKind('all'); setSearch('')
+    setFetching(true)
+    try { setFiles((await native.files({ courseId: course.id })).items) }
+    catch (error) { onNotice('读取课程文件失败：' + String(error)) }
+    finally { setFetching(false) }
+  }
+  async function downloadFiles() {
+    if (!active || selectedFiles.size === 0) return
+    const tasks = files.filter(f => !f.locked && selectedFiles.has(f.id))
+      .map(file => ({ file, courseName: active.name, term: active.term }))
+    if (tasks.length) await onBatchDownload(tasks)
+  }
+  async function downloadCourses() {
+    if (!chosen.length || collecting) return
+    setCollecting(true)
+    let skipped = 0
+    try {
+      const all: CourseDownloadItem[] = []
+      // Avoid firing hundreds of concurrent API requests; three native workers are available.
+      let cursor = 0
+      const work = async () => {
+        while (cursor < chosen.length) {
+          const selected = chosen[cursor++]
+          try {
+            const list = (await native.files({ courseId: selected.id })).items
+            for (const file of list) {
+              if (!file.locked) all.push({ file, courseName: selected.name, term: selected.term })
+            }
+          } catch { skipped++ }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(3, chosen.length) }, () => work()))
+      if (all.length === 0) {
+        onNotice(skipped ? '所选课程资源无法读取，请检查 Canvas 权限。' : '所选课程中没有可下载文件。')
+        return
+      }
+      if (all.length > 1200) {
+        onNotice('本次批量下载超过 1200 个文件，请减少所选课程分批执行。')
+        return
+      }
+      if (skipped) onNotice('有 ' + skipped + ' 门课程无法读取，其他课程已加入下载队列。')
+      await onBatchDownload(all)
+    } finally { setCollecting(false) }
+  }
+
+  return <>
+    <div className="page-intro"><span className="eyebrow">SEMESTER · RESOURCES</span>
+      <h1>{active ? active.name : '课程资源'}</h1>
+      <p>{active ? '选择文件批量下载，自动按学期与课程保存。' : '学期筛选、多课程选择、批量下载。'}</p>
+    </div>
+    {!loggedIn ? <div className="empty-box"><div className="empty-picture"><Icon name="shield" size={28}/></div>
+      <strong>登录后同步交大课程</strong><p>登录成功后，可以按学期筛选并批量下载 Canvas 课件。</p>
+      <button className="primary" onClick={onLogin} disabled={!isAndroid}>使用 jAccount 登录 <Icon name="arrow" size={15}/></button></div>
+    : active ? <>
+      <div className="row-actions"><button className="text-button" onClick={() => { setActive(null); setFiles([]); setSearch(''); setSelectedFiles(new Set()) }}>
+        <Icon name="left" size={16}/> 返回课程</button><span className="pill">{files.length} 个文件</span></div>
+      <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索课件" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索课件或文件名…"/></label>
+      <div className="category-chips">{(Object.keys(categoryNames) as Kind[]).map(k => <button key={k} className={k===kind?'chosen':''} onClick={()=>setKind(k)}>{categoryNames[k]}</button>)}</div>
+      <div className="batch-toolbar"><button className="text-button" onClick={() => setSelectedFiles(old => {
+        const ids=selectableFiles.map(f=>f.id)
+        const next=new Set(old)
+        const fully=ids.length>0 && ids.every(x=>next.has(x))
+        ids.forEach(id=>fully?next.delete(id):next.add(id))
+        return next
+      })}>{selectableFiles.length && selectableFiles.every(f => selectedFiles.has(f.id)) ? '取消全选' : '全选当前类型'}</button>
+      <span>已选 {selectedFiles.size} 项</span></div>
+      {fetching ? <div className="loading-note">正在扫描课程文件…</div>
+        : visibleFiles.length ? <div className="item-list">{visibleFiles.map(file =>
+          <div className={'file-row '+(selectedFiles.has(file.id)?'row-selected':'')} key={file.id}>
+            <button disabled={file.locked} className={'select-circle '+(selectedFiles.has(file.id)?'checked':'')} aria-label={'选择 '+file.name} aria-pressed={selectedFiles.has(file.id)} onClick={()=>toggleFile(file.id)}>{selectedFiles.has(file.id) && <Icon name="check" size={14}/>}</button>
+            <span className="file-badge"><Icon name="file" size={21}/></span>
+            <span className="file-info"><strong>{file.name}</strong><small>{displayBytes(file.size)} · {kindOf(file)==='video'?'视频':kindOf(file)==='documents'?'文档':'文件'}{file.locked?' · 无权限':''}</small></span>
+            <button className="small-action" disabled={file.locked} aria-label={'下载 '+file.name} onClick={()=>void onBatchDownload([{file,courseName:active.name,term:active.term}])}><Icon name="download" size={17}/></button>
+          </div>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="file" size={28}/></div><strong>没有可显示的文件</strong><p>尝试更换类型或搜索关键词。课程视频也可能需要独立的录播接口。</p></div>}
+      {selectedFiles.size > 0 && <div className="batch-sticky"><button className="primary" disabled={!isAndroid} onClick={()=>void downloadFiles()}><Icon name="download" size={17}/> 批量下载 {selectedFiles.size} 个文件</button></div>}
+    </> : <>
+      <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索课程" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索课程名称、代码…"/></label>
+      <div className="row-actions"><span className="pill"><Icon name="book" size={14}/> {courseList.length} 门课程</span><button className="text-button" onClick={onRefresh} disabled={loading}><Icon name="refresh" size={16}/> 刷新课程</button></div>
+      <label className="semester-select"><span>学期筛选</span><select aria-label="选择学期" value={term} onChange={e=>setTerm(e.target.value)}>
+        <option value="">全部学期（{courses.length}）</option>
+        {semesters.map(t=><option key={t} value={t}>{t}</option>)}
+      </select></label>
+      <div className="batch-toolbar"><button className="text-button" onClick={() => setChosenCourses(old => {
+        const next=new Set(old)
+        const ids=courseList.map(c=>c.id)
+        const fully=ids.length>0&&ids.every(id=>next.has(id))
+        ids.forEach(id=>fully?next.delete(id):next.add(id))
+        return next
+      })}>{courseList.length && courseList.every(c=>chosenCourses.has(c.id))?'取消全选':'全选本学期课程'}</button><span>已选 {chosenCourses.size} 门</span></div>
+      {loading ? <div className="loading-note">正在同步课程…</div>
+        : courseList.length ? <div className="course-list">{courseList.map(c =>
+        <div className="course-card batch-course-row" key={c.id}>
+          <button className={'select-circle '+(chosenCourses.has(c.id)?'checked':'')} aria-label={'选择课程 '+c.name} aria-pressed={chosenCourses.has(c.id)} onClick={()=>toggleCourse(c.id)}>{chosenCourses.has(c.id)&&<Icon name="check" size={14}/>}</button>
+          <button className="course-card-open" onClick={()=>void openCourse(c)}><span className="course-symbol"><Icon name="book" size={21}/></span><span className="course-text"><strong>{c.name}</strong><small>{c.term||'未分类学期'} · {c.code || 'Canvas'}</small></span><Icon name="right" className="chevron" size={17}/></button>
+        </div>)}</div>
+        : <div className="empty-box"><div className="empty-picture"><Icon name="book" size={28}/></div><strong>该学期暂无课程</strong><p>选择其他学期或者刷新课程列表。</p></div>}
+      {chosenCourses.size > 0 && <div className="batch-sticky"><button className="primary" disabled={!isAndroid || collecting} onClick={()=>void downloadCourses()}>
+        <Icon name="download" size={17}/>{collecting?'正在扫描课程资料…':'批量下载 '+chosenCourses.size+' 门课程课件'}</button></div>}
+      <p className="disclaimer">当前批量下载范围为 Canvas Files API 可访问的普通文件。桌面版独立教师录播、PPT 视角、好大学在线、云盘直传尚未移植，不能把这些资源误记为已下载。</p>
+    </>}
+  </>
+}
