@@ -89,6 +89,10 @@ public class SjtuCanvasPlugin extends Plugin {
             close.setText("关闭");
             close.setTextSize(11);
             toolbar.addView(close);
+            Button jwb = new Button(getActivity());
+            jwb.setText("交我办");
+            jwb.setTextSize(11);
+            toolbar.addView(jwb);
             panel.addView(toolbar);
             WebView browser = new WebView(getActivity());
             WebSettings settings = browser.getSettings();
@@ -98,9 +102,11 @@ public class SjtuCanvasPlugin extends Plugin {
             settings.setLoadWithOverviewMode(true);
             settings.setSupportMultipleWindows(true);
             settings.setJavaScriptCanOpenWindowsAutomatically(true);
-            String ua = settings.getUserAgentString();
-            // Preserve platform UA; explicitly use mobile mode if a manufacturer WebView reports desktop.
-            if (ua != null && !ua.contains("Mobile")) settings.setUserAgentString(ua.replace(" Safari/", " Mobile Safari/"));
+            // jAccount may render a non-mobile page for the embedded "; wv" Android WebView UA.
+            // Keep the actual Android OS version while presenting a mobile Chrome browser UA.
+            String androidVersion = android.os.Build.VERSION.RELEASE;
+            settings.setUserAgentString("Mozilla/5.0 (Linux; Android " + androidVersion +
+                "; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36");
             CookieManager.getInstance().setAcceptCookie(true);
             CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
             panel.addView(browser, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
@@ -134,6 +140,21 @@ public class SjtuCanvasPlugin extends Plugin {
                     });
                 });
             };
+            jwb.setOnClickListener(v -> {
+                // Invoke only an actual link supplied by the official jAccount login page.
+                // Do not construct undocumented deep links or fake successful authentication.
+                String script = "(function(){if(location.hostname!=='jaccount.sjtu.edu.cn')return 'domain';" +
+                    "var nodes=Array.from(document.querySelectorAll('a,button,[role=button]'));" +
+                    "var match=nodes.find(n=>/交我办/.test(n.textContent||n.getAttribute('aria-label')||''));" +
+                    "if(!match)return 'missing';match.click();return 'clicked'})()";
+                browser.evaluateJavascript(script, response -> {
+                    if (!"\"clicked\"".equals(response)) {
+                        Toast.makeText(getContext(),
+                            "当前官方登录页尚未显示“交我办”入口，可使用网页账号登录",
+                            Toast.LENGTH_LONG).show();
+                    }
+                });
+            });
             check.setOnClickListener(v -> verify.run());
             close.setOnClickListener(v -> dialog.cancel());
             browser.setWebViewClient(new WebViewClient() {
@@ -286,72 +307,155 @@ public class SjtuCanvasPlugin extends Plugin {
     @PluginMethod
     public void calendar(PluginCall call) {
         String month = call.getString("month", "");
-        if (!month.matches("20[0-9]{2}-(0[1-9]|1[0-2])")) {
-            call.reject("月份格式不合法");
-            return;
-        }
+        if (!month.matches("20[0-9]{2}-(0[1-9]|1[0-2])")) { call.reject("月份格式不合法"); return; }
         io.execute(() -> {
             try {
-                int y = Integer.parseInt(month.substring(0, 4));
-                int m = Integer.parseInt(month.substring(5, 7));
+                // Distinguish expired login from a single restricted endpoint.
+                try { getObject(BASE + "/api/v1/users/self/profile"); }
+                catch (Exception authError) {
+                    JSObject result = new JSObject();
+                    result.put("items", new JSArray());
+                    result.put("authRequired", true);
+                    result.put("warning", "Canvas 登录会话可能失效，请重新登录后再同步。");
+                    call.resolve(result);
+                    return;
+                }
+                int year = Integer.parseInt(month.substring(0, 4));
+                int monthNo = Integer.parseInt(month.substring(5, 7));
                 Calendar next = new GregorianCalendar(TimeZone.getTimeZone("Asia/Shanghai"), Locale.ROOT);
                 next.clear();
-                next.set(y, m - 1, 1);
+                next.set(year, monthNo - 1, 1);
                 next.add(Calendar.MONTH, 1);
-                String end = String.format(Locale.ROOT, "%04d-%02d-01",
-                    next.get(Calendar.YEAR), next.get(Calendar.MONTH) + 1);
-                // Canvas Calendar supports at most a limited number of context codes per query.
-                JSONArray courseList = getAllPages(BASE +
-                    "/api/v1/courses?per_page=100&enrollment_state%5B%5D=active&enrollment_state%5B%5D=completed");
-                java.util.ArrayList<String> codes = new java.util.ArrayList<>();
-                for (int i = 0; i < courseList.length(); i++) {
-                    JSONObject course = courseList.optJSONObject(i);
-                    if (course == null) continue;
-                    String id = course.optString("id", "");
-                    if (id.matches("[0-9]{1,20}")) codes.add("course_" + id);
-                }
+                String end = String.format(Locale.ROOT, "%04d-%02d-01", next.get(Calendar.YEAR), next.get(Calendar.MONTH) + 1);
                 java.util.LinkedHashMap<String, JSObject> found = new java.util.LinkedHashMap<>();
-                // Read both Canvas calendar events and assignment due events; no mock timetable.
-                for (int pos = 0; pos < codes.size(); pos += 8) {
-                    StringBuilder context = new StringBuilder();
-                    for (int i = pos; i < Math.min(codes.size(), pos + 8); i++) {
-                        context.append("&context_codes%5B%5D=").append(codes.get(i));
+                java.util.ArrayList<String> courses = new java.util.ArrayList<>();
+                java.util.HashMap<String, String> courseNames = new java.util.HashMap<>();
+                boolean courseDenied = false;
+                try {
+                    JSONArray courseList = getAllPages(BASE +
+                        "/api/v1/courses?per_page=100&enrollment_state%5B%5D=active&enrollment_state%5B%5D=completed");
+                    for (int i = 0; i < courseList.length(); i++) {
+                        JSONObject course = courseList.optJSONObject(i);
+                        if (course == null) continue;
+                        String id = course.optString("id", "");
+                        if (id.matches("[0-9]{1,20}")) {
+                            courses.add(id);
+                            courseNames.put(id, course.optString("name", ""));
+                        }
                     }
-                    for (String type : new String[]{"event", "assignment"}) {
-                        String url = BASE + "/api/v1/calendar_events?per_page=100&type=" + type +
-                            "&start_date=" + month + "-01&end_date=" + end + context;
-                        JSONArray batch = getAllPages(url);
-                        for (int i = 0; i < batch.length(); i++) {
-                            JSONObject raw = batch.optJSONObject(i);
+                } catch (Exception e) { courseDenied = true; }
+                boolean calendarDenied = false;
+                if (!courses.isEmpty()) {
+                    outer:
+                    for (int pos = 0; pos < courses.size(); pos += 8) {
+                        StringBuilder context = new StringBuilder();
+                        for (int i = pos; i < Math.min(courses.size(), pos + 8); i++) {
+                            context.append("&context_codes%5B%5D=course_").append(courses.get(i));
+                        }
+                        for (String type : new String[]{"event", "assignment"}) {
+                            try {
+                                JSONArray batch = getAllPages(BASE + "/api/v1/calendar_events?per_page=100&type=" +
+                                    type + "&start_date=" + month + "-01&end_date=" + end + context);
+                                for (int i = 0; i < batch.length(); i++) {
+                                    JSONObject raw = batch.optJSONObject(i);
+                                    if (raw == null) continue;
+                                    JSONObject assignment = raw.optJSONObject("assignment");
+                                    String date = raw.optString("start_at", "");
+                                    if (date.isEmpty()) date = raw.optString("due_at", "");
+                                    if (date.isEmpty() && assignment != null) date = assignment.optString("due_at", "");
+                                    if (date.isEmpty()) continue;
+                                    String title = raw.optString("title", "");
+                                    if (title.isEmpty() && assignment != null) title = assignment.optString("name", "");
+                                    if (title.isEmpty()) title = "未命名日程";
+                                    String id = type + ":" + raw.optString("id", String.valueOf(i));
+                                    JSObject event = new JSObject();
+                                    event.put("id", id);
+                                    event.put("title", title);
+                                    event.put("startTime", date);
+                                    event.put("endTime", raw.optString("end_at", date));
+                                    event.put("courseName", raw.optString("context_name", ""));
+                                    event.put("type", type);
+                                    found.put(id, event);
+                                }
+                            } catch (Exception e) {
+                                calendarDenied = true;
+                                // Do not trigger the same unauthorized endpoint repeatedly.
+                                if (safeError(e).contains("401") || safeError(e).contains("403")) break outer;
+                            }
+                        }
+                    }
+                } else { calendarDenied = true; }
+
+                // Official API fallback 1: the student's upcoming sidebar events.
+                boolean fallbackSucceeded = false;
+                if (calendarDenied || found.isEmpty()) {
+                    try {
+                        JSONArray upcoming = getAllPages(BASE + "/api/v1/users/self/upcoming_events?per_page=100");
+                        fallbackSucceeded = true;
+                        for (int i = 0; i < upcoming.length(); i++) {
+                            JSONObject raw = upcoming.optJSONObject(i);
                             if (raw == null) continue;
                             JSONObject assignment = raw.optJSONObject("assignment");
-                            String start = raw.optString("start_at", "");
-                            if (start.isEmpty()) start = raw.optString("due_at", "");
-                            if (start.isEmpty() && assignment != null) start = assignment.optString("due_at", "");
-                            if (start.isEmpty()) continue;
+                            String date = raw.optString("start_at", raw.optString("due_at", ""));
+                            if (date.isEmpty() && assignment != null) date = assignment.optString("due_at", "");
+                            if (date.isEmpty() || !date.startsWith(month)) continue;
                             String title = raw.optString("title", "");
                             if (title.isEmpty() && assignment != null) title = assignment.optString("name", "");
-                            if (title.isEmpty()) title = "未命名日程";
-                            String id = type + ":" + raw.optString("id", String.valueOf(i));
+                            if (title.isEmpty()) continue;
+                            String id = "upcoming:" + raw.optString("id", String.valueOf(i));
                             JSObject event = new JSObject();
                             event.put("id", id);
                             event.put("title", title);
-                            event.put("startTime", start);
-                            event.put("endTime", raw.optString("end_at", start));
+                            event.put("startTime", date);
+                            event.put("endTime", raw.optString("end_at", date));
                             event.put("courseName", raw.optString("context_name", ""));
-                            event.put("type", type);
+                            event.put("type", assignment == null ? "event" : "assignment");
                             found.put(id, event);
                         }
+                    } catch (Exception ignored) { /* handled via warning */ }
+                }
+
+                // Official API fallback 2: course assignment deadlines, useful when calendar_events is 401.
+                int successfulAssignmentCourses = 0;
+                if (calendarDenied) {
+                    for (String id : courses) {
+                        if (successfulAssignmentCourses >= 40) break;
+                        try {
+                            JSONArray assignments = getAllPages(BASE + "/api/v1/courses/" + id +
+                                "/assignments?per_page=100&order_by=due_at");
+                            successfulAssignmentCourses++;
+                            for (int i = 0; i < assignments.length(); i++) {
+                                JSONObject item = assignments.optJSONObject(i);
+                                if (item == null) continue;
+                                String date = item.optString("due_at", "");
+                                if (date.isEmpty() || !date.startsWith(month)) continue;
+                                String assignmentId = item.optString("id", String.valueOf(i));
+                                JSObject event = new JSObject();
+                                event.put("id", "assignment:" + id + ":" + assignmentId);
+                                event.put("title", item.optString("name", "作业截止"));
+                                event.put("startTime", date);
+                                event.put("endTime", date);
+                                event.put("courseName", courseNames.get(id));
+                                event.put("type", "assignment");
+                                found.put("assignment:" + id + ":" + assignmentId, event);
+                            }
+                        } catch (Exception ignored) { /* some courses restrict assignment access */ }
                     }
                 }
                 JSArray items = new JSArray();
-                for (JSObject event : found.values()) items.put(event);
-                JSObject response = new JSObject();
-                response.put("items", items);
-                call.resolve(response);
-            } catch (Exception e) {
-                call.reject(safeError(e));
-            }
+                for (JSObject item : found.values()) items.put(item);
+                JSObject result = new JSObject();
+                result.put("items", items);
+                result.put("authRequired", false);
+                if (calendarDenied || courseDenied) {
+                    if (fallbackSucceeded || successfulAssignmentCourses > 0) {
+                        result.put("warning", "Canvas 日历接口暂不可访问，已使用授权课程作业和近期事件作为备用来源，显示的日程可能不完整。");
+                    } else {
+                        result.put("warning", "Canvas 日历接口未授权，备用接口也无法读取。请检查课程网页上的日历权限或重新登录。");
+                    }
+                }
+                call.resolve(result);
+            } catch (Exception e) { call.reject(safeError(e)); }
         });
     }
 
