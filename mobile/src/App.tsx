@@ -33,6 +33,8 @@ export default function App() {
   const [calendarBusy, setCalendarBusy] = useState(false)
   const [calendarWarning, setCalendarWarning] = useState('')
   const [calendarAuthRequired, setCalendarAuthRequired] = useState(false)
+  const [diagnostic, setDiagnostic] = useState('')
+  const [diagnosing, setDiagnosing] = useState(false)
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
@@ -111,9 +113,28 @@ export default function App() {
   }
   async function openOfficialCalendar(): Promise<void> {
     if (!isAndroid) { setNotice('此操作只能在 Android 设备上使用'); return }
-    try { await native.openOfficialCalendar() }
+    try {
+      const result = await native.openOfficialCalendar()
+      if (result.ok) await loadCalendar(month)
+    }
     catch (e) { setNotice('无法打开交大官方课表：' + String(e)) }
   }
+  async function diagnoseConnection(): Promise<void> {
+    if (!isAndroid) return
+    setDiagnosing(true)
+    try {
+      const d = await native.diagnoseAuth()
+      setDiagnostic('Canvas Cookie: ' + d.canvasCookie + '\\n'
+        + 'jAccount Cookie: ' + d.jaccountCookie + '\\n'
+        + '正式课表 Cookie: ' + d.officialCalendarCookie + '\\n'
+        + 'Canvas 用户信息: ' + d.canvasProfile + '\\n'
+        + 'Canvas 课程: ' + d.canvasCourses + '\\n'
+        + 'Canvas 日历: ' + d.canvasCalendar + '\\n'
+        + '正式课表: ' + d.officialCalendar)
+    } catch(e) { setDiagnostic('诊断异常：' + String(e)) }
+    finally { setDiagnosing(false) }
+  }
+
   async function downloadBatch(tasks: CourseDownloadItem[]): Promise<void> {
     if (!isAndroid || tasks.length === 0) return
     if (tasks.length > 1200) { setNotice('单批次最多 1200 个文件，请分学期下载。'); return }
@@ -205,6 +226,12 @@ export default function App() {
           <>
             {calendarWarning && <div role="alert" className="notice calendar-warning"><Icon name="alert" size={18}/><span>{calendarWarning}</span>{calendarAuthRequired && <button className="text-button" onClick={() => void login()}>重新登录</button>}</div>}
             <CalendarPage month={month} onMonthChange={setMonth} events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(month)} onOfficial={() => void openOfficialCalendar()}/>
+            <div className="surface" style={{marginTop:18}}>
+              <h3>接口诊断</h3>
+              <p className="disclaimer">只显示状态码及 Cookie 是否存在，不上传账号或 Cookie。</p>
+              <button className="primary" disabled={diagnosing} onClick={() => void diagnoseConnection()}>{diagnosing?'正在检测…':'检测认证状态'}</button>
+              {diagnostic && <pre className="diagnostic-output">{diagnostic}</pre>}
+            </div>
           </>
           : <><div className="page-intro"><span className="eyebrow">STUDENT CALENDAR</span><h1>我的日程</h1><p>一页掌握学习节奏。</p></div><div className="empty-box"><div className="empty-picture"><Icon name="calendar" size={28}/></div><strong>登录后同步日历</strong><p>支持 Canvas 活动与作业截止日期。官方课表可通过单独入口查看。</p><button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>连接 jAccount <Icon name="arrow" size={15}/></button></div><button className="official-card" onClick={() => void openOfficialCalendar()}><span className="official-icon"><Icon name="school" size={21}/></span><span style={{flex:1}}><strong>查看交大官方课表</strong><small>前往 calendar.sjtu.edu.cn</small></span><Icon name="external" size={17}/></button></>)}
         {tab === 'downloads' && <>
