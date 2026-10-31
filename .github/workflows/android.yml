@@ -62,7 +62,8 @@ jobs:
           "$AAPT" dump badging "$APK" | tee /tmp/sjtu-android-badging.txt
           grep -q "name='me.hisunalan.sjtudownloader.beta'" /tmp/sjtu-android-badging.txt
           grep -q "launchable-activity: name='me.hisunalan.sjtudownloader.MainActivity'" /tmp/sjtu-android-badging.txt
-          grep -q "versionCode='300'" /tmp/sjtu-android-badging.txt
+          EXPECTED_CODE="$(node -p "const v=require('../package.json').version.split('.').map(Number);v[0]*10000+v[1]*100+v[2]")"
+          grep -q "versionCode='${EXPECTED_CODE}'" /tmp/sjtu-android-badging.txt
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
