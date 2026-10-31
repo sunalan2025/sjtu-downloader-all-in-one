@@ -621,6 +621,42 @@ public class SjtuCanvasPlugin extends Plugin {
         });
     }
 
+
+    /** Privacy-safe on-device diagnostics: never return Cookie, access token or URL query string. */
+    @PluginMethod
+    public void diagnoseAuth(PluginCall call) {
+        io.execute(() -> {
+            JSObject result = new JSObject();
+            result.put("canvasCookie", CookieManager.getInstance().getCookie(BASE) != null);
+            result.put("jaccountCookie", CookieManager.getInstance().getCookie("https://jaccount.sjtu.edu.cn") != null);
+            result.put("officialCalendarCookie",
+                CookieManager.getInstance().getCookie("https://calendar.sjtu.edu.cn") != null);
+            result.put("canvasProfile", safeProbe(BASE + "/api/v1/users/self/profile"));
+            result.put("canvasCalendar", safeProbe(BASE + "/api/v1/calendar_events?per_page=1"));
+            result.put("canvasCourses", safeProbe(BASE + "/api/v1/courses?per_page=1"));
+            result.put("officialCalendar", safeProbe("https://calendar.sjtu.edu.cn/api/calendar/list"));
+            call.resolve(result);
+        });
+    }
+
+    private String safeProbe(String url) {
+        HttpURLConnection c = null;
+        try {
+            c = connect(url, url.startsWith("https://calendar.sjtu.edu.cn/")
+                ? "https://calendar.sjtu.edu.cn/ui/calendar" : BASE);
+            int status = c.getResponseCode();
+            String host = c.getURL().getHost();
+            // Fixed hostnames only. Never include auth query strings, cookies or response bodies.
+            if (!("oc.sjtu.edu.cn".equals(host) || "calendar.sjtu.edu.cn".equals(host)
+                || "jaccount.sjtu.edu.cn".equals(host))) host = "other";
+            return status + " (" + host + ")";
+        } catch (Exception e) {
+            return "请求异常：" + e.getClass().getSimpleName();
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
     @PluginMethod
     public void status(PluginCall call) {
         io.execute(() -> {
