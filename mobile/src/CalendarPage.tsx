@@ -129,7 +129,11 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     // Center the selected day when a new week is shown (no header/grid drift).
     const index=Math.max(0,weekDates.indexOf(selected))
     const column=node.querySelectorAll<HTMLElement>('.week-time-column')[index]
-    if(column)node.scrollLeft=Math.max(0,column.offsetLeft-56)
+    if(column) {
+      const target=column.getBoundingClientRect().left-
+        node.getBoundingClientRect().left+node.scrollLeft-56
+      node.scrollLeft=Math.max(0,target)
+    }
   },[display,weekStart])
   const dayEvents=eventMap.get(selected)||[]
   const classEvents=dayEvents.filter(isClass)
