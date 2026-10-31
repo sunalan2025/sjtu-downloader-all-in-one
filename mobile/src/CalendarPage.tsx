@@ -129,6 +129,20 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     ? Math.min(23,Math.max(weekFirstHour+3,
         Math.ceil(Math.max(...weekTimed.map(e=>Math.max(minute(e.endTime,minute(e.startTime)+45),minute(e.startTime)+28)))/60)+1))
     : 18
+  // The all-day lane has a *shared* height across all three columns. Compute it
+  // from the number and approximate wrapped line counts of the actual entries.
+  // Each item is rendered in full rather than hidden under an unusable "+N".
+  const allDayFor=(date:string)=>(eventMap.get(date)||[])
+    .filter(event=>isHomework(event)||!isTimed(event))
+  const allDayHeight=Math.max(70,...visibleWeekDates.map(date=>{
+    const entries=allDayFor(date)
+    return 12+entries.reduce((height,event)=>{
+      // Portrait day columns are about 85–115 CSS px wide; allow wrapping
+      // with extra headroom for long Chinese homework names.
+      const lines=Math.max(1,Math.ceil(event.title.length/7))
+      return height+Math.max(36,19+lines*15)
+    },0)+Math.max(0,entries.length-1)*5
+  }))
   const WEEK_HOUR_PX=54
   const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX
   const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
@@ -202,7 +216,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     {display==='week' && <section className="week-overview glass" aria-label="适配手机的本周课程时间表">
       <div className="week-view-toolbar">
         <div className="week-view-caption">
-          <strong>三日课表</strong>
+          <strong>课表</strong>
         </div>
         <div className="week-page-buttons" role="group" aria-label="切换显示的日期">
           <button type="button" aria-label="显示前一天" onClick={()=>shift(-1)}>
@@ -232,7 +246,10 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
         }}
         onTouchCancel={()=>{weekSwipeStart.current=null}}>
         <div className="week-timetable-grid"
-          style={{gridTemplateColumns:'46px repeat('+visibleWeekDates.length+',minmax(0,1fr))'}}>
+          style={{
+            gridTemplateColumns:'46px repeat('+visibleWeekDates.length+',minmax(0,1fr))',
+            '--week-all-day-height':allDayHeight+'px'
+          } as React.CSSProperties}>
           <div className="week-time-axis">
             <div className="week-time-header week-axis-heading">时间</div>
             <div className="week-all-day week-axis-all-day">全天</div>
@@ -254,12 +271,15 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                 <span>{weekday}</span><strong>{Number(date.slice(-2))}</strong>
               </button>
               <div className="week-all-day">
-                {allDay.length>0 ? <button type="button" className="week-all-day-chip"
-                  onClick={()=>{select(date);setDisplay('day')}} title={allDay.map(e=>e.title).join('、')}>
-                  <Icon name={allDay.some(isHomework)?'clock':'calendar'} size={12}/>
-                  <span>{allDay[0].title}</span>
-                  {allDay.length>1&&<b>+{allDay.length-1}</b>}
-                </button> : <span className="week-all-day-empty">—</span>}
+                {allDay.length>0 ? allDay.map(event=>
+                  <button type="button" key={event.id} className="week-all-day-chip"
+                    onClick={()=>{
+                      if(event.id.startsWith('personal-'))onEditSchedule(event.id)
+                      else {select(date);setDisplay('day')}
+                    }}
+                    aria-label={event.title} title={event.title}>
+                    <span>{event.title}</span>
+                  </button>) : <span className="week-all-day-empty">—</span>}
               </div>
               <div className="week-hour-lane" style={{height:weekHeight}}>
                 {Array.from({length:weekLastHour-weekFirstHour+1},(_,i)=>i+weekFirstHour).map(hour=>

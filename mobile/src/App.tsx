@@ -320,7 +320,8 @@ export default function App() {
     try {
       await native.login()
       await refreshSession()
-      showTab('courses')
+      // Keep the user on Home after authentication. The course list is still
+      // synced automatically, but navigation stays under the user's control.
     } catch (e) { setNotice('登录未完成：' + String(e)) }
     finally { setBusy(false) }
   }
@@ -394,7 +395,7 @@ export default function App() {
     if (!isAndroid) { setNotice('此操作只能在 Android 设备上使用'); return }
     try {
       const result = await native.openOfficialCalendar()
-      if (result.ok) { weeklyCache.current.clear(); await loadCalendar(weekStart, true) }
+      if (result.ok) { weeklyCache.current.clear(); void loadCalendar(weekStart, true) }
     }
     catch (e) { setNotice('无法打开交大官方课表：' + String(e)) }
   }

@@ -509,7 +509,7 @@ button:active:not(:disabled) { transform:scale(.965); }
   border-radius:14px;touch-action:pan-y;
 }
 .week-timetable-scroll:focus-visible {outline:2px solid #679de2;outline-offset:-2px;}
-.week-timetable-grid {display:grid;width:100%;min-width:0;--week-head-height:45px;--week-all-day-height:43px;}
+.week-timetable-grid {display:grid;width:100%;min-width:0;--week-head-height:45px;--week-all-day-height:70px;}
 .week-time-axis {
   min-width:0;z-index:1;background:rgba(236,244,254,.94);
   border-right:1px solid rgba(109,151,200,.16);
@@ -537,20 +537,20 @@ button:active:not(:disabled) { transform:scale(.965); }
 .week-axis-heading {font-weight:700;font-size:11px;background:#f0f5fc;}
 .week-all-day {
   box-sizing:border-box;height:var(--week-all-day-height);
-  display:flex;align-items:center;justify-content:center;
-  padding:4px 3px;overflow:hidden;
+  display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;
+  gap:5px;padding:6px 3px;overflow:visible;
   border-bottom:1px solid rgba(112,153,199,.18);
   background:rgba(250,251,255,.34);
 }
 .week-axis-all-day {font-size:10px;color:#8397b0;background:#f0f5fc;}
 .week-all-day-empty {font-size:12px;color:#c4cfdd;}
 .week-all-day-chip {
-  display:flex;align-items:center;min-width:0;width:100%;gap:3px;
-  border:0;border-radius:8px;padding:6px 4px;
+  display:flex;align-items:flex-start;min-width:0;width:100%;gap:3px;
+  border:0;border-radius:8px;padding:6px 5px;
   background:rgba(255,233,204,.72);color:#966c35;
-  font-size:10px;text-align:left;
+  font-size:10px;line-height:1.45;text-align:left;overflow-wrap:anywhere;
 }
-.week-all-day-chip span {overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;flex:1;}
+.week-all-day-chip span {white-space:normal;overflow:visible;overflow-wrap:anywhere;min-width:0;flex:1;}
 .week-all-day-chip b {flex:none;font-size:9px;}
 .week-hour-column,.week-hour-lane {position:relative;box-sizing:border-box;}
 .week-hour-column {background:#f0f5fc;}
@@ -581,7 +581,7 @@ button:active:not(:disabled) { transform:scale(.965); }
 .week-time-event.lavender {background:#ece4fa;color:#75609e;border-left-color:#9a80cb;}
 .week-time-event.amber {background:#faecd8;color:#906832;border-left-color:#d6a668;}
 @media(min-width:740px) {
-  .week-timetable-grid {--week-head-height:50px;--week-all-day-height:49px;}
+  .week-timetable-grid {--week-head-height:50px;}
   .week-time-event strong {font-size:10px;}
 }
 /* Directional easing for nested pages. No cross-fade of old screenshots. */
