@@ -3,7 +3,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import { Haptics } from '@capacitor/haptics'
 import native, { isAndroid, type CanvasCourse, type DownloadProgress, type CalendarEvent, type CourseDownloadItem } from './native'
 import { BatchCourseBrowser, type CourseBrowserHandle } from './BatchCourseBrowser'
-import { CalendarPage, currentMonth, shanghaiDate } from './CalendarPage'
+import { CalendarPage, currentMonth, currentWeekStart, shanghaiDate } from './CalendarPage'
 import { Icon, type IconName } from './Icon'
 
 type Tab = 'home' | 'courses' | 'calendar' | 'downloads'
@@ -42,8 +42,10 @@ export default function App() {
     if (next === 'calendar') {
       // Returning to the calendar always shows today's schedule automatically.
       const current = currentMonth()
+      const week = currentWeekStart()
       if (month !== current) setMonth(current)
-      else if (loggedIn && Date.now() - lastCalendarFetch.current > 90_000) void loadCalendar(current)
+      if (weekStart !== week) setWeekStart(week)
+      else if (loggedIn && Date.now() - lastCalendarFetch.current > 90_000) void loadCalendar(week)
     }
     if (isAndroid) void Haptics.selectionChanged().catch(() => {})
     setTab(next)
@@ -56,13 +58,11 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [month, setMonth] = useState(currentMonth())
+  const [weekStart, setWeekStart] = useState(currentWeekStart())
   const [busy, setBusy] = useState(false)
   const [calendarBusy, setCalendarBusy] = useState(false)
   const [calendarWarning, setCalendarWarning] = useState('')
-  const [calendarAuthRequired, setCalendarAuthRequired] = useState(false)
   const [officialConnected, setOfficialConnected] = useState(false)
-  const [diagnostic, setDiagnostic] = useState('')
-  const [diagnosing, setDiagnosing] = useState(false)
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
@@ -111,7 +111,7 @@ export default function App() {
     }).then(h => { if (disposed) void h.remove(); else handle = h })
     let calendarHandle: { remove(): Promise<void> } | undefined
     void native.addListener('calendarSessionReady', () => {
-      if (!disposed) void loadCalendar(currentMonth())
+      if (!disposed) void loadCalendar(currentWeekStart())
     }).then(h => { if (disposed) void h.remove(); else calendarHandle = h }).catch(() => {})
     return () => {
       disposed = true
@@ -125,8 +125,8 @@ export default function App() {
 
   useEffect(() => {
     if (!isAndroid || !loggedIn) return
-    void loadCalendar(month)
-  }, [month, loggedIn])
+    void loadCalendar(weekStart)
+  }, [weekStart, loggedIn])
 
   async function refreshSession(): Promise<void> {
     setSessionChecking(true)
@@ -152,7 +152,7 @@ export default function App() {
     if (!window.confirm('确定退出登录吗？这会清除手机上保存的交大登录会话。')) return
     try {
       await native.logout()
-      setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setCalendarAuthRequired(false); setOfficialConnected(false)
+      setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setOfficialConnected(false)
       setTab('home')
     } catch (e) { setNotice(String(e)) }
   }
@@ -162,23 +162,37 @@ export default function App() {
     catch (e) { setNotice('读取课程失败：' + String(e)) }
     finally { setBusy(false) }
   }
-  async function loadCalendar(target: string): Promise<void> {
+  async function loadCalendar(targetWeek: string): Promise<void> {
     const requestId = ++calendarRequestId.current
     setCalendarBusy(true)
     try {
-      const result = await native.calendar({ month: target })
+      const result = await native.calendarWeek({ weekStart: targetWeek })
       if (requestId !== calendarRequestId.current) return
       setEvents(result.items)
       setOfficialConnected(!!result.officialConnected)
       setCalendarWarning(result.warning || '')
-      setCalendarAuthRequired(!!result.authRequired)
       lastCalendarFetch.current = Date.now()
-    } catch (e) {
+      // Load restricted Canvas assignment details in the background.
+      // Do not hold the week grid open while dozens of course APIs finish.
+      if (result.needsSupplement) {
+        void native.calendarWeekSupplement({ weekStart: targetWeek }).then(extra => {
+          if (requestId !== calendarRequestId.current) return
+          setEvents(previous => {
+            const known = new Set(previous.map(e =>
+              [e.title,e.type,shanghaiDate(e.startTime)].join('|')))
+            const extras = extra.items.filter(e => {
+              const key = [e.title,e.type,shanghaiDate(e.startTime)].join('|')
+              if (known.has(key)) return false
+              known.add(key)
+              return true
+            })
+            return [...previous, ...extras]
+          })
+        }).catch(() => {})
+      }
+    } catch(e) {
       if (requestId !== calendarRequestId.current) return
-      setEvents([])
-      setOfficialConnected(false)
-      setCalendarAuthRequired(false)
-      setCalendarWarning('日程同步失败：' + String(e))
+      setCalendarWarning('日程同步失败，请点击刷新重试：' + String(e))
     } finally {
       if (requestId === calendarRequestId.current) setCalendarBusy(false)
     }
@@ -187,27 +201,10 @@ export default function App() {
     if (!isAndroid) { setNotice('此操作只能在 Android 设备上使用'); return }
     try {
       const result = await native.openOfficialCalendar()
-      if (result.ok) await loadCalendar(month)
+      if (result.ok) await loadCalendar(weekStart)
     }
     catch (e) { setNotice('无法打开交大官方课表：' + String(e)) }
   }
-  async function diagnoseConnection(): Promise<void> {
-    if (!isAndroid) return
-    setDiagnosing(true)
-    try {
-      const d = await native.diagnoseAuth()
-      setDiagnostic('已加密保存登录会话: ' + (d.savedSessionEncrypted ? '是' : '否') + '\n'
-        + 'Canvas Cookie: ' + d.canvasCookie + '\n'
-        + 'jAccount Cookie: ' + d.jaccountCookie + '\n'
-        + '正式课表 Cookie: ' + d.officialCalendarCookie + '\n'
-        + 'Canvas 用户信息: ' + d.canvasProfile + '\n'
-        + 'Canvas 课程: ' + d.canvasCourses + '\n'
-        + 'Canvas 日历: ' + d.canvasCalendar + '\n'
-        + '正式课表: ' + d.officialCalendar)
-    } catch(e) { setDiagnostic('诊断异常：' + String(e)) }
-    finally { setDiagnosing(false) }
-  }
-
   async function downloadBatch(tasks: CourseDownloadItem[]): Promise<void> {
     if (!isAndroid || tasks.length === 0) return
     if (tasks.length > 1200) { setNotice('单批次最多 1200 个文件，请分学期下载。'); return }
@@ -263,11 +260,7 @@ export default function App() {
           <div className="brand-mark"><img src="./desktop-logo.png" alt="SJTU Downloader"/></div>
           <strong>SJTU Downloader</strong>
         </div>
-        <button className="avatar-button glass-interactive" disabled={sessionChecking}
-          aria-label={sessionChecking ? '正在检查会话' : loggedIn ? '退出登录' : '登录'}
-          onClick={() => loggedIn ? void logout() : void login()}>
-          <Icon name={loggedIn ? 'shield' : 'school'} size={20}/>
-        </button>
+
       </header>
       {notice && <div role="alert" className="notice glass"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}><Icon name="close" size={17}/></button></div>}
       {!isAndroid && <div className="preview-note">网页预览 · 登录、下载需在 Android 设备上测试</div>}
@@ -282,7 +275,10 @@ export default function App() {
               {!loggedIn && !sessionChecking && <button className="primary login-entry" disabled={!isAndroid || busy} onClick={() => void login()}>
                 {busy ? '正在连接…' : '交我办登录'} <Icon name="arrow" size={17}/>
               </button>}
-              {loggedIn && <div className="session-indicator"><span className="connected-dot"/>已连接</div>}
+              {loggedIn && <div className="home-session-line">
+                <span className="session-indicator"><span className="connected-dot"/>已连接</span>
+                <button className="quiet-logout" onClick={() => void logout()}>退出账号</button>
+              </div>}
             </section>
             <section className="home-summary glass">
               <div><strong>{courses.length}</strong><span>课程</span></div>
@@ -307,18 +303,11 @@ export default function App() {
                 onBatchDownload={downloadBatch} onNotice={setNotice}/>)}
           {tab === 'calendar' && (loggedIn
             ? <>
-              <CalendarPage month={month} onMonthChange={setMonth} events={events}
-                busy={calendarBusy} onRefresh={() => void loadCalendar(month)}
+              <CalendarPage month={month} onMonthChange={setMonth} onWeekChange={setWeekStart}
+                events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(weekStart)}
                 onOfficial={() => void openOfficialCalendar()} officialConnected={officialConnected}/>
-              <details className="diagnostic glass">
-                <summary><Icon name="shield" size={16}/>连接状态 <Icon name="right" size={15}/></summary>
-                {calendarWarning && <p className="diagnostic-hint">{calendarWarning}</p>}
-                {calendarAuthRequired && <button className="text-button" onClick={() => void login()}>重新登录 Canvas</button>}
-                <button className="text-button" disabled={diagnosing} onClick={() => void diagnoseConnection()}>
-                  {diagnosing ? '检测中…' : '检测接口'}
-                </button>
-                {diagnostic && <pre className="diagnostic-output">{diagnostic}</pre>}
-              </details>
+              {calendarWarning && calendarWarning.includes('失败') &&
+                <div className="calendar-notice" role="alert">{calendarWarning}</div>}
             </>
             : <>
               <div className="page-intro"><h1>日历</h1></div>
