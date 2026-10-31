@@ -161,6 +161,16 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
     </section>
     <div className="schedule-day-head"><div><strong>{Number(selected.slice(5,7))} 月 {Number(selected.slice(-2))} 日</strong><span>{dayLabel}</span></div>
       {busy?<span className="sync-state"><span className="sync-spin"/>同步中</span>:<span className="sync-state">{classEvents.length} 节课程 · {homework.length} 项作业</span>}</div>
+    {homework.length>0&&<div className="deadline-wrapper">    <section className="deadline-section">
+      <div className="schedule-section-title"><h2>作业截止</h2><span>{homework.length?homework.length+' 项':'无'}</span></div>
+      <div className="deadline-grid">{homework.sort((a,b)=>a.startTime.localeCompare(b.startTime)).map(e=>
+        <article className="deadline-card glass" key={e.id}>
+          <div className="deadline-icon"><Icon name="clock" size={18}/></div>
+          <div className="deadline-info"><strong>{e.title}</strong>{e.courseName&&<small>{e.courseName}</small>}</div>
+          <time className="deadline-time">{timeText(e.startTime)}</time>
+        </article>)}</div>
+    </section>
+    </div>}
     <section className="timetable glass" aria-label="当日课程时间课表">
       <div className="timetable-axis">
         {Array.from({length:16},(_,i)=>i+7).map(hour=><div key={hour} className="timetable-hour" style={{top:position(hour*60)}}>{pad(hour)}:00</div>)}
@@ -188,15 +198,6 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
     </section>
     {untimed.length>0&&<section className="schedule-extras glass"><div className="schedule-section-label">全天安排</div>
       {untimed.map(e=><div className="schedule-extra" key={e.id}><span className="event-dot"/>{e.title}</div>)}</section>}
-    <section className="deadline-section">
-      <div className="schedule-section-title"><h2>作业截止</h2><span>{homework.length?homework.length+' 项':'无'}</span></div>
-      {homework.length>0?<div className="deadline-grid">{homework.sort((a,b)=>a.startTime.localeCompare(b.startTime)).map(e=>
-        <article className="deadline-card glass" key={e.id}>
-          <div className="deadline-icon"><Icon name="clock" size={18}/></div>
-          <div className="deadline-info"><strong>{e.title}</strong>{e.courseName&&<small>{e.courseName}</small>}</div>
-          <time className="deadline-time">{timeText(e.startTime)}</time>
-        </article>)}</div>:<div className="deadline-empty">今天没有作业截止</div>}
-    </section>
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
       <Icon name="school" size={18}/><span>连接正式课表</span><Icon name="right" size={16}/>
     </button>}
