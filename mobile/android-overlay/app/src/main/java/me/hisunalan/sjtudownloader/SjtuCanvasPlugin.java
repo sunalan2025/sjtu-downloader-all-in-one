@@ -85,6 +85,7 @@ public class SjtuCanvasPlugin extends Plugin {
     private final Map<String, AtomicBoolean> cancels = new ConcurrentHashMap<>();
 
     private final AtomicBoolean calendarSsoInFlight = new AtomicBoolean(false);
+    private volatile long calendarVerifiedUntil = 0L;
     private SessionCookieVault sessionVault;
 
     private synchronized SessionCookieVault vault() {
@@ -512,15 +513,12 @@ public class SjtuCanvasPlugin extends Plugin {
                         io.execute(() -> {
                             try {
                                 // Check the real endpoint before recording a verified session.
-                                java.text.SimpleDateFormat formatter =
-                                    new java.text.SimpleDateFormat("yyyy-MM", Locale.ROOT);
-                                formatter.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
-                                String month = formatter.format(new java.util.Date());
-                                officialCalendarEvents(month);
-                                vault().saveAfterVerification();
-                                JSObject ready = new JSObject();
-                                ready.put("connected", true);
-                                notifyListeners("calendarSessionReady", ready);
+                                if (verifyCalendarSessionQuickly()) {
+                                    vault().saveAfterVerification();
+                                    JSObject ready = new JSObject();
+                                    ready.put("connected", true);
+                                    notifyListeners("calendarSessionReady", ready);
+                                }
                             } catch (Exception ignored) { }
                             handler.post(cleanup);
                         });
@@ -565,8 +563,36 @@ public class SjtuCanvasPlugin extends Plugin {
     }
 
 
+    /**
+     * A verified calendar session needs no full-screen login WebView. Probe a
+     * single day only once with bounded timeouts before opening the login UI.
+     * Never treat the mere existence of JSESSIONID as proof of authorization.
+     */
     @PluginMethod
     public void openOfficialCalendar(PluginCall call) {
+        if (hasCalendarSessionCookie() && System.currentTimeMillis() < calendarVerifiedUntil) {
+            JSObject result = new JSObject();
+            result.put("ok", true);
+            call.resolve(result);
+            return;
+        }
+        if (hasCalendarSessionCookie()) {
+            io.execute(() -> {
+                if (verifyCalendarSessionQuickly()) {
+                    vault().saveAfterVerification();
+                    JSObject result = new JSObject();
+                    result.put("ok", true);
+                    call.resolve(result);
+                } else {
+                    showOfficialCalendarDialog(call);
+                }
+            });
+            return;
+        }
+        showOfficialCalendarDialog(call);
+    }
+
+    private void showOfficialCalendarDialog(PluginCall call) {
         getActivity().runOnUiThread(() -> {
             // calendar.sjtu.edu.cn has an independent SSO session. The WebView
             // and native HTTP client use the SAME CookieManager.
@@ -612,15 +638,11 @@ public class SjtuCanvasPlugin extends Plugin {
                 io.execute(() -> {
                     boolean valid = false;
                     try {
-                        java.text.SimpleDateFormat format = new java.text.SimpleDateFormat(
-                            "yyyy-MM", Locale.ROOT);
-                        format.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
-                        officialCalendarEvents(format.format(new java.util.Date()));
-                        valid = true;
+                        valid = verifyCalendarSessionQuickly();
                         vault().saveAfterVerification();
-                        JSObject ready = new JSObject();
-                        ready.put("connected", true);
-                        notifyListeners("calendarSessionReady", ready);
+                        // The JavaScript caller reloads the calendar on result.ok.
+                        // Do NOT also emit calendarSessionReady and trigger a second,
+                        // competing network refresh on the same connection.
                     } catch (Exception ignored) { }
                     final boolean success = valid;
                     handler.post(() -> {
@@ -730,6 +752,52 @@ public class SjtuCanvasPlugin extends Plugin {
             if (shown != null) shown.setLayout(-1, -1);
             browser.loadUrl("https://calendar.sjtu.edu.cn/login");
         });
+    }
+
+    /**
+     * One short, read-only authenticated JSON request to verify the actual
+     * timetable API; do not fetch an entire month on the login critical path.
+     * No retries or credential logging. Redirects/HTML are not authorization.
+     */
+    private boolean verifyCalendarSessionQuickly() {
+        if (!hasCalendarSessionCookie()) return false;
+        if (System.currentTimeMillis() < calendarVerifiedUntil) return true;
+        HttpURLConnection connection = null;
+        try {
+            java.text.SimpleDateFormat dateFormat =
+                new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT);
+            dateFormat.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+            Calendar next = new GregorianCalendar(TimeZone.getTimeZone("Asia/Shanghai"), Locale.ROOT);
+            String from = dateFormat.format(new java.util.Date());
+            next.add(Calendar.DAY_OF_MONTH, 1);
+            String until = dateFormat.format(next.getTime());
+            String endpoint = "https://calendar.sjtu.edu.cn/api/event/list?startDate=" +
+                URLEncoder.encode(from + " 00:00", "UTF-8") + "&endDate=" +
+                URLEncoder.encode(until + " 00:00", "UTF-8") + "&weekly=true&ids=";
+            connection = (HttpURLConnection) new URL(endpoint).openConnection();
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(5500);
+            connection.setReadTimeout(6500);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Referer", "https://calendar.sjtu.edu.cn/ui/calendar");
+            connection.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+            connection.setRequestProperty("Cookie", CookieManager.getInstance()
+                .getCookie("https://calendar.sjtu.edu.cn/"));
+            if (connection.getResponseCode() != 200) return false;
+            String type = connection.getContentType();
+            if (type != null && type.toLowerCase(Locale.ROOT).contains("text/html")) return false;
+            JSONObject response;
+            try (InputStream input = connection.getInputStream()) {
+                response = new JSONObject(readString(input));
+            }
+            if (response.optJSONObject("data") == null) return false;
+            calendarVerifiedUntil = System.currentTimeMillis() + 10 * 60_000L;
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
     }
 
     /** Native equivalent of desktop schedule-fetcher.ts, with separate official SSO cookies. */
@@ -941,6 +1009,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     // without freezing the entire calendar.
                     official=officialFuture.get(3500,java.util.concurrent.TimeUnit.MILLISECONDS);
                     officialOk=true;
+                    calendarVerifiedUntil = System.currentTimeMillis() + 10 * 60_000L;
                 }catch(Exception ignored){officialFuture.cancel(true);}
                 JSArray combined=new JSArray();
                 for(int i=0;i<official.length();i++)combined.put(official.get(i));
