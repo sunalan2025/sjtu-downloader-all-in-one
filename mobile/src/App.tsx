@@ -5,6 +5,8 @@ import native, { isAndroid, type CanvasCourse, type DownloadProgress, type Calen
 import { BatchCourseBrowser, type CourseBrowserHandle, type CourseSelection } from './BatchCourseBrowser'
 import { CalendarPage, currentMonth, currentWeekStart, shanghaiDate } from './CalendarPage'
 import { Icon, type IconName } from './Icon'
+import { PersonalScheduleEditor, asCalendarEvent, readPersonalEvents,
+  PERSONAL_STORAGE_KEY, type PersonalEvent } from './PersonalSchedule'
 
 type Tab = 'home' | 'courses' | 'calendar' | 'downloads'
 type Job = {
@@ -97,6 +99,31 @@ export default function App() {
     } catch { /* Disabled WebView storage must not prevent downloads. */ }
   }, [jobs])
   const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [neighborEvents, setNeighborEvents] = useState<CalendarEvent[]>([])
+  const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>(readPersonalEvents)
+  const [editingSchedule, setEditingSchedule] = useState<{current:PersonalEvent|null;date:string}|null>(null)
+  useEffect(()=>{
+    try {localStorage.setItem(PERSONAL_STORAGE_KEY,JSON.stringify(personalEvents.slice(0,500)))}
+    catch { /* Storage unavailability must not prevent editing in this session. */ }
+  },[personalEvents])
+  function savePersonalSchedule(value:PersonalEvent) {
+    setPersonalEvents(old=>{
+      const exists=old.some(item=>item.id===value.id)
+      return exists?old.map(item=>item.id===value.id?value:item):[...old,value]
+    })
+    setEditingSchedule(null)
+  }
+  function deletePersonalSchedule(id:string) {
+    setPersonalEvents(old=>old.filter(item=>item.id!==id))
+    setEditingSchedule(null)
+  }
+  function addSchedule(date:string) {
+    setEditingSchedule({current:null,date})
+  }
+  function editSchedule(id:string) {
+    const item=personalEvents.find(event=>event.id===id)
+    if(item)setEditingSchedule({current:item,date:item.date})
+  }
   const [month, setMonth] = useState(currentMonth())
   const [weekStart, setWeekStart] = useState(currentWeekStart())
   const [busy, setBusy] = useState(false)
@@ -167,6 +194,33 @@ export default function App() {
     if (!isAndroid || !loggedIn) return
     void loadCalendar(weekStart)
   }, [weekStart, loggedIn])
+
+  // Dates at the edges of the currently selected week still need their
+  // previous/next day; also surface upcoming official events on Home.
+  useEffect(()=>{
+    if(!isAndroid||!loggedIn){setNeighborEvents([]);return}
+    let disposed=false
+    const adjacent=[-7,7].map(offset=>{
+      const date=new Date(weekStart+'T00:00:00Z')
+      date.setUTCDate(date.getUTCDate()+offset)
+      return date.toISOString().slice(0,10)
+    })
+    setNeighborEvents([])
+    void Promise.all(adjacent.map(async week=>{
+      const cached=weeklyCache.current.get(week)
+      if(cached && Date.now()-cached.savedAt<180_000)return cached.items
+      try {
+        const response=await native.calendarWeek({weekStart:week})
+        weeklyCache.current.set(week,{items:response.items,
+          officialConnected:!!response.officialConnected,
+          warning:response.warning||'',savedAt:Date.now()})
+        return response.items
+      }catch{return [] as CalendarEvent[]}
+    })).then(groups=>{
+      if(!disposed)setNeighborEvents(groups.flat())
+    })
+    return ()=>{disposed=true}
+  },[weekStart,loggedIn])
 
   async function refreshSession(): Promise<void> {
     setSessionChecking(true)
@@ -318,7 +372,12 @@ export default function App() {
   const active = jobs.filter(j => j.state === 'active').length
   const finished = jobs.filter(j => j.state === 'done').length
   const today = shanghaiDate(new Date().toISOString())
-  const todayEvents = events.filter(e => shanghaiDate(e.startTime) === today).slice(0, 3)
+  const calendarEvents = [...events,...neighborEvents,...personalEvents.map(asCalendarEvent)]
+  const upcomingEvents = calendarEvents
+    .filter(event => shanghaiDate(event.startTime)>=today)
+    .sort((a,b)=>a.startTime.localeCompare(b.startTime))
+    .filter((event,index,list)=>list.findIndex(other=>other.id===event.id)===index)
+    .slice(0,6)
   const batchActive = tab === 'courses' && loggedIn && !sessionChecking && selection.count > 0
   const tabIndex = nav.findIndex(item => item.id === tab)
 
@@ -358,34 +417,51 @@ export default function App() {
               <div className="summary-divider"/>
               <div><strong>{finished}</strong><span>已完成</span></div>
             </section>
-            {loggedIn && todayEvents.length > 0 && <section className="today-brief">
-              <h2>今日安排 <span>{today.slice(5)}</span></h2>
-              <div className="compact-agenda glass">
-                {todayEvents.map(e => <div className="compact-event" key={e.id}>
-                  <span className="event-dot"/><span>{e.title}</span>
-                </div>)}
+            <section className="today-brief recent-agenda">
+              <div className="recent-agenda-head">
+                <h2>近期安排 <span>课程、作业与个人日程</span></h2>
+                <button type="button" onClick={()=>addSchedule(today)}>＋ 添加日程</button>
               </div>
-            </section>}
+              <div className="compact-agenda glass">
+                {upcomingEvents.length===0 ? <div className="upcoming-empty">
+                  近期暂无安排，可以添加自己的日程
+                </div> : upcomingEvents.map(event=>
+                  <button type="button" className={'compact-event upcoming-event'+
+                      (event.id.startsWith('personal-')?' is-personal':'')}
+                    key={event.id} disabled={!event.id.startsWith('personal-')}
+                    onClick={()=>editSchedule(event.id)}>
+                    <span className="event-dot"/>
+                    <span className="upcoming-event-body">
+                      <strong>{event.title}</strong>
+                      <small>{shanghaiDate(event.startTime).slice(5).replace('-','/')}{' '}
+                        {event.startTime.length===10?'全天':new Intl.DateTimeFormat('zh-CN',{
+                          hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Shanghai'
+                        }).format(new Date(event.startTime))}
+                        {event.id.startsWith('personal-')?' · 个人日程':''}</small>
+                    </span>
+                    {event.id.startsWith('personal-')&&<span className="upcoming-edit">编辑</span>}
+                  </button>)}
+              </div>
+            </section>
           </>}
           {tab === 'courses' && (sessionChecking
             ? <div className="loading-note">正在恢复登录…</div>
             : <BatchCourseBrowser ref={courseBrowser} courses={courses} loggedIn={loggedIn} loading={busy}
                 onRefresh={() => void loadCourses()} onLogin={() => void login()}
                 onBatchDownload={downloadBatch} onNotice={setNotice} onSelectionChange={onSelectionChange}/>)}
-          {tab === 'calendar' && (loggedIn
-            ? <>
+          {tab === 'calendar' && <>
               <CalendarPage month={month} onMonthChange={setMonth} onWeekChange={setWeekStart}
-                events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(weekStart, true)}
-                onOfficial={() => void openOfficialCalendar()} officialConnected={officialConnected}/>
-              {calendarWarning && calendarWarning.includes('失败') &&
+                events={calendarEvents} busy={calendarBusy}
+                onRefresh={()=>{if(loggedIn)void loadCalendar(weekStart,true)}}
+                onOfficial={()=>{if(loggedIn)void openOfficialCalendar();else void login()}}
+                officialConnected={officialConnected}
+                onAddSchedule={addSchedule} onEditSchedule={editSchedule}/>
+              {!loggedIn&&<div className="calendar-notice">
+                个人日程可离线使用；登录交我办后将合并显示学校课表与作业。
+              </div>}
+              {calendarWarning&&calendarWarning.includes('失败')&&
                 <div className="calendar-notice" role="alert">{calendarWarning}</div>}
-            </>
-            : <>
-              <div className="page-intro"><h1>日历</h1></div>
-              <div className="empty-box glass"><strong>登录后查看日程</strong>
-                <button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>交我办登录 <Icon name="arrow" size={17}/></button>
-              </div>
-            </>)}
+          </>}
           {tab === 'downloads' && <>
             <div className="page-intro downloads-head"><h1>下载</h1>
               <div className="downloads-head-actions">
@@ -428,6 +504,11 @@ export default function App() {
         </div>
       </section>
     </div>
+    {editingSchedule&&<PersonalScheduleEditor
+      key={editingSchedule.current?.id||editingSchedule.date}
+      current={editingSchedule.current} initialDate={editingSchedule.date}
+      onSave={savePersonalSchedule} onDelete={deletePersonalSchedule}
+      onClose={()=>setEditingSchedule(null)}/>}
     <div className={'bottom-dock glass' + (batchActive ? ' is-batch' : '')}>
       {batchActive ? <div className="batch-dock" role="group" aria-label="批量下载操作">
         <button type="button" className="primary batch-dock-action" disabled={!isAndroid || selection.busy}
