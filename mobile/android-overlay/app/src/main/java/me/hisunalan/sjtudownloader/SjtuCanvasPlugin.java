@@ -517,8 +517,16 @@ public class SjtuCanvasPlugin extends Plugin {
                             handler.post(cleanup);
                         });
                     } else if (isOfficialJaccountPage(url)) {
-                        // User approval/login is required; do not fake user interaction.
-                        handler.post(cleanup);
+                        // jAccount may redirect automatically using its existing SSO
+                        // cookie several seconds AFTER onPageFinished. Do not tear
+                        // the hidden WebView down before that redirect has a chance.
+                        handler.postDelayed(() -> {
+                            if (!finished.get() && isOfficialJaccountPage(silent.getUrl())) {
+                                // No automatic approval: leave explicit consent for
+                                // the visible calendar login fallback.
+                                cleanup.run();
+                            }
+                        }, 6500);
                     }
                 }
                 @Override public void onReceivedError(WebView view, WebResourceRequest request,
@@ -526,7 +534,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     if (request.isForMainFrame()) handler.post(cleanup);
                 }
             });
-            handler.postDelayed(cleanup, 12_000);
+            handler.postDelayed(cleanup, 20_000);
             silent.loadUrl("https://calendar.sjtu.edu.cn/login");
         });
     }
