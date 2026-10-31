@@ -168,6 +168,10 @@ final class SessionCookieVault {
         return false;
     }
 
+    synchronized boolean hasSavedSession() {
+        return prefs().contains(PREF_VALUE);
+    }
+
     synchronized void clearSavedSession() {
         prefs().edit().remove(PREF_VALUE).commit();
         restored = true;
