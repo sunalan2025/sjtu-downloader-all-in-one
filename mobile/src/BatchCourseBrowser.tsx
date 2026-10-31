@@ -47,14 +47,13 @@ type BrowserProps = {
   courses: CanvasCourse[]
   loggedIn: boolean
   loading: boolean
-  onRefresh: () => void
   onLogin: () => void
   onBatchDownload: (tasks: CourseDownloadItem[]) => Promise<void>
   onNotice: (text: string) => void
   onSelectionChange: (selection: CourseSelection) => void
 }
 export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(function BatchCourseBrowser(
-  { courses, loggedIn, loading, onRefresh, onLogin, onBatchDownload, onNotice, onSelectionChange }, ref
+  { courses, loggedIn, loading, onLogin, onBatchDownload, onNotice, onSelectionChange }, ref
 ) {
   const [termChoice, setTermChoice] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -401,7 +400,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
             <Icon name="file" size={28}/></div><strong>暂无文件</strong></div>}
     </> : <>
       <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索课程" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索课程"/></label>
-      <div className="row-actions"><span className="muted-count">{courseList.length} 门</span><button className="text-button" onClick={onRefresh} disabled={loading}><Icon name="refresh" size={16}/> 刷新课程</button></div>
+      <div className="row-actions"><span className="muted-count">{courseList.length} 门 · 自动同步</span></div>
       <label className="semester-select"><span className="sr-only">学期筛选</span><select aria-label="选择学期" value={term} onChange={e=>setTermChoice(e.target.value)}>
         <option value="">全部学期（{courses.length}）</option>
         {semesters.map(t=><option key={t} value={t}>{t}</option>)}
