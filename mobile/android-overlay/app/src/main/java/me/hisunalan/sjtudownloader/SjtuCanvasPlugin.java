@@ -449,9 +449,12 @@ public class SjtuCanvasPlugin extends Plugin {
     @PluginMethod
     public void openOfficialCalendar(PluginCall call) {
         getActivity().runOnUiThread(() -> {
-            // External browser cookies cannot be read by the native calendar client.
+            // calendar.sjtu.edu.cn has an independent SSO session. The WebView
+            // and native HTTP client use the SAME CookieManager.
             Dialog dialog = new Dialog(getActivity(), android.R.style.Theme_Material_Light_NoActionBar);
             AtomicBoolean settled = new AtomicBoolean(false);
+            AtomicBoolean checking = new AtomicBoolean(false);
+            Handler handler = new Handler(Looper.getMainLooper());
             LinearLayout panel = new LinearLayout(getActivity());
             panel.setOrientation(LinearLayout.VERTICAL);
             panel.setBackgroundColor(Color.WHITE);
@@ -472,9 +475,52 @@ public class SjtuCanvasPlugin extends Plugin {
             browser.getSettings().setJavaScriptEnabled(true);
             browser.getSettings().setDomStorageEnabled(true);
             browser.getSettings().setUseWideViewPort(true);
+            browser.getSettings().setSupportMultipleWindows(true);
+            browser.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
             CookieManager.getInstance().setAcceptCookie(true);
             CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
             panel.addView(browser, new LinearLayout.LayoutParams(-1, 0, 1));
+
+            Runnable verify = () -> {
+                if (!dialog.isShowing() || settled.get()) return;
+                if (!hasCalendarSessionCookie()) {
+                    Toast.makeText(getContext(),
+                        "仍缺少正式课表 JSESSIONID，请在网页完成登录或授权",
+                        Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (!checking.compareAndSet(false, true)) return;
+                io.execute(() -> {
+                    boolean valid = false;
+                    try {
+                        java.text.SimpleDateFormat format = new java.text.SimpleDateFormat(
+                            "yyyy-MM", Locale.ROOT);
+                        format.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+                        officialCalendarEvents(format.format(new java.util.Date()));
+                        valid = true;
+                        vault().saveAfterVerification();
+                    } catch (Exception ignored) { }
+                    final boolean success = valid;
+                    handler.post(() -> {
+                        checking.set(false);
+                        if (!dialog.isShowing() || settled.get()) return;
+                        if (success) {
+                            if (settled.compareAndSet(false, true)) {
+                                JSObject result = new JSObject();
+                                result.put("ok", true);
+                                call.resolve(result);
+                            }
+                            dialog.dismiss();
+                        } else {
+                            Toast.makeText(getContext(),
+                                "正式课表接口仍未授权，请完成网页认证后重试",
+                                Toast.LENGTH_LONG).show();
+                        }
+                    });
+                });
+            };
+
+            AtomicBoolean calendarAutoClicked = new AtomicBoolean(false);
             browser.setWebViewClient(new WebViewClient() {
                 @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                     if ("https".equalsIgnoreCase(req.getUrl().getScheme())) return false;
@@ -484,33 +530,53 @@ public class SjtuCanvasPlugin extends Plugin {
                     return true;
                 }
                 @Override public void onPageFinished(WebView view, String url) {
-                    if (url.startsWith("https://jaccount.sjtu.edu.cn/")) activateMobileMode(view);
+                    if (isOfficialJaccountPage(url)) {
+                        activateMobileMode(view);
+                        for (long delay : new long[]{650, 1700}) {
+                            handler.postDelayed(() -> {
+                                if (dialog.isShowing() && !settled.get()) {
+                                    clickOfficialJiaowoban(browser, calendarAutoClicked, false);
+                                }
+                            }, delay);
+                        }
+                    } else if (url.startsWith("https://calendar.sjtu.edu.cn/") &&
+                               hasCalendarSessionCookie()) {
+                        // Don't require an extra tap once the independent SSO succeeds.
+                        handler.postDelayed(verify, 550);
+                    }
+                }
+            });
+            browser.setWebChromeClient(new WebChromeClient() {
+                @Override public boolean onCreateWindow(WebView view, boolean isDialog,
+                    boolean isUserGesture, Message resultMsg) {
+                    if (!isUserGesture && !isOfficialJaccountPage(browser.getUrl())) return false;
+                    WebView popup = new WebView(getActivity());
+                    popup.setWebViewClient(new WebViewClient() {
+                        @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest req) {
+                            Uri uri = req.getUrl();
+                            if ("https".equalsIgnoreCase(uri.getScheme())) browser.loadUrl(uri.toString());
+                            else if (shouldLaunchLoginApp(uri, browser.getUrl(), true)) {
+                                openLoginAppLink(uri, browser);
+                            }
+                            return true;
+                        }
+                        @Override public void onPageStarted(WebView v, String url,
+                                                              android.graphics.Bitmap favicon) {
+                            if (url.startsWith("https://")) browser.loadUrl(url);
+                            else if (shouldLaunchLoginApp(Uri.parse(url), browser.getUrl(), true)) {
+                                openLoginAppLink(Uri.parse(url), browser);
+                            }
+                        }
+                    });
+                    panel.addView(popup, new LinearLayout.LayoutParams(1, 1));
+                    WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                    transport.setWebView(popup);
+                    resultMsg.sendToTarget();
+                    return true;
                 }
             });
             close.setOnClickListener(v -> dialog.dismiss());
-            done.setOnClickListener(v -> io.execute(() -> {
-                boolean valid = false;
-                try {
-                    HttpURLConnection c = connect("https://calendar.sjtu.edu.cn/api/calendar/list",
-                        "https://calendar.sjtu.edu.cn/ui/calendar");
-                    valid = c.getResponseCode() == 200 && "calendar.sjtu.edu.cn".equalsIgnoreCase(c.getURL().getHost())
-                        && c.getContentType() != null && c.getContentType().contains("json");
-                    c.disconnect();
-                    if (valid) vault().saveAfterVerification();
-                } catch (Exception ignored) {}
-                final boolean success = valid;
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    if (success) {
-                        CookieManager.getInstance().flush();
-                        JSObject out = new JSObject();
-                        out.put("ok", true);
-                        if (settled.compareAndSet(false, true)) call.resolve(out);
-                        dialog.dismiss();
-                    } else {
-                        Toast.makeText(getContext(), "请先在网页完成正式课表 SSO 登录", Toast.LENGTH_LONG).show();
-                    }
-                });
-            }));
+            done.setOnClickListener(v -> verify.run());
             dialog.setContentView(panel);
             Window window = dialog.getWindow();
             if (window != null) {
@@ -523,16 +589,19 @@ public class SjtuCanvasPlugin extends Plugin {
                 bars.setAppearanceLightNavigationBars(true);
             }
             ViewCompat.setOnApplyWindowInsetsListener(panel, (view, insets) -> {
-                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() |
+                                              WindowInsetsCompat.Type.displayCutout());
                 view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
                 return insets;
             });
             dialog.setOnDismissListener(d -> {
                 browser.stopLoading();
                 browser.destroy();
-                JSObject out = new JSObject();
-                out.put("ok", false);
-                if (settled.compareAndSet(false, true)) call.resolve(out);
+                if (settled.compareAndSet(false, true)) {
+                    JSObject result = new JSObject();
+                    result.put("ok", false);
+                    call.resolve(result);
+                }
             });
             dialog.show();
             Window shown = dialog.getWindow();
