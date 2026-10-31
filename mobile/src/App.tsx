@@ -30,6 +30,9 @@ export default function App() {
   const courseBrowser = useRef<CourseBrowserHandle>(null)
   const calendarRequestId = useRef(0)
   const lastCalendarFetch = useRef(0)
+  const weeklyCache = useRef(new Map<string, {
+    items: CalendarEvent[]; officialConnected: boolean; warning: string; savedAt: number
+  }>())
   const onSystemBack = useCallback(() => {
     // The Android system gesture/button first closes a nested course view,
     // then moves to Home, and only minimizes from the root.
@@ -45,7 +48,7 @@ export default function App() {
       const week = currentWeekStart()
       if (month !== current) setMonth(current)
       if (weekStart !== week) setWeekStart(week)
-      else if (loggedIn && Date.now() - lastCalendarFetch.current > 90_000) void loadCalendar(week)
+      else if (loggedIn && Date.now() - lastCalendarFetch.current > 90_000) void loadCalendar(week, true)
     }
     if (isAndroid) void Haptics.selectionChanged().catch(() => {})
     setTab(next)
@@ -111,7 +114,7 @@ export default function App() {
     }).then(h => { if (disposed) void h.remove(); else handle = h })
     let calendarHandle: { remove(): Promise<void> } | undefined
     void native.addListener('calendarSessionReady', () => {
-      if (!disposed) void loadCalendar(currentWeekStart())
+      if (!disposed) { weeklyCache.current.clear(); void loadCalendar(currentWeekStart(), true) }
     }).then(h => { if (disposed) void h.remove(); else calendarHandle = h }).catch(() => {})
     return () => {
       disposed = true
@@ -152,7 +155,7 @@ export default function App() {
     if (!window.confirm('确定退出登录吗？这会清除手机上保存的交大登录会话。')) return
     try {
       await native.logout()
-      setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setOfficialConnected(false)
+      weeklyCache.current.clear(); setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setOfficialConnected(false)
       setTab('home')
     } catch (e) { setNotice(String(e)) }
   }
@@ -162,8 +165,16 @@ export default function App() {
     catch (e) { setNotice('读取课程失败：' + String(e)) }
     finally { setBusy(false) }
   }
-  async function loadCalendar(targetWeek: string): Promise<void> {
+  async function loadCalendar(targetWeek: string, force = false): Promise<void> {
     const requestId = ++calendarRequestId.current
+    const cache = weeklyCache.current.get(targetWeek)
+    if (!force && cache && Date.now() - cache.savedAt < 180_000) {
+      setEvents(cache.items)
+      setOfficialConnected(cache.officialConnected)
+      setCalendarWarning(cache.warning)
+      setCalendarBusy(false)
+      return
+    }
     setCalendarBusy(true)
     try {
       const result = await native.calendarWeek({ weekStart: targetWeek })
@@ -172,6 +183,10 @@ export default function App() {
       setOfficialConnected(!!result.officialConnected)
       setCalendarWarning(result.warning || '')
       lastCalendarFetch.current = Date.now()
+      weeklyCache.current.set(targetWeek, {
+        items: result.items, officialConnected: !!result.officialConnected,
+        warning: result.warning || '', savedAt: Date.now()
+      })
       // Load restricted Canvas assignment details in the background.
       // Do not hold the week grid open while dozens of course APIs finish.
       if (result.needsSupplement) {
@@ -186,7 +201,12 @@ export default function App() {
               known.add(key)
               return true
             })
-            return [...previous, ...extras]
+            const merged = [...previous, ...extras]
+            const previousCache = weeklyCache.current.get(targetWeek)
+            if (previousCache) weeklyCache.current.set(targetWeek, {
+              ...previousCache, items: merged
+            })
+            return merged
           })
         }).catch(() => {})
       }
@@ -201,7 +221,7 @@ export default function App() {
     if (!isAndroid) { setNotice('此操作只能在 Android 设备上使用'); return }
     try {
       const result = await native.openOfficialCalendar()
-      if (result.ok) await loadCalendar(weekStart)
+      if (result.ok) { weeklyCache.current.clear(); await loadCalendar(weekStart, true) }
     }
     catch (e) { setNotice('无法打开交大官方课表：' + String(e)) }
   }
@@ -304,7 +324,7 @@ export default function App() {
           {tab === 'calendar' && (loggedIn
             ? <>
               <CalendarPage month={month} onMonthChange={setMonth} onWeekChange={setWeekStart}
-                events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(weekStart)}
+                events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(weekStart, true)}
                 onOfficial={() => void openOfficialCalendar()} officialConnected={officialConnected}/>
               {calendarWarning && calendarWarning.includes('失败') &&
                 <div className="calendar-notice" role="alert">{calendarWarning}</div>}
