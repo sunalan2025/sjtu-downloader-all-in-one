@@ -793,6 +793,9 @@ public class SjtuCanvasPlugin extends Plugin {
             c.setReadTimeout(30000);
             c.setRequestProperty("User-Agent", "SJTU Downloader Android/0.1");
             c.setRequestProperty("Accept", "application/json, */*");
+            if ("calendar.sjtu.edu.cn".equalsIgnoreCase(url.getHost())) {
+                c.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+            }
             if (referer != null) c.setRequestProperty("Referer", referer);
             if (HOST.equalsIgnoreCase(url.getHost()) || "calendar.sjtu.edu.cn".equalsIgnoreCase(url.getHost())) {
                 String cookie = CookieManager.getInstance().getCookie("https://" + url.getHost());
@@ -816,9 +819,7 @@ public class SjtuCanvasPlugin extends Plugin {
         String referer = url.startsWith("https://calendar.sjtu.edu.cn/")
             ? "https://calendar.sjtu.edu.cn/ui/calendar" : BASE;
         HttpURLConnection c = connect(url, referer);
-        if (url.startsWith("https://calendar.sjtu.edu.cn/")) {
-            c.setRequestProperty("X-Requested-With", "XMLHttpRequest");
-        }
+
         try {
             if (c.getResponseCode() != 200) throw new Exception("Canvas HTTP " + c.getResponseCode());
             String json;
