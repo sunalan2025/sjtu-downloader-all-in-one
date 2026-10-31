@@ -251,7 +251,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     launching.setText("交我办无法自动启动");
                     showWebFallback.run();
                 }
-            }, 6500);
+            }, 14000);
             browser.setWebChromeClient(new WebChromeClient() {
                 @Override public boolean onCreateWindow(WebView view, boolean isDialog,
                     boolean isUserGesture, Message resultMsg) {
@@ -743,7 +743,10 @@ public class SjtuCanvasPlugin extends Plugin {
             result.put("startTime", withShanghaiZone(item.optString("startTime")));
             result.put("endTime", withShanghaiZone(item.optString("endTime", item.optString("startTime"))));
             result.put("courseName", item.optString("location", "正式课表"));
-            result.put("type", "course");
+            String eventId = item.optString("eventId", "");
+            boolean activity = eventId.startsWith("ACTIVITY") || item.optBoolean("claimIcon", false)
+                || (item.has("recurrence") && item.optInt("recurrence", -1) == 0);
+            result.put("type", activity ? "event" : "course");
             items.put(result);
         }
         return items;
