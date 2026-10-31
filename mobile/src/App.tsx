@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import native, { isAndroid, type CanvasCourse, type CanvasFile, type DownloadProgress } from './native'
+import native, { isAndroid, type CanvasCourse, type CanvasFile, type DownloadProgress, type CalendarEvent } from './native'
+import { CalendarPage, currentMonth, shanghaiDate } from './CalendarPage'
+import { Icon, type IconName } from './Icon'
 
-type Tab = 'home' | 'courses' | 'downloads'
+type Tab = 'home' | 'courses' | 'calendar' | 'downloads'
 type Job = { taskId: string; fileName: string; state: 'active' | 'done' | 'error' | 'cancelled'; bytes: number; total: number; error?: string }
+
 function formatBytes(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '—'
   if (value < 1024) return Math.round(value) + ' B'
@@ -10,8 +13,12 @@ function formatBytes(value: number): string {
   if (value < 1024 ** 3) return (value / 1024 ** 2).toFixed(1) + ' MB'
   return (value / 1024 ** 3).toFixed(2) + ' GB'
 }
-
-const glyph: Record<Tab, string> = { home: '⌂', courses: '▦', downloads: '↓' }
+const nav: { id: Tab; text: string; icon: IconName }[] = [
+  { id: 'home', text: '首页', icon: 'home' },
+  { id: 'courses', text: '课程', icon: 'book' },
+  { id: 'calendar', text: '日历', icon: 'calendar' },
+  { id: 'downloads', text: '下载', icon: 'download' }
+]
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
@@ -21,13 +28,27 @@ export default function App() {
   const [course, setCourse] = useState<CanvasCourse | null>(null)
   const [files, setFiles] = useState<CanvasFile[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
+  const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [month, setMonth] = useState(currentMonth())
   const [busy, setBusy] = useState(false)
+  const [calendarBusy, setCalendarBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
 
   useEffect(() => {
     if (!isAndroid) return
     void refreshSession()
+    const applyInsets = () => {
+      void native.getInsets().then(insets => {
+        const css = document.documentElement.style
+        css.setProperty('--safe-top', insets.top + 'px')
+        css.setProperty('--safe-bottom', insets.bottom + 'px')
+        css.setProperty('--safe-left', insets.left + 'px')
+        css.setProperty('--safe-right', insets.right + 'px')
+      }).catch(() => {})
+    }
+    applyInsets()
+    window.addEventListener('resize', applyInsets)
     let disposed = false
     let handle: { remove(): Promise<void> } | undefined
     void native.addListener('downloadProgress', (event: DownloadProgress) => {
@@ -35,8 +56,13 @@ export default function App() {
       setJobs(previous => previous.map(j => j.taskId === event.taskId
         ? { ...j, bytes: event.bytes, total: event.total } : j))
     }).then(h => { if (disposed) void h.remove(); else handle = h })
-    return () => { disposed = true; if (handle) void handle.remove() }
+    return () => { disposed = true; window.removeEventListener('resize', applyInsets); if (handle) void handle.remove() }
   }, [])
+
+  useEffect(() => {
+    if (!isAndroid || !loggedIn) return
+    void loadCalendar(month)
+  }, [month, loggedIn])
 
   async function refreshSession(): Promise<void> {
     try {
@@ -46,10 +72,9 @@ export default function App() {
       if (result.loggedIn) await loadCourses()
     } catch (e) { setNotice('连接 Canvas 失败：' + String(e)) }
   }
-
   async function login(): Promise<void> {
-    setBusy(true)
-    setNotice('')
+    if (!isAndroid) return
+    setBusy(true); setNotice('')
     try {
       await native.login()
       await refreshSession()
@@ -57,29 +82,36 @@ export default function App() {
     } catch (e) { setNotice('登录未完成：' + String(e)) }
     finally { setBusy(false) }
   }
-
   async function logout(): Promise<void> {
     try {
       await native.logout()
-      setLoggedIn(false); setUser(''); setCourses([]); setCourse(null); setFiles([])
+      setLoggedIn(false); setUser(''); setCourses([]); setCourse(null); setFiles([]); setEvents([])
       setTab('home')
     } catch (e) { setNotice(String(e)) }
   }
-
   async function loadCourses(): Promise<void> {
     setBusy(true)
     try { setCourses((await native.courses()).items) }
     catch (e) { setNotice('读取课程失败：' + String(e)) }
     finally { setBusy(false) }
   }
-
+  async function loadCalendar(target: string): Promise<void> {
+    setCalendarBusy(true)
+    try { setEvents((await native.calendar({ month: target })).items) }
+    catch (e) { setEvents([]); setNotice('同步 Canvas 日历失败：' + String(e)) }
+    finally { setCalendarBusy(false) }
+  }
+  async function openOfficialCalendar(): Promise<void> {
+    if (!isAndroid) { setNotice('此操作只能在 Android 设备上使用'); return }
+    try { await native.openOfficialCalendar() }
+    catch (e) { setNotice('无法打开交大官方课表：' + String(e)) }
+  }
   async function openCourse(selected: CanvasCourse): Promise<void> {
     setBusy(true); setCourse(selected); setSearch(''); setFiles([])
     try { setFiles((await native.files({ courseId: selected.id })).items) }
     catch (e) { setNotice('读取课件失败：' + String(e)) }
     finally { setBusy(false) }
   }
-
   async function download(file: CanvasFile): Promise<void> {
     if (file.locked) return
     const taskId = String(Date.now()) + '-' + file.id
@@ -95,7 +127,6 @@ export default function App() {
       } : j))
     }
   }
-
   async function cancel(taskId: string): Promise<void> {
     try { await native.cancelDownload({ taskId }) }
     catch (e) { setNotice(String(e)) }
@@ -104,55 +135,70 @@ export default function App() {
   const filtered = useMemo(() => files.filter(f => f.name.toLowerCase().includes(search.toLowerCase())), [files, search])
   const active = jobs.filter(j => j.state === 'active').length
   const finished = jobs.filter(j => j.state === 'done').length
+  const today = shanghaiDate(new Date().toISOString())
+  const todayEvents = events.filter(e => shanghaiDate(e.startTime) === today).slice(0, 3)
 
-  return <main>
-    <div className="top-glow" />
-    <header className="topbar">
-      <div className="brand"><div className="logo">S</div><div><strong>SJTU Downloader</strong><small>ANDROID · EARLY ACCESS</small></div></div>
-      <span className={'status ' + (loggedIn ? 'online' : '')}><span className="dot" />{loggedIn ? '已连接' : '未登录'}</span>
-    </header>
-    {notice && <div role="alert" className="notice" onClick={() => setNotice('')}>{notice}<b>×</b></div>}
-    {!isAndroid && <div className="notice">网页预览模式：登录与文件下载只能在 Android App 中使用。</div>}
-    <section className="content">
-      {tab === 'home' && <>
-        <div className="hero"><span className="eyebrow">你的课程，一触即达</span><h1>把知识<br /><em>装进口袋。</em></h1><p>上海交通大学课程资料下载与管理，专为移动端打造。</p>
-          {!loggedIn ? <button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>{busy ? '正在连接…' : '使用 jAccount 登录'} <span>↗</span></button>
-            : <button className="primary" onClick={() => { setTab('courses'); void loadCourses() }}>浏览我的课程 <span>→</span></button>}
-        </div>
-        <div className="section-heading"><h2>一览概况</h2><span>LIVE OVERVIEW</span></div>
-        <div className="stats"><div><span>已同步课程</span><strong>{courses.length}</strong><small>Canvas</small></div><div><span>完成下载</span><strong>{finished}</strong><small>本次会话</small></div><div><span>传输中</span><strong>{active}</strong><small>任务</small></div></div>
-        <div className="section-heading"><h2>快速访问</h2></div>
-        <button className="quick-card" onClick={() => setTab('courses')}><span className="quick-icon">▦</span><span><strong>Canvas 课程资源</strong><small>查看课程、课件与附件</small></span><b>→</b></button>
-        <button className="quick-card" onClick={() => setTab('downloads')}><span className="quick-icon alt">↓</span><span><strong>下载管理</strong><small>查看进度与任务状态</small></span><b>→</b></button>
-        {loggedIn && <div className="account"><span>当前账号 · {user || '已授权'}</span><button onClick={() => void logout()}>退出登录</button></div>}
-      </>}
-      {tab === 'courses' && <>
-        <div className="page-head"><div><span className="eyebrow">COURSE LIBRARY</span><h1>{course ? course.name : '我的课程'}</h1><p>{course ? '可访问的 Canvas 文件资源' : '同步你的交大 Canvas 课程'}</p></div></div>
-        {!loggedIn ? <div className="empty"><div className="empty-mark">🔐</div><h3>请先登录</h3><p>连接 jAccount 以浏览已授权课程。</p><button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>前往登录 →</button></div>
-          : course ? <>
-            <div className="action-bar"><button onClick={() => { setCourse(null); setFiles([]) }}>← 全部课程</button><span>{filtered.length} 个文件</span></div>
-            <input className="search" aria-label="搜索课件" placeholder="搜索课件名称…" value={search} onChange={e => setSearch(e.target.value)} />
-            {busy ? <div className="empty">正在读取课件…</div> : filtered.length === 0 ? <div className="empty">暂无可访问文件</div> : <div className="item-list">{filtered.map(f =>
-              <div className="file-row" key={f.id}><div className="file-badge">▤</div><div className="file-info"><strong>{f.name}</strong><small>{formatBytes(f.size)} · {f.contentType || '文件'}</small></div><button disabled={f.locked || !isAndroid} aria-label={'下载' + f.name} title={f.locked ? '无权限下载' : '下载'} onClick={() => void download(f)}>{f.locked ? '🔒' : '↓'}</button></div>
-            )}</div>}
-          </> : <>
-            <div className="action-bar"><strong>Canvas</strong><button disabled={busy} onClick={() => void loadCourses()}>↻ 刷新</button></div>
-            {busy ? <div className="empty">正在同步课程…</div> : courses.length === 0 ? <div className="empty">暂无课程，请检查校园网或 VPN 连接。</div> :
-            <div className="course-list">{courses.map((c, i) => <button key={c.id} className="course-row" onClick={() => void openCourse(c)}><span className="course-number">{String(i + 1).padStart(2, '0')}</span><span><strong>{c.name}</strong><small>{c.term || c.code || 'Canvas 课程'}</small></span><b>↗</b></button>)}</div>}
-          </>}
-      </>}
-      {tab === 'downloads' && <>
-        <div className="page-head"><span className="eyebrow">TRANSFER CENTER</span><h1>下载中心</h1><p>正在传输 {active} 项 · 已完成 {finished} 项</p></div>
-        <div className="section-heading"><h2>传输任务</h2><span>{jobs.length} ITEMS</span></div>
-        {jobs.length === 0 ? <div className="empty"><div className="empty-mark">↓</div><h3>暂无下载任务</h3><p>前往课程列表，挑选需要的课件。</p><button onClick={() => setTab('courses')} className="primary">浏览课程 →</button></div> : <div className="job-list">{jobs.map(j => <div className="job-card" key={j.taskId}>
-          <div className="job-meta"><span className="job-icon">↓</span><div><strong>{j.fileName}</strong><small>{j.state === 'done' ? '下载完成 · 已保存至 Downloads/SJTU Downloader' : j.state === 'active' ? formatBytes(j.bytes) + ' / ' + formatBytes(j.total) : j.state === 'cancelled' ? '已取消' : '下载失败'}</small></div><span className={'job-state ' + j.state}>{j.state === 'done' ? '完成' : j.state === 'active' ? '下载中' : j.state === 'cancelled' ? '已取消' : '失败'}</span></div>
-          <div className="progress-track"><div style={{ width: (j.state === 'done' ? 100 : j.total > 0 ? Math.max(2, Math.min(100, (j.bytes / j.total) * 100)) : 2) + '%' }} /></div>
-          {j.state === 'active' && <button className="cancel" onClick={() => void cancel(j.taskId)}>取消下载</button>}
-          {j.error && <small className="error-text">{j.error}</small>}
-        </div>)}</div>}
-        <div className="hint">下载进行时请保持应用打开。后台稳定续传将在后续版本实现。</div>
-      </>}
-    </section>
-    <nav className="bottom-nav" aria-label="主导航">{(['home', 'courses', 'downloads'] as Tab[]).map(key => <button key={key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}><span className="nav-icon">{glyph[key]}</span><span>{key === 'home' ? '首页' : key === 'courses' ? '课程' : '下载'}</span></button>)}</nav>
-  </main>
+  return <div className="app">
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand"><div className="brand-mark">S</div><div className="brand-text"><strong>SJTU Downloader</strong><small>上海交通大学 · 课程助手</small></div></div>
+        <button className="avatar-button" aria-label={loggedIn ? '退出登录' : '登录账号'} onClick={() => loggedIn ? void logout() : void login()} title={loggedIn ? '退出登录' : '登录账号'}><Icon name={loggedIn ? 'shield' : 'school'} size={20}/></button>
+      </header>
+      {notice && <div role="alert" className="notice"><Icon name="alert" size={17}/><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}><Icon name="close" size={15}/></button></div>}
+      {!isAndroid && <div className="notice"><Icon name="alert" size={17}/><span>浏览器仅预览 UI。登录、课表同步和下载请在 Android 客户端中测试。</span></div>}
+      <section className="content">
+        {tab === 'home' && <>
+          <section className="hero">
+            <div className="eyebrow">WELCOME TO YOUR CAMPUS</div>
+            <h1>{loggedIn ? <>今天也要<br/><span>好好学习。</span></> : <>你的交大课程，<br/><span>随身携带。</span></>}</h1>
+            <p>{loggedIn ? (user ? user + '，欢迎回来。课程与资料已准备就绪。' : '连接课程，随时掌握学习动态。') : '课程资料、日历日程、文件下载，一个应用轻松管理。'}</p>
+            <button className="cta" disabled={!isAndroid || busy} onClick={() => loggedIn ? setTab('courses') : void login()}>{busy ? '正在连接…' : loggedIn ? '查看我的课程' : '使用 jAccount 登录'}<Icon name="arrow" size={17}/></button>
+          </section>
+          <div className="section-title"><div><h2>学习概况</h2><p>你的课程与下载动态</p></div></div>
+          <div className="metric-grid">
+            <div className="metric"><span className="mini-icon"><Icon name="book" size={18}/></span><strong>{courses.length}</strong><small>Canvas 课程</small></div>
+            <div className="metric"><span className="mini-icon"><Icon name="check" size={18}/></span><strong>{finished}</strong><small>本次已完成</small></div>
+            <div className="metric"><span className="mini-icon"><Icon name="download" size={18}/></span><strong>{active}</strong><small>正在下载</small></div>
+          </div>
+          <div className="section-title"><div><h2>今日安排</h2><p>{today} · 北京时间</p></div><button className="detail-link" onClick={() => setTab('calendar')}>查看日历 <Icon name="right" size={15}/></button></div>
+          {loggedIn && todayEvents.length ? <div className="agenda-list">{todayEvents.map(e => <div className="agenda-item" key={e.id}><span className="agenda-icon"><Icon name={e.type==='assignment'?'clock':'calendar'} size={18}/></span><div className="agenda-text"><strong>{e.title}</strong><small>{e.courseName || (e.type==='assignment'?'作业截止':'Canvas 活动')}</small></div></div>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="calendar" size={27}/></div><strong>{loggedIn ? '今天暂无 Canvas 日程' : '登录后同步日历'}</strong><p>{loggedIn ? '点开日历查看其他日期及课程活动。' : '同步你的 Canvas 日历与作业截止日期。'}</p></div>}
+          <div className="section-title"><div><h2>快捷入口</h2></div></div>
+          <div className="quick-list">
+            <button className="quick-card" onClick={() => setTab('courses')}><span className="tile-icon"><Icon name="book" size={22}/></span><span className="tile-text"><strong>我的课程</strong><small>浏览与下载 Canvas 课件</small></span><Icon name="right" className="chevron" size={17}/></button>
+            <button className="quick-card" onClick={() => setTab('calendar')}><span className="tile-icon turquoise"><Icon name="calendar" size={22}/></span><span className="tile-text"><strong>课程日历</strong><small>查看活动、DDL 和官方课表入口</small></span><Icon name="right" className="chevron" size={17}/></button>
+            <button className="quick-card" onClick={() => setTab('downloads')}><span className="tile-icon violet"><Icon name="download" size={22}/></span><span className="tile-text"><strong>下载管理</strong><small>任务进度与历史记录</small></span><Icon name="right" className="chevron" size={17}/></button>
+          </div>
+          {loggedIn && <div className="account-line"><span>当前账号 · {user || '已连接'}</span><button onClick={() => void logout()}>退出登录</button></div>}
+        </>}
+        {tab === 'courses' && <>
+          <div className="page-intro"><span className="eyebrow">MY COURSES</span><h1>{course ? course.name : '我的课程'}</h1><p>{course ? 'Canvas 课程文件与资料' : '课程资料，在这里有序整理。'}</p></div>
+          {!loggedIn ? <div className="empty-box"><div className="empty-picture"><Icon name="shield" size={28}/></div><strong>连接交大统一身份认证</strong><p>请使用手机端 jAccount 页面登录，之后即可查看已授权课程。</p><button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>使用 jAccount 登录 <Icon name="arrow" size={15}/></button></div>
+            : course ? <>
+              <div className="row-actions"><button className="text-button" onClick={() => { setCourse(null); setFiles([]) }}><Icon name="left" size={16}/> 返回课程</button><span className="pill">{filtered.length} 个文件</span></div>
+              <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索文件名称" placeholder="搜索课件文件…" value={search} onChange={e => setSearch(e.target.value)}/></label>
+              {busy ? <div className="loading-note">正在读取课件列表…</div> : filtered.length ? <div className="item-list">{filtered.map(f => <div className="file-row" key={f.id}><span className="file-badge"><Icon name="file" size={21}/></span><span className="file-info"><strong>{f.name}</strong><small>{formatBytes(f.size)} · {f.contentType || '文件'}</small></span><button className="small-action" disabled={f.locked || !isAndroid} aria-label={f.locked ? '无权限下载' : '下载' + f.name} onClick={() => void download(f)}><Icon name={f.locked?'shield':'download'} size={17}/></button></div>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="file" size={28}/></div><strong>暂无可访问课件</strong><p>该课程可能没有公开文件，或资料需要从模块中查看。</p></div>}
+            </> : <>
+              <div className="row-actions"><span className="pill"><Icon name="school" size={14}/> Canvas · {courses.length} 门</span><button className="text-button" disabled={busy} onClick={() => void loadCourses()}><Icon name="refresh" size={16}/> 刷新</button></div>
+              {busy ? <div className="loading-note">正在同步课程…</div> : courses.length ? <div className="course-list">{courses.map(c => <button className="course-card" key={c.id} onClick={() => void openCourse(c)}><span className="course-symbol"><Icon name="book" size={21}/></span><span className="course-text"><strong>{c.name}</strong><small>{c.term || 'Canvas 课程'}{c.code ? ' · ' + c.code : ''}</small></span><Icon name="right" className="chevron" size={18}/></button>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="book" size={28}/></div><strong>还没有课程数据</strong><p>确认已登录，并且手机已连接校园网或交大 VPN。</p></div>}
+            </>}
+        </>}
+        {tab === 'calendar' && (loggedIn ?
+          <CalendarPage month={month} onMonthChange={setMonth} events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(month)} onOfficial={() => void openOfficialCalendar()}/>
+          : <><div className="page-intro"><span className="eyebrow">STUDENT CALENDAR</span><h1>我的日程</h1><p>一页掌握学习节奏。</p></div><div className="empty-box"><div className="empty-picture"><Icon name="calendar" size={28}/></div><strong>登录后同步日历</strong><p>支持 Canvas 活动与作业截止日期。官方课表可通过单独入口查看。</p><button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>连接 jAccount <Icon name="arrow" size={15}/></button></div><button className="official-card" onClick={() => void openOfficialCalendar()}><span className="official-icon"><Icon name="school" size={21}/></span><span style={{flex:1}}><strong>查看交大官方课表</strong><small>前往 calendar.sjtu.edu.cn</small></span><Icon name="external" size={17}/></button></>)}
+        {tab === 'downloads' && <>
+          <div className="page-intro"><span className="eyebrow">TRANSFERS</span><h1>下载管理</h1><p>查看资料下载状态与进度。</p></div>
+          <div className="metric-grid"><div className="metric"><span className="mini-icon"><Icon name="download" size={18}/></span><strong>{active}</strong><small>正在下载</small></div><div className="metric"><span className="mini-icon"><Icon name="check" size={18}/></span><strong>{finished}</strong><small>已完成</small></div><div className="metric"><span className="mini-icon"><Icon name="file" size={18}/></span><strong>{jobs.length}</strong><small>全部任务</small></div></div>
+          <div className="section-title"><div><h2>传输列表</h2><p>{jobs.length} 项任务</p></div></div>
+          {!jobs.length ? <div className="empty-box"><div className="empty-picture"><Icon name="download" size={28}/></div><strong>还没有下载任务</strong><p>进入课程页面，选择需要保存的课件即可。</p><button className="primary" onClick={() => setTab('courses')}>浏览课程 <Icon name="arrow" size={16}/></button></div> : <div className="job-list">{jobs.map(j => <div className="job-card" key={j.taskId}>
+            <div className="job-row"><div className="file-badge"><Icon name="download" size={19}/></div><div className="job-content"><strong>{j.fileName}</strong><small>{j.state === 'done' ? '已存入应用专属下载目录' : j.state === 'active' ? formatBytes(j.bytes) + ' / ' + formatBytes(j.total) : j.state === 'cancelled' ? '已取消' : '下载失败'}</small></div><span className={'job-state ' + j.state}>{j.state === 'done' ? '完成' : j.state === 'active' ? '下载中' : j.state === 'cancelled' ? '已取消' : '失败'}</span></div>
+            <div className="progress-track"><div style={{width:(j.state==='done'?100:j.total>0?Math.min(100,(j.bytes/j.total)*100):3)+'%'}}/></div>
+            {j.state === 'active' && <button className="text-button" onClick={() => void cancel(j.taskId)}>取消下载</button>}
+            {j.error && <small className="error-text">{j.error}</small>}
+          </div>)}</div>}
+          <p className="disclaimer">当前任务仅在应用运行期间管理，尚不支持断点续传及杀进程后恢复。已下载文件保存在应用专属文件目录。</p>
+        </>}
+      </section>
+    </div>
+    <nav className="bottom-nav" aria-label="主导航">{nav.map(item=><button type="button" key={item.id} className={item.id === tab ? 'selected' : ''} onClick={() => setTab(item.id)} aria-current={item.id===tab?'page':undefined}><span className="nav-icon"><Icon name={item.icon} size={21}/></span><span>{item.text}</span></button>)}</nav>
+  </div>
 }
