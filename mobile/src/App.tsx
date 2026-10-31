@@ -143,7 +143,8 @@ export default function App() {
     setDiagnosing(true)
     try {
       const d = await native.diagnoseAuth()
-      setDiagnostic('Canvas Cookie: ' + d.canvasCookie + '\n'
+      setDiagnostic('已加密保存登录会话: ' + (d.savedSessionEncrypted ? '是' : '否') + '\n'
+        + 'Canvas Cookie: ' + d.canvasCookie + '\n'
         + 'jAccount Cookie: ' + d.jaccountCookie + '\n'
         + '正式课表 Cookie: ' + d.officialCalendarCookie + '\n'
         + 'Canvas 用户信息: ' + d.canvasProfile + '\n'
