@@ -5,6 +5,7 @@ APK="mobile/android/app/build/outputs/apk/debug/app-debug.apk"
 PKG="me.hisunalan.sjtudownloader.beta"
 ACT="me.hisunalan.sjtudownloader.MainActivity"
 mkdir -p "$OUT"
+adb shell wm size > "$OUT/display-size.txt"
 adb install -r "$APK"
 adb shell am start -W -n "$PKG/$ACT"
 sleep 7
