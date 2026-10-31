@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { App as CapacitorApp } from '@capacitor/app'
+import { Haptics } from '@capacitor/haptics'
 import native, { isAndroid, type CanvasCourse, type DownloadProgress, type CalendarEvent, type CourseDownloadItem } from './native'
-import { BatchCourseBrowser } from './BatchCourseBrowser'
+import { BatchCourseBrowser, type CourseBrowserHandle } from './BatchCourseBrowser'
 import { CalendarPage, currentMonth, shanghaiDate } from './CalendarPage'
 import { Icon, type IconName } from './Icon'
 
@@ -23,6 +25,22 @@ const nav: { id: Tab; text: string; icon: IconName }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
+  const tabRef = useRef<Tab>('home')
+  tabRef.current = tab
+  const courseBrowser = useRef<CourseBrowserHandle>(null)
+  const onSystemBack = useCallback(() => {
+    // The Android system gesture/button first closes a nested course view,
+    // then moves to Home, and only minimizes from the root.
+    if (tabRef.current === 'courses' && courseBrowser.current?.goBack()) return
+    if (tabRef.current !== 'home') { setTab('home'); return }
+    void CapacitorApp.minimizeApp().catch(() => {})
+  }, [])
+  const switchTab = (next: Tab) => {
+    if (next === tab) return
+    if (isAndroid) void Haptics.selectionChanged().catch(() => {})
+    setTab(next)
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }
   const [loggedIn, setLoggedIn] = useState(false)
   const [sessionChecking, setSessionChecking] = useState(isAndroid)
   const [user, setUser] = useState('')
@@ -37,6 +55,20 @@ export default function App() {
   const [diagnostic, setDiagnostic] = useState('')
   const [diagnosing, setDiagnosing] = useState(false)
   const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    if (!isAndroid) return
+    let disposed = false
+    let handler: { remove(): Promise<void> } | undefined
+    void CapacitorApp.addListener('backButton', () => onSystemBack()).then(h => {
+      if (disposed) void h.remove()
+      else handler = h
+    }).catch(() => {})
+    return () => {
+      disposed = true
+      if (handler) void handler.remove()
+    }
+  }, [onSystemBack])
 
   useEffect(() => {
     if (!isAndroid) return
@@ -202,74 +234,106 @@ export default function App() {
   const todayEvents = events.filter(e => shanghaiDate(e.startTime) === today).slice(0, 3)
 
   return <div className="app">
+    <div className="ambient ambient-one" aria-hidden="true"/>
+    <div className="ambient ambient-two" aria-hidden="true"/>
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand"><div className="brand-mark"><img src="./desktop-logo.png" alt="SJTU Downloader 桌面版图标"/></div><div className="brand-text"><strong>SJTU Downloader</strong><small>上海交通大学 · {sessionChecking ? '正在恢复登录' : loggedIn ? '已自动连接' : '课程助手'}</small></div></div>
-        <button className="avatar-button" disabled={sessionChecking} aria-label={sessionChecking ? '正在检查登录状态' : loggedIn ? '退出登录' : '登录账号'} onClick={() => loggedIn ? void logout() : void login()} title={sessionChecking ? '正在恢复登录状态' : loggedIn ? '退出登录' : '登录账号'}><Icon name={loggedIn ? 'shield' : 'school'} size={20}/></button>
+      <header className="topbar glass">
+        <div className="brand">
+          <div className="brand-mark"><img src="./desktop-logo.png" alt="SJTU Downloader"/></div>
+          <strong>SJTU Downloader</strong>
+        </div>
+        <button className="avatar-button glass-interactive" disabled={sessionChecking}
+          aria-label={sessionChecking ? '正在检查会话' : loggedIn ? '退出登录' : '登录'}
+          onClick={() => loggedIn ? void logout() : void login()}>
+          <Icon name={loggedIn ? 'shield' : 'school'} size={20}/>
+        </button>
       </header>
-      {notice && <div role="alert" className="notice"><Icon name="alert" size={17}/><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}><Icon name="close" size={15}/></button></div>}
-      {!isAndroid && <div className="notice"><Icon name="alert" size={17}/><span>浏览器仅预览 UI。登录、课表同步和下载请在 Android 客户端中测试。</span></div>}
+      {notice && <div role="alert" className="notice glass"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}><Icon name="close" size={17}/></button></div>}
+      {!isAndroid && <div className="preview-note">网页预览 · 登录、下载需在 Android 设备上测试</div>}
       <section className="content">
-        {tab === 'home' && <>
-          <section className="hero">
-            <div className="eyebrow">WELCOME TO YOUR CAMPUS</div>
-            <h1>{loggedIn ? <>今天也要<br/><span>好好学习。</span></> : <>你的交大课程，<br/><span>随身携带。</span></>}</h1>
-            <p>{loggedIn ? (user ? user + '，欢迎回来。课程与资料已准备就绪。' : '连接课程，随时掌握学习动态。') : '课程资料、日历日程、文件下载，一个应用轻松管理。'}</p>
-            <button className="cta" disabled={!isAndroid || busy || sessionChecking} onClick={() => loggedIn ? setTab('courses') : void login()}>{sessionChecking ? '正在恢复登录…' : busy ? '正在连接…' : loggedIn ? '查看我的课程' : '使用 jAccount 登录'}<Icon name="arrow" size={17}/></button>
-          </section>
-          <div className="section-title"><div><h2>学习概况</h2><p>你的课程与下载动态</p></div></div>
-          <div className="metric-grid">
-            <div className="metric"><span className="mini-icon"><Icon name="book" size={18}/></span><strong>{courses.length}</strong><small>Canvas 课程</small></div>
-            <div className="metric"><span className="mini-icon"><Icon name="check" size={18}/></span><strong>{finished}</strong><small>本次已完成</small></div>
-            <div className="metric"><span className="mini-icon"><Icon name="download" size={18}/></span><strong>{active}</strong><small>正在下载</small></div>
-          </div>
-          <div className="section-title"><div><h2>今日安排</h2><p>{today} · 北京时间</p></div><button className="detail-link" onClick={() => setTab('calendar')}>查看日历 <Icon name="right" size={15}/></button></div>
-          {loggedIn && todayEvents.length ? <div className="agenda-list">{todayEvents.map(e => <div className="agenda-item" key={e.id}><span className="agenda-icon"><Icon name={e.type==='assignment'?'clock':'calendar'} size={18}/></span><div className="agenda-text"><strong>{e.title}</strong><small>{e.courseName || (e.type==='assignment'?'作业截止':'Canvas 活动')}</small></div></div>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="calendar" size={27}/></div><strong>{loggedIn ? '今天暂无 Canvas 日程' : '登录后同步日历'}</strong><p>{loggedIn ? '点开日历查看其他日期及课程活动。' : '同步你的 Canvas 日历与作业截止日期。'}</p></div>}
-          <div className="section-title"><div><h2>快捷入口</h2></div></div>
-          <div className="quick-list">
-            <button className="quick-card" onClick={() => setTab('courses')}><span className="tile-icon"><Icon name="book" size={22}/></span><span className="tile-text"><strong>我的课程</strong><small>浏览与下载 Canvas 课件</small></span><Icon name="right" className="chevron" size={17}/></button>
-            <button className="quick-card" onClick={() => setTab('calendar')}><span className="tile-icon turquoise"><Icon name="calendar" size={22}/></span><span className="tile-text"><strong>课程日历</strong><small>查看活动、DDL 和官方课表入口</small></span><Icon name="right" className="chevron" size={17}/></button>
-            <button className="quick-card" onClick={() => setTab('downloads')}><span className="tile-icon violet"><Icon name="download" size={22}/></span><span className="tile-text"><strong>下载管理</strong><small>任务进度与历史记录</small></span><Icon name="right" className="chevron" size={17}/></button>
-          </div>
-          {loggedIn && <div className="account-line"><span>当前账号 · {user || '已连接'}</span><button onClick={() => void logout()}>退出登录</button></div>}
-        </>}
-        {tab === 'courses' && (sessionChecking
-          ? <div className="loading-note">正在恢复已保存的 jAccount / Canvas 会话…</div>
-          : <BatchCourseBrowser
-          courses={courses}
-          loggedIn={loggedIn}
-          loading={busy}
-          onRefresh={() => void loadCourses()}
-          onLogin={() => void login()}
-          onBatchDownload={downloadBatch}
-          onNotice={setNotice}
-        />)}
-        {tab === 'calendar' && (loggedIn ?
-          <>
-            {calendarWarning && <div role="alert" className="notice calendar-warning"><Icon name="alert" size={18}/><span>{calendarWarning}</span>{calendarAuthRequired && <button className="text-button" onClick={() => void login()}>重新登录</button>}</div>}
-            <CalendarPage month={month} onMonthChange={setMonth} events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(month)} onOfficial={() => void openOfficialCalendar()}/>
-            <div className="surface" style={{marginTop:18}}>
-              <h3>接口诊断</h3>
-              <p className="disclaimer">只显示状态码及 Cookie 是否存在，不上传账号或 Cookie。</p>
-              <button className="primary" disabled={diagnosing} onClick={() => void diagnoseConnection()}>{diagnosing?'正在检测…':'检测认证状态'}</button>
-              {diagnostic && <pre className="diagnostic-output">{diagnostic}</pre>}
-            </div>
-          </>
-          : <><div className="page-intro"><span className="eyebrow">STUDENT CALENDAR</span><h1>我的日程</h1><p>一页掌握学习节奏。</p></div><div className="empty-box"><div className="empty-picture"><Icon name="calendar" size={28}/></div><strong>登录后同步日历</strong><p>支持 Canvas 活动与作业截止日期。官方课表可通过单独入口查看。</p><button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>连接 jAccount <Icon name="arrow" size={15}/></button></div><button className="official-card" onClick={() => void openOfficialCalendar()}><span className="official-icon"><Icon name="school" size={21}/></span><span style={{flex:1}}><strong>查看交大官方课表</strong><small>前往 calendar.sjtu.edu.cn</small></span><Icon name="external" size={17}/></button></>)}
-        {tab === 'downloads' && <>
-          <div className="page-intro"><span className="eyebrow">TRANSFERS</span><h1>下载管理</h1><p>查看资料下载状态与进度。</p></div>
-          <div className="metric-grid"><div className="metric"><span className="mini-icon"><Icon name="download" size={18}/></span><strong>{active}</strong><small>正在下载</small></div><div className="metric"><span className="mini-icon"><Icon name="check" size={18}/></span><strong>{finished}</strong><small>已完成</small></div><div className="metric"><span className="mini-icon"><Icon name="file" size={18}/></span><strong>{jobs.length}</strong><small>全部任务</small></div></div>
-          <div className="section-title"><div><h2>传输列表</h2><p>{jobs.length} 项任务</p></div></div>
-          {!jobs.length ? <div className="empty-box"><div className="empty-picture"><Icon name="download" size={28}/></div><strong>还没有下载任务</strong><p>进入课程页面，选择需要保存的课件即可。</p><button className="primary" onClick={() => setTab('courses')}>浏览课程 <Icon name="arrow" size={16}/></button></div> : <div className="job-list">{jobs.map(j => <div className="job-card" key={j.taskId}>
-            <div className="job-row"><div className="file-badge"><Icon name="download" size={19}/></div><div className="job-content"><strong>{j.fileName}</strong><small>{j.state === 'done' ? '已存入应用专属下载目录' : j.state === 'active' ? formatBytes(j.bytes) + ' / ' + formatBytes(j.total) : j.state === 'queued' ? '等待下载队列' : j.state === 'cancelled' ? '已取消' : '下载失败'}</small></div><span className={'job-state ' + j.state}>{j.state === 'done' ? '完成' : j.state === 'active' ? '下载中' : j.state === 'queued' ? '排队中' : j.state === 'cancelled' ? '已取消' : '失败'}</span></div>
-            <div className="progress-track"><div style={{width:(j.state==='done'?100:j.total>0?Math.min(100,(j.bytes/j.total)*100):3)+'%'}}/></div>
-            {j.state === 'active' && <button className="text-button" onClick={() => void cancel(j.taskId)}>取消下载</button>}
-            {j.error && <small className="error-text">{j.error}</small>}
-          </div>)}</div>}
-          <p className="disclaimer">当前任务仅在应用运行期间管理，尚不支持断点续传及杀进程后恢复。已下载文件保存在应用专属文件目录。</p>
-        </>}
+        <div className="screen-motion" key={tab}>
+          {tab === 'home' && <>
+            <section className="home-stage glass-panel">
+              <div className="home-kicker">SJTU · CAMPUS</div>
+              <h1>{loggedIn ? '欢迎回来' : '学习，轻盈一点。'}</h1>
+              {loggedIn ? <div className="welcome-name">{user || '已连接交大账号'}</div>
+                : <div className="welcome-name">{sessionChecking ? '正在恢复登录…' : '你的课程与日程'}</div>}
+              {!loggedIn && !sessionChecking && <button className="primary login-entry" disabled={!isAndroid || busy} onClick={() => void login()}>
+                {busy ? '正在连接…' : '交我办登录'} <Icon name="arrow" size={17}/>
+              </button>}
+              {loggedIn && <div className="session-indicator"><span className="connected-dot"/>已连接</div>}
+            </section>
+            <section className="home-summary glass">
+              <div><strong>{courses.length}</strong><span>课程</span></div>
+              <div className="summary-divider"/>
+              <div><strong>{active}</strong><span>下载中</span></div>
+              <div className="summary-divider"/>
+              <div><strong>{finished}</strong><span>已完成</span></div>
+            </section>
+            {loggedIn && todayEvents.length > 0 && <section className="today-brief">
+              <h2>今日安排 <span>{today.slice(5)}</span></h2>
+              <div className="compact-agenda glass">
+                {todayEvents.map(e => <div className="compact-event" key={e.id}>
+                  <span className="event-dot"/><span>{e.title}</span>
+                </div>)}
+              </div>
+            </section>}
+          </>}
+          {tab === 'courses' && (sessionChecking
+            ? <div className="loading-note">正在恢复登录…</div>
+            : <BatchCourseBrowser ref={courseBrowser} courses={courses} loggedIn={loggedIn} loading={busy}
+                onRefresh={() => void loadCourses()} onLogin={() => void login()}
+                onBatchDownload={downloadBatch} onNotice={setNotice}/>)}
+          {tab === 'calendar' && (loggedIn
+            ? <>
+              <CalendarPage month={month} onMonthChange={setMonth} events={events}
+                busy={calendarBusy} onRefresh={() => void loadCalendar(month)}
+                onOfficial={() => void openOfficialCalendar()}/>
+              <details className="diagnostic glass">
+                <summary><Icon name="shield" size={16}/>连接状态 <Icon name="right" size={15}/></summary>
+                {calendarWarning && <p className="diagnostic-hint">{calendarWarning}</p>}
+                {calendarAuthRequired && <button className="text-button" onClick={() => void login()}>重新登录 Canvas</button>}
+                <button className="text-button" disabled={diagnosing} onClick={() => void diagnoseConnection()}>
+                  {diagnosing ? '检测中…' : '检测接口'}
+                </button>
+                {diagnostic && <pre className="diagnostic-output">{diagnostic}</pre>}
+              </details>
+            </>
+            : <>
+              <div className="page-intro"><h1>日历</h1></div>
+              <div className="empty-box glass"><strong>登录后查看日程</strong>
+                <button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>交我办登录 <Icon name="arrow" size={17}/></button>
+              </div>
+            </>)}
+          {tab === 'downloads' && <>
+            <div className="page-intro"><h1>下载</h1><span className="muted-count">{active ? active + ' 项进行中' : jobs.length + ' 项任务'}</span></div>
+            {!jobs.length ? <div className="empty-box glass"><Icon name="download" size={29}/><strong>暂无下载</strong></div>
+              : <div className="job-list">{jobs.map(j => <div className="job-card glass" key={j.taskId}>
+                <div className="job-row">
+                  <div className="file-badge"><Icon name="download" size={18}/></div>
+                  <div className="job-content"><strong>{j.fileName}</strong>
+                    <small>{j.state === 'active' ? formatBytes(j.bytes) + ' / ' + formatBytes(j.total)
+                      : j.state === 'done' ? '已完成'
+                      : j.state === 'queued' ? '等待中'
+                      : j.state === 'cancelled' ? '已取消' : '下载失败'}</small>
+                  </div>
+                  {j.state === 'done' ? <Icon name="check" size={19} className="done-check"/> :
+                    <span className={'job-state ' + j.state}>{j.state === 'active' ? '下载中' : j.state === 'queued' ? '排队' : j.state === 'error' ? '失败' : ''}</span>}
+                </div>
+                {(j.state === 'active' || j.state === 'queued') && <div className="progress-track">
+                  <div style={{width: (j.total > 0 ? Math.min(100, (j.bytes / j.total) * 100) : 3) + '%'}}/>
+                </div>}
+                {j.state === 'active' && <button className="text-button cancel-action" onClick={() => void cancel(j.taskId)}>取消</button>}
+                {j.error && <small className="error-text">{j.error}</small>}
+              </div>)}</div>}
+          </>}
+        </div>
       </section>
     </div>
-    <nav className="bottom-nav" aria-label="主导航">{nav.map(item=><button type="button" key={item.id} className={item.id === tab ? 'selected' : ''} onClick={() => setTab(item.id)} aria-current={item.id===tab?'page':undefined}><span className="nav-icon"><Icon name={item.icon} size={21}/></span><span>{item.text}</span></button>)}</nav>
+    <nav className="bottom-nav glass" aria-label="主导航">{nav.map(item => <button type="button" key={item.id}
+      className={item.id === tab ? 'selected' : ''} onClick={() => switchTab(item.id)}
+      aria-current={item.id === tab ? 'page' : undefined}>
+      <span className="nav-icon"><Icon name={item.icon} size={21}/></span><span>{item.text}</span>
+    </button>)}</nav>
   </div>
 }
