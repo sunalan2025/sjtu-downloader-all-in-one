@@ -59,6 +59,68 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   const [termChoice, setTermChoice] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [chosenCourses, setChosenCourses] = useState<Set<string>>(new Set())
+  const [courseSelectMode,setCourseSelectMode]=useState(false)
+  const courseTouch=useRef<{
+    timer:number|null;anchor:number;last:number;x:number;y:number;active:boolean
+  }|null>(null)
+  const blockCourseClickUntil=useRef(0)
+  const stopCourseTouch=()=>{
+    const record=courseTouch.current
+    if(record?.timer!==null&&record?.timer!==undefined)window.clearTimeout(record.timer)
+    courseTouch.current=null
+  }
+  useEffect(()=>()=>{const record=courseTouch.current
+    if(record?.timer!==null&&record?.timer!==undefined)window.clearTimeout(record.timer)
+  },[])
+  const enterCourseSelection=(index:number)=>{
+    const item=courseList[index]
+    if(!item)return
+    blockCourseClickUntil.current=Date.now()+460
+    setCourseSelectMode(true)
+    setChosenCourses(old=>new Set([...old,item.id]))
+  }
+  const selectCourseRange=(first:number,last:number)=>{
+    setChosenCourses(old=>{
+      const next=new Set(old)
+      for(let i=Math.min(first,last);i<=Math.max(first,last);i++){
+        const item=courseList[i]
+        if(item)next.add(item.id)
+      }
+      return next
+    })
+  }
+  const startCourseTouch=(e:TouchEvent<HTMLDivElement>)=>{
+    const element=(e.target as Element).closest<HTMLElement>('[data-course-id]')
+    if(!element||(e.target as Element).closest('.select-circle'))return
+    const index=courseList.findIndex(item=>item.id===element.dataset.courseId)
+    const finger=e.touches[0]
+    if(index<0||!finger)return
+    stopCourseTouch()
+    const record={timer:null as number|null,anchor:index,last:index,
+      x:finger.clientX,y:finger.clientY,active:courseSelectMode}
+    courseTouch.current=record
+    if(courseSelectMode)return
+    record.timer=window.setTimeout(()=>{
+      if(courseTouch.current!==record)return
+      record.active=true
+      enterCourseSelection(index)
+    },380)
+  }
+  const moveCourseTouch=(e:TouchEvent<HTMLDivElement>)=>{
+    const record=courseTouch.current,finger=e.touches[0]
+    if(!record||!finger)return
+    if(!record.active){
+      if(Math.hypot(finger.clientX-record.x,finger.clientY-record.y)>11)stopCourseTouch()
+      return
+    }
+    const target=document.elementFromPoint(finger.clientX,finger.clientY)?.closest<HTMLElement>('[data-course-id]')
+    const index=courseList.findIndex(item=>item.id===target?.dataset.courseId)
+    if(index>=0&&index!==record.last){
+      record.last=index
+      selectCourseRange(record.anchor,index)
+    }
+  }
+
   const [active, setActive] = useState<CanvasCourse | null>(null)
   const [hasNestedMotion, setHasNestedMotion] = useState(false)
   const [files, setFiles] = useState<CanvasFile[]>([])
@@ -256,7 +318,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     downloadSelection: () => { if (active) void downloadFiles(); else void downloadCourses() },
     clearSelection: () => {
       if (active) { setSelectedFiles(new Set()); setFileSelectMode(false) }
-      else setChosenCourses(new Set())
+      else { setChosenCourses(new Set()); setCourseSelectMode(false) }
     }
   }))
   return <div key={active ? 'detail' : 'list'}
@@ -332,19 +394,46 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
         <option value="">全部学期（{courses.length}）</option>
         {semesters.map(t=><option key={t} value={t}>{t}</option>)}
       </select></label>
-      <div className="batch-toolbar"><button className="text-button" onClick={() => setChosenCourses(old => {
-        const next=new Set(old)
-        const ids=courseList.map(c=>c.id)
-        const fully=ids.length>0&&ids.every(id=>next.has(id))
-        ids.forEach(id=>fully?next.delete(id):next.add(id))
-        return next
-      })}>{courseList.length && courseList.every(c=>chosenCourses.has(c.id))?'取消全选':'全选'}</button>{chosenCourses.size>0 && <button className="text-button clear-selection" onClick={() => setChosenCourses(new Set())}>取消选择（{chosenCourses.size}）</button>}</div>
+      {!courseSelectMode?<div className="file-select-hint">
+        点击课程查看资料；长按课程后可滑动连续多选
+      </div>:<div className="batch-toolbar file-selection-toolbar">
+        <button className="text-button" onClick={() => setChosenCourses(old=>{
+          const next=new Set(old),ids=courseList.map(item=>item.id)
+          const full=ids.length>0&&ids.every(id=>next.has(id))
+          ids.forEach(id=>full?next.delete(id):next.add(id))
+          return next
+        })}>{courseList.length&&courseList.every(item=>chosenCourses.has(item.id))?'取消全选':'全选'}</button>
+        <span className="muted-count">已选 {chosenCourses.size} 门</span>
+        <button className="text-button clear-selection" onClick={()=>{
+          setChosenCourses(new Set());setCourseSelectMode(false)
+        }}>完成</button>
+      </div>}
       {loading ? <div className="loading-note">正在同步课程…</div>
-        : courseList.length ? <div className="course-list">{courseList.map(c =>
-        <div className="course-card batch-course-row" key={c.id}>
-          <button className={'select-circle '+(chosenCourses.has(c.id)?'checked':'')} aria-label={'选择课程 '+c.name} aria-pressed={chosenCourses.has(c.id)} onClick={()=>toggleCourse(c.id)}>{chosenCourses.has(c.id)&&<Icon name="check" size={14}/>}</button>
-          <button className="course-card-open" onClick={()=>void openCourse(c)}><span className="course-symbol"><Icon name="book" size={18}/></span><span className="course-text"><strong>{c.name}</strong></span><Icon name="right" className="chevron" size={17}/></button>
-        </div>)}</div>
+        : courseList.length ? <div className={'course-list'+(courseSelectMode?' selecting-files':'')}
+          onTouchStart={startCourseTouch} onTouchMove={moveCourseTouch}
+          onTouchEnd={stopCourseTouch} onTouchCancel={stopCourseTouch}
+          onClickCapture={e=>{
+            if(Date.now()<blockCourseClickUntil.current){e.preventDefault();e.stopPropagation()}
+          }}>
+          {courseList.map((c,index)=>
+            <div className={'course-card batch-course-row'+(chosenCourses.has(c.id)?' row-selected':'')}
+              data-course-id={c.id} key={c.id}
+              onContextMenu={e=>{e.preventDefault();enterCourseSelection(index)}}>
+              {courseSelectMode&&<button type="button" className={'select-circle file-selection-circle'+
+                (chosenCourses.has(c.id)?' checked':'')}
+                aria-label={'选择课程 '+c.name} aria-pressed={chosenCourses.has(c.id)}
+                onClick={()=>toggleCourse(c.id)}>
+                {chosenCourses.has(c.id)&&<Icon name="check" size={14}/>}
+              </button>}
+              <button className="course-card-open" onClick={()=>{
+                if(courseSelectMode)toggleCourse(c.id)
+                else void openCourse(c)
+              }}><span className="course-symbol"><Icon name="book" size={18}/></span>
+                <span className="course-text"><strong>{c.name}</strong></span>
+                <Icon name={courseSelectMode?'check':'right'} className="chevron" size={17}/>
+              </button>
+            </div>)}
+          </div>
         : <div className="empty-box"><div className="empty-picture"><Icon name="book" size={28}/></div><strong>暂无课程</strong></div>}
     </>}
   </div>
