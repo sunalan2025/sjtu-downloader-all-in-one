@@ -64,6 +64,10 @@ jobs:
           grep -q "launchable-activity: name='me.hisunalan.sjtudownloader.MainActivity'" /tmp/sjtu-android-badging.txt
           EXPECTED_CODE="$(node -p "const v=require('../package.json').version.split('.').map(Number);v[0]*10000+v[1]*100+v[2]")"
           grep -q "versionCode='${EXPECTED_CODE}'" /tmp/sjtu-android-badging.txt
+          # The launcher widget must be declared in the packaged manifest, not
+          # only present in source code. AAPT validates this on every release.
+          "$AAPT" dump xmltree "$APK" AndroidManifest.xml > /tmp/sjtu-manifest-tree.txt
+          grep -q 'TodayScheduleWidget' /tmp/sjtu-manifest-tree.txt
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
