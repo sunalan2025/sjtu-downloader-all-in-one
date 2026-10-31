@@ -120,7 +120,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   },[events])
   // Both the hour labels and all seven day columns use one minute-to-pixel
   // function. Vertical positions never depend on how many cards precede a class.
-  const weekTimed=weekDates.flatMap(date =>
+  const weekTimed=visibleWeekDates.flatMap(date =>
     (eventMap.get(date)||[]).filter(event=>!isHomework(event)&&isTimed(event)))
   const weekFirstHour=weekTimed.length
     ? Math.max(6,Math.floor(Math.min(...weekTimed.map(e=>minute(e.startTime)))/60)-1) : 8
