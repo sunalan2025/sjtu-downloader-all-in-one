@@ -5,6 +5,7 @@ import native, { isAndroid, type CanvasCourse, type DownloadProgress, type Calen
 import { BatchCourseBrowser, type CourseBrowserHandle, type CourseSelection } from './BatchCourseBrowser'
 import { CalendarPage, currentMonth, currentWeekStart, shanghaiDate } from './CalendarPage'
 import { Icon, type IconName } from './Icon'
+import { scheduleKind, scheduleLabel, schedulePlace, dateOffset, shortDate, clockText } from './ScheduleUtils'
 import { PersonalScheduleEditor, asCalendarEvent, readPersonalEvents,
   PERSONAL_STORAGE_KEY, type PersonalEvent } from './PersonalSchedule'
 
@@ -27,6 +28,42 @@ const nav: { id: Tab; text: string; icon: IconName }[] = [
   { id: 'calendar', text: '日历', icon: 'calendar' },
   { id: 'downloads', text: '下载', icon: 'download' }
 ]
+/** Standalone card with no dependency on the old generic job-list selectors.
+ * All content and controls wrap within the available portrait width. */
+function DownloadCard({job,onCancel,onOpen}:{
+  job:Job
+  onCancel:(taskId:string)=>void
+  onOpen:(uri:string)=>void
+}) {
+  const running=job.state==='active'||job.state==='queued'
+  const progress=job.total>0?Math.min(100,Math.max(0,job.bytes/job.total*100)):0
+  const status=job.state==='done'?'已完成':job.state==='active'?'下载中':
+    job.state==='queued'?'等待下载':job.state==='cancelled'?'已取消':'下载失败'
+  return <article className={'download-task-card download-task--'+job.state}>
+    <div className="download-task-top">
+      <div className="download-task-icon"><Icon name={job.state==='done'?'check':'download'} size={20}/></div>
+      <div className="download-task-info">
+        <strong title={job.fileName}>{job.fileName}</strong>
+        <span>{running?(job.state==='queued'?'队列中':formatBytes(job.bytes)+' / '+formatBytes(job.total)):
+          job.state==='done'?formatBytes(job.total):job.error||'此任务未完成'}</span>
+      </div>
+      <span className={'download-task-status status-'+job.state}>{status}</span>
+    </div>
+    {running&&<div className="download-task-progress" aria-label={'已下载 '+Math.round(progress)+'%'}>
+      <span style={{width:Math.max(job.state==='active'?3:0,progress)+'%'}}/>
+    </div>}
+    {job.state==='done'&&job.savedPath&&
+      <div className="download-task-path">
+        <span>保存至：{job.savedPath}</span>
+        {job.uri?.startsWith('content://media/')&&<button type="button"
+          onClick={()=>onOpen(job.uri!)}>打开文件</button>}
+      </div>}
+    {job.state==='active'&&
+      <div className="download-task-foot"><button type="button"
+        onClick={()=>onCancel(job.taskId)}>取消下载</button></div>}
+  </article>
+}
+
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
@@ -303,7 +340,7 @@ export default function App() {
       }
     } catch(e) {
       if (requestId !== calendarRequestId.current) return
-      setCalendarWarning('日程同步失败，请点击刷新重试：' + String(e))
+      setCalendarWarning('日程同步失败，将在网络恢复或应用再次打开时自动重试：' + String(e))
     } finally {
       if (requestId === calendarRequestId.current) setCalendarBusy(false)
     }
@@ -373,11 +410,19 @@ export default function App() {
   const finished = jobs.filter(j => j.state === 'done').length
   const today = shanghaiDate(new Date().toISOString())
   const calendarEvents = [...events,...neighborEvents,...personalEvents.map(asCalendarEvent)]
-  const upcomingEvents = calendarEvents
-    .filter(event => shanghaiDate(event.startTime)>=today)
+  const lastAgendaDate=dateOffset(today,13)
+  const upcomingEvents=calendarEvents
+    .filter(event=>{
+      const day=shanghaiDate(event.startTime)
+      return day>=today&&day<=lastAgendaDate
+    })
     .sort((a,b)=>a.startTime.localeCompare(b.startTime))
     .filter((event,index,list)=>list.findIndex(other=>other.id===event.id)===index)
-    .slice(0,6)
+  const firstThree=[today,dateOffset(today,1),dateOffset(today,2)]
+  const extraAgendaDates=Array.from(new Set(upcomingEvents
+    .map(event=>shanghaiDate(event.startTime))
+    .filter(day=>day>firstThree[2]))).slice(0,7)
+  const agendaDates=[...firstThree,...extraAgendaDates]
   const batchActive = tab === 'courses' && loggedIn && !sessionChecking && selection.count > 0
   const tabIndex = nav.findIndex(item => item.id === tab)
 
@@ -422,37 +467,46 @@ export default function App() {
                 <h2>近期安排 <span>课程、作业与个人日程</span></h2>
                 <button type="button" onClick={()=>addSchedule(today)}>＋ 添加日程</button>
               </div>
-              <div className="compact-agenda glass">
-                {upcomingEvents.length===0 ? <div className="upcoming-empty">
-                  近期暂无安排，可以添加自己的日程
-                </div> : upcomingEvents.map(event=>
-                  <button type="button" className={'compact-event upcoming-event'+
-                      (event.id.startsWith('personal-')?' is-personal':'')}
-                    key={event.id} disabled={!event.id.startsWith('personal-')}
-                    onClick={()=>editSchedule(event.id)}>
-                    <span className="event-dot"/>
-                    <span className="upcoming-event-body">
-                      <strong>{event.title}</strong>
-                      <small>{shanghaiDate(event.startTime).slice(5).replace('-','/')}{' '}
-                        {event.startTime.length===10?'全天':new Intl.DateTimeFormat('zh-CN',{
-                          hour:'2-digit',minute:'2-digit',hour12:false,timeZone:'Asia/Shanghai'
-                        }).format(new Date(event.startTime))}
-                        {event.id.startsWith('personal-')?' · 个人日程':''}</small>
-                    </span>
-                    {event.id.startsWith('personal-')&&<span className="upcoming-edit">编辑</span>}
-                  </button>)}
+              <div className="recent-agenda-groups">
+                {agendaDates.map((date,index)=>{
+                  const todayItems=upcomingEvents.filter(event=>shanghaiDate(event.startTime)===date)
+                  const dateLabel=index===0?'今天':index===1?'明天':index===2?'后天':shortDate(date)
+                  return <section className="recent-day glass" key={date}
+                    aria-label={dateLabel+'的安排'}>
+                    <div className="recent-day-heading">
+                      <strong>{dateLabel}</strong>
+                      <span>{index<3?shortDate(date):''}</span>
+                      <small>{todayItems.length} 项</small>
+                    </div>
+                    {todayItems.length>0?<div className="recent-day-items">
+                      {todayItems.map(event=>{
+                        const kind=scheduleKind(event)
+                        const personal=event.id.startsWith('personal-')
+                        return <div key={event.id} className={'recent-agenda-item agenda-'+kind}>
+                          <span className="recent-agenda-time">{clockText(event.startTime)}</span>
+                          <div className="recent-agenda-body">
+                            <strong>{event.title}</strong>
+                            <small>{scheduleLabel(kind)}
+                              {schedulePlace(event)?' · '+schedulePlace(event):''}</small>
+                          </div>
+                          {personal&&<button type="button" onClick={()=>editSchedule(event.id)}
+                            aria-label={'编辑 '+event.title}>编辑</button>}
+                        </div>
+                      })}
+                    </div>:<p className="recent-day-empty">暂无安排</p>}
+                  </section>
+                })}
               </div>
             </section>
           </>}
           {tab === 'courses' && (sessionChecking
             ? <div className="loading-note">正在恢复登录…</div>
             : <BatchCourseBrowser ref={courseBrowser} courses={courses} loggedIn={loggedIn} loading={busy}
-                onRefresh={() => void loadCourses()} onLogin={() => void login()}
+                onLogin={() => void login()}
                 onBatchDownload={downloadBatch} onNotice={setNotice} onSelectionChange={onSelectionChange}/>)}
           {tab === 'calendar' && <>
               <CalendarPage month={month} onMonthChange={setMonth} onWeekChange={setWeekStart}
                 events={calendarEvents} busy={calendarBusy}
-                onRefresh={()=>{if(loggedIn)void loadCalendar(weekStart,true)}}
                 onOfficial={()=>{if(loggedIn)void openOfficialCalendar();else void login()}}
                 officialConnected={officialConnected}
                 onAddSchedule={addSchedule} onEditSchedule={editSchedule}/>
@@ -462,45 +516,46 @@ export default function App() {
               {calendarWarning&&calendarWarning.includes('失败')&&
                 <div className="calendar-notice" role="alert">{calendarWarning}</div>}
           </>}
-          {tab === 'downloads' && <>
-            <div className="page-intro downloads-head"><h1>下载</h1>
-              <div className="downloads-head-actions">
-                <span className="muted-count">{active ? active + ' 项进行中' : jobs.length + ' 项任务'}</span>
-                {jobs.some(job => job.state !== 'active' && job.state !== 'queued') &&
-                  <button className="clear-history-action" onClick={clearFinishedHistory}>清除历史</button>}
+          {tab === 'downloads' && <div className="downloads-layout">
+            <div className="page-intro downloads-heading">
+              <div><h1>下载</h1><span>学校课程文件</span></div>
+              <div className="downloads-heading-actions">
+                <span>{active>0?active+' 项进行中':jobs.length+' 项任务'}</span>
+                {jobs.some(job=>job.state!=='active'&&job.state!=='queued')&&
+                  <button type="button" className="downloads-clear" onClick={clearFinishedHistory}>
+                    清除历史
+                  </button>}
               </div>
             </div>
-            <div className="download-location glass">
-              <div className="download-location-text">
-                <strong>文件保存位置</strong>
-                <span>手机文件管理 → 下载 → SJTU Downloader</span>
+            <div className="downloads-folder">
+              <div className="downloads-folder-icon"><Icon name="download" size={20}/></div>
+              <div><strong>文件保存位置</strong>
+                <span>手机文件管理器 / 下载 / SJTU Downloader</span>
               </div>
             </div>
-            {!jobs.length ? <div className="empty-box glass"><Icon name="download" size={29}/><strong>暂无下载</strong></div>
-              : <div className="job-list">{jobs.map(j => <div className="job-card glass" key={j.taskId}>
-                <div className="job-row">
-                  <div className="file-badge"><Icon name="download" size={18}/></div>
-                  <div className="job-content"><strong>{j.fileName}</strong>
-                    <small>{j.state === 'active' ? formatBytes(j.bytes) + ' / ' + formatBytes(j.total)
-                      : j.state === 'done' ? '已完成'
-                      : j.state === 'queued' ? '等待中'
-                      : j.state === 'cancelled' ? '已取消' : '下载失败'}</small>
-                  </div>
-                  {j.state === 'done' ? <Icon name="check" size={19} className="done-check"/> :
-                    <span className={'job-state ' + j.state}>{j.state === 'active' ? '下载中' : j.state === 'queued' ? '排队' : j.state === 'error' ? '失败' : ''}</span>}
-                </div>
-                {(j.state === 'active' || j.state === 'queued') && <div className="progress-track">
-                  <div style={{width: (j.total > 0 ? Math.min(100, (j.bytes / j.total) * 100) : 3) + '%'}}/>
-                </div>}
-                {j.state === 'active' && <button className="text-button cancel-action" onClick={() => void cancel(j.taskId)}>取消</button>}
-                {j.state === 'done' && j.savedPath && <div className="download-saved">
-                  <span title={j.savedPath}>已保存：{j.savedPath}</span>
-                  {j.uri?.startsWith('content://media/') &&
-                    <button type="button" onClick={() => void openDownloadedFile(j.uri!)}>打开文件</button>}
-                </div>}
-                {j.error && <small className="error-text">{j.error}</small>}
-              </div>)}</div>}
-          </>}
+            {jobs.length===0?
+              <div className="downloads-empty">
+                <Icon name="download" size={29}/>
+                <strong>还没有下载任务</strong>
+                <span>在课程中长按选择文件，再点击底部下载按钮</span>
+              </div>:
+              <div className="downloads-sections">
+                {([
+                  {key:'active',title:'进行中',items:jobs.filter(job=>job.state==='active'||job.state==='queued')},
+                  {key:'history',title:'下载记录',items:jobs.filter(job=>job.state!=='active'&&job.state!=='queued')}
+                ] as const).filter(section=>section.items.length>0).map(section=>
+                  <section className="downloads-section" key={section.key}>
+                    <div className="downloads-section-heading">
+                      <h2>{section.title}</h2><span>{section.items.length} 项</span>
+                    </div>
+                    <div className="downloads-task-list">
+                      {section.items.map(job=><DownloadCard key={job.taskId} job={job}
+                        onCancel={id=>void cancel(id)} onOpen={uri=>void openDownloadedFile(uri)}/>)}
+                    </div>
+                  </section>)}
+              </div>}
+          </div>}
+
         </div>
       </section>
     </div>
