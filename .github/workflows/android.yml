@@ -1,0 +1,46 @@
+name: Android MVP Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/android-mvp
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install and build mobile UI
+        working-directory: mobile
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          npm run android:prepare
+          cp -r android-overlay/. android/
+          npm run android:prepare
+      - name: Build debug APK
+        working-directory: mobile/android
+        run: bash ./gradlew assembleDebug --no-daemon
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sjtu-downloader-android-debug
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
