@@ -461,3 +461,33 @@ button:active:not(:disabled) { transform:scale(.965); }
 .quiet-logout{border:none;background:transparent;color:#92a0b3;font-size:11px;padding:9px 3px;}
 .calendar-notice{margin-top:10px;padding:11px 13px;border-radius:14px;background:#fff1e5c9;
  color:#9c6543;font-size:12px;line-height:1.5;}
+
+
+/* Week / Day view switch and 7-day course calendar */
+.calendar-display-switch{display:flex;align-items:center;padding:3px;gap:2px;border-radius:17px;
+ background:rgba(223,235,251,.55);border:1px solid rgba(255,255,255,.82);}
+.calendar-display-switch button{height:30px;min-width:37px;border:0;border-radius:12px;background:transparent;
+ color:#8396ae;font-size:12px;font-weight:670;transition:background .22s,transform .24s var(--spring);}
+.calendar-display-switch button.on{background:rgba(255,255,255,.92);color:#3274b4;
+ box-shadow:0 2px 7px rgba(53,86,134,.12);}
+.week-overview{margin-top:16px;padding:10px;border-radius:23px;background:rgba(255,255,255,.50);}
+.week-overview-track{display:grid;grid-template-columns:repeat(7,minmax(116px,1fr));gap:6px;
+ overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:thin;padding-bottom:3px;}
+.week-overview-column{min-width:116px;min-height:195px;scroll-snap-align:start;border-radius:16px;
+ border:1px solid rgba(255,255,255,.75);background:rgba(247,250,255,.46);padding:7px 5px;}
+.week-overview-column.is-today{background:rgba(223,239,255,.61);border-color:rgba(125,177,232,.46);}
+.week-overview-date{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;
+ font-size:11px;color:#7890a9;padding:4px 5px 9px;}
+.week-overview-date strong{font-size:17px;color:#426e9d;}
+.week-overview-items{display:flex;flex-direction:column;gap:5px;}
+.week-overview-empty{font-size:15px;color:#a4b1c1;text-align:center;padding:23px 0;}
+.week-overview-event{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+ border:0;border-left:3px solid #76a5dc;border-radius:9px;width:100%;padding:7px 6px;
+ background:rgba(218,234,253,.67);text-align:left;overflow:hidden;min-height:46px;}
+.week-overview-event.is-deadline{border-left-color:#dda76c;background:rgba(255,236,209,.67);}
+.week-overview-event strong{font-size:11px;font-weight:650;line-height:1.33;max-width:100%;
+ display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:#405774;}
+.week-overview-time{font-size:10px;font-weight:760;color:#6288b0;}
+.week-overview-event.is-deadline .week-overview-time{color:#ae8248;}
+.week-more{border:0;background:transparent;color:#7b94b2;padding:5px;font-size:10px;text-align:left;}
+@media(min-width:850px){.week-overview-track{overflow-x:visible;}}
