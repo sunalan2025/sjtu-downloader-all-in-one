@@ -639,7 +639,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     boolean valid = false;
                     try {
                         valid = verifyCalendarSessionQuickly();
-                        vault().saveAfterVerification();
+                        if (valid) vault().saveAfterVerification();
                         // The JavaScript caller reloads the calendar on result.ok.
                         // Do NOT also emit calendarSessionReady and trigger a second,
                         // competing network refresh on the same connection.
