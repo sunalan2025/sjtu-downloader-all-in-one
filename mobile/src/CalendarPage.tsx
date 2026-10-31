@@ -18,7 +18,8 @@ export const currentMonth = () => currentDate().slice(0,7)
 const nextDay = (day: string, offset: number) => {
   const d = new Date(day + 'T12:00:00+08:00')
   d.setUTCDate(d.getUTCDate() + offset)
-  return new Intl.DateTimeFormat('en-CA',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).format(d)
+  const p = new Intl.DateTimeFormat('en-US',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d)
+  return [p.find(v=>v.type==='year')?.value,p.find(v=>v.type==='month')?.value,p.find(v=>v.type==='day')?.value].join('-')
 }
 const dayIndex = (day: string) => new Date(day+'T12:00:00+08:00').getUTCDay()
 const monday = (day: string) => nextDay(day, -(dayIndex(day)+6)%7)
