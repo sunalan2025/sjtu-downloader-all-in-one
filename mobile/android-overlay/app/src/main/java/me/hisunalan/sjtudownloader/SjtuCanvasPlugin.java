@@ -551,6 +551,20 @@ public class SjtuCanvasPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void updateTodayWidget(PluginCall call) {
+        try {
+            JSArray incoming = call.getArray("items");
+            TodayScheduleWidget.persist(getContext(),
+                incoming == null ? new JSArray() : incoming);
+            JSObject result = new JSObject();
+            result.put("ok", true);
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("桌面课表更新失败：" + safeError(e));
+        }
+    }
+
+    @PluginMethod
     public void getInsets(PluginCall call) {
         getActivity().runOnUiThread(() -> {
             View root = getActivity().getWindow().getDecorView();

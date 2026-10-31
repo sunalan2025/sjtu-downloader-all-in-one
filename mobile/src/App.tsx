@@ -471,6 +471,39 @@ export default function App() {
     .map(event=>shanghaiDate(event.startTime))
     .filter(day=>day>firstThree[2]))).slice(0,7)
   const agendaDates=[...firstThree,...extraAgendaDates]
+  // The launcher widget receives a small local snapshot whenever the school
+  // calendar, adjacent weeks or offline personal events change. Android later
+  // updates the countdown on its own: no login credentials leave this WebView.
+  useEffect(() => {
+    if (!isAndroid || sessionChecking) return
+    const rows = loggedIn
+      ? [...events,...neighborEvents,...homeSchoolEvents,...personalEvents.map(asCalendarEvent)]
+      : personalEvents.map(asCalendarEvent)
+    const seen=new Set<string>()
+    const now=Date.now()
+    const tomorrowHorizon=now+22*24*60*60*1000
+    const items=rows
+      .filter(event=>event.type==='course'||event.id.startsWith('personal-'))
+      .filter(event=>scheduleKind(event)==='schedule')
+      .map(event=>({
+        id:event.id,title:event.title.trim(),location:schedulePlace(event),
+        startMs:new Date(event.startTime).getTime(),
+        endMs:new Date(event.endTime).getTime()
+      }))
+      .filter(item=>item.title&&Number.isFinite(item.startMs)&&Number.isFinite(item.endMs)
+        &&item.endMs>item.startMs&&item.startMs>=now-24*60*60*1000
+        &&item.startMs<tomorrowHorizon)
+      .filter(item=>{
+        const key=item.id||[item.title,item.startMs].join('|')
+        if(seen.has(key))return false
+        seen.add(key)
+        return true
+      })
+      .slice(0,300)
+      .map(({title,location,startMs,endMs})=>({title,location,startMs,endMs}))
+    void native.updateTodayWidget({items}).catch(()=>{})
+  },[loggedIn,sessionChecking,events,neighborEvents,homeSchoolEvents,personalEvents])
+
   const batchActive = tab === 'courses' && loggedIn && !sessionChecking && selection.count > 0
   const tabIndex = nav.findIndex(item => item.id === tab)
 
