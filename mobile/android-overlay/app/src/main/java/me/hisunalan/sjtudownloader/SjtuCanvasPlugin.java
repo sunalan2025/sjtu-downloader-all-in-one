@@ -508,6 +508,9 @@ public class SjtuCanvasPlugin extends Plugin {
                                 String month = formatter.format(new java.util.Date());
                                 officialCalendarEvents(month);
                                 vault().saveAfterVerification();
+                                JSObject ready = new JSObject();
+                                ready.put("connected", true);
+                                notifyListeners("calendarSessionReady", ready);
                             } catch (Exception ignored) { }
                             handler.post(cleanup);
                         });
@@ -597,6 +600,9 @@ public class SjtuCanvasPlugin extends Plugin {
                         officialCalendarEvents(format.format(new java.util.Date()));
                         valid = true;
                         vault().saveAfterVerification();
+                        JSObject ready = new JSObject();
+                        ready.put("connected", true);
+                        notifyListeners("calendarSessionReady", ready);
                     } catch (Exception ignored) { }
                     final boolean success = valid;
                     handler.post(() -> {
@@ -757,7 +763,11 @@ public class SjtuCanvasPlugin extends Plugin {
             try {
                 JSArray official = new JSArray();
                 String officialWarning = "";
-                try { official = officialCalendarEvents(month); }
+                boolean officialConnected = false;
+                try {
+                    official = officialCalendarEvents(month);
+                    officialConnected = true;
+                }
                 catch (Exception e) {
                     officialWarning = "正式课表未连接，请点击下方“同步交大官方课表”完成独立登录。";
                 }
@@ -769,6 +779,7 @@ public class SjtuCanvasPlugin extends Plugin {
                 catch (Exception authError) {
                     JSObject result = new JSObject();
                     result.put("items", authorizedOfficial);
+                    result.put("officialConnected", officialConnected);
                     result.put("authRequired", true);
                     result.put("warning", authorizedOfficial.length() > 0
                         ? "正式课表已同步，但 Canvas 会话未授权，作业截止日期无法同步。"
@@ -905,6 +916,7 @@ public class SjtuCanvasPlugin extends Plugin {
                 for (JSObject item : found.values()) items.put(item);
                 JSObject result = new JSObject();
                 result.put("items", items);
+                result.put("officialConnected", officialConnected);
                 result.put("authRequired", false);
                 if (calendarDenied || courseDenied) {
                     if (fallbackSucceeded || successfulAssignmentCourses > 0) {
