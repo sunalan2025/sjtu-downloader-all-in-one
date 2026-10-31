@@ -96,21 +96,12 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   },[today])
   const weekStart=monday(selected)
   const weekDates=Array.from({length:7},(_,i)=>nextDay(weekStart,i))
-  // Portrait displays two or three readable columns; the seven-day selector
-  // above remains visible. Tablets/desktops see all seven columns at once.
-  const [visibleWeekCount,setVisibleWeekCount]=useState(()=>{
-    if(typeof window==='undefined')return 7
-    return window.innerWidth<410?2:window.innerWidth<740?3:7
-  })
+  // Phone view is ALWAYS the selected date in the middle, with its immediate
+  // neighbors on either side. Do not partition the week into pages: that put
+  // Monday/Tuesday selection at the edge and hid Sunday beside Monday.
   const weekSwipeStart=useRef<{x:number;y:number}|null>(null)
-  useEffect(()=>{
-    const update=()=>setVisibleWeekCount(window.innerWidth<410?2:window.innerWidth<740?3:7)
-    window.addEventListener('resize',update)
-    return ()=>window.removeEventListener('resize',update)
-  },[])
-  const currentWeekIndex=Math.max(0,weekDates.indexOf(selected))
-  const startWeekIndex=Math.min(Math.floor(currentWeekIndex/visibleWeekCount)*visibleWeekCount,7-visibleWeekCount)
-  const visibleWeekDates=weekDates.slice(startWeekIndex,startWeekIndex+visibleWeekCount)
+  const visibleWeekDates=[nextDay(selected,-1),selected,nextDay(selected,1)]
+  const visibleWeekCount=3
 
   const eventMap=useMemo(()=>{
     const map=new Map<string,CalendarEvent[]>()
@@ -134,7 +125,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     ? Math.min(23,Math.max(weekFirstHour+3,
         Math.ceil(Math.max(...weekTimed.map(e=>Math.max(minute(e.endTime,minute(e.startTime)+45),minute(e.startTime)+28)))/60)+1))
     : 18
-  const WEEK_HOUR_PX=visibleWeekCount===7?58:54
+  const WEEK_HOUR_PX=54
   const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX
   const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
   const dayEvents=eventMap.get(selected)||[]
@@ -207,39 +198,38 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
       </div>}
     </section>
 
-    <div key={display === 'week' ? 'week-' + weekStart + '-' + startWeekIndex : 'day-' + selected}
+    <div key={display === 'week' ? 'week-' + selected : 'day-' + selected}
       className={'calendar-panel-transition' + (hasNestedMotion ? ' nested-motion' : '') + ' calendar-panel--' + motionDirection}>
     {display==='week' && <section className="week-overview glass" aria-label="适配手机的本周课程时间表">
       <div className="week-view-toolbar">
         <div className="week-view-caption">
           <strong>本周时间表</strong>
-          <span>{visibleWeekCount===7?'整周七天':'周'+DOW[dayIndex(visibleWeekDates[0])].slice(-1)+'–周'+DOW[dayIndex(visibleWeekDates[visibleWeekDates.length-1])].slice(-1)+' · 左右滑动切换'}</span>
+          <span>前一天 · <b>选中日期居中</b> · 后一天</span>
         </div>
-        {visibleWeekCount<7&&<div className="week-page-buttons" role="group" aria-label="切换显示的星期">
-          <button type="button" aria-label="显示前几天" onClick={()=>shift(-visibleWeekCount)}>
+        <div className="week-page-buttons" role="group" aria-label="切换显示的日期">
+          <button type="button" aria-label="显示前一天" onClick={()=>shift(-1)}>
             <Icon name="left" size={17}/>
           </button>
-          <button type="button" aria-label="显示后几天" onClick={()=>shift(visibleWeekCount)}>
+          <button type="button" aria-label="显示后一天" onClick={()=>shift(1)}>
             <Icon name="right" size={17}/>
           </button>
-        </div>}
+        </div>
       </div>
       <div className="week-timetable-scroll" role="region" tabIndex={0}
         aria-label="每小时对齐的周课表，点击课程查看当天详情"
         onTouchStart={e=>{
-          if(visibleWeekCount===7)return
           const touch=e.touches[0]
           if(touch)weekSwipeStart.current={x:touch.clientX,y:touch.clientY}
         }}
         onTouchEnd={e=>{
-          if(!weekSwipeStart.current||visibleWeekCount===7)return
+          if(!weekSwipeStart.current)return
           const touch=e.changedTouches[0]
           const start=weekSwipeStart.current
           weekSwipeStart.current=null
           if(!touch)return
           const dx=touch.clientX-start.x,dy=touch.clientY-start.y
           if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.3){
-            shift(dx<0?visibleWeekCount:-visibleWeekCount)
+            shift(dx<0?1:-1)
           }
         }}
         onTouchCancel={()=>{weekSwipeStart.current=null}}>
@@ -259,7 +249,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
             const allDay=entries.filter(e=>isHomework(e)||!isTimed(e))
             const placed=placeClasses(entries.filter(e=>!isHomework(e)))
             const weekday=DOW[dayIndex(date)]
-            return <div key={date} className={'week-time-column'+(date===today?' is-today':'')}
+            return <div key={date} className={'week-time-column'+(date===today?' is-today':'')+(date===selected?' is-selected':'')}
               data-date={date}>
               <button type="button" className={'week-time-header week-day-heading'+(date===selected?' picked':'')}
                 onClick={()=>{select(date);setDisplay('day')}} aria-label={weekday+' '+date+'，查看日课表'}>

@@ -518,6 +518,12 @@ button:active:not(:disabled) { transform:scale(.965); }
   border-right:1px solid rgba(112,153,199,.13);
 }
 .week-time-column.is-today {background:rgba(224,240,255,.36);}
+.week-time-column.is-selected {
+  background:linear-gradient(180deg,rgba(218,237,255,.58),rgba(244,249,255,.27));
+  border-left:1px solid rgba(82,143,215,.25);
+  border-right:1px solid rgba(82,143,215,.25);
+}
+.week-view-caption b{color:#3b77b4;font-weight:740;}
 .week-time-header {
   box-sizing:border-box;width:100%;height:var(--week-head-height);
   border:0;border-bottom:1px solid rgba(119,156,205,.16);
