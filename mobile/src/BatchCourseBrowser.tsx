@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, type TouchEvent, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import native, { isAndroid, type CanvasCourse, type CanvasFile, type CourseDownloadItem } from './native'
 
@@ -63,6 +63,71 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   const [hasNestedMotion, setHasNestedMotion] = useState(false)
   const [files, setFiles] = useState<CanvasFile[]>([])
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+  const [fileSelectMode, setFileSelectMode] = useState(false)
+  const touchSelect = useRef<{
+    timer: number | null; anchor: number; last: number; x: number; y: number; active: boolean
+  } | null>(null)
+  const blockClickUntil=useRef(0)
+  const stopTouchSelect=()=>{
+    const record=touchSelect.current
+    if(record?.timer!==null && record?.timer!==undefined)window.clearTimeout(record.timer)
+    touchSelect.current=null
+  }
+  useEffect(()=>()=>{const record=touchSelect.current
+    if(record?.timer!==null && record?.timer!==undefined)window.clearTimeout(record.timer)
+  },[])
+  const enterFileSelection=(index:number)=>{
+    const file=visibleFiles[index]
+    if(!file||file.locked)return
+    blockClickUntil.current=Date.now()+450
+    setFileSelectMode(true)
+    setSelectedFiles(old=>new Set([...old,file.id]))
+  }
+  const markSelectionRange=(from:number,to:number)=>{
+    const min=Math.min(from,to),max=Math.max(from,to)
+    setSelectedFiles(old=>{
+      const next=new Set(old)
+      for(let i=min;i<=max;i++){
+        const file=visibleFiles[i]
+        if(file&&!file.locked)next.add(file.id)
+      }
+      return next
+    })
+  }
+  const startFileTouch=(e:TouchEvent<HTMLDivElement>)=>{
+    const hit=(e.target as Element).closest<HTMLElement>('[data-file-id]')
+    if(!hit || (e.target as Element).closest('.small-action,.select-circle'))return
+    const index=visibleFiles.findIndex(file=>file.id===hit.dataset.fileId)
+    if(index<0||visibleFiles[index].locked)return
+    stopTouchSelect()
+    const finger=e.touches[0]
+    if(!finger)return
+    const record={timer:null as number|null,anchor:index,last:index,
+      x:finger.clientX,y:finger.clientY,active:fileSelectMode}
+    touchSelect.current=record
+    if(fileSelectMode){markSelectionRange(index,index);return}
+    record.timer=window.setTimeout(()=>{
+      if(touchSelect.current!==record)return
+      record.active=true
+      enterFileSelection(index)
+    },380)
+  }
+  const moveFileTouch=(e:TouchEvent<HTMLDivElement>)=>{
+    const record=touchSelect.current
+    const finger=e.touches[0]
+    if(!record||!finger)return
+    if(!record.active){
+      if(Math.hypot(finger.clientX-record.x,finger.clientY-record.y)>11)stopTouchSelect()
+      return
+    }
+    const hit=document.elementFromPoint(finger.clientX,finger.clientY)?.closest<HTMLElement>('[data-file-id]')
+    const index=visibleFiles.findIndex(file=>file.id===hit?.dataset.fileId)
+    if(index>=0&&index!==record.last){
+      record.last=index
+      markSelectionRange(record.anchor,index)
+    }
+  }
+
   const [kind, setKind] = useState<Kind>('all')
   const [fetching, setFetching] = useState(false)
   const [fileError, setFileError] = useState('')
@@ -79,6 +144,8 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     setFetching(false)
     setSearch('')
     setSelectedFiles(new Set())
+    setFileSelectMode(false)
+    stopTouchSelect()
     return true
   }
 
@@ -138,7 +205,8 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   }
   async function openCourse(course: CanvasCourse) {
     setHasNestedMotion(true)
-    setActive(course); setFiles([]); setSelectedFiles(new Set()); setKind('all'); setSearch('')
+    setActive(course); setFiles([]); setSelectedFiles(new Set()); setFileSelectMode(false);
+    stopTouchSelect(); setKind('all'); setSearch('')
     await loadCourseFiles(course)
   }
   async function downloadFiles() {
@@ -184,7 +252,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     goBack: closeCourse,
     downloadSelection: () => { if (active) void downloadFiles(); else void downloadCourses() },
     clearSelection: () => {
-      if (active) setSelectedFiles(new Set())
+      if (active) { setSelectedFiles(new Set()); setFileSelectMode(false) }
       else setChosenCourses(new Set())
     }
   }))
@@ -199,14 +267,20 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
         <Icon name="left" size={16}/> 返回课程</button><span className="muted-count">{files.length} 个</span></div>
       <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索课件" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索文件"/></label>
       <div className="category-chips">{(Object.keys(categoryNames) as Kind[]).map(k => <button key={k} className={k===kind?'chosen':''} onClick={()=>setKind(k)}>{categoryNames[k]}</button>)}</div>
-      <div className="batch-toolbar"><button className="text-button" onClick={() => setSelectedFiles(old => {
-        const ids=selectableFiles.map(f=>f.id)
-        const next=new Set(old)
-        const fully=ids.length>0 && ids.every(x=>next.has(x))
-        ids.forEach(id=>fully?next.delete(id):next.add(id))
-        return next
-      })}>{selectableFiles.length && selectableFiles.every(f => selectedFiles.has(f.id)) ? '取消全选' : '全选'}</button>
-      {selectedFiles.size>0 && <button className="text-button clear-selection" onClick={() => setSelectedFiles(new Set())}>取消选择（{selectedFiles.size}）</button>}</div>
+      {!fileSelectMode ? <div className="file-select-hint">长按文件，保持按住并上下滑动即可连续多选</div>
+        : <div className="batch-toolbar file-selection-toolbar">
+            <button className="text-button" onClick={() => setSelectedFiles(old => {
+              const ids=selectableFiles.map(file=>file.id)
+              const next=new Set(old)
+              const full=ids.length>0&&ids.every(id=>next.has(id))
+              ids.forEach(id=>full?next.delete(id):next.add(id))
+              return next
+            })}>{selectableFiles.length&&selectableFiles.every(file=>selectedFiles.has(file.id))?'取消全选':'全选'}</button>
+            <span className="muted-count">已选 {selectedFiles.size} 项</span>
+            <button className="text-button clear-selection" onClick={()=>{
+              setSelectedFiles(new Set());setFileSelectMode(false)
+            }}>完成</button>
+          </div>}
       {fetching ? <div className="loading-note">正在读取文件…</div>
         : fileError ? <div className="file-retry-panel glass" role="alert">
           <Icon name="wifi" size={22}/>
@@ -216,13 +290,38 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
             <Icon name="refresh" size={16}/> 重试
           </button>
         </div>
-        : visibleFiles.length ? <div className="item-list">{visibleFiles.map(file =>
-          <div className={'file-row '+(selectedFiles.has(file.id)?'row-selected':'')} key={file.id}>
-            <button disabled={file.locked} className={'select-circle '+(selectedFiles.has(file.id)?'checked':'')} aria-label={'选择 '+file.name} aria-pressed={selectedFiles.has(file.id)} onClick={()=>toggleFile(file.id)}>{selectedFiles.has(file.id) && <Icon name="check" size={14}/>}</button>
-            <span className="file-badge"><Icon name="file" size={19}/></span>
-            <span className="file-info"><strong>{file.name}</strong><small>{file.locked ? '无权限' : displayBytes(file.size)}</small></span>
-            <button className="small-action" disabled={file.locked} aria-label={'下载 '+file.name} onClick={()=>void onBatchDownload([{file,courseName:active.name,term:active.term}])}><Icon name="download" size={17}/></button>
-          </div>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="file" size={28}/></div><strong>暂无文件</strong></div>}
+        : visibleFiles.length ? <div className={'item-list'+(fileSelectMode?' selecting-files':'')}
+            onTouchStart={startFileTouch} onTouchMove={moveFileTouch}
+            onTouchEnd={stopTouchSelect} onTouchCancel={stopTouchSelect}
+            onClickCapture={e=>{
+              if(Date.now()<blockClickUntil.current){
+                e.preventDefault();e.stopPropagation()
+              }
+            }}>
+            {visibleFiles.map((file,index)=>
+              <div className={'file-row '+(selectedFiles.has(file.id)?'row-selected':'')+
+                (fileSelectMode?' selecting':'')} key={file.id} data-file-id={file.id}
+                onContextMenu={e=>{
+                  if(file.locked)return
+                  e.preventDefault()
+                  enterFileSelection(index)
+                }}
+                onClick={()=>{if(fileSelectMode&&!file.locked)toggleFile(file.id)}}>
+                {fileSelectMode&&<span className={'select-circle file-selection-circle'+
+                  (selectedFiles.has(file.id)?' checked':'')} aria-label={selectedFiles.has(file.id)?'已选择':'未选择'}>
+                  {selectedFiles.has(file.id)&&<Icon name="check" size={14}/>}
+                </span>}
+                <span className="file-badge"><Icon name="file" size={19}/></span>
+                <span className="file-info"><strong>{file.name}</strong>
+                  <small>{file.locked?'无权限':displayBytes(file.size)}</small></span>
+                {!fileSelectMode&&<button className="small-action" disabled={file.locked}
+                  aria-label={'下载 '+file.name}
+                  onClick={e=>{e.stopPropagation();void onBatchDownload([{file,courseName:active.name,term:active.term}])}}>
+                  <Icon name="download" size={17}/>
+                </button>}
+              </div>)}
+          </div> : <div className="empty-box"><div className="empty-picture">
+            <Icon name="file" size={28}/></div><strong>暂无文件</strong></div>}
     </> : <>
       <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索课程" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索课程"/></label>
       <div className="row-actions"><span className="muted-count">{courseList.length} 门</span><button className="text-button" onClick={onRefresh} disabled={loading}><Icon name="refresh" size={16}/> 刷新课程</button></div>
