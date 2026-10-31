@@ -18,8 +18,13 @@ const manifestPath = 'android/app/src/main/AndroidManifest.xml'
 let manifest = readFileSync(manifestPath, 'utf8')
 if (manifest.includes('android:name=".MainActivity"')) {
   manifest = manifest.replace('android:name=".MainActivity"', 'android:name="me.hisunalan.sjtudownloader.MainActivity"')
-  writeFileSync(manifestPath, manifest)
 }
+if (!manifest.includes('android:enableOnBackInvokedCallback')) {
+  // Enable Android 13/14 system predictive-back dispatch while Capacitor
+  // backButton handles nested in-app navigation.
+  manifest = manifest.replace('<application', '<application android:enableOnBackInvokedCallback="true"')
+}
+writeFileSync(manifestPath, manifest)
 if (!manifest.includes('android:name="me.hisunalan.sjtudownloader.MainActivity"')) {
   throw new Error('Expected Android launcher activity override is missing')
 }
