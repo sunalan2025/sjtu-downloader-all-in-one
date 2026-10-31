@@ -439,3 +439,25 @@ button:active:not(:disabled) { transform:scale(.965); }
  border-radius:22px;padding:28px 15px;color:#849bb3;font-size:13px;
  background:rgba(255,255,255,.43);}
 .no-classes svg{color:#8fb0d5}
+
+/* Consistent edge-to-edge backdrop behind Android's transparent status bar.
+   Only one native inset is reserved: no stacked blank band above the brand. */
+.app::before {
+  content:'';
+  position:fixed;top:0;left:0;right:0;
+  height:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 8px);
+  pointer-events:none;z-index:-1;
+  background:linear-gradient(110deg,#edf3fd,#f3f4fc 58%,#eaf5fb);
+}
+.topbar.glass {
+  top:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 4px);
+  margin-top:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 4px);
+  padding:8px 12px;
+  justify-content:flex-start;
+  border-radius:22px;
+}
+.home-session-line{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-top:21px;}
+.home-session-line .session-indicator{margin-top:0;}
+.quiet-logout{border:none;background:transparent;color:#92a0b3;font-size:11px;padding:9px 3px;}
+.calendar-notice{margin-top:10px;padding:11px 13px;border-radius:14px;background:#fff1e5c9;
+ color:#9c6543;font-size:12px;line-height:1.5;}
