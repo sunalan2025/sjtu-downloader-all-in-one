@@ -21,7 +21,7 @@ export type CalendarEvent = {
   startTime: string
   endTime: string
   courseName: string
-  type: 'assignment' | 'event'
+  type: 'assignment' | 'event' | 'course'
 }
 
 export type NativeInsets = { top: number; bottom: number; left: number; right: number }
@@ -40,6 +40,7 @@ type NativeCanvasApi = {
   getInsets(): Promise<NativeInsets>
   calendar(options: { month: string }): Promise<{ items: CalendarEvent[]; warning?: string; authRequired?: boolean }>
   openOfficialCalendar(): Promise<{ ok: boolean }>
+  diagnoseAuth(): Promise<{ canvasCookie: boolean; jaccountCookie: boolean; officialCalendarCookie: boolean; canvasProfile: string; canvasCalendar: string; canvasCourses: string; officialCalendar: string }>
   status(): Promise<{ loggedIn: boolean; name?: string }>
   courses(): Promise<{ items: CanvasCourse[] }>
   files(options: { courseId: string }): Promise<{ items: CanvasFile[] }>
