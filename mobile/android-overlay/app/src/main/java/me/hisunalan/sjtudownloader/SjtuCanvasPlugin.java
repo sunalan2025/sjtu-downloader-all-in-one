@@ -643,6 +643,8 @@ public class SjtuCanvasPlugin extends Plugin {
     public void diagnoseAuth(PluginCall call) {
         io.execute(() -> {
             JSObject result = new JSObject();
+            vault().restoreOnce();
+            result.put("savedSessionEncrypted", vault().hasSavedSession());
             result.put("canvasCookie", CookieManager.getInstance().getCookie(BASE) != null);
             result.put("jaccountCookie", CookieManager.getInstance().getCookie("https://jaccount.sjtu.edu.cn") != null);
             result.put("officialCalendarCookie",
@@ -682,6 +684,7 @@ public class SjtuCanvasPlugin extends Plugin {
                 JSObject result = new JSObject();
                 result.put("loggedIn", true);
                 result.put("name", profile.optString("name", ""));
+                result.put("savedSessionEncrypted", vault().hasSavedSession());
                 call.resolve(result);
             } catch (Exception ignored) {
                 JSObject result = new JSObject();
