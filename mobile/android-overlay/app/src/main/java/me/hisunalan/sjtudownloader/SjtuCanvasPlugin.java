@@ -1,6 +1,20 @@
 package me.hisunalan.sjtudownloader;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
+import android.content.Intent;
+import android.net.Uri;
+import android.view.View;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.os.Message;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Color;
@@ -26,6 +40,10 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
+import java.util.Locale;
+import java.util.TimeZone;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -48,56 +66,292 @@ public class SjtuCanvasPlugin extends Plugin {
     @PluginMethod
     public void login(PluginCall call) {
         getActivity().runOnUiThread(() -> {
-            Dialog dialog = new Dialog(getActivity());
+            Dialog dialog = new Dialog(getActivity(), android.R.style.Theme_Material_Light_NoActionBar);
+            LinearLayout panel = new LinearLayout(getActivity());
+            panel.setOrientation(LinearLayout.VERTICAL);
+            panel.setBackgroundColor(Color.WHITE);
+            LinearLayout toolbar = new LinearLayout(getActivity());
+            toolbar.setOrientation(LinearLayout.HORIZONTAL);
+            toolbar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            toolbar.setPadding(dp(16), dp(8), dp(12), dp(8));
+            toolbar.setBackgroundColor(Color.WHITE);
+            TextView title = new TextView(getActivity());
+            title.setText("交大统一身份认证 · 手机端");
+            title.setTextSize(14);
+            title.setTextColor(Color.rgb(27, 61, 99));
+            title.setTypeface(null, android.graphics.Typeface.BOLD);
+            toolbar.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+            Button check = new Button(getActivity());
+            check.setText("完成登录");
+            check.setTextSize(11);
+            toolbar.addView(check);
+            Button close = new Button(getActivity());
+            close.setText("关闭");
+            close.setTextSize(11);
+            toolbar.addView(close);
+            panel.addView(toolbar);
             WebView browser = new WebView(getActivity());
-            browser.getSettings().setJavaScriptEnabled(true);
-            browser.getSettings().setDomStorageEnabled(true);
+            WebSettings settings = browser.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setUseWideViewPort(true);
+            settings.setLoadWithOverviewMode(true);
+            settings.setSupportMultipleWindows(true);
+            settings.setJavaScriptCanOpenWindowsAutomatically(true);
+            String ua = settings.getUserAgentString();
+            // Preserve platform UA; explicitly use mobile mode if a manufacturer WebView reports desktop.
+            if (ua != null && !ua.contains("Mobile")) settings.setUserAgentString(ua.replace(" Safari/", " Mobile Safari/"));
             CookieManager.getInstance().setAcceptCookie(true);
             CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
+            panel.addView(browser, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+            AtomicBoolean settled = new AtomicBoolean(false);
+            AtomicBoolean checking = new AtomicBoolean(false);
+            Runnable verify = () -> {
+                if (!checking.compareAndSet(false, true)) return;
+                io.execute(() -> {
+                    boolean ok = false;
+                    try {
+                        HttpURLConnection connection = connect(BASE + "/api/v1/users/self/profile", null);
+                        ok = connection.getResponseCode() == 200;
+                        connection.disconnect();
+                    } catch (Exception ignored) {}
+                    final boolean verified = ok;
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        checking.set(false);
+                        if (!dialog.isShowing() || settled.get()) return;
+                        if (verified) {
+                            if (settled.compareAndSet(false, true)) {
+                                JSObject response = new JSObject();
+                                response.put("completed", true);
+                                call.resolve(response);
+                                dialog.dismiss();
+                            }
+                        } else if (browser.getUrl() != null && !browser.getUrl().startsWith(BASE)) {
+                            // Do not show spurious warnings while the OAuth screen is still active.
+                        } else {
+                            Toast.makeText(getContext(), "尚未检测到 Canvas 登录会话，请在网页内完成认证", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                });
+            };
+            check.setOnClickListener(v -> verify.run());
+            close.setOnClickListener(v -> dialog.cancel());
             browser.setWebViewClient(new WebViewClient() {
                 @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                    String scheme = request.getUrl().getScheme();
-                    if (!"https".equalsIgnoreCase(scheme)) return true;
-                    return false;
+                    Uri uri = request.getUrl();
+                    String scheme = uri.getScheme();
+                    if ("https".equalsIgnoreCase(scheme)) return false;
+                    if (request.isForMainFrame() && request.hasGesture()) {
+                        openLoginAppLink(uri, browser);
+                    }
+                    return true; // never load a non-HTTPS scheme in WebView
                 }
                 @Override public void onPageFinished(WebView view, String url) {
-                    if (url.startsWith(BASE) && !url.contains("/login")) {
-                        io.execute(() -> {
-                            try {
-                                HttpURLConnection connection = connect(BASE + "/api/v1/users/self/profile", null);
-                                int code = connection.getResponseCode();
-                                connection.disconnect();
-                                if (code == 200) {
-                                    new Handler(Looper.getMainLooper()).post(() -> {
-                                        if (dialog.isShowing()) {
-                                            dialog.dismiss();
-                                            JSObject result = new JSObject();
-                                            result.put("completed", true);
-                                            call.resolve(result);
-                                        }
-                                    });
-                                }
-                            } catch (Exception ignored) {}
-                        });
-                    }
+                    if (url.startsWith(BASE) && !url.contains("/login")) verify.run();
                 }
             });
-            dialog.setContentView(browser);
+            browser.setWebChromeClient(new WebChromeClient() {
+                @Override public boolean onCreateWindow(WebView view, boolean isDialog,
+                    boolean isUserGesture, Message resultMsg) {
+                    if (!isUserGesture) return false;
+                    WebView popup = new WebView(getActivity());
+                    popup.setWebViewClient(new WebViewClient() {
+                        @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                            Uri uri = request.getUrl();
+                            if ("https".equalsIgnoreCase(uri.getScheme())) browser.loadUrl(uri.toString());
+                            else openLoginAppLink(uri, browser);
+                            return true;
+                        }
+                        @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap icon) {
+                            if (url.startsWith("https://")) browser.loadUrl(url);
+                            else openLoginAppLink(Uri.parse(url), browser);
+                            panel.removeView(popup);
+                            popup.destroy();
+                        }
+                    });
+                    panel.addView(popup, new LinearLayout.LayoutParams(1, 1));
+                    WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                    transport.setWebView(popup);
+                    resultMsg.sendToTarget();
+                    return true;
+                }
+            });
+            dialog.setContentView(panel);
             Window win = dialog.getWindow();
             if (win != null) {
-                win.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
                 win.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-                win.setStatusBarColor(Color.rgb(8, 19, 35));
+                win.setStatusBarColor(Color.WHITE);
+                win.setNavigationBarColor(Color.WHITE);
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(win, false);
+                androidx.core.view.WindowInsetsControllerCompat controller =
+                  new androidx.core.view.WindowInsetsControllerCompat(win, win.getDecorView());
+                controller.setAppearanceLightStatusBars(true);
+                controller.setAppearanceLightNavigationBars(true);
             }
-            dialog.setOnCancelListener(d -> call.reject("已取消登录"));
+            ViewCompat.setOnApplyWindowInsetsListener(panel, (view, insets) -> {
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                panel.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                return insets;
+            });
+            dialog.setOnCancelListener(d -> {
+                if (settled.compareAndSet(false, true)) call.reject("已取消登录");
+            });
             dialog.setOnDismissListener(d -> {
                 browser.stopLoading();
                 browser.destroy();
+                if (settled.compareAndSet(false, true)) call.reject("登录窗口已关闭");
             });
             dialog.show();
             Window shown = dialog.getWindow();
             if (shown != null) shown.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            ViewCompat.requestApplyInsets(panel);
+            // Let Canvas redirect to jAccount's official MOBILE login page and its 交我办 option.
             browser.loadUrl(BASE + "/login/openid_connect");
+        });
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getContext().getResources().getDisplayMetrics().density);
+    }
+
+    private void openLoginAppLink(Uri uri, WebView browser) {
+        try {
+            String scheme = uri.getScheme();
+            if (scheme == null) return;
+            if (!("intent".equalsIgnoreCase(scheme) ||
+                  "sjtu".equalsIgnoreCase(scheme) || "jwb".equalsIgnoreCase(scheme) ||
+                  "weixin".equalsIgnoreCase(scheme) || "alipays".equalsIgnoreCase(scheme) ||
+                  "my".equalsIgnoreCase(scheme))) return;
+            Intent intent;
+            if ("intent".equalsIgnoreCase(scheme)) {
+                intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME);
+            } else {
+                intent = new Intent(Intent.ACTION_VIEW, uri);
+            }
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            intent.setComponent(null);
+            intent.setSelector(null);
+            try {
+                getActivity().startActivity(intent);
+            } catch (ActivityNotFoundException missing) {
+                String fallback = intent.getStringExtra("browser_fallback_url");
+                if (fallback != null) {
+                    Uri target = Uri.parse(fallback);
+                    String host = target.getHost();
+                    if ("https".equalsIgnoreCase(target.getScheme()) &&
+                        host != null && (host.equals("sjtu.edu.cn") || host.endsWith(".sjtu.edu.cn"))) {
+                        browser.loadUrl(fallback);
+                        return;
+                    }
+                }
+                Toast.makeText(getContext(), "未找到对应 App，可选择网页账号登录", Toast.LENGTH_LONG).show();
+            }
+        } catch (Exception e) {
+            Toast.makeText(getContext(), "无法打开认证应用，请尝试网页账号登录", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @PluginMethod
+    public void getInsets(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            View root = getActivity().getWindow().getDecorView();
+            WindowInsetsCompat windowInsets = ViewCompat.getRootWindowInsets(root);
+            Insets bars = windowInsets == null ? Insets.NONE :
+                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            float density = root.getResources().getDisplayMetrics().density;
+            JSObject result = new JSObject();
+            result.put("top", bars.top / density);
+            result.put("bottom", bars.bottom / density);
+            result.put("left", bars.left / density);
+            result.put("right", bars.right / density);
+            call.resolve(result);
+        });
+    }
+
+    @PluginMethod
+    public void openOfficialCalendar(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://calendar.sjtu.edu.cn/ui/calendar"));
+                getActivity().startActivity(intent);
+                JSObject response = new JSObject();
+                response.put("ok", true);
+                call.resolve(response);
+            } catch (Exception e) {
+                call.reject("手机上没有可用的浏览器打开官方课表");
+            }
+        });
+    }
+
+    @PluginMethod
+    public void calendar(PluginCall call) {
+        String month = call.getString("month", "");
+        if (!month.matches("20[0-9]{2}-(0[1-9]|1[0-2])")) {
+            call.reject("月份格式不合法");
+            return;
+        }
+        io.execute(() -> {
+            try {
+                int y = Integer.parseInt(month.substring(0, 4));
+                int m = Integer.parseInt(month.substring(5, 7));
+                Calendar next = new GregorianCalendar(TimeZone.getTimeZone("Asia/Shanghai"), Locale.ROOT);
+                next.clear();
+                next.set(y, m - 1, 1);
+                next.add(Calendar.MONTH, 1);
+                String end = String.format(Locale.ROOT, "%04d-%02d-01",
+                    next.get(Calendar.YEAR), next.get(Calendar.MONTH) + 1);
+                // Canvas Calendar supports at most a limited number of context codes per query.
+                JSONArray courseList = getAllPages(BASE +
+                    "/api/v1/courses?per_page=100&enrollment_state%5B%5D=active&enrollment_state%5B%5D=completed");
+                java.util.ArrayList<String> codes = new java.util.ArrayList<>();
+                for (int i = 0; i < courseList.length(); i++) {
+                    JSONObject course = courseList.optJSONObject(i);
+                    if (course == null) continue;
+                    String id = course.optString("id", "");
+                    if (id.matches("[0-9]{1,20}")) codes.add("course_" + id);
+                }
+                java.util.LinkedHashMap<String, JSObject> found = new java.util.LinkedHashMap<>();
+                // Read both Canvas calendar events and assignment due events; no mock timetable.
+                for (int pos = 0; pos < codes.size(); pos += 8) {
+                    StringBuilder context = new StringBuilder();
+                    for (int i = pos; i < Math.min(codes.size(), pos + 8); i++) {
+                        context.append("&context_codes%5B%5D=").append(codes.get(i));
+                    }
+                    for (String type : new String[]{"event", "assignment"}) {
+                        String url = BASE + "/api/v1/calendar_events?per_page=100&type=" + type +
+                            "&start_date=" + month + "-01&end_date=" + end + context;
+                        JSONArray batch = getAllPages(url);
+                        for (int i = 0; i < batch.length(); i++) {
+                            JSONObject raw = batch.optJSONObject(i);
+                            if (raw == null) continue;
+                            JSONObject assignment = raw.optJSONObject("assignment");
+                            String start = raw.optString("start_at", "");
+                            if (start.isEmpty()) start = raw.optString("due_at", "");
+                            if (start.isEmpty() && assignment != null) start = assignment.optString("due_at", "");
+                            if (start.isEmpty()) continue;
+                            String title = raw.optString("title", "");
+                            if (title.isEmpty() && assignment != null) title = assignment.optString("name", "");
+                            if (title.isEmpty()) title = "未命名日程";
+                            String id = type + ":" + raw.optString("id", String.valueOf(i));
+                            JSObject event = new JSObject();
+                            event.put("id", id);
+                            event.put("title", title);
+                            event.put("startTime", start);
+                            event.put("endTime", raw.optString("end_at", start));
+                            event.put("courseName", raw.optString("context_name", ""));
+                            event.put("type", type);
+                            found.put(id, event);
+                        }
+                    }
+                }
+                JSArray items = new JSArray();
+                for (JSObject event : found.values()) items.put(event);
+                JSObject response = new JSObject();
+                response.put("items", items);
+                call.resolve(response);
+            } catch (Exception e) {
+                call.reject(safeError(e));
+            }
         });
     }
 
