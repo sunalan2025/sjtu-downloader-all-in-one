@@ -142,3 +142,5 @@ button:focus-visible,input:focus-visible{outline:3px solid #7dbaf5;outline-offse
 .job-state.queued{color:#657a98;background:#f0f3f7}
 .calendar-warning{margin:0 0 16px 0;align-items:center}
 .calendar-warning .text-button{font-size:11px;color:#a05b31}
+
+.diagnostic-output{font-size:11px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f6fa;border:1px solid #dce5ee;color:#294c6c;border-radius:10px;padding:12px;margin:12px 0 0}
