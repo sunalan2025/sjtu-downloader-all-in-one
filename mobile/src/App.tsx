@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import native, { isAndroid, type CanvasCourse, type CanvasFile, type DownloadProgress, type CalendarEvent } from './native'
+import { useEffect, useState } from 'react'
+import native, { isAndroid, type CanvasCourse, type DownloadProgress, type CalendarEvent, type CourseDownloadItem } from './native'
+import { BatchCourseBrowser } from './BatchCourseBrowser'
 import { CalendarPage, currentMonth, shanghaiDate } from './CalendarPage'
 import { Icon, type IconName } from './Icon'
 
 type Tab = 'home' | 'courses' | 'calendar' | 'downloads'
-type Job = { taskId: string; fileName: string; state: 'active' | 'done' | 'error' | 'cancelled'; bytes: number; total: number; error?: string }
+type Job = { taskId: string; fileName: string; state: 'queued' | 'active' | 'done' | 'error' | 'cancelled'; bytes: number; total: number; error?: string }
 
 function formatBytes(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '—'
@@ -25,15 +26,14 @@ export default function App() {
   const [loggedIn, setLoggedIn] = useState(false)
   const [user, setUser] = useState('')
   const [courses, setCourses] = useState<CanvasCourse[]>([])
-  const [course, setCourse] = useState<CanvasCourse | null>(null)
-  const [files, setFiles] = useState<CanvasFile[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [month, setMonth] = useState(currentMonth())
   const [busy, setBusy] = useState(false)
   const [calendarBusy, setCalendarBusy] = useState(false)
+  const [calendarWarning, setCalendarWarning] = useState('')
+  const [calendarAuthRequired, setCalendarAuthRequired] = useState(false)
   const [notice, setNotice] = useState('')
-  const [search, setSearch] = useState('')
 
   useEffect(() => {
     if (!isAndroid) return
@@ -85,7 +85,7 @@ export default function App() {
   async function logout(): Promise<void> {
     try {
       await native.logout()
-      setLoggedIn(false); setUser(''); setCourses([]); setCourse(null); setFiles([]); setEvents([])
+      setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setCalendarAuthRequired(false)
       setTab('home')
     } catch (e) { setNotice(String(e)) }
   }
@@ -97,8 +97,16 @@ export default function App() {
   }
   async function loadCalendar(target: string): Promise<void> {
     setCalendarBusy(true)
-    try { setEvents((await native.calendar({ month: target })).items) }
-    catch (e) { setEvents([]); setNotice('同步 Canvas 日历失败：' + String(e)) }
+    try {
+      const result = await native.calendar({ month: target })
+      setEvents(result.items)
+      setCalendarWarning(result.warning || '')
+      setCalendarAuthRequired(!!result.authRequired)
+    } catch (e) {
+      setEvents([])
+      setCalendarAuthRequired(false)
+      setCalendarWarning('日历同步失败：' + String(e))
+    }
     finally { setCalendarBusy(false) }
   }
   async function openOfficialCalendar(): Promise<void> {
@@ -106,33 +114,47 @@ export default function App() {
     try { await native.openOfficialCalendar() }
     catch (e) { setNotice('无法打开交大官方课表：' + String(e)) }
   }
-  async function openCourse(selected: CanvasCourse): Promise<void> {
-    setBusy(true); setCourse(selected); setSearch(''); setFiles([])
-    try { setFiles((await native.files({ courseId: selected.id })).items) }
-    catch (e) { setNotice('读取课件失败：' + String(e)) }
-    finally { setBusy(false) }
-  }
-  async function download(file: CanvasFile): Promise<void> {
-    if (file.locked) return
-    const taskId = String(Date.now()) + '-' + file.id
-    setJobs(old => [{ taskId, fileName: file.name, state: 'active', bytes: 0, total: file.size }, ...old])
+  async function downloadBatch(tasks: CourseDownloadItem[]): Promise<void> {
+    if (!isAndroid || tasks.length === 0) return
+    if (tasks.length > 1200) { setNotice('单批次最多 1200 个文件，请分学期下载。'); return }
+    const stamp = Date.now().toString(36)
+    const specs = tasks.map((item, index) => ({ ...item, taskId: stamp + '-' + index + '-' + item.file.id }))
+    setJobs(old => [...specs.map(x => ({
+      taskId: x.taskId,
+      fileName: x.file.name,
+      state: 'queued' as const,
+      bytes: 0,
+      total: x.file.size
+    })), ...old])
     setTab('downloads')
-    try {
-      await native.download({ fileId: file.id, taskId })
-      setJobs(old => old.map(j => j.taskId === taskId ? { ...j, state: 'done', bytes: j.total } : j))
-    } catch (e) {
-      const message = String(e)
-      setJobs(old => old.map(j => j.taskId === taskId ? {
-        ...j, state: message.includes('取消') ? 'cancelled' : 'error', error: message
-      } : j))
+    let cursor = 0
+    async function worker() {
+      while (cursor < specs.length) {
+        const job = specs[cursor++]
+        setJobs(old => old.map(j => j.taskId === job.taskId ? { ...j, state: 'active' } : j))
+        try {
+          await native.download({
+            fileId: job.file.id,
+            taskId: job.taskId,
+            term: job.term,
+            courseName: job.courseName
+          })
+          setJobs(old => old.map(j => j.taskId === job.taskId ?
+            { ...j, state: 'done', bytes: j.total } : j))
+        } catch (error) {
+          const message = String(error)
+          setJobs(old => old.map(j => j.taskId === job.taskId ?
+            { ...j, state: message.includes('取消') ? 'cancelled' : 'error', error: message } : j))
+        }
+      }
     }
+    await Promise.all(Array.from({ length: Math.min(2, specs.length) }, () => worker()))
   }
   async function cancel(taskId: string): Promise<void> {
     try { await native.cancelDownload({ taskId }) }
     catch (e) { setNotice(String(e)) }
   }
 
-  const filtered = useMemo(() => files.filter(f => f.name.toLowerCase().includes(search.toLowerCase())), [files, search])
   const active = jobs.filter(j => j.state === 'active').length
   const finished = jobs.filter(j => j.state === 'done').length
   const today = shanghaiDate(new Date().toISOString())
@@ -141,7 +163,7 @@ export default function App() {
   return <div className="app">
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand"><div className="brand-mark">S</div><div className="brand-text"><strong>SJTU Downloader</strong><small>上海交通大学 · 课程助手</small></div></div>
+        <div className="brand"><div className="brand-mark"><img src="./desktop-logo.png" alt="SJTU Downloader 桌面版图标"/></div><div className="brand-text"><strong>SJTU Downloader</strong><small>上海交通大学 · 课程助手</small></div></div>
         <button className="avatar-button" aria-label={loggedIn ? '退出登录' : '登录账号'} onClick={() => loggedIn ? void logout() : void login()} title={loggedIn ? '退出登录' : '登录账号'}><Icon name={loggedIn ? 'shield' : 'school'} size={20}/></button>
       </header>
       {notice && <div role="alert" className="notice"><Icon name="alert" size={17}/><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}><Icon name="close" size={15}/></button></div>}
@@ -170,27 +192,27 @@ export default function App() {
           </div>
           {loggedIn && <div className="account-line"><span>当前账号 · {user || '已连接'}</span><button onClick={() => void logout()}>退出登录</button></div>}
         </>}
-        {tab === 'courses' && <>
-          <div className="page-intro"><span className="eyebrow">MY COURSES</span><h1>{course ? course.name : '我的课程'}</h1><p>{course ? 'Canvas 课程文件与资料' : '课程资料，在这里有序整理。'}</p></div>
-          {!loggedIn ? <div className="empty-box"><div className="empty-picture"><Icon name="shield" size={28}/></div><strong>连接交大统一身份认证</strong><p>请使用手机端 jAccount 页面登录，之后即可查看已授权课程。</p><button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>使用 jAccount 登录 <Icon name="arrow" size={15}/></button></div>
-            : course ? <>
-              <div className="row-actions"><button className="text-button" onClick={() => { setCourse(null); setFiles([]) }}><Icon name="left" size={16}/> 返回课程</button><span className="pill">{filtered.length} 个文件</span></div>
-              <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索文件名称" placeholder="搜索课件文件…" value={search} onChange={e => setSearch(e.target.value)}/></label>
-              {busy ? <div className="loading-note">正在读取课件列表…</div> : filtered.length ? <div className="item-list">{filtered.map(f => <div className="file-row" key={f.id}><span className="file-badge"><Icon name="file" size={21}/></span><span className="file-info"><strong>{f.name}</strong><small>{formatBytes(f.size)} · {f.contentType || '文件'}</small></span><button className="small-action" disabled={f.locked || !isAndroid} aria-label={f.locked ? '无权限下载' : '下载' + f.name} onClick={() => void download(f)}><Icon name={f.locked?'shield':'download'} size={17}/></button></div>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="file" size={28}/></div><strong>暂无可访问课件</strong><p>该课程可能没有公开文件，或资料需要从模块中查看。</p></div>}
-            </> : <>
-              <div className="row-actions"><span className="pill"><Icon name="school" size={14}/> Canvas · {courses.length} 门</span><button className="text-button" disabled={busy} onClick={() => void loadCourses()}><Icon name="refresh" size={16}/> 刷新</button></div>
-              {busy ? <div className="loading-note">正在同步课程…</div> : courses.length ? <div className="course-list">{courses.map(c => <button className="course-card" key={c.id} onClick={() => void openCourse(c)}><span className="course-symbol"><Icon name="book" size={21}/></span><span className="course-text"><strong>{c.name}</strong><small>{c.term || 'Canvas 课程'}{c.code ? ' · ' + c.code : ''}</small></span><Icon name="right" className="chevron" size={18}/></button>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="book" size={28}/></div><strong>还没有课程数据</strong><p>确认已登录，并且手机已连接校园网或交大 VPN。</p></div>}
-            </>}
-        </>}
+        {tab === 'courses' && <BatchCourseBrowser
+          courses={courses}
+          loggedIn={loggedIn}
+          loading={busy}
+          onRefresh={() => void loadCourses()}
+          onLogin={() => void login()}
+          onBatchDownload={downloadBatch}
+          onNotice={setNotice}
+        />}
         {tab === 'calendar' && (loggedIn ?
-          <CalendarPage month={month} onMonthChange={setMonth} events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(month)} onOfficial={() => void openOfficialCalendar()}/>
+          <>
+            {calendarWarning && <div role="alert" className="notice calendar-warning"><Icon name="alert" size={18}/><span>{calendarWarning}</span>{calendarAuthRequired && <button className="text-button" onClick={() => void login()}>重新登录</button>}</div>}
+            <CalendarPage month={month} onMonthChange={setMonth} events={events} busy={calendarBusy} onRefresh={() => void loadCalendar(month)} onOfficial={() => void openOfficialCalendar()}/>
+          </>
           : <><div className="page-intro"><span className="eyebrow">STUDENT CALENDAR</span><h1>我的日程</h1><p>一页掌握学习节奏。</p></div><div className="empty-box"><div className="empty-picture"><Icon name="calendar" size={28}/></div><strong>登录后同步日历</strong><p>支持 Canvas 活动与作业截止日期。官方课表可通过单独入口查看。</p><button className="primary" disabled={!isAndroid || busy} onClick={() => void login()}>连接 jAccount <Icon name="arrow" size={15}/></button></div><button className="official-card" onClick={() => void openOfficialCalendar()}><span className="official-icon"><Icon name="school" size={21}/></span><span style={{flex:1}}><strong>查看交大官方课表</strong><small>前往 calendar.sjtu.edu.cn</small></span><Icon name="external" size={17}/></button></>)}
         {tab === 'downloads' && <>
           <div className="page-intro"><span className="eyebrow">TRANSFERS</span><h1>下载管理</h1><p>查看资料下载状态与进度。</p></div>
           <div className="metric-grid"><div className="metric"><span className="mini-icon"><Icon name="download" size={18}/></span><strong>{active}</strong><small>正在下载</small></div><div className="metric"><span className="mini-icon"><Icon name="check" size={18}/></span><strong>{finished}</strong><small>已完成</small></div><div className="metric"><span className="mini-icon"><Icon name="file" size={18}/></span><strong>{jobs.length}</strong><small>全部任务</small></div></div>
           <div className="section-title"><div><h2>传输列表</h2><p>{jobs.length} 项任务</p></div></div>
           {!jobs.length ? <div className="empty-box"><div className="empty-picture"><Icon name="download" size={28}/></div><strong>还没有下载任务</strong><p>进入课程页面，选择需要保存的课件即可。</p><button className="primary" onClick={() => setTab('courses')}>浏览课程 <Icon name="arrow" size={16}/></button></div> : <div className="job-list">{jobs.map(j => <div className="job-card" key={j.taskId}>
-            <div className="job-row"><div className="file-badge"><Icon name="download" size={19}/></div><div className="job-content"><strong>{j.fileName}</strong><small>{j.state === 'done' ? '已存入应用专属下载目录' : j.state === 'active' ? formatBytes(j.bytes) + ' / ' + formatBytes(j.total) : j.state === 'cancelled' ? '已取消' : '下载失败'}</small></div><span className={'job-state ' + j.state}>{j.state === 'done' ? '完成' : j.state === 'active' ? '下载中' : j.state === 'cancelled' ? '已取消' : '失败'}</span></div>
+            <div className="job-row"><div className="file-badge"><Icon name="download" size={19}/></div><div className="job-content"><strong>{j.fileName}</strong><small>{j.state === 'done' ? '已存入应用专属下载目录' : j.state === 'active' ? formatBytes(j.bytes) + ' / ' + formatBytes(j.total) : j.state === 'queued' ? '等待下载队列' : j.state === 'cancelled' ? '已取消' : '下载失败'}</small></div><span className={'job-state ' + j.state}>{j.state === 'done' ? '完成' : j.state === 'active' ? '下载中' : j.state === 'queued' ? '排队中' : j.state === 'cancelled' ? '已取消' : '失败'}</span></div>
             <div className="progress-track"><div style={{width:(j.state==='done'?100:j.total>0?Math.min(100,(j.bytes/j.total)*100):3)+'%'}}/></div>
             {j.state === 'active' && <button className="text-button" onClick={() => void cancel(j.taskId)}>取消下载</button>}
             {j.error && <small className="error-text">{j.error}</small>}
