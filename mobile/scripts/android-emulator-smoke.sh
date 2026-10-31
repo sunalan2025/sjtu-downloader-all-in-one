@@ -6,5 +6,20 @@ adb shell am start -W -n me.hisunalan.sjtudownloader.beta/me.hisunalan.sjtudownl
 sleep 8
 adb shell pidof me.hisunalan.sjtudownloader.beta
 adb exec-out screencap -p > mobile/emulator-results/home.png
+adb shell uiautomator dump /sdcard/window.xml || true
+adb pull /sdcard/window.xml mobile/emulator-results/home-hierarchy.xml || true
+# Exercise the four-tab navigation on the emulator.
+adb shell input tap 645 2200
+sleep 3
+adb exec-out screencap -p > mobile/emulator-results/calendar.png
+adb shell uiautomator dump /sdcard/window.xml || true
+adb pull /sdcard/window.xml mobile/emulator-results/calendar-hierarchy.xml || true
+adb shell input tap 320 560
+sleep 4
+adb exec-out screencap -p > mobile/emulator-results/login-attempt.png
 adb logcat -d -v brief > mobile/emulator-results/logcat.txt
+if grep -q 'FATAL EXCEPTION.*' mobile/emulator-results/logcat.txt; then
+  echo "Android app has a fatal exception"
+  exit 1
+fi
 echo "Emulator launch check finished"
