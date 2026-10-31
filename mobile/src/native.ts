@@ -15,6 +15,17 @@ export type CanvasFile = {
   locked: boolean
 }
 
+export type CalendarEvent = {
+  id: string
+  title: string
+  startTime: string
+  endTime: string
+  courseName: string
+  type: 'assignment' | 'event'
+}
+
+export type NativeInsets = { top: number; bottom: number; left: number; right: number }
+
 export type DownloadProgress = {
   taskId: string
   bytes: number
@@ -24,6 +35,9 @@ export type DownloadProgress = {
 
 type NativeCanvasApi = {
   login(): Promise<{ completed: boolean }>
+  getInsets(): Promise<NativeInsets>
+  calendar(options: { month: string }): Promise<{ items: CalendarEvent[] }>
+  openOfficialCalendar(): Promise<{ ok: boolean }>
   status(): Promise<{ loggedIn: boolean; name?: string }>
   courses(): Promise<{ items: CanvasCourse[] }>
   files(options: { courseId: string }): Promise<{ items: CanvasFile[] }>
