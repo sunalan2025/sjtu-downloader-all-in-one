@@ -232,6 +232,25 @@ export default function App() {
     void loadCalendar(weekStart)
   }, [weekStart, loggedIn])
 
+  useEffect(() => {
+    if (!isAndroid || !loggedIn) return
+    const check = () => {
+      if (document.visibilityState !== 'visible') return
+      // No manual refresh button: automatically update stale school data when
+      // the app returns to foreground, network reconnects or timer fires.
+      if (Date.now() - lastCalendarFetch.current < 5 * 60_000) return
+      void loadCalendar(weekStart, true)
+    }
+    const interval = window.setInterval(check, 2 * 60_000)
+    window.addEventListener('online', check)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('online', check)
+      document.removeEventListener('visibilitychange', check)
+    }
+  }, [weekStart, loggedIn])
+
   // Dates at the edges of the currently selected week still need their
   // previous/next day; also surface upcoming official events on Home.
   useEffect(()=>{
