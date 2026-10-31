@@ -26,8 +26,9 @@ function currentSemester(semesters: string[]): string {
   }).formatToParts(new Date())
   const year = Number(date.find(part => part.type === 'year')?.value)
   const month = Number(date.find(part => part.type === 'month')?.value)
-  const fall = month >= 8
-  const academicStart = fall ? year : year - 1
+  // January still belongs to the previous autumn term at SJTU.
+  const fall = month >= 8 || month === 1
+  const academicStart = fall && month === 1 ? year - 1 : (fall ? year : year - 1)
   const range = String(academicStart) + '-' + String(academicStart + 1)
   const season = fall
     ? /秋|fall|autumn|第一学期|第1学期|上学期|(?:[-/_]\s*1\s*$)/i
