@@ -63,6 +63,14 @@ public class SjtuCanvasPlugin extends Plugin {
     private final ExecutorService io = Executors.newFixedThreadPool(3);
     private final Map<String, AtomicBoolean> cancels = new ConcurrentHashMap<>();
 
+    private SessionCookieVault sessionVault;
+
+    private synchronized SessionCookieVault vault() {
+        if (sessionVault == null) sessionVault = new SessionCookieVault(getContext());
+        return sessionVault;
+    }
+
+
     @PluginMethod
     public void login(PluginCall call) {
         getActivity().runOnUiThread(() -> {
@@ -120,6 +128,7 @@ public class SjtuCanvasPlugin extends Plugin {
                         HttpURLConnection connection = connect(BASE + "/api/v1/users/self/profile", null);
                         ok = connection.getResponseCode() == 200;
                         connection.disconnect();
+                        if (ok) vault().saveAfterVerification();
                     } catch (Exception ignored) {}
                     final boolean verified = ok;
                     new Handler(Looper.getMainLooper()).post(() -> {
@@ -372,6 +381,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     valid = c.getResponseCode() == 200 && "calendar.sjtu.edu.cn".equalsIgnoreCase(c.getURL().getHost())
                         && c.getContentType() != null && c.getContentType().contains("json");
                     c.disconnect();
+                    if (valid) vault().saveAfterVerification();
                 } catch (Exception ignored) {}
                 final boolean success = valid;
                 new Handler(Looper.getMainLooper()).post(() -> {
@@ -668,6 +678,7 @@ public class SjtuCanvasPlugin extends Plugin {
         io.execute(() -> {
             try {
                 JSONObject profile = getObject(BASE + "/api/v1/users/self/profile");
+                vault().saveAfterVerification();
                 JSObject result = new JSObject();
                 result.put("loggedIn", true);
                 result.put("name", profile.optString("name", ""));
@@ -807,12 +818,16 @@ public class SjtuCanvasPlugin extends Plugin {
 
     @PluginMethod
     public void logout(PluginCall call) {
-        getActivity().runOnUiThread(() -> {
-            CookieManager.getInstance().removeAllCookies(null);
-            CookieManager.getInstance().flush();
-            JSObject result = new JSObject();
-            result.put("ok", true);
-            call.resolve(result);
+        io.execute(() -> {
+            vault().clearSavedSession();
+            getActivity().runOnUiThread(() -> {
+                CookieManager.getInstance().removeAllCookies(removed -> {
+                    CookieManager.getInstance().flush();
+                    JSObject result = new JSObject();
+                    result.put("ok", true);
+                    call.resolve(result);
+                });
+            });
         });
     }
 
@@ -826,6 +841,9 @@ public class SjtuCanvasPlugin extends Plugin {
     }
 
     private HttpURLConnection connect(String value, String referer) throws Exception {
+        // The first authenticated request after process restart restores encrypted
+        // session cookies before reading CookieManager for network headers.
+        vault().restoreOnce();
         URL url = new URL(value);
         for (int i = 0; i < 8; i++) {
             if (!"https".equalsIgnoreCase(url.getProtocol())) throw new Exception("禁止非 HTTPS 请求");
