@@ -456,7 +456,6 @@ export default function App() {
   }
 
   const active = jobs.filter(j => j.state === 'active').length
-  const finished = jobs.filter(j => j.state === 'done').length
   const today = shanghaiDate(new Date().toISOString())
   const calendarEvents = [...events,...neighborEvents,...personalEvents.map(asCalendarEvent)]
   const lastAgendaDate=dateOffset(today,13)
@@ -479,13 +478,12 @@ export default function App() {
     <div className="ambient ambient-one" aria-hidden="true"/>
     <div className="ambient ambient-two" aria-hidden="true"/>
     <div className="app-shell">
-      <header className="topbar glass">
+      {tab === 'home' && <header className="topbar glass">
         <div className="brand">
           <div className="brand-mark"><img src="./desktop-logo.png" alt="SJTU Downloader"/></div>
           <strong>SJTU Downloader</strong>
         </div>
-
-      </header>
+      </header>}
       {notice && <div role="alert" className="notice glass"><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}><Icon name="close" size={17}/></button></div>}
       {!isAndroid && <div className="preview-note">网页预览 · 登录、下载需在 Android 设备上测试</div>}
       <section className="content">
@@ -503,13 +501,6 @@ export default function App() {
                 <span className="session-indicator"><span className="connected-dot"/>已连接</span>
                 <button className="quiet-logout" onClick={() => void logout()}>退出账号</button>
               </div>}
-            </section>
-            <section className="home-summary glass">
-              <div><strong>{courses.length}</strong><span>课程</span></div>
-              <div className="summary-divider"/>
-              <div><strong>{active}</strong><span>下载中</span></div>
-              <div className="summary-divider"/>
-              <div><strong>{finished}</strong><span>已完成</span></div>
             </section>
             <section className="today-brief recent-agenda">
               <div className="recent-agenda-head">
