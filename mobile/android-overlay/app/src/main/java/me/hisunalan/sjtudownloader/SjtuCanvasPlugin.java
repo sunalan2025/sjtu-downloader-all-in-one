@@ -46,6 +46,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.EOFException;
 import java.util.Calendar;
 import java.util.GregorianCalendar;
 import java.util.Locale;
@@ -53,6 +55,11 @@ import java.util.TimeZone;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.ConnectException;
+import java.net.UnknownHostException;
+import javax.net.ssl.SSLException;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -1071,6 +1078,9 @@ public class SjtuCanvasPlugin extends Plugin {
             c.setReadTimeout(30000);
             c.setRequestProperty("User-Agent", "SJTU Downloader Android/0.1");
             c.setRequestProperty("Accept", "application/json, */*");
+            // A new request must not reuse an old VPN / campus-network TCP socket.
+            c.setUseCaches(false);
+            c.setRequestProperty("Connection", "close");
             if ("calendar.sjtu.edu.cn".equalsIgnoreCase(url.getHost())) {
                 c.setRequestProperty("X-Requested-With", "XMLHttpRequest");
             }
@@ -1093,41 +1103,121 @@ public class SjtuCanvasPlugin extends Plugin {
         throw new Exception("重定向次数过多");
     }
 
+    private static final int API_MAX_ATTEMPTS = 3;
+
+    /** Only retry idempotent JSON GET operations, never uploads or file-writing tasks. */
+    private static boolean transientIOException(IOException e) {
+        if (e instanceof SSLException || e instanceof UnknownHostException) return false;
+        return e instanceof SocketException
+            || e instanceof SocketTimeoutException
+            || e instanceof ConnectException
+            || e instanceof EOFException
+            || e instanceof java.io.InterruptedIOException;
+    }
+
+    private static boolean transientHttpStatus(int code) {
+        return code == 429 || code == 500 || code == 502 || code == 503 || code == 504;
+    }
+
+    private static void pauseApiRetry(int attempt) throws InterruptedException {
+        // Short bounded exponential backoff: 600ms, 1200ms. Respect interruption.
+        Thread.sleep(600L * (1L << attempt));
+    }
+
+    private static String canvasApiFailure(int code, String host) {
+        String service = "calendar.sjtu.edu.cn".equalsIgnoreCase(host) ? "正式课表" : "Canvas";
+        if (code == 401) return service + " 登录已失效（401），请重新认证";
+        if (code == 403) return service + " 没有此资源的访问权限（403）";
+        if (code == 404) return "此资源不存在或已被移除（404）";
+        if (code == 429) return service + " 请求过于频繁（429），请稍后再试";
+        if (code >= 500) return service + " 服务暂时不可用（" + code + "），请稍后重试";
+        return service + " 请求失败（HTTP " + code + "）";
+    }
+
+    private static final class JsonReply {
+        final String body;
+        final String link;
+        JsonReply(String body, String link) { this.body = body; this.link = link; }
+    }
+
+    /**
+     * GET a Canvas/Calendar JSON page. Retries socket aborts (ECONNABORTED),
+     * timeouts and temporary server errors with NEW connections. Never retries
+     * auth errors (401/403), TLS certificate errors or malformed JSON.
+     * No signed download URLs or credentials are exposed to the UI/log.
+     */
+    private JsonReply getJsonPage(String url, String referer) throws Exception {
+        for (int attempt = 0; attempt < API_MAX_ATTEMPTS; attempt++) {
+            HttpURLConnection c = null;
+            try {
+                c = connect(url, referer);
+                int code = c.getResponseCode();
+                if (code == 200) {
+                    String type = c.getContentType();
+                    if (type != null && type.toLowerCase(Locale.ROOT).contains("text/html")) {
+                        throw new Exception("服务器返回登录网页而不是数据，请重新登录后再试");
+                    }
+                    String text;
+                    try (InputStream in = c.getInputStream()) { text = readString(in); }
+                    return new JsonReply(text, c.getHeaderField("Link"));
+                }
+                String message = canvasApiFailure(code, c.getURL().getHost());
+                if (transientHttpStatus(code) && attempt < API_MAX_ATTEMPTS - 1) {
+                    // A new connection is opened on every attempt.
+                    c.disconnect();
+                    c = null;
+                    pauseApiRetry(attempt);
+                    continue;
+                }
+                throw new Exception(message);
+            } catch (IOException e) {
+                if (!transientIOException(e)) {
+                    if (e instanceof UnknownHostException) {
+                        throw new Exception("无法解析学校服务器地址，请检查校园网或 VPN 连接");
+                    }
+                    if (e instanceof SSLException) {
+                        throw new Exception("安全连接校验失败，请检查系统时间与网络证书");
+                    }
+                    throw e;
+                }
+                if (attempt < API_MAX_ATTEMPTS - 1) {
+                    if (c != null) { c.disconnect(); c = null; }
+                    pauseApiRetry(attempt);
+                    continue;
+                }
+                throw new Exception("网络连接被中断，已自动重试 3 次。请检查校园网或 VPN，然后点击重试");
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }
+        throw new Exception("网络请求未完成，请重试");
+    }
+
     private JSONObject getObject(String url) throws Exception {
         String referer = url.startsWith("https://calendar.sjtu.edu.cn/")
             ? "https://calendar.sjtu.edu.cn/ui/calendar" : BASE;
-        HttpURLConnection c = connect(url, referer);
-
-        try {
-            if (c.getResponseCode() != 200) throw new Exception("Canvas HTTP " + c.getResponseCode());
-            String json;
-            try (InputStream input = c.getInputStream()) { json = readString(input); }
-            return new JSONObject(json);
-        } finally { c.disconnect(); }
+        return new JSONObject(getJsonPage(url, referer).body);
     }
 
     private JSONArray getAllPages(String firstUrl) throws Exception {
         JSONArray combined = new JSONArray();
         String next = firstUrl;
         for (int page = 0; next != null && page < 100; page++) {
-            if (!next.startsWith(BASE + "/api/v1/")) throw new Exception("Canvas 翻页地址不合法");
-            HttpURLConnection c = connect(next, BASE);
-            try {
-                if (c.getResponseCode() != 200) throw new Exception("Canvas HTTP " + c.getResponseCode());
-                JSONArray batch;
-                try (InputStream in = c.getInputStream()) { batch = new JSONArray(readString(in)); }
-                for (int i = 0; i < batch.length(); i++) combined.put(batch.get(i));
-                next = null;
-                String links = c.getHeaderField("Link");
-                if (links != null) {
-                    for (String part : links.split(",")) {
-                        if (part.contains("rel=\"next\"")) {
-                            int a = part.indexOf('<'), b = part.indexOf('>', a + 1);
-                            if (a >= 0 && b > a) next = part.substring(a + 1, b);
-                        }
+            if (!next.startsWith(BASE + "/api/v1/")) {
+                throw new Exception("Canvas 翻页地址不合法");
+            }
+            JsonReply reply = getJsonPage(next, BASE);
+            JSONArray batch = new JSONArray(reply.body);
+            for (int i = 0; i < batch.length(); i++) combined.put(batch.get(i));
+            next = null;
+            if (reply.link != null) {
+                for (String part : reply.link.split(",")) {
+                    if (part.contains("rel=\"next\"")) {
+                        int a = part.indexOf('<'), b = part.indexOf('>', a + 1);
+                        if (a >= 0 && b > a) next = part.substring(a + 1, b);
                     }
                 }
-            } finally { c.disconnect(); }
+            }
         }
         return combined;
     }
