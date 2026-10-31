@@ -27,7 +27,7 @@ const adaptive = join(res, 'mipmap-anydpi-v26')
 await mkdir(adaptive, { recursive: true })
 const iconXml = `<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-  <background android:drawable="@color/ic_launcher_background"/>
+  <background android:drawable="@color/sjtu_launcher_background"/>
   <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
 </adaptive-icon>
 `
@@ -36,6 +36,6 @@ await writeFile(join(adaptive, 'ic_launcher_round.xml'), iconXml)
 const values = join(res, 'values')
 await mkdir(values, { recursive: true })
 await writeFile(join(values, 'sjtu_icon_background.xml'), `<?xml version="1.0" encoding="utf-8"?>
-<resources><color name="ic_launcher_background">#F9F6E9</color></resources>
+<resources><color name="sjtu_launcher_background">#F9F6E9</color></resources>
 `)
 console.log('Android launcher icons generated from the same build/icon.png used by the desktop app.')
