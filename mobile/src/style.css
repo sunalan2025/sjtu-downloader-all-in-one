@@ -430,7 +430,7 @@ html[data-tab-direction="backward"]::view-transition-new(mobile-screen) {
 .timetable {position:relative;display:flex;border-radius:24px;padding:14px 12px 14px 6px;
  margin:0;overflow:hidden;background:rgba(255,255,255,.48);border:1px solid #ffffffd9;}
 .timetable-axis {position:relative;flex:0 0 55px;min-width:55px;}
-.timetable-hour{position:absolute;right:12px;transform:translateY(-7px);font-size:10px;color:#9cabbd;white-space:nowrap;}
+.timetable-hour{position:absolute;right:12px;transform:translateY(-50%);font-size:10px;color:#9cabbd;white-space:nowrap;}
 .timetable-track{position:relative;min-width:0;flex:1;overflow:hidden;}
 .timetable-line{position:absolute;left:0;right:0;border-top:1px dashed rgba(103,139,185,.18);}
 .timetable-empty{position:absolute;inset:0;display:flex;justify-content:center;align-items:flex-start;
@@ -518,28 +518,90 @@ html[data-tab-direction="backward"]::view-transition-new(mobile-screen) {
  color:#8396ae;font-size:12px;font-weight:670;transition:background .22s,transform .24s var(--spring);}
 .calendar-display-switch button.on{background:rgba(255,255,255,.92);color:#3274b4;
  box-shadow:0 2px 7px rgba(53,86,134,.12);}
-.week-overview{margin-top:16px;padding:10px;border-radius:23px;background:rgba(255,255,255,.50);}
-.week-overview-track{display:grid;grid-template-columns:repeat(7,minmax(116px,1fr));gap:6px;
- overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:thin;padding-bottom:3px;}
-.week-overview-column{min-width:116px;min-height:195px;scroll-snap-align:start;border-radius:16px;
- border:1px solid rgba(255,255,255,.75);background:rgba(247,250,255,.46);padding:7px 5px;}
-.week-overview-column.is-today{background:rgba(223,239,255,.61);border-color:rgba(125,177,232,.46);}
-.week-overview-date{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;
- font-size:11px;color:#7890a9;padding:4px 5px 9px;}
-.week-overview-date strong{font-size:17px;color:#426e9d;}
-.week-overview-items{display:flex;flex-direction:column;gap:5px;}
-.week-overview-empty{font-size:15px;color:#a4b1c1;text-align:center;padding:23px 0;}
-.week-overview-event{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
- border:0;border-left:3px solid #76a5dc;border-radius:9px;width:100%;padding:7px 6px;
- background:rgba(218,234,253,.67);text-align:left;overflow:hidden;min-height:46px;}
-.week-overview-event.is-deadline{border-left-color:#dda76c;background:rgba(255,236,209,.67);}
-.week-overview-event strong{font-size:11px;font-weight:650;line-height:1.33;max-width:100%;
- display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;color:#405774;}
-.week-overview-time{font-size:10px;font-weight:760;color:#6288b0;}
-.week-overview-event.is-deadline .week-overview-time{color:#ae8248;}
-.week-more{border:0;background:transparent;color:#7b94b2;padding:5px;font-size:10px;text-align:left;}
-@media(min-width:850px){.week-overview-track{overflow-x:visible;}}
-
+/* Weekly timetable: a single scrolled grid keeps all columns on the SAME clock. */
+.week-overview {margin-top:16px;padding:13px 8px 10px;border-radius:23px;background:rgba(255,255,255,.5);}
+.week-view-hint {padding:1px 8px 10px;font-size:11px;color:#7c93af;}
+.week-timetable-scroll {
+  width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;
+  overscroll-behavior-x:contain;scroll-snap-type:x proximity;
+  scrollbar-width:thin;scrollbar-color:rgba(101,144,202,.32) transparent;
+  border-radius:16px;
+}
+.week-timetable-scroll:focus-visible {outline:2px solid #679de2;outline-offset:-2px;}
+.week-timetable-grid {
+  display:grid;grid-template-columns:50px repeat(7,minmax(116px,1fr));
+  width:max-content;min-width:100%;
+  --week-head-height:51px;--week-all-day-height:55px;
+}
+.week-time-axis {
+  position:sticky;left:0;z-index:5;
+  background:#f0f5fc;border-right:1px solid rgba(109,151,200,.16);
+}
+.week-time-column {
+  min-width:116px;scroll-snap-align:start;
+  border-right:1px solid rgba(112,153,199,.13);
+}
+.week-time-column.is-today {background:rgba(224,240,255,.36);}
+.week-time-header {
+  box-sizing:border-box;width:100%;height:var(--week-head-height);
+  border:0;border-bottom:1px solid rgba(119,156,205,.16);
+  background:rgba(243,248,254,.66);
+  display:flex;align-items:center;justify-content:center;flex-direction:column;
+  gap:1px;color:#7389a5;font-size:10px;
+}
+.week-time-header strong {font-size:16px;line-height:19px;font-weight:730;color:#406c9e;}
+.week-day-heading.picked {background:rgba(217,235,255,.91);color:#2c67ae;}
+.week-axis-heading {font-weight:700;font-size:11px;background:#f0f5fc;}
+.week-all-day {
+  box-sizing:border-box;height:var(--week-all-day-height);
+  display:flex;align-items:center;justify-content:center;
+  padding:5px 4px;overflow:hidden;
+  border-bottom:1px solid rgba(112,153,199,.18);
+  background:rgba(250,251,255,.34);
+}
+.week-axis-all-day {font-size:10px;color:#8397b0;background:#f0f5fc;}
+.week-all-day-empty {font-size:12px;color:#c4cfdd;}
+.week-all-day-chip {
+  display:flex;align-items:center;min-width:0;width:100%;gap:3px;
+  border:0;border-radius:8px;padding:6px 5px;
+  background:rgba(255,233,204,.72);color:#966c35;
+  font-size:10px;text-align:left;
+}
+.week-all-day-chip span {overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0;flex:1;}
+.week-all-day-chip b {flex:none;font-size:9px;}
+.week-hour-column,.week-hour-lane {position:relative;box-sizing:border-box;}
+.week-hour-column {background:#f0f5fc;}
+.week-time-label {
+  position:absolute;left:1px;right:6px;text-align:right;
+  transform:translateY(-50%);color:#8195ad;white-space:nowrap;
+  font-size:9px;line-height:12px;
+}
+.week-hour-rule {
+  position:absolute;left:0;right:0;
+  border-top:1px dashed rgba(100,145,195,.23);
+  pointer-events:none;
+}
+.week-time-event {
+  position:absolute;z-index:1;box-sizing:border-box;
+  min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px;
+  padding:5px 5px;border-radius:8px;
+  text-align:left;overflow:hidden;
+  border:1px solid rgba(255,255,255,.89);border-left:3px solid #5794d2;
+  background:rgba(213,233,255,.9);color:#335a8c;
+  box-shadow:0 2px 7px rgba(46,84,130,.10);
+}
+.week-time-event span {font-size:9px;font-weight:710;white-space:nowrap;}
+.week-time-event strong {
+  font-size:10px;font-weight:660;line-height:1.3;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;
+  overflow:hidden;overflow-wrap:anywhere;
+}
+.week-time-event.teal {background:#ddf4eb;color:#28715e;border-left-color:#58ac99;}
+.week-time-event.lavender {background:#ece4fa;color:#75609e;border-left-color:#9a80cb;}
+.week-time-event.amber {background:#faecd8;color:#906832;border-left-color:#d6a668;}
+@media(min-width:980px) {
+  .week-timetable-grid {width:100%;grid-template-columns:50px repeat(7,minmax(0,1fr));}
+}
 /* Secondary navigation follows the same masked left/right language as the main tabs. */
 .course-screen {animation:courseListReveal .34s cubic-bezier(.2,.78,.2,1) both;}
 .course-screen--detail {animation-name:courseDetailReveal;}

@@ -27,7 +27,7 @@ export const currentWeekStart = () => monday(currentDate())
 const timeText = (time: string) => {
   if (!time || /^\d{4}-\d\d-\d\d$/.test(time)) return '全天'
   const d = new Date(time)
-  return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('zh-CN',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false}).format(d)
+  return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('zh-CN',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d)
 }
 const minute = (time: string, fallback = 480) => {
   const t = timeText(time).match(/^(\d{2}):(\d{2})$/)
@@ -95,6 +95,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   },[today])
   const weekStart=monday(selected)
   const weekDates=Array.from({length:7},(_,i)=>nextDay(weekStart,i))
+  const weekScrollRef=useRef<HTMLDivElement>(null)
   const eventMap=useMemo(()=>{
     const map=new Map<string,CalendarEvent[]>()
     const seen=new Set<string>()
@@ -107,6 +108,29 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     }
     return map
   },[events])
+  // Both the hour labels and all seven day columns use one minute-to-pixel
+  // function. Vertical positions never depend on how many cards precede a class.
+  const weekTimed=weekDates.flatMap(date =>
+    (eventMap.get(date)||[]).filter(event=>!isHomework(event)&&isTimed(event)))
+  const weekFirstHour=weekTimed.length
+    ? Math.max(6,Math.floor(Math.min(...weekTimed.map(e=>minute(e.startTime)))/60)-1) : 8
+  const weekLastHour=weekTimed.length
+    ? Math.min(23,Math.max(weekFirstHour+3,
+        Math.ceil(Math.max(...weekTimed.map(e=>Math.max(minute(e.endTime,minute(e.startTime)+45),minute(e.startTime)+28)))/60)+1))
+    : 18
+  const WEEK_HOUR_PX=60
+  const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX
+  const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
+  useEffect(()=>{
+    if(display!=='week')return
+    const node=weekScrollRef.current
+    if(!node)return
+    // The weekday header and timed lanes live inside the SAME scroll container.
+    // Center the selected day when a new week is shown (no header/grid drift).
+    const index=Math.max(0,weekDates.indexOf(selected))
+    const column=node.querySelectorAll<HTMLElement>('.week-time-column')[index]
+    if(column)node.scrollLeft=Math.max(0,column.offsetLeft-56)
+  },[display,weekStart])
   const dayEvents=eventMap.get(selected)||[]
   const classEvents=dayEvents.filter(isClass)
   const activityEvents=dayEvents.filter(isActivity)
@@ -177,26 +201,58 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
 
     <div key={display === 'week' ? 'week-' + weekStart : 'day-' + selected}
       className={'calendar-panel-transition calendar-panel--' + motionDirection}>
-    {display==='week' && <section className="week-overview glass" aria-label="本周课程与截止日期">
-      <div className="week-overview-track">
-        {weekDates.map(d=>{
-          const entries=(eventMap.get(d)||[]).slice().sort((a,b)=>a.startTime.localeCompare(b.startTime))
-          return <div key={d} className={'week-overview-column '+(d===today?'is-today':'')}>
-            <button className="week-overview-date" onClick={()=>{select(d);setDisplay('day')}}>
-              <span>{DOW[dayIndex(d)]}</span><strong>{Number(d.slice(-2))}</strong>
-            </button>
-            <div className="week-overview-items">
-              {entries.length===0 && <span className="week-overview-empty">—</span>}
-              {entries.slice(0,8).map(e=><button type="button" key={e.id}
-                className={'week-overview-event '+(isHomework(e)?'is-deadline':'is-course')}
-                onClick={()=>{select(d);setDisplay('day')}} title={e.title}>
-                <span className="week-overview-time">{isHomework(e)?'DDL':timeText(e.startTime)}</span>
-                <strong>{e.title}</strong>
-              </button>)}
-              {entries.length>8 && <button className="week-more" onClick={()=>{select(d);setDisplay('day')}}>还有 {entries.length-8} 项</button>}
+    {display==='week' && <section className="week-overview glass" aria-label="按时间对齐的本周课程表">
+      <div className="week-view-hint">同一水平位置代表同一时间 · 左右滑动查看七天</div>
+      <div className="week-timetable-scroll" ref={weekScrollRef} tabIndex={0}
+        role="region" aria-label="本周课程时间表，可左右滚动">
+        <div className="week-timetable-grid">
+          <div className="week-time-axis">
+            <div className="week-time-header week-axis-heading">时间</div>
+            <div className="week-all-day week-axis-all-day">全天</div>
+            <div className="week-hour-column" style={{height:weekHeight}}>
+              {Array.from({length:weekLastHour-weekFirstHour+1},(_,i)=>i+weekFirstHour).map(hour=>
+                <div className="week-time-label" key={hour}
+                  style={{top:weekPosition(hour*60)}}>{pad(hour)}:00</div>)}
             </div>
           </div>
-        })}
+          {weekDates.map(date=>{
+            const entries=eventMap.get(date)||[]
+            const allDay=entries.filter(e=>isHomework(e)||!isTimed(e))
+            const placed=placeClasses(entries.filter(e=>!isHomework(e)))
+            const weekday=DOW[dayIndex(date)]
+            return <div key={date} className={'week-time-column'+(date===today?' is-today':'')}
+              data-date={date}>
+              <button type="button" className={'week-time-header week-day-heading'+(date===selected?' picked':'')}
+                onClick={()=>{select(date);setDisplay('day')}} aria-label={weekday+' '+date+'，查看日课表'}>
+                <span>{weekday}</span><strong>{Number(date.slice(-2))}</strong>
+              </button>
+              <div className="week-all-day">
+                {allDay.length>0 ? <button type="button" className="week-all-day-chip"
+                  onClick={()=>{select(date);setDisplay('day')}} title={allDay.map(e=>e.title).join('、')}>
+                  <Icon name={allDay.some(isHomework)?'clock':'calendar'} size={12}/>
+                  <span>{allDay[0].title}</span>
+                  {allDay.length>1&&<b>+{allDay.length-1}</b>}
+                </button> : <span className="week-all-day-empty">—</span>}
+              </div>
+              <div className="week-hour-lane" style={{height:weekHeight}}>
+                {Array.from({length:weekLastHour-weekFirstHour+1},(_,i)=>i+weekFirstHour).map(hour=>
+                  <div key={hour} className="week-hour-rule" style={{top:weekPosition(hour*60)}}/>)}
+                {placed.map(({event,start,end,left,width,tone})=>
+                  <button type="button" key={event.id} className={'week-time-event '+tone}
+                    style={{
+                      top:weekPosition(start),
+                      height:Math.max(24,weekPosition(end)-weekPosition(start)-3),
+                      left:left+'%',width:'calc('+width+'% - 2px)'
+                    }}
+                    onClick={()=>{select(date);setDisplay('day')}}
+                    aria-label={timeText(event.startTime)+' '+event.title}>
+                    <span>{timeText(event.startTime)}</span>
+                    <strong>{event.title}</strong>
+                  </button>)}
+              </div>
+            </div>
+          })}
+        </div>
       </div>
     </section>}
     {display==='day'&&<>
