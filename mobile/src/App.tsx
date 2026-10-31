@@ -310,7 +310,9 @@ export default function App() {
       const result = await native.status()
       setLoggedIn(result.loggedIn)
       setUser(result.name || '')
-      if (result.loggedIn) await loadCourses()
+      // Restore Home immediately after verifying the login session. Course
+      // pagination runs in the background instead of blocking login completion.
+      if (result.loggedIn) void loadCourses()
     } catch (e) { setNotice('连接 Canvas 失败：' + String(e)) }
     finally { setSessionChecking(false) }
   }
