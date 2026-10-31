@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41211146505 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41219541926 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.9-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.9-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.10-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.10-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.9-beta
+          TAG=android-v0.4.10-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.9-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.10-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.9-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.10-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.9 Beta" \
-              --notes "Android v0.4.9 Beta: Android system Back gesture and in-app folder Back now dismiss long-press multi-selection first, without leaving the current course folder. When the last selected file or course is deselected, selection mode and its checkboxes automatically close. Removed the technical 'selected date centered' banner from the calendar while retaining three-day centered navigation, and removed the 'tap course / long-press' helper copy from the course list. Android APK build, typecheck and artifact integrity verified by GitHub Actions run 41211146505. On-device behavior still requires testing. Public test-signing certificate only, not a trusted production build."
+              --title "SJTU Downloader Android v0.4.10 Beta" \
+              --notes "Android v0.4.10 Beta: optimized independent SJTU timetable authentication using a bounded one-day API probe instead of a full-month fetch, bypassed re-login when the official calendar session is recently verified, isolated calendar auth from bulk Canvas requests, stopped a competing background SSO WebView, and removed duplicate post-auth refresh. A successful jAccount login always lands on Home immediately; course sync continues asynchronously. The week view now uses a neutral 'Calendar' heading rather than 'three-day', and its all-day lane grows to fit every homework/all-day item and wraps full titles. TypeScript, Android APK build and APK identity checks passed in GitHub Actions run 41219541926. Connection speed and full-day layout require real-device/network validation. Signed with a public test key, not production trusted."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
