@@ -28,6 +28,8 @@ export default function App() {
   const tabRef = useRef<Tab>('home')
   tabRef.current = tab
   const courseBrowser = useRef<CourseBrowserHandle>(null)
+  const calendarRequestId = useRef(0)
+  const lastCalendarFetch = useRef(0)
   const onSystemBack = useCallback(() => {
     // The Android system gesture/button first closes a nested course view,
     // then moves to Home, and only minimizes from the root.
@@ -37,6 +39,12 @@ export default function App() {
   }, [])
   const switchTab = (next: Tab) => {
     if (next === tab) return
+    if (next === 'calendar') {
+      // Returning to the calendar always shows today's schedule automatically.
+      const current = currentMonth()
+      if (month !== current) setMonth(current)
+      else if (loggedIn && Date.now() - lastCalendarFetch.current > 90_000) void loadCalendar(current)
+    }
     if (isAndroid) void Haptics.selectionChanged().catch(() => {})
     setTab(next)
     window.scrollTo({ top: 0, behavior: 'instant' })
@@ -52,6 +60,7 @@ export default function App() {
   const [calendarBusy, setCalendarBusy] = useState(false)
   const [calendarWarning, setCalendarWarning] = useState('')
   const [calendarAuthRequired, setCalendarAuthRequired] = useState(false)
+  const [officialConnected, setOfficialConnected] = useState(false)
   const [diagnostic, setDiagnostic] = useState('')
   const [diagnosing, setDiagnosing] = useState(false)
   const [notice, setNotice] = useState('')
@@ -100,12 +109,17 @@ export default function App() {
       setJobs(previous => previous.map(j => j.taskId === event.taskId
         ? { ...j, bytes: event.bytes, total: event.total } : j))
     }).then(h => { if (disposed) void h.remove(); else handle = h })
+    let calendarHandle: { remove(): Promise<void> } | undefined
+    void native.addListener('calendarSessionReady', () => {
+      if (!disposed) void loadCalendar(currentMonth())
+    }).then(h => { if (disposed) void h.remove(); else calendarHandle = h }).catch(() => {})
     return () => {
       disposed = true
       window.removeEventListener('resize', applyInsets)
       window.removeEventListener('focus', checkOnReturn)
       document.removeEventListener('visibilitychange', checkOnReturn)
       if (handle) void handle.remove()
+      if (calendarHandle) void calendarHandle.remove()
     }
   }, [])
 
@@ -138,7 +152,7 @@ export default function App() {
     if (!window.confirm('确定退出登录吗？这会清除手机上保存的交大登录会话。')) return
     try {
       await native.logout()
-      setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setCalendarAuthRequired(false)
+      setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setCalendarAuthRequired(false); setOfficialConnected(false)
       setTab('home')
     } catch (e) { setNotice(String(e)) }
   }
@@ -149,18 +163,25 @@ export default function App() {
     finally { setBusy(false) }
   }
   async function loadCalendar(target: string): Promise<void> {
+    const requestId = ++calendarRequestId.current
     setCalendarBusy(true)
     try {
       const result = await native.calendar({ month: target })
+      if (requestId !== calendarRequestId.current) return
       setEvents(result.items)
+      setOfficialConnected(!!result.officialConnected)
       setCalendarWarning(result.warning || '')
       setCalendarAuthRequired(!!result.authRequired)
+      lastCalendarFetch.current = Date.now()
     } catch (e) {
+      if (requestId !== calendarRequestId.current) return
       setEvents([])
+      setOfficialConnected(false)
       setCalendarAuthRequired(false)
-      setCalendarWarning('日历同步失败：' + String(e))
+      setCalendarWarning('日程同步失败：' + String(e))
+    } finally {
+      if (requestId === calendarRequestId.current) setCalendarBusy(false)
     }
-    finally { setCalendarBusy(false) }
   }
   async function openOfficialCalendar(): Promise<void> {
     if (!isAndroid) { setNotice('此操作只能在 Android 设备上使用'); return }
@@ -288,7 +309,7 @@ export default function App() {
             ? <>
               <CalendarPage month={month} onMonthChange={setMonth} events={events}
                 busy={calendarBusy} onRefresh={() => void loadCalendar(month)}
-                onOfficial={() => void openOfficialCalendar()}/>
+                onOfficial={() => void openOfficialCalendar()} officialConnected={officialConnected}/>
               <details className="diagnostic glass">
                 <summary><Icon name="shield" size={16}/>连接状态 <Icon name="right" size={15}/></summary>
                 {calendarWarning && <p className="diagnostic-hint">{calendarWarning}</p>}
