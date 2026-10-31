@@ -24,9 +24,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
-      - name: Install Android SDK
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      # GitHub-hosted Ubuntu runners already ship Android cmdline-tools and SDK.
+      # The deprecated setup-android@v3 action requests removed package `tools`.
+      - name: Verify Android SDK and install required packages
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          sdkmanager --version
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
       - name: Install and build mobile UI
         working-directory: mobile
         run: |
