@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41219541926 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41221840405 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.10-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.10-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.11-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.11-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.10-beta
+          TAG=android-v0.4.11-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.10-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.11-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.10-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.11-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.10 Beta" \
-              --notes "Android v0.4.10 Beta: optimized independent SJTU timetable authentication using a bounded one-day API probe instead of a full-month fetch, bypassed re-login when the official calendar session is recently verified, isolated calendar auth from bulk Canvas requests, stopped a competing background SSO WebView, and removed duplicate post-auth refresh. A successful jAccount login always lands on Home immediately; course sync continues asynchronously. The week view now uses a neutral 'Calendar' heading rather than 'three-day', and its all-day lane grows to fit every homework/all-day item and wraps full titles. TypeScript, Android APK build and APK identity checks passed in GitHub Actions run 41219541926. Connection speed and full-day layout require real-device/network validation. Signed with a public test key, not production trusted."
+              --title "SJTU Downloader Android v0.4.11 Beta" \
+              --notes "Android v0.4.11 Beta: Home statistics (Courses, Downloading, Completed) have been removed entirely; the SJTU Downloader brand header now appears only on Home. Introduces a real native Android home screen widget named SJTU Today Schedule (about 4x3), displaying the current or upcoming class, classroom, countdown until start/end, and the next class. Data comes from already-synced official school calendar and local personal events; no passwords/tokens are saved in the widget. Widget state refreshes when the app syncs, at day rollover and at requested class-change/15-minute reminder boundaries using inexact Android alarms. Battery policies may delay updates: it is not a guaranteed minute-accurate countdown or notification push. Add it by long-pressing the Android home screen and choosing Widgets > SJTU Downloader Beta > SJTU Today Schedule. Compiled, Android manifest widget receiver inspected, APK identity verified by GitHub Actions run 41221840405. No OEM-specific launcher testing yet; public TEST signing only."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
