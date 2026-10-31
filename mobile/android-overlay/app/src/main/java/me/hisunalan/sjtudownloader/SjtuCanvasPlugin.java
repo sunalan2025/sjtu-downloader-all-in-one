@@ -547,6 +547,11 @@ public class SjtuCanvasPlugin extends Plugin {
                 if (!url.startsWith("https://")) throw new Exception("Canvas 未提供有效 HTTPS 下载链接");
                 String name = cleanName(info.optString("display_name", info.optString("filename", "download-" + fileId)));
                 File root = new File(getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "SJTU Downloader");
+                // Preserve desktop-style folder organization, never trust raw path fragments.
+                String term = call.getString("term", "");
+                String courseName = call.getString("courseName", "");
+                if (!term.trim().isEmpty()) root = new File(root, cleanName(term));
+                if (!courseName.trim().isEmpty()) root = new File(root, cleanName(courseName));
                 if (!root.exists() && !root.mkdirs()) throw new Exception("无法创建下载目录");
                 File target = uniqueFile(root, name);
                 temp = new File(root, "." + taskId.replaceAll("[^A-Za-z0-9_-]", "_") + ".part");
