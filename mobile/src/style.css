@@ -684,3 +684,210 @@ button:active:not(:disabled) { transform:scale(.965); }
  .today-pill{padding:0 10px;}
  .calendar-add{width:32px;height:32px;}
 }
+
+/* v0.4.8 — Classroom labels share the existing positioned week column.
+   Do not expand columns beyond the phone viewport. */
+.week-time-event .week-classroom {
+  display:block;min-width:0;max-width:100%;
+  font-size:9px;font-weight:600;line-height:1.28;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:inherit;opacity:.78;
+}
+.week-time-event {padding:5px 4px;gap:3px;}
+.week-time-event strong {-webkit-line-clamp:2;}
+
+/* Day schedule becomes three categorized lists, not a compressed clock grid. */
+.day-category-list{display:flex;flex-direction:column;gap:17px;min-width:0;}
+.day-group {min-width:0;--group-ink:#4882bd;--group-bg:#e6f1ff;}
+.day-group--homework{--group-ink:#bd8548;--group-bg:#fff0dc;}
+.day-group--exam{--group-ink:#aa669f;--group-bg:#f7e8f6;}
+.day-group-title{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 6px 10px;gap:8px;
+}
+.day-group-heading{display:flex;align-items:center;gap:8px;}
+.day-group-heading h2{font-size:14px;color:#324f73;font-weight:740;margin:0;}
+.day-group-dot{height:9px;width:9px;flex:none;border-radius:50%;background:var(--group-ink);}
+.day-group-title>span{color:#8b9cb0;font-size:11px;}
+.day-group-body{
+  min-width:0;border-radius:21px;overflow:hidden;
+  border:1px solid rgba(255,255,255,.9);
+  background:rgba(255,255,255,.55);
+  box-shadow:0 8px 25px rgba(63,97,142,.055);
+}
+.day-group-item{
+  min-width:0;display:flex;align-items:center;gap:12px;
+  padding:14px 13px;min-height:67px;
+}
+.day-group-item+.day-group-item{border-top:1px solid rgba(102,137,176,.12);}
+.day-item-time{
+  display:flex;flex-direction:column;justify-content:center;gap:3px;
+  flex:0 0 54px;min-width:0;color:var(--group-ink);
+}
+.day-item-time strong{font-size:12px;line-height:1.25;white-space:nowrap;}
+.day-item-time small{font-size:10px;color:#91a0b3;}
+.day-item-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;}
+.day-item-copy strong{
+  color:#30445f;font-size:13px;line-height:1.45;font-weight:670;
+  overflow-wrap:anywhere;
+}
+.day-item-place,.day-item-subtitle{
+  display:block;font-size:11px;color:#7891aa;line-height:1.35;
+  overflow-wrap:anywhere;
+}
+.day-item-place{color:#4c7cae;}
+.day-item-edit{
+  border:0;flex:none;border-radius:10px;background:var(--group-bg);
+  color:var(--group-ink);font-size:11px;font-weight:690;padding:8px 9px;
+}
+.day-group-empty{padding:15px 14px;color:#97a7ba;font-size:12px;}
+@media(max-width:350px){
+  .day-group-item{padding:12px 10px;gap:9px;}
+  .day-item-time{flex-basis:45px;}
+  .day-item-copy strong{font-size:12px;}
+}
+
+/* Recent agenda is date-led. Three fixed sections always visible (today,
+   tomorrow, day after); subsequent dates appear only when events exist. */
+.recent-agenda-groups{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
+.recent-day{
+  min-width:0;overflow:hidden;border-radius:21px;
+  background:rgba(255,255,255,.52);
+}
+.recent-day-heading{
+  display:flex;align-items:baseline;gap:8px;padding:13px 15px 10px;
+}
+.recent-day-heading strong{font-size:14px;font-weight:760;color:#315478;}
+.recent-day-heading span{font-size:11px;color:#8a9fb6;}
+.recent-day-heading small{margin-left:auto;color:#9caabc;font-size:11px;}
+.recent-day-items{padding:0 12px 7px;}
+.recent-agenda-item{
+  display:flex;align-items:center;gap:10px;min-height:58px;
+  border-top:1px solid rgba(107,145,184,.11);padding:10px 2px;
+}
+.recent-agenda-time{
+  flex:0 0 42px;font-size:11px;font-weight:740;white-space:nowrap;color:#5180ac;
+}
+.recent-agenda-body{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px;}
+.recent-agenda-body strong{font-size:12px;line-height:1.4;color:#314969;
+  font-weight:680;overflow-wrap:anywhere;}
+.recent-agenda-body small{font-size:10px;color:#8397ae;line-height:1.35;overflow-wrap:anywhere;}
+.recent-agenda-item.agenda-exam .recent-agenda-time{color:#a66ea2;}
+.recent-agenda-item.agenda-homework .recent-agenda-time{color:#b68555;}
+.recent-agenda-item button{
+  flex:none;border:0;background:#e3f1fd;color:#4b7ead;border-radius:10px;
+  padding:8px 9px;font-size:10px;font-weight:700;
+}
+.recent-day-empty{margin:0;padding:7px 15px 17px;color:#a4b0bf;font-size:11px;}
+
+/* Download page is isolated from legacy .job-list/.job-card/.glass generic rules.
+   Every card is fluid and has its own safe min-width:0 wrapping context. */
+.downloads-layout{display:block;min-width:0;width:100%;max-width:100%;overflow:visible;}
+.downloads-heading{
+  display:flex;align-items:flex-start;gap:8px;justify-content:space-between;
+  min-width:0;margin-bottom:18px;
+}
+.downloads-heading>div:first-child{min-width:0;display:flex;flex-direction:column;gap:5px;}
+.downloads-heading h1{margin:0;font-size:28px;line-height:1.3;}
+.downloads-heading>div:first-child>span{font-size:11px;color:#879bb4;}
+.downloads-heading-actions{
+  flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px;
+  max-width:45%;min-width:0;
+}
+.downloads-heading-actions>span{font-size:11px;line-height:1.35;color:#8a9bb0;text-align:right;}
+.downloads-clear{
+  padding:8px 10px;border:1px solid rgba(132,161,196,.21);
+  background:rgba(235,243,252,.8);border-radius:10px;
+  color:#6384a7;font-size:11px;font-weight:680;
+}
+.downloads-folder{
+  display:flex;align-items:center;gap:12px;
+  width:100%;min-width:0;padding:13px;margin-bottom:23px;
+  border:1px solid rgba(255,255,255,.88);border-radius:19px;
+  background:rgba(238,247,255,.69);
+}
+.downloads-folder-icon{
+  width:38px;height:38px;border-radius:12px;display:grid;place-items:center;
+  flex:none;background:rgba(213,232,253,.91);color:#4c85be;
+}
+.downloads-folder>div:last-child{min-width:0;display:flex;flex-direction:column;gap:4px;}
+.downloads-folder strong{font-size:12px;color:#385d81;}
+.downloads-folder span{
+  display:block;min-width:0;font-size:11px;line-height:1.45;
+  color:#738ba5;overflow-wrap:anywhere;
+}
+.downloads-empty{
+  width:100%;min-height:190px;border:1px solid rgba(255,255,255,.84);
+  border-radius:22px;padding:26px 18px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:11px;text-align:center;
+  color:#88a1bd;background:rgba(255,255,255,.51);
+}
+.downloads-empty strong{font-size:13px;color:#547191;}
+.downloads-empty span{font-size:11px;line-height:1.5;color:#91a2b5;}
+.downloads-sections{display:flex;flex-direction:column;gap:22px;min-width:0;}
+.downloads-section{min-width:0;}
+.downloads-section-heading{display:flex;align-items:baseline;justify-content:space-between;
+  padding:0 4px 10px;gap:8px;}
+.downloads-section-heading h2{margin:0;color:#3d5878;font-size:14px;font-weight:750;}
+.downloads-section-heading>span{font-size:11px;color:#91a2b5;}
+.downloads-task-list{display:flex;flex-direction:column;gap:10px;min-width:0;}
+.download-task-card{
+  display:block;min-width:0;width:100%;max-width:100%;padding:14px;
+  border-radius:18px;border:1px solid rgba(255,255,255,.90);
+  background:rgba(255,255,255,.56);
+  box-shadow:0 5px 17px rgba(44,76,124,.05);
+}
+.download-task-top{display:flex;align-items:flex-start;gap:10px;min-width:0;}
+.download-task-icon{
+  flex:0 0 34px;width:34px;height:34px;border-radius:11px;
+  background:rgba(219,234,253,.84);color:#5a87b7;
+  display:grid;place-items:center;
+}
+.download-task--done .download-task-icon{background:#e1f4ed;color:#3d9b7e;}
+.download-task--error .download-task-icon{background:#ffebec;color:#b57b77;}
+.download-task-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;}
+.download-task-info strong{
+  min-width:0;color:#344a63;overflow-wrap:anywhere;
+  font-size:12px;font-weight:710;line-height:1.44;
+}
+.download-task-info>span{min-width:0;overflow-wrap:anywhere;font-size:11px;
+  color:#8b9aaf;line-height:1.45;}
+.download-task-status{
+  flex:none;display:block;max-width:67px;text-align:center;
+  border-radius:9px;padding:5px 7px;
+  font-size:10px;line-height:1.3;white-space:nowrap;
+  background:#e2eefb;color:#4b7fab;
+}
+.download-task-status.status-done{background:#e3f4eb;color:#3f9178;}
+.download-task-status.status-error{background:#fce9e9;color:#ad6a6a;}
+.download-task-status.status-cancelled{background:#eff0f3;color:#8b8e99;}
+.download-task-status.status-queued{background:#edf2f9;color:#8293a8;}
+.download-task-progress{
+  margin-top:13px;height:5px;width:100%;border-radius:9px;
+  overflow:hidden;background:rgba(130,167,210,.19);
+}
+.download-task-progress>span{
+  display:block;height:100%;border-radius:inherit;
+  background:linear-gradient(90deg,#4b8ed5,#85c9df);
+  transition:width .28s ease;
+}
+.download-task-path{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  flex-wrap:wrap;gap:10px;margin-top:13px;
+  padding:11px 0 0;border-top:1px solid rgba(122,156,196,.13);
+}
+.download-task-path>span{flex:1 1 150px;min-width:0;color:#68839f;
+  font-size:10px;line-height:1.55;overflow-wrap:anywhere;}
+.download-task-path button,.download-task-foot button{
+  flex:none;border:1px solid rgba(111,159,210,.22);
+  background:rgba(225,239,252,.92);
+  border-radius:10px;color:#4478ab;font-size:11px;font-weight:680;
+  padding:8px 11px;
+}
+.download-task-foot{display:flex;justify-content:flex-end;margin-top:10px;}
+@media(max-width:370px){
+  .download-task-card{padding:12px 10px;}
+  .download-task-top{gap:8px;}
+  .download-task-icon{flex-basis:30px;width:30px;height:30px;}
+  .download-task-status{font-size:9px;padding:5px 6px;}
+}
