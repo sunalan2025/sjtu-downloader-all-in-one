@@ -320,8 +320,9 @@ export default function App() {
     try {
       await native.login()
       await refreshSession()
-      // Keep the user on Home after authentication. The course list is still
-      // synced automatically, but navigation stays under the user's control.
+      // Every successful login lands on Home, including sessions started from
+      // the course/calendar sign-in actions. Do not redirect to the course list.
+      showTab('home')
     } catch (e) { setNotice('登录未完成：' + String(e)) }
     finally { setBusy(false) }
   }
