@@ -95,7 +95,22 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   },[today])
   const weekStart=monday(selected)
   const weekDates=Array.from({length:7},(_,i)=>nextDay(weekStart,i))
-  const weekScrollRef=useRef<HTMLDivElement>(null)
+  // Portrait displays two or three readable columns; the seven-day selector
+  // above remains visible. Tablets/desktops see all seven columns at once.
+  const [visibleWeekCount,setVisibleWeekCount]=useState(()=>{
+    if(typeof window==='undefined')return 7
+    return window.innerWidth<410?2:window.innerWidth<740?3:7
+  })
+  const weekSwipeStart=useRef<{x:number;y:number}|null>(null)
+  useEffect(()=>{
+    const update=()=>setVisibleWeekCount(window.innerWidth<410?2:window.innerWidth<740?3:7)
+    window.addEventListener('resize',update)
+    return ()=>window.removeEventListener('resize',update)
+  },[])
+  const currentWeekIndex=Math.max(0,weekDates.indexOf(selected))
+  const startWeekIndex=Math.min(Math.floor(currentWeekIndex/visibleWeekCount)*visibleWeekCount,7-visibleWeekCount)
+  const visibleWeekDates=weekDates.slice(startWeekIndex,startWeekIndex+visibleWeekCount)
+
   const eventMap=useMemo(()=>{
     const map=new Map<string,CalendarEvent[]>()
     const seen=new Set<string>()
@@ -118,23 +133,9 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     ? Math.min(23,Math.max(weekFirstHour+3,
         Math.ceil(Math.max(...weekTimed.map(e=>Math.max(minute(e.endTime,minute(e.startTime)+45),minute(e.startTime)+28)))/60)+1))
     : 18
-  const WEEK_HOUR_PX=60
+  const WEEK_HOUR_PX=visibleWeekCount===7?58:54
   const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX
   const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
-  useEffect(()=>{
-    if(display!=='week')return
-    const node=weekScrollRef.current
-    if(!node)return
-    // The weekday header and timed lanes live inside the SAME scroll container.
-    // Center the selected day when a new week is shown (no header/grid drift).
-    const index=Math.max(0,weekDates.indexOf(selected))
-    const column=node.querySelectorAll<HTMLElement>('.week-time-column')[index]
-    if(column) {
-      const target=column.getBoundingClientRect().left-
-        node.getBoundingClientRect().left+node.scrollLeft-56
-      node.scrollLeft=Math.max(0,target)
-    }
-  },[display,weekStart])
   const dayEvents=eventMap.get(selected)||[]
   const classEvents=dayEvents.filter(isClass)
   const activityEvents=dayEvents.filter(isActivity)
@@ -189,7 +190,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
         <button aria-label="下一周" onClick={()=>shift(7)}><Icon name="right" size={18}/></button>
       </div>
       <div className="week-days">{weekDates.map((d,i)=><button type="button" key={d}
-        onClick={()=>{select(d);setDisplay('day')}} className={['week-day',d===selected?'active':'',d===today?'is-today':''].join(' ')}
+        onClick={()=>select(d)} className={['week-day',d===selected?'active':'',d===today?'is-today':''].join(' ')}
         aria-label={DOW[dayIndex(d)]+' '+d} aria-pressed={d===selected}>
         <small>{DOW[dayIndex(d)].slice(-1)}</small><strong>{Number(d.slice(-2))}</strong>
         <span className={'week-indicators '+((eventMap.get(d)||[]).some(isHomework)?'has-homework':'')}>{(eventMap.get(d)||[]).length>0?'•':''}</span>
@@ -203,13 +204,44 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
       </div>}
     </section>
 
-    <div key={display === 'week' ? 'week-' + weekStart : 'day-' + selected}
+    <div key={display === 'week' ? 'week-' + weekStart + '-' + startWeekIndex : 'day-' + selected}
       className={'calendar-panel-transition calendar-panel--' + motionDirection}>
-    {display==='week' && <section className="week-overview glass" aria-label="按时间对齐的本周课程表">
-      <div className="week-view-hint">同一水平位置代表同一时间 · 左右滑动查看七天</div>
-      <div className="week-timetable-scroll" ref={weekScrollRef} tabIndex={0}
-        role="region" aria-label="本周课程时间表，可左右滚动">
-        <div className="week-timetable-grid">
+    {display==='week' && <section className="week-overview glass" aria-label="适配手机的本周课程时间表">
+      <div className="week-view-toolbar">
+        <div className="week-view-caption">
+          <strong>本周时间表</strong>
+          <span>{visibleWeekCount===7?'整周七天':'周'+DOW[dayIndex(visibleWeekDates[0])].slice(-1)+'–周'+DOW[dayIndex(visibleWeekDates[visibleWeekDates.length-1])].slice(-1)+' · 左右滑动切换'}</span>
+        </div>
+        {visibleWeekCount<7&&<div className="week-page-buttons" role="group" aria-label="切换显示的星期">
+          <button type="button" aria-label="显示前几天" onClick={()=>shift(-visibleWeekCount)}>
+            <Icon name="left" size={17}/>
+          </button>
+          <button type="button" aria-label="显示后几天" onClick={()=>shift(visibleWeekCount)}>
+            <Icon name="right" size={17}/>
+          </button>
+        </div>}
+      </div>
+      <div className="week-timetable-scroll" role="region" tabIndex={0}
+        aria-label="每小时对齐的周课表，点击课程查看当天详情"
+        onTouchStart={e=>{
+          if(visibleWeekCount===7)return
+          const touch=e.touches[0]
+          if(touch)weekSwipeStart.current={x:touch.clientX,y:touch.clientY}
+        }}
+        onTouchEnd={e=>{
+          if(!weekSwipeStart.current||visibleWeekCount===7)return
+          const touch=e.changedTouches[0]
+          const start=weekSwipeStart.current
+          weekSwipeStart.current=null
+          if(!touch)return
+          const dx=touch.clientX-start.x,dy=touch.clientY-start.y
+          if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.3){
+            shift(dx<0?visibleWeekCount:-visibleWeekCount)
+          }
+        }}
+        onTouchCancel={()=>{weekSwipeStart.current=null}}>
+        <div className="week-timetable-grid"
+          style={{gridTemplateColumns:'46px repeat('+visibleWeekDates.length+',minmax(0,1fr))'}}>
           <div className="week-time-axis">
             <div className="week-time-header week-axis-heading">时间</div>
             <div className="week-all-day week-axis-all-day">全天</div>
@@ -219,7 +251,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
                   style={{top:weekPosition(hour*60)}}>{pad(hour)}:00</div>)}
             </div>
           </div>
-          {weekDates.map(date=>{
+          {visibleWeekDates.map(date=>{
             const entries=eventMap.get(date)||[]
             const allDay=entries.filter(e=>isHomework(e)||!isTimed(e))
             const placed=placeClasses(entries.filter(e=>!isHomework(e)))

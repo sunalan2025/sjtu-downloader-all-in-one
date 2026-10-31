@@ -483,27 +483,37 @@ html[data-screen-motion="running"][data-tab-direction="backward"] .screen-motion
  color:#8396ae;font-size:12px;font-weight:670;transition:background .22s,transform .24s var(--spring);}
 .calendar-display-switch button.on{background:rgba(255,255,255,.92);color:#3274b4;
  box-shadow:0 2px 7px rgba(53,86,134,.12);}
-/* Weekly timetable: a single scrolled grid keeps all columns on the SAME clock. */
-.week-overview {margin-top:16px;padding:13px 8px 10px;border-radius:23px;background:rgba(255,255,255,.5);}
-.week-view-hint {padding:1px 8px 10px;font-size:11px;color:#7c93af;}
+/* Portrait-first shared clock grid: 2 days on narrow phones, 3 on wide
+   phones, all 7 on tablets. Never allow a hidden 7-column wide overflow. */
+.week-overview {
+  margin-top:16px;padding:11px 8px 10px;min-width:0;
+  border-radius:23px;background:rgba(255,255,255,.50);
+}
+.week-view-toolbar {
+  display:flex;align-items:center;justify-content:space-between;
+  padding:1px 6px 10px;gap:8px;
+}
+.week-view-caption {min-width:0;display:flex;flex-direction:column;gap:3px;}
+.week-view-caption strong {font-size:12px;color:#436585;font-weight:730;}
+.week-view-caption span {font-size:10px;color:#899bb2;}
+.week-page-buttons {display:flex;gap:5px;flex:none;}
+.week-page-buttons button {
+  width:32px;height:30px;display:grid;place-items:center;
+  border:1px solid rgba(255,255,255,.85);border-radius:11px;
+  color:#4b7bb3;background:rgba(235,245,255,.74);
+}
 .week-timetable-scroll {
-  width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;
-  overscroll-behavior-x:contain;scroll-snap-type:x proximity;
-  scrollbar-width:thin;scrollbar-color:rgba(101,144,202,.32) transparent;
-  border-radius:16px;
+  width:100%;max-width:100%;overflow:hidden;
+  border-radius:14px;touch-action:pan-y;
 }
 .week-timetable-scroll:focus-visible {outline:2px solid #679de2;outline-offset:-2px;}
-.week-timetable-grid {
-  display:grid;grid-template-columns:50px repeat(7,minmax(116px,1fr));
-  width:max-content;min-width:100%;
-  --week-head-height:51px;--week-all-day-height:55px;
-}
+.week-timetable-grid {display:grid;width:100%;min-width:0;--week-head-height:45px;--week-all-day-height:43px;}
 .week-time-axis {
-  position:sticky;left:0;z-index:5;
-  background:#f0f5fc;border-right:1px solid rgba(109,151,200,.16);
+  min-width:0;z-index:1;background:rgba(236,244,254,.94);
+  border-right:1px solid rgba(109,151,200,.16);
 }
 .week-time-column {
-  min-width:116px;scroll-snap-align:start;
+  min-width:0;overflow:hidden;
   border-right:1px solid rgba(112,153,199,.13);
 }
 .week-time-column.is-today {background:rgba(224,240,255,.36);}
@@ -520,7 +530,7 @@ html[data-screen-motion="running"][data-tab-direction="backward"] .screen-motion
 .week-all-day {
   box-sizing:border-box;height:var(--week-all-day-height);
   display:flex;align-items:center;justify-content:center;
-  padding:5px 4px;overflow:hidden;
+  padding:4px 3px;overflow:hidden;
   border-bottom:1px solid rgba(112,153,199,.18);
   background:rgba(250,251,255,.34);
 }
@@ -528,7 +538,7 @@ html[data-screen-motion="running"][data-tab-direction="backward"] .screen-motion
 .week-all-day-empty {font-size:12px;color:#c4cfdd;}
 .week-all-day-chip {
   display:flex;align-items:center;min-width:0;width:100%;gap:3px;
-  border:0;border-radius:8px;padding:6px 5px;
+  border:0;border-radius:8px;padding:6px 4px;
   background:rgba(255,233,204,.72);color:#966c35;
   font-size:10px;text-align:left;
 }
@@ -537,23 +547,21 @@ html[data-screen-motion="running"][data-tab-direction="backward"] .screen-motion
 .week-hour-column,.week-hour-lane {position:relative;box-sizing:border-box;}
 .week-hour-column {background:#f0f5fc;}
 .week-time-label {
-  position:absolute;left:1px;right:6px;text-align:right;
+  position:absolute;left:0;right:4px;text-align:right;
   transform:translateY(-50%);color:#8195ad;white-space:nowrap;
   font-size:9px;line-height:12px;
 }
 .week-hour-rule {
   position:absolute;left:0;right:0;
-  border-top:1px dashed rgba(100,145,195,.23);
-  pointer-events:none;
+  border-top:1px dashed rgba(100,145,195,.23);pointer-events:none;
 }
 .week-time-event {
   position:absolute;z-index:1;box-sizing:border-box;
-  min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px;
+  min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;
   padding:5px 5px;border-radius:8px;
   text-align:left;overflow:hidden;
   border:1px solid rgba(255,255,255,.89);border-left:3px solid #5794d2;
-  background:rgba(213,233,255,.9);color:#335a8c;
-  box-shadow:0 2px 7px rgba(46,84,130,.10);
+  background:rgba(213,233,255,.91);color:#335a8c;
 }
 .week-time-event span {font-size:9px;font-weight:710;white-space:nowrap;}
 .week-time-event strong {
@@ -564,8 +572,9 @@ html[data-screen-motion="running"][data-tab-direction="backward"] .screen-motion
 .week-time-event.teal {background:#ddf4eb;color:#28715e;border-left-color:#58ac99;}
 .week-time-event.lavender {background:#ece4fa;color:#75609e;border-left-color:#9a80cb;}
 .week-time-event.amber {background:#faecd8;color:#906832;border-left-color:#d6a668;}
-@media(min-width:980px) {
-  .week-timetable-grid {width:100%;grid-template-columns:50px repeat(7,minmax(0,1fr));}
+@media(min-width:740px) {
+  .week-timetable-grid {--week-head-height:50px;--week-all-day-height:49px;}
+  .week-time-event strong {font-size:10px;}
 }
 /* Single-layer masked nested navigation, no translation/old frame. */
 .course-screen,.calendar-panel-transition {isolation:isolate;contain:paint;}
