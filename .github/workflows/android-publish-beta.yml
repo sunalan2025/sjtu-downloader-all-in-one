@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41205894777 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41208726317 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.6-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.6-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.7-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.7-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.6-beta
+          TAG=android-v0.4.7-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.6-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.7-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.6-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.7-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.6 Beta" \
-              --notes "Android v0.4.6 Beta: fixes top white strip via non-collapsing root padding and full-bleed system bar drawing. Replaces mutable global animation direction with target-bound screen animation and disables nested animation on first mount. All Android 10+ downloads now publish to public Downloads/SJTU Downloader/... via MediaStore, with visible save paths, Open File actions, persistent completed records and Export Old Downloads to recover app-private beta files. Built and APK-validated by CI run 41205894777. Physical-device verification is still required. TEST-SIGNED beta; not a trusted production release."
+              --title "SJTU Downloader Android v0.4.7 Beta" \
+              --notes "Android v0.4.7 Beta: home Recent Agenda merges school events with offline editable personal schedules (create/edit/delete, dates, timed or all-day, notes); the centered three-column timetable shows selected day between yesterday and tomorrow, including week boundaries; courses AND files now activate swipe-multiselect only after long press, with hidden ordinary checkboxes; downloads history can be cleared without deleting actual files; softer spring-eased direction-aware transitions. Schedules are stored on this device only. APK compiled and verified in GitHub Actions run 41208726317. Physical-device gesture and UI testing still required. Signed with PUBLIC TEST KEY, NOT a trusted production release."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
