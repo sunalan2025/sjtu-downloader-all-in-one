@@ -80,6 +80,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   const today=currentDate()
   const [selected,setSelected]=useState(today)
   const [view,setView]=useState<'week'|'month'>('week')
+  const [display,setDisplay]=useState<'week'|'day'>('week')
   const selectedRef=useRef(selected)
   selectedRef.current=selected
   useEffect(()=>{
@@ -140,7 +141,11 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   return <>
     <div className="page-intro calendar-head"><h1>课表</h1>
       <div className="calendar-head-actions">
-        <button type="button" className="today-pill" onClick={()=>{select(today);setView('week')}}>今天</button>
+        <div className="calendar-display-switch" role="group" aria-label="课表显示方式">
+          <button type="button" className={display==='week'?'on':''} onClick={()=>setDisplay('week')}>周</button>
+          <button type="button" className={display==='day'?'on':''} onClick={()=>setDisplay('day')}>日</button>
+        </div>
+        <button type="button" className="today-pill" onClick={()=>{select(today);setView('week');setDisplay('day')}}>今天</button>
         <button type="button" className="icon-button" aria-label="同步日程" disabled={busy} onClick={onRefresh}><Icon name="refresh" size={18}/></button>
       </div>
     </div>
@@ -153,7 +158,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
         <button aria-label="下一周" onClick={()=>shift(7)}><Icon name="right" size={18}/></button>
       </div>
       <div className="week-days">{weekDates.map((d,i)=><button type="button" key={d}
-        onClick={()=>select(d)} className={['week-day',d===selected?'active':'',d===today?'is-today':''].join(' ')}
+        onClick={()=>{select(d);setDisplay('day')}} className={['week-day',d===selected?'active':'',d===today?'is-today':''].join(' ')}
         aria-label={DOW[dayIndex(d)]+' '+d} aria-pressed={d===selected}>
         <small>{DOW[dayIndex(d)].slice(-1)}</small><strong>{Number(d.slice(-2))}</strong>
         <span className={'week-indicators '+((eventMap.get(d)||[]).some(isHomework)?'has-homework':'')}>{(eventMap.get(d)||[]).length>0?'•':''}</span>
@@ -166,6 +171,30 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
           onClick={()=>{select(d);setView('week')}}><span>{Number(d.slice(-2))}</span>{eventMap.has(d)&&<i/>}</button>)}</div>
       </div>}
     </section>
+
+    {display==='week' && <section className="week-overview glass" aria-label="本周课程与截止日期">
+      <div className="week-overview-track">
+        {weekDates.map(d=>{
+          const entries=(eventMap.get(d)||[]).slice().sort((a,b)=>a.startTime.localeCompare(b.startTime))
+          return <div key={d} className={'week-overview-column '+(d===today?'is-today':'')}>
+            <button className="week-overview-date" onClick={()=>{select(d);setDisplay('day')}}>
+              <span>{DOW[dayIndex(d)]}</span><strong>{Number(d.slice(-2))}</strong>
+            </button>
+            <div className="week-overview-items">
+              {entries.length===0 && <span className="week-overview-empty">—</span>}
+              {entries.slice(0,8).map(e=><button type="button" key={e.id}
+                className={'week-overview-event '+(isHomework(e)?'is-deadline':'is-course')}
+                onClick={()=>{select(d);setDisplay('day')}} title={e.title}>
+                <span className="week-overview-time">{isHomework(e)?'DDL':timeText(e.startTime)}</span>
+                <strong>{e.title}</strong>
+              </button>)}
+              {entries.length>8 && <button className="week-more" onClick={()=>{select(d);setDisplay('day')}}>还有 {entries.length-8} 项</button>}
+            </div>
+          </div>
+        })}
+      </div>
+    </section>}
+    {display==='day'&&<>
     <div className="schedule-day-head"><div><strong>{Number(selected.slice(5,7))} 月 {Number(selected.slice(-2))} 日</strong><span>{dayLabel}</span></div>
       {busy?<span className="sync-state"><span className="sync-spin"/>同步中</span>:<span className="sync-state">{classEvents.length} 节课程 · {homework.length} 项作业</span>}</div>
     {homework.length>0&&<div className="deadline-wrapper"><section className="deadline-section">
@@ -206,6 +235,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     </section>}
     {untimed.length>0&&<section className="schedule-extras glass"><div className="schedule-section-label">全天安排</div>
       {untimed.map(e=><div className="schedule-extra" key={e.id}><span className="event-dot"/>{e.title}</div>)}</section>}
+    </>}
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
       <Icon name="school" size={18}/><span>连接正式课表</span><Icon name="right" size={16}/>
     </button>}
