@@ -62,11 +62,14 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   const [courseSelectMode,setCourseSelectMode]=useState(false)
   const courseTouch=useRef<{
     timer:number|null;anchor:number;last:number;x:number;y:number;active:boolean
+    longPressed:boolean;moved:boolean
   }|null>(null)
   const blockCourseClickUntil=useRef(0)
   const stopCourseTouch=()=>{
     const record=courseTouch.current
     if(record?.timer!==null&&record?.timer!==undefined)window.clearTimeout(record.timer)
+    if(record&&(record.longPressed||record.moved))
+      blockCourseClickUntil.current=Date.now()+350
     courseTouch.current=null
   }
   useEffect(()=>()=>{const record=courseTouch.current
@@ -97,12 +100,14 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     if(index<0||!finger)return
     stopCourseTouch()
     const record={timer:null as number|null,anchor:index,last:index,
-      x:finger.clientX,y:finger.clientY,active:courseSelectMode}
+      x:finger.clientX,y:finger.clientY,active:courseSelectMode,
+      longPressed:false,moved:false}
     courseTouch.current=record
     if(courseSelectMode)return
     record.timer=window.setTimeout(()=>{
       if(courseTouch.current!==record)return
       record.active=true
+      record.longPressed=true
       enterCourseSelection(index)
     },380)
   }
@@ -117,6 +122,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     const index=courseList.findIndex(item=>item.id===target?.dataset.courseId)
     if(index>=0&&index!==record.last){
       record.last=index
+      record.moved=true
       selectCourseRange(record.anchor,index)
     }
   }
@@ -128,11 +134,14 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   const [fileSelectMode, setFileSelectMode] = useState(false)
   const touchSelect = useRef<{
     timer: number | null; anchor: number; last: number; x: number; y: number; active: boolean
+    longPressed: boolean; moved: boolean
   } | null>(null)
   const blockClickUntil=useRef(0)
   const stopTouchSelect=()=>{
     const record=touchSelect.current
     if(record?.timer!==null && record?.timer!==undefined)window.clearTimeout(record.timer)
+    if(record&&(record.longPressed||record.moved))
+      blockClickUntil.current=Date.now()+350
     touchSelect.current=null
   }
   useEffect(()=>()=>{const record=touchSelect.current
@@ -165,7 +174,8 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     const finger=e.touches[0]
     if(!finger)return
     const record={timer:null as number|null,anchor:index,last:index,
-      x:finger.clientX,y:finger.clientY,active:fileSelectMode}
+      x:finger.clientX,y:finger.clientY,active:fileSelectMode,
+      longPressed:false,moved:false}
     touchSelect.current=record
     // A normal tap in selection mode is handled by onClick, while dragging
     // extends the range in onTouchMove. Selecting on touch-start would cause
@@ -174,6 +184,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     record.timer=window.setTimeout(()=>{
       if(touchSelect.current!==record)return
       record.active=true
+      record.longPressed=true
       enterFileSelection(index)
     },380)
   }
@@ -189,6 +200,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     const index=visibleFiles.findIndex(file=>file.id===hit?.dataset.fileId)
     if(index>=0&&index!==record.last){
       record.last=index
+      record.moved=true
       markSelectionRange(record.anchor,index)
     }
   }
