@@ -77,7 +77,7 @@ final class SessionCookieVault {
             String name = cookie.substring(0, sep).trim();
             String value = cookie.substring(sep + 1).trim();
             if (!name.matches("[A-Za-z0-9_.$-]{1,80}") || value.length() > MAX_VALUE ||
-                value.contains("\\r") || value.contains("\\n") || !isSessionName(name)) continue;
+                value.indexOf(13) >= 0 || value.indexOf(10) >= 0 || !isSessionName(name)) continue;
             if (pairs.length() > 0) pairs.append("; ");
             pairs.append(name).append('=').append(value);
         }
