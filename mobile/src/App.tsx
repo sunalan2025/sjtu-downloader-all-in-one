@@ -24,6 +24,7 @@ const nav: { id: Tab; text: string; icon: IconName }[] = [
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
   const [loggedIn, setLoggedIn] = useState(false)
+  const [sessionChecking, setSessionChecking] = useState(isAndroid)
   const [user, setUser] = useState('')
   const [courses, setCourses] = useState<CanvasCourse[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
@@ -40,6 +41,15 @@ export default function App() {
   useEffect(() => {
     if (!isAndroid) return
     void refreshSession()
+    let lastSessionCheck = Date.now()
+    const checkOnReturn = () => {
+      if (document.visibilityState === 'hidden') return
+      if (Date.now() - lastSessionCheck < 20_000) return
+      lastSessionCheck = Date.now()
+      void refreshSession()
+    }
+    window.addEventListener('focus', checkOnReturn)
+    document.addEventListener('visibilitychange', checkOnReturn)
     const applyInsets = () => {
       void native.getInsets().then(insets => {
         const css = document.documentElement.style
@@ -58,7 +68,13 @@ export default function App() {
       setJobs(previous => previous.map(j => j.taskId === event.taskId
         ? { ...j, bytes: event.bytes, total: event.total } : j))
     }).then(h => { if (disposed) void h.remove(); else handle = h })
-    return () => { disposed = true; window.removeEventListener('resize', applyInsets); if (handle) void handle.remove() }
+    return () => {
+      disposed = true
+      window.removeEventListener('resize', applyInsets)
+      window.removeEventListener('focus', checkOnReturn)
+      document.removeEventListener('visibilitychange', checkOnReturn)
+      if (handle) void handle.remove()
+    }
   }, [])
 
   useEffect(() => {
@@ -67,12 +83,14 @@ export default function App() {
   }, [month, loggedIn])
 
   async function refreshSession(): Promise<void> {
+    setSessionChecking(true)
     try {
       const result = await native.status()
       setLoggedIn(result.loggedIn)
       setUser(result.name || '')
       if (result.loggedIn) await loadCourses()
     } catch (e) { setNotice('连接 Canvas 失败：' + String(e)) }
+    finally { setSessionChecking(false) }
   }
   async function login(): Promise<void> {
     if (!isAndroid) return
@@ -85,6 +103,7 @@ export default function App() {
     finally { setBusy(false) }
   }
   async function logout(): Promise<void> {
+    if (!window.confirm('确定退出登录吗？这会清除手机上保存的交大登录会话。')) return
     try {
       await native.logout()
       setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setCalendarAuthRequired(false)
@@ -184,8 +203,8 @@ export default function App() {
   return <div className="app">
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand"><div className="brand-mark"><img src="./desktop-logo.png" alt="SJTU Downloader 桌面版图标"/></div><div className="brand-text"><strong>SJTU Downloader</strong><small>上海交通大学 · 课程助手</small></div></div>
-        <button className="avatar-button" aria-label={loggedIn ? '退出登录' : '登录账号'} onClick={() => loggedIn ? void logout() : void login()} title={loggedIn ? '退出登录' : '登录账号'}><Icon name={loggedIn ? 'shield' : 'school'} size={20}/></button>
+        <div className="brand"><div className="brand-mark"><img src="./desktop-logo.png" alt="SJTU Downloader 桌面版图标"/></div><div className="brand-text"><strong>SJTU Downloader</strong><small>上海交通大学 · {sessionChecking ? '正在恢复登录' : loggedIn ? '已自动连接' : '课程助手'}</small></div></div>
+        <button className="avatar-button" disabled={sessionChecking} aria-label={sessionChecking ? '正在检查登录状态' : loggedIn ? '退出登录' : '登录账号'} onClick={() => loggedIn ? void logout() : void login()} title={sessionChecking ? '正在恢复登录状态' : loggedIn ? '退出登录' : '登录账号'}><Icon name={loggedIn ? 'shield' : 'school'} size={20}/></button>
       </header>
       {notice && <div role="alert" className="notice"><Icon name="alert" size={17}/><span>{notice}</span><button aria-label="关闭提示" onClick={() => setNotice('')}><Icon name="close" size={15}/></button></div>}
       {!isAndroid && <div className="notice"><Icon name="alert" size={17}/><span>浏览器仅预览 UI。登录、课表同步和下载请在 Android 客户端中测试。</span></div>}
@@ -195,7 +214,7 @@ export default function App() {
             <div className="eyebrow">WELCOME TO YOUR CAMPUS</div>
             <h1>{loggedIn ? <>今天也要<br/><span>好好学习。</span></> : <>你的交大课程，<br/><span>随身携带。</span></>}</h1>
             <p>{loggedIn ? (user ? user + '，欢迎回来。课程与资料已准备就绪。' : '连接课程，随时掌握学习动态。') : '课程资料、日历日程、文件下载，一个应用轻松管理。'}</p>
-            <button className="cta" disabled={!isAndroid || busy} onClick={() => loggedIn ? setTab('courses') : void login()}>{busy ? '正在连接…' : loggedIn ? '查看我的课程' : '使用 jAccount 登录'}<Icon name="arrow" size={17}/></button>
+            <button className="cta" disabled={!isAndroid || busy || sessionChecking} onClick={() => loggedIn ? setTab('courses') : void login()}>{sessionChecking ? '正在恢复登录…' : busy ? '正在连接…' : loggedIn ? '查看我的课程' : '使用 jAccount 登录'}<Icon name="arrow" size={17}/></button>
           </section>
           <div className="section-title"><div><h2>学习概况</h2><p>你的课程与下载动态</p></div></div>
           <div className="metric-grid">
@@ -213,7 +232,9 @@ export default function App() {
           </div>
           {loggedIn && <div className="account-line"><span>当前账号 · {user || '已连接'}</span><button onClick={() => void logout()}>退出登录</button></div>}
         </>}
-        {tab === 'courses' && <BatchCourseBrowser
+        {tab === 'courses' && (sessionChecking
+          ? <div className="loading-note">正在恢复已保存的 jAccount / Canvas 会话…</div>
+          : <BatchCourseBrowser
           courses={courses}
           loggedIn={loggedIn}
           loading={busy}
@@ -221,7 +242,7 @@ export default function App() {
           onLogin={() => void login()}
           onBatchDownload={downloadBatch}
           onNotice={setNotice}
-        />}
+        />)}
         {tab === 'calendar' && (loggedIn ?
           <>
             {calendarWarning && <div role="alert" className="notice calendar-warning"><Icon name="alert" size={18}/><span>{calendarWarning}</span>{calendarAuthRequired && <button className="text-button" onClick={() => void login()}>重新登录</button>}</div>}
