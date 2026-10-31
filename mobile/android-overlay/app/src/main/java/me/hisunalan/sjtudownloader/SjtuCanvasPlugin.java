@@ -759,6 +759,7 @@ public class SjtuCanvasPlugin extends Plugin {
             result.put("startTime", withShanghaiZone(item.optString("startTime")));
             result.put("endTime", withShanghaiZone(item.optString("endTime", item.optString("startTime"))));
             result.put("courseName", item.optString("location", "正式课表"));
+            result.put("location", item.optString("location", ""));
             String eventId = item.optString("eventId", "");
             boolean activity = eventId.startsWith("ACTIVITY") || item.optBoolean("claimIcon", false)
                 || (item.has("recurrence") && item.optInt("recurrence", -1) == 0);
@@ -836,6 +837,7 @@ public class SjtuCanvasPlugin extends Plugin {
             entry.put("startTime",withShanghaiZone(time));
             entry.put("endTime",withShanghaiZone(item.optString("endTime",time)));
             entry.put("courseName",item.optString("location",""));
+            entry.put("location",item.optString("location",""));
             boolean activity=id.startsWith("ACTIVITY") || item.optBoolean("claimIcon",false)
                 || (item.has("recurrence")&&item.optInt("recurrence",-1)==0);
             entry.put("type",activity?"event":"course");
@@ -865,6 +867,7 @@ public class SjtuCanvasPlugin extends Plugin {
         entry.put("startTime",date);
         entry.put("endTime",item.optString("end_at",date));
         entry.put("courseName",courseName.isEmpty()?item.optString("context_name",""):courseName);
+        entry.put("location",item.optString("location_name",item.optString("location","")));
         entry.put("type",type);
         output.put(id,entry);
     }

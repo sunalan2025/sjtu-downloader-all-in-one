@@ -21,6 +21,7 @@ export type CalendarEvent = {
   startTime: string
   endTime: string
   courseName: string
+  location?: string
   type: 'assignment' | 'event' | 'course'
 }
 
