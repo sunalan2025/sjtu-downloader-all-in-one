@@ -321,19 +321,134 @@ public class SjtuCanvasPlugin extends Plugin {
         });
     }
 
+
     @PluginMethod
     public void openOfficialCalendar(PluginCall call) {
         getActivity().runOnUiThread(() -> {
-            try {
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://calendar.sjtu.edu.cn/ui/calendar"));
-                getActivity().startActivity(intent);
-                JSObject response = new JSObject();
-                response.put("ok", true);
-                call.resolve(response);
-            } catch (Exception e) {
-                call.reject("手机上没有可用的浏览器打开官方课表");
+            // External browser cookies cannot be read by the native calendar client.
+            Dialog dialog = new Dialog(getActivity(), android.R.style.Theme_Material_Light_NoActionBar);
+            LinearLayout panel = new LinearLayout(getActivity());
+            panel.setOrientation(LinearLayout.VERTICAL);
+            panel.setBackgroundColor(Color.WHITE);
+            LinearLayout header = new LinearLayout(getActivity());
+            header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            TextView title = new TextView(getActivity());
+            title.setText("交大正式课表 · 独立认证");
+            title.setPadding(dp(12), 0, 0, 0);
+            header.addView(title, new LinearLayout.LayoutParams(0, dp(54), 1));
+            Button done = new Button(getActivity());
+            done.setText("完成同步");
+            header.addView(done);
+            Button close = new Button(getActivity());
+            close.setText("关闭");
+            header.addView(close);
+            panel.addView(header);
+            WebView browser = new WebView(getActivity());
+            browser.getSettings().setJavaScriptEnabled(true);
+            browser.getSettings().setDomStorageEnabled(true);
+            browser.getSettings().setUseWideViewPort(true);
+            CookieManager.getInstance().setAcceptCookie(true);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
+            panel.addView(browser, new LinearLayout.LayoutParams(-1, 0, 1));
+            browser.setWebViewClient(new WebViewClient() {
+                @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                    if ("https".equalsIgnoreCase(req.getUrl().getScheme())) return false;
+                    if (shouldLaunchLoginApp(req.getUrl(), view.getUrl(), req.hasGesture())) {
+                        openLoginAppLink(req.getUrl(), browser);
+                    }
+                    return true;
+                }
+                @Override public void onPageFinished(WebView view, String url) {
+                    if (url.startsWith("https://jaccount.sjtu.edu.cn/")) activateMobileMode(view);
+                }
+            });
+            close.setOnClickListener(v -> dialog.dismiss());
+            done.setOnClickListener(v -> io.execute(() -> {
+                boolean valid = false;
+                try {
+                    HttpURLConnection c = connect("https://calendar.sjtu.edu.cn/api/calendar/list",
+                        "https://calendar.sjtu.edu.cn/ui/calendar");
+                    valid = c.getResponseCode() == 200;
+                    c.disconnect();
+                } catch (Exception ignored) {}
+                final boolean success = valid;
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    if (success) {
+                        CookieManager.getInstance().flush();
+                        JSObject out = new JSObject();
+                        out.put("ok", true);
+                        call.resolve(out);
+                        dialog.dismiss();
+                    } else {
+                        Toast.makeText(getContext(), "请先在网页完成正式课表 SSO 登录", Toast.LENGTH_LONG).show();
+                    }
+                });
+            }));
+            dialog.setContentView(panel);
+            Window window = dialog.getWindow();
+            if (window != null) {
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false);
+                window.setStatusBarColor(Color.WHITE);
+                window.setNavigationBarColor(Color.WHITE);
             }
+            ViewCompat.setOnApplyWindowInsetsListener(panel, (view, insets) -> {
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                return insets;
+            });
+            dialog.setOnDismissListener(d -> {
+                browser.stopLoading();
+                browser.destroy();
+                JSObject out = new JSObject();
+                out.put("ok", false);
+                call.resolve(out);
+            });
+            dialog.show();
+            Window shown = dialog.getWindow();
+            if (shown != null) shown.setLayout(-1, -1);
+            browser.loadUrl("https://calendar.sjtu.edu.cn/login");
         });
+    }
+
+    /** Native equivalent of desktop schedule-fetcher.ts, with separate official SSO cookies. */
+    private JSArray officialCalendarEvents(String month) throws Exception {
+        int y = Integer.parseInt(month.substring(0, 4));
+        int m = Integer.parseInt(month.substring(5, 7));
+        Calendar next = new GregorianCalendar(TimeZone.getTimeZone("Asia/Shanghai"), Locale.ROOT);
+        next.clear();
+        next.set(y, m - 1, 1);
+        next.add(Calendar.MONTH, 1);
+        String from = month + "-01 00:00";
+        String to = String.format(Locale.ROOT, "%04d-%02d-01 00:00",
+            next.get(Calendar.YEAR), next.get(Calendar.MONTH) + 1);
+        String url = "https://calendar.sjtu.edu.cn/api/event/list?startDate=" +
+            URLEncoder.encode(from, "UTF-8") + "&endDate=" + URLEncoder.encode(to, "UTF-8") + "&weekly=true&ids=";
+        JSONObject data = getObject(url).optJSONObject("data");
+        if (data == null) throw new Exception("正式课表接口无日程数据");
+        JSONArray events = data.optJSONArray("events");
+        JSArray items = new JSArray();
+        if (events == null) return items;
+        for (int i = 0; i < events.length(); i++) {
+            JSONObject item = events.optJSONObject(i);
+            if (item == null || item.optString("startTime", "").isEmpty()) continue;
+            JSObject result = new JSObject();
+            result.put("id", "official:" + item.optString("eventId", String.valueOf(i)));
+            result.put("title", item.optString("title", "课程事件"));
+            result.put("startTime", withShanghaiZone(item.optString("startTime")));
+            result.put("endTime", withShanghaiZone(item.optString("endTime", item.optString("startTime"))));
+            result.put("courseName", item.optString("location", "正式课表"));
+            result.put("type", "course");
+            items.put(result);
+        }
+        return items;
+    }
+
+    private String withShanghaiZone(String date) {
+        if (date == null) return "";
+        if (date.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) return date;
+        String result = date.replace(' ', 'T');
+        return result.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?")
+            ? result + "+08:00" : result;
     }
 
     @PluginMethod
