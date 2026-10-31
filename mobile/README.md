@@ -1,40 +1,44 @@
-# SJTU Downloader Android — v0.2 UI / 登录 / 安全区 / 日历验证版
+# SJTU Downloader for Android — v0.3 Beta
 
-这个分支只修改 `mobile/` 和 Android 构建工作流；桌面 `master` 不受影响。
+独立 Android 测试应用。代码位于 `feature/android-mvp`，不修改桌面版主线。
 
-## 本版改动
+## 已接入（真正有代码实现）
 
-- **移动 UI**：全新浅色视觉，四个底部导航（首页 / 课程 / 日历 / 下载），手机与平板自适应。
-- **登录**：登录页使用 Android WebView 的手机端 UA/Viewport 打开 Canvas 官方 SSO，让 jAccount 官方网站自行提供手机登录界面与“交我办”跳转。允许用户主动点击的 `intent://` 及部分认证 App scheme 跳转至系统 App；未安装时提示回到网页版登录。保留显式“完成登录”校验按钮，**只有 Canvas profile API 返回 200 时才判定登录成功**。没有逆向实现或伪造交我办登录接口。
-- **状态栏与系统导航栏**：MainActivity 启用 edge-to-edge；原生插件读取 Android 系统安全区/刘海/导航区域像素，前端再动态留白，避免遮挡操作区。不同品牌和手势/三键模式仍需真机测试。
-- **日历**：新增实际可切换月份的月视图，通过 Canvas 官方 `calendar_events` API 获取课程活动与作业截止日期，按北京时间分组；点击不同日期查看事件。**这不是交大教学信息服务网的完整课表**，正式课程表与考试尚未移植，提供访问 `calendar.sjtu.edu.cn` 的官方入口。
-- **课程与下载**：继续支持 Canvas 课程文件 API、前台下载与进度显示。
+- **同款图标**：Android 启动图标、桌面内 logo 全部由桌面版 `build/icon.png` 自动生成；不会使用 Capacitor 的默认机器人图标。
+- **学期筛选**：读取 Canvas 返回的 `term.name`，按学期过滤、检索课程、查看课程文件。
+- **批量下载**：多课程勾选、当前学期全选、单课程文件多选、全选当前文件类型、文档/视频文件/其他分类、点击下载后最多并行两项。课程扫描同时最多 3 项，最多单批次 1200 个文件。
+- **存储归档**：App 私有外部下载目录 `Downloads/SJTU Downloader/<学期>/<课程名>/<文件>`，使用原生文件名清理并避免重名覆盖。当前无公共 Downloads 目录写入和 Android 系统下载管理器入口。
+- **登录**：通过官方 Canvas SSO 进入 jAccount 手机网页，允许用户主动点击“交我办”链接跳转。额外的“交我办”按钮只会尝试触发**官方页面真实存在**的链接，不构造未经验证的 Deep Link，也不能保证校方 App 可以返回 WebView 会话。
+- **日历**：Canvas `calendar_events` 先尝试，401/403 时退回已授权的 `users/self/upcoming_events` 及各课程 `assignments`。显示真实可访问活动与 DDL，明确说明部分数据可能不完整。没有完整正式教学课表与考试同步。
+- **系统安全区**：Android 原生 edge-to-edge 和系统 Insets。
+- **安装包身份**：独立 `me.hisunalan.sjtudownloader.beta` Beta 包名，可与旧 v0.1/v0.2 测试版并存。此分支以后由公开**测试用途专用**签名签署；绝不用于正式版发布，任何人都能复制此测试密钥，不能作为可信应用发布渠道。
+
+## 未移植（不可误称已支持）
+
+桌面版的旁听课程、好大学在线、Canvas 教师/PPT 双视角录播、HLS/FFmpeg 视频合并、PPT 图片转 PDF、交大云盘、可靠后台断点续传、多账号、私有中转服务、完整课表/考试仍需单独进行 Android 原生移植。页面里的“视频文件”分类仅限 Canvas Files API 已直接列出的常规视频文件，不会搜索课堂录播。
 
 ## 构建
 
-项目依赖 Node 22、JDK 21、Android SDK 35。
+要求 Node.js 22、JDK 21、Android SDK 35。图标从仓库根目录 `build/icon.png` 读取。
 
 ```bash
 cd mobile
 npm install
 npm run build
 npm run android:prepare
-cp -r android-overlay/. android/
-npm run android:prepare
+npm run android:icons
 cd android
 ./gradlew assembleDebug
 ```
 
-也可以直接在 GitHub Actions 中检查 `Android MVP Debug APK` 运行结果与 Artifact。
+Android 工程和 native overlay 由 `android:prepare` 自动处理。也可进入 GitHub Actions 的 `Android MVP Debug APK` 流程查看已验证构建，下载 Artifact。
 
-## 真机验收清单
+## 真机测试
 
-1. 打开首页，检查状态栏、刘海挖孔及底部手势/三键区域均未遮挡文字或底部导航。
-2. 点击登录，看 jAccount 是否显示适配手机的页面；点击网页中的“交我办”入口，确认能否打开对应 App 并返回认证流程。
-3. 登录成功后检验 Canvas 课程列表、课件下载与任务进度。
-4. 打开日历，切换前后月份，检查 Canvas 活动和 DDL 是否正确；点击交大官方课表入口。
-5. 测试不同字体大小、横屏、深浅系统状态栏、返回手势和不同 Android 版本。
+1. 同时保留旧版（旧包名）与新版 Beta 应用，确认能独立安装启动，且图标与桌面版一致。
+2. 登录 jAccount；验证“交我办”网页入口、App 打开及 SSO 返回。如果学校网页不展示快捷登录，记录具体页面地址和登录页截图，不要输入凭据到任何非官方域名。
+3. 在“课程”中按学期筛选，分别测试单文件、多文件、多课程批量下载。检查私有目录层级（某些手机文件管理器不显示 Android/data，属于系统限制）。
+4. 日历如遇 401 应显示授权提示或部分备用数据，不应直接把 401 当作整个日历崩溃。
+5. 检查系统状态栏、挖孔与底部手势区适配、旋转屏幕、前后台切换。
 
-**注意：** 当前尚未拿交大账号完成真机验证，交我办 App 深链回跳能否复用同一个 WebView Cookie 会话仍需真机检查。Android 系统会对应用后台下载有限制，本版未提供可靠后台断点续传。文件保存于应用私有外部 Downloads/SJTU Downloader，卸载应用前请自行备份。Debug APK 由 CI 的临时密钥签名，安装新包时若出现签名冲突，先备份旧数据并卸载旧调试版再安装。
-
-后续计划：正式教学课表和考试 → 三大课程源视频与云盘 → Android 后台可靠下载、公共文件管理及分享功能。
+当前版本的 Web 前端与原生代码由 CI 编译验证，但不等于使用交大账号完成真实授权及下载测试。只有在真机上验证后才能对这些功能做“可用”声明。
