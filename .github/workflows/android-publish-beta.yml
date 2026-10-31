@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41210715033 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41211146505 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.8-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.8-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.9-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.9-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.8-beta
+          TAG=android-v0.4.9-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.8-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.9-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.8-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.9-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.8 Beta" \
-              --notes "Android v0.4.8 Beta: week timetable displays the real room/location supplied by the SJTU calendar API; day mode is now a clear, narrow-screen list grouped into Schedule, Homework and Exams (exam detection uses title keywords, not an official exam flag). Home Recent Agenda groups events into Today, Tomorrow, Day After Tomorrow and later month/day sections; always based on the actual current date even after browsing another week. Completely redesigned the downloads page into stable responsive active/history cards with progress, path and open controls. Removed manual course/calendar refresh buttons and added automatic calendar updates on foreground, network reconnection and timer. Built and APK-validated by GitHub Actions run 41210715033. Physical-device display remains to be tested. Signed with public test key; NOT a trusted production release."
+              --title "SJTU Downloader Android v0.4.9 Beta" \
+              --notes "Android v0.4.9 Beta: Android system Back gesture and in-app folder Back now dismiss long-press multi-selection first, without leaving the current course folder. When the last selected file or course is deselected, selection mode and its checkboxes automatically close. Removed the technical 'selected date centered' banner from the calendar while retaining three-day centered navigation, and removed the 'tap course / long-press' helper copy from the course list. Android APK build, typecheck and artifact integrity verified by GitHub Actions run 41211146505. On-device behavior still requires testing. Public test-signing certificate only, not a trusted production build."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
