@@ -327,6 +327,7 @@ public class SjtuCanvasPlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             // External browser cookies cannot be read by the native calendar client.
             Dialog dialog = new Dialog(getActivity(), android.R.style.Theme_Material_Light_NoActionBar);
+            AtomicBoolean settled = new AtomicBoolean(false);
             LinearLayout panel = new LinearLayout(getActivity());
             panel.setOrientation(LinearLayout.VERTICAL);
             panel.setBackgroundColor(Color.WHITE);
@@ -368,7 +369,8 @@ public class SjtuCanvasPlugin extends Plugin {
                 try {
                     HttpURLConnection c = connect("https://calendar.sjtu.edu.cn/api/calendar/list",
                         "https://calendar.sjtu.edu.cn/ui/calendar");
-                    valid = c.getResponseCode() == 200;
+                    valid = c.getResponseCode() == 200 && "calendar.sjtu.edu.cn".equalsIgnoreCase(c.getURL().getHost())
+                        && c.getContentType() != null && c.getContentType().contains("json");
                     c.disconnect();
                 } catch (Exception ignored) {}
                 final boolean success = valid;
@@ -377,7 +379,7 @@ public class SjtuCanvasPlugin extends Plugin {
                         CookieManager.getInstance().flush();
                         JSObject out = new JSObject();
                         out.put("ok", true);
-                        call.resolve(out);
+                        if (settled.compareAndSet(false, true)) call.resolve(out);
                         dialog.dismiss();
                     } else {
                         Toast.makeText(getContext(), "请先在网页完成正式课表 SSO 登录", Toast.LENGTH_LONG).show();
@@ -390,6 +392,10 @@ public class SjtuCanvasPlugin extends Plugin {
                 androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false);
                 window.setStatusBarColor(Color.WHITE);
                 window.setNavigationBarColor(Color.WHITE);
+                androidx.core.view.WindowInsetsControllerCompat bars =
+                    new androidx.core.view.WindowInsetsControllerCompat(window, window.getDecorView());
+                bars.setAppearanceLightStatusBars(true);
+                bars.setAppearanceLightNavigationBars(true);
             }
             ViewCompat.setOnApplyWindowInsetsListener(panel, (view, insets) -> {
                 Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
@@ -401,7 +407,7 @@ public class SjtuCanvasPlugin extends Plugin {
                 browser.destroy();
                 JSObject out = new JSObject();
                 out.put("ok", false);
-                call.resolve(out);
+                if (settled.compareAndSet(false, true)) call.resolve(out);
             });
             dialog.show();
             Window shown = dialog.getWindow();
