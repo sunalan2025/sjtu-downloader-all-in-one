@@ -89,7 +89,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
       if (fileRequestId.current === request) setFiles(result.items)
     } catch (error) {
       if (fileRequestId.current === request) {
-        const message = String(error).replace(/^(Error:\\s*)+/i, '').trim()
+        const message = String(error).replace(/^(Error:\s*)+/i, '').trim()
         setFileError(message || '网络连接中断，请稍后重试')
       }
     } finally {
@@ -162,7 +162,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
           <Icon name="wifi" size={22}/>
           <strong>暂时无法读取文件</strong>
           <span>{fileError}</span>
-          <button className="primary" onClick={() => void loadCourseFiles(active)}>
+          <button className="primary" onClick={() => { if (active) void loadCourseFiles(active) }}>
             <Icon name="refresh" size={16}/> 重试
           </button>
         </div>
