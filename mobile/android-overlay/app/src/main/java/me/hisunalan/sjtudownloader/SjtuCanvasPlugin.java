@@ -85,6 +85,9 @@ public class SjtuCanvasPlugin extends Plugin {
     private final Map<String, AtomicBoolean> cancels = new ConcurrentHashMap<>();
 
     private final AtomicBoolean calendarSsoInFlight = new AtomicBoolean(false);
+    private final ExecutorService calendarAuthIo = Executors.newSingleThreadExecutor();
+    private volatile Runnable cancelSilentCalendarSso;
+
     private volatile long calendarVerifiedUntil = 0L;
     private SessionCookieVault sessionVault;
 
@@ -496,11 +499,13 @@ public class SjtuCanvasPlugin extends Plugin {
             AtomicBoolean finished = new AtomicBoolean(false);
             Runnable cleanup = () -> {
                 if (!finished.compareAndSet(false, true)) return;
+                cancelSilentCalendarSso = null;
                 silent.stopLoading();
                 container.removeView(silent);
                 silent.destroy();
                 calendarSsoInFlight.set(false);
             };
+            cancelSilentCalendarSso = cleanup;
             silent.setWebViewClient(new WebViewClient() {
                 @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                     // Do not launch external apps or handle consent in a hidden WebView.
@@ -510,7 +515,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     if (finished.get()) return;
                     if (url.startsWith("https://calendar.sjtu.edu.cn/") && hasCalendarSessionCookie()) {
                         CookieManager.getInstance().flush();
-                        io.execute(() -> {
+                        calendarAuthIo.execute(() -> {
                             try {
                                 // Check the real endpoint before recording a verified session.
                                 if (verifyCalendarSessionQuickly()) {
@@ -577,7 +582,7 @@ public class SjtuCanvasPlugin extends Plugin {
             return;
         }
         if (hasCalendarSessionCookie()) {
-            io.execute(() -> {
+            calendarAuthIo.execute(() -> {
                 if (verifyCalendarSessionQuickly()) {
                     vault().saveAfterVerification();
                     JSObject result = new JSObject();
@@ -594,6 +599,10 @@ public class SjtuCanvasPlugin extends Plugin {
 
     private void showOfficialCalendarDialog(PluginCall call) {
         getActivity().runOnUiThread(() -> {
+            // Never keep an invisible SSO WebView in parallel with the explicit
+            // login page. Its redirects compete for the same cookies and network.
+            Runnable cancelSilent = cancelSilentCalendarSso;
+            if (cancelSilent != null) cancelSilent.run();
             // calendar.sjtu.edu.cn has an independent SSO session. The WebView
             // and native HTTP client use the SAME CookieManager.
             Dialog dialog = new Dialog(getActivity(), R.style.SJTUGlassDialog);
@@ -635,7 +644,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     return;
                 }
                 if (!checking.compareAndSet(false, true)) return;
-                io.execute(() -> {
+                calendarAuthIo.execute(() -> {
                     boolean valid = false;
                     try {
                         valid = verifyCalendarSessionQuickly();
