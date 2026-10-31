@@ -144,9 +144,11 @@ public class SjtuCanvasPlugin extends Plugin {
                 // Invoke only an actual link supplied by the official jAccount login page.
                 // Do not construct undocumented deep links or fake successful authentication.
                 String script = "(function(){if(location.hostname!=='jaccount.sjtu.edu.cn')return 'domain';" +
-                    "var nodes=Array.from(document.querySelectorAll('a,button,[role=button]'));" +
-                    "var match=nodes.find(n=>/交我办/.test(n.textContent||n.getAttribute('aria-label')||''));" +
-                    "if(!match)return 'missing';match.click();return 'clicked'})()";
+                    "var nodes=Array.from(document.querySelectorAll('a,button,[role=button],input'));" +
+                    "var match=nodes.find(n=>/交我办/.test(n.innerText||n.textContent||n.value||n.getAttribute('aria-label')||''));" +
+                    "if(match){match.click();return 'clicked';}" +
+                    "if(typeof window.appLogin==='function'){window.appLogin();return 'clicked';}" +
+                    "return 'missing'})()";
                 browser.evaluateJavascript(script, response -> {
                     if (!"\"clicked\"".equals(response)) {
                         Toast.makeText(getContext(),
@@ -162,13 +164,14 @@ public class SjtuCanvasPlugin extends Plugin {
                     Uri uri = request.getUrl();
                     String scheme = uri.getScheme();
                     if ("https".equalsIgnoreCase(scheme)) return false;
-                    if (request.isForMainFrame() && request.hasGesture()) {
+                    if (shouldLaunchLoginApp(uri, view.getUrl(), request.hasGesture())) {
                         openLoginAppLink(uri, browser);
                     }
                     return true; // never load a non-HTTPS scheme in WebView
                 }
                 @Override public void onPageFinished(WebView view, String url) {
                     if (url.startsWith(BASE) && !url.contains("/login")) verify.run();
+                    if (url.startsWith("https://jaccount.sjtu.edu.cn/")) activateMobileMode(browser);
                 }
             });
             browser.setWebChromeClient(new WebChromeClient() {
@@ -180,12 +183,12 @@ public class SjtuCanvasPlugin extends Plugin {
                         @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
                             Uri uri = request.getUrl();
                             if ("https".equalsIgnoreCase(uri.getScheme())) browser.loadUrl(uri.toString());
-                            else openLoginAppLink(uri, browser);
+                            else if (shouldLaunchLoginApp(uri, browser.getUrl(), true)) openLoginAppLink(uri, browser);
                             return true;
                         }
                         @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap icon) {
                             if (url.startsWith("https://")) browser.loadUrl(url);
-                            else openLoginAppLink(Uri.parse(url), browser);
+                            else if (shouldLaunchLoginApp(Uri.parse(url), browser.getUrl(), true)) openLoginAppLink(Uri.parse(url), browser);
                             panel.removeView(popup);
                             popup.destroy();
                         }
@@ -231,6 +234,35 @@ public class SjtuCanvasPlugin extends Plugin {
         });
     }
 
+    /** Official jAccount mobile login uses jaccount://login?uuid=..., often from JS without hasGesture. */
+    private boolean shouldLaunchLoginApp(Uri target, String pageUrl, boolean userGesture) {
+        String scheme = target.getScheme();
+        if (scheme == null) return false;
+        Uri origin = pageUrl == null ? Uri.EMPTY : Uri.parse(pageUrl);
+        String host = origin.getHost();
+        boolean trusted = "https".equalsIgnoreCase(origin.getScheme())
+            && "jaccount.sjtu.edu.cn".equalsIgnoreCase(host);
+        if (!trusted) return false;
+        if ("jaccount".equalsIgnoreCase(scheme)) {
+            String uuid = target.getQueryParameter("uuid");
+            return "login".equalsIgnoreCase(target.getHost())
+                && uuid != null && uuid.matches("[0-9a-fA-F-]{32,40}");
+        }
+        return userGesture && ("intent".equalsIgnoreCase(scheme)
+                || "sjtu".equalsIgnoreCase(scheme) || "jwb".equalsIgnoreCase(scheme));
+    }
+
+    /** Click official MOBILE mode, if it exists; no fake auth page or invented login URL. */
+    private void activateMobileMode(WebView browser) {
+        String script = "(function(){if(location.hostname!=='jaccount.sjtu.edu.cn')return 'skip';"
+            + "var nodes=Array.from(document.querySelectorAll('a,button,[role=tab],label'));"
+            + "var n=nodes.find(e=>(e.innerText||e.textContent||'').trim().toUpperCase()==='MOBILE');"
+            + "if(!n)return 'absent';"
+            + "if(n.getAttribute('aria-selected')==='true'||n.classList.contains('active'))return 'active';"
+            + "n.click();return 'clicked'})()";
+        browser.evaluateJavascript(script, ignored -> {});
+    }
+
     private int dp(int value) {
         return Math.round(value * getContext().getResources().getDisplayMetrics().density);
     }
@@ -239,7 +271,7 @@ public class SjtuCanvasPlugin extends Plugin {
         try {
             String scheme = uri.getScheme();
             if (scheme == null) return;
-            if (!("intent".equalsIgnoreCase(scheme) ||
+            if (!("intent".equalsIgnoreCase(scheme) || "jaccount".equalsIgnoreCase(scheme) ||
                   "sjtu".equalsIgnoreCase(scheme) || "jwb".equalsIgnoreCase(scheme) ||
                   "weixin".equalsIgnoreCase(scheme) || "alipays".equalsIgnoreCase(scheme) ||
                   "my".equalsIgnoreCase(scheme))) return;
