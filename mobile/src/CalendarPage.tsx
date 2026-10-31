@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import type { CalendarEvent } from './native'
+import { scheduleKind, scheduleLabel, schedulePlace } from './ScheduleUtils'
 
 const TZ = 'Asia/Shanghai'
 const DOW = ['周日','周一','周二','周三','周四','周五','周六']
@@ -35,8 +36,6 @@ const minute = (time: string, fallback = 480) => {
 }
 const isTimed = (e: CalendarEvent) => /^\d{2}:\d{2}$/.test(timeText(e.startTime))
 const isHomework = (e: CalendarEvent) => e.type === 'assignment'
-const isClass = (e: CalendarEvent) => e.type === 'course'
-const isActivity = (e: CalendarEvent) => e.type === 'event'
 const COURSE_COLORS = ['indigo','teal','lavender','amber'] as const
 type Placed = { event:CalendarEvent; start:number; end:number; left:number; width:number; tone:string }
 function placeClasses(events:CalendarEvent[]): Placed[] {
@@ -67,14 +66,13 @@ function placeClasses(events:CalendarEvent[]): Placed[] {
   flush()
   return placed
 }
-export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRefresh,onOfficial,officialConnected,
+export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOfficial,officialConnected,
   onAddSchedule,onEditSchedule}:{
   month:string
   onMonthChange:(month:string)=>void
   onWeekChange:(weekStart:string)=>void
   events:CalendarEvent[]
   busy:boolean
-  onRefresh:()=>void
   onOfficial:()=>void
   officialConnected?:boolean
   onAddSchedule:(date:string)=>void
@@ -135,18 +133,12 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX
   const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
   const dayEvents=eventMap.get(selected)||[]
-  const classEvents=dayEvents.filter(isClass)
-  const activityEvents=dayEvents.filter(isActivity)
-  const homework=dayEvents.filter(isHomework)
-  const timed=placeClasses([...classEvents,...activityEvents])
-  const untimed=dayEvents.filter(e=>!isHomework(e)&&!isTimed(e))
-  // Trim empty morning/evening hours so homework and classes fit on one screen.
-  const firstHour=timed.length?Math.max(6,Math.floor(Math.min(...timed.map(e=>e.start))/60)-1):8
-  const lastHour=timed.length?Math.min(23,Math.ceil(Math.max(...timed.map(e=>e.end))/60)+1):11
-  const MIN_TIME=firstHour*60
-  const MAX_TIME=lastHour*60
-  const PX_PER_HOUR=53
-  const position=(m:number)=>Math.max(0,(m-MIN_TIME)/60*PX_PER_HOUR)
+  const dayGroups: {kind:'schedule'|'homework'|'exam';title:string;items:CalendarEvent[]}[] =
+    (['schedule','homework','exam'] as const).map(kind=>({
+      kind,title:scheduleLabel(kind),
+      items:dayEvents.filter(event=>scheduleKind(event)===kind)
+        .sort((a,b)=>a.startTime.localeCompare(b.startTime))
+    }))
   const shift=(offset:number)=>{
     setHasNestedMotion(true)
     setMotionDirection(offset < 0 ? 'backward' : 'forward')
@@ -180,7 +172,6 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
         <button type="button" className="today-pill" onClick={()=>{select(today);setView('week');setDisplay('day')}}>今天</button>
         <button type="button" className="calendar-add" onClick={()=>onAddSchedule(selected)}
           aria-label={'添加 '+selected+' 的个人日程'}>＋</button>
-        <button type="button" className="icon-button" aria-label="同步日程" disabled={busy} onClick={onRefresh}><Icon name="refresh" size={18}/></button>
       </div>
     </div>
     <section className="week-navigator glass">
@@ -288,6 +279,10 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
                     aria-label={timeText(event.startTime)+' '+event.title}>
                     <span>{timeText(event.startTime)}</span>
                     <strong>{event.title}</strong>
+                    {event.type==='course'&&schedulePlace(event)&&
+                      <small className="week-classroom" title={schedulePlace(event)}>
+                        {schedulePlace(event)}
+                      </small>}
                   </button>)}
               </div>
             </div>
@@ -296,52 +291,46 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
       </div>
     </section>}
     {display==='day'&&<>
-    <div className="schedule-day-head"><div><strong>{Number(selected.slice(5,7))} 月 {Number(selected.slice(-2))} 日</strong><span>{dayLabel}</span></div>
-      {busy?<span className="sync-state"><span className="sync-spin"/>同步中</span>:<span className="sync-state">{classEvents.length} 节课程 · {homework.length} 项作业</span>}</div>
-    {homework.length>0&&<div className="deadline-wrapper"><section className="deadline-section">
-      <div className="schedule-section-title"><h2>作业截止</h2><span>{homework.length?homework.length+' 项':'无'}</span></div>
-      <div className="deadline-grid">{homework.sort((a,b)=>a.startTime.localeCompare(b.startTime)).map(e=>
-        <article className="deadline-card glass" key={e.id}>
-          <div className="deadline-icon"><Icon name="clock" size={18}/></div>
-          <div className="deadline-info"><strong>{e.title}</strong>{e.courseName&&<small>{e.courseName}</small>}</div>
-          <time className="deadline-time">{timeText(e.startTime)}</time>
-        </article>)}</div>
-    </section>
-    </div>}
-    {!busy&&timed.length===0?<div className="no-classes glass"><Icon name="book" size={20}/>今天没有课程安排</div>:
-    <section className="timetable glass" aria-label="当日课程时间课表">
-      <div className="timetable-axis">
-        {Array.from({length:lastHour-firstHour+1},(_,i)=>i+firstHour).map(hour=><div key={hour} className="timetable-hour" style={{top:position(hour*60)}}>{pad(hour)}:00</div>)}
+      <div className="schedule-day-head">
+        <div><strong>{Number(selected.slice(5,7))} 月 {Number(selected.slice(-2))} 日</strong>
+          <span>{dayLabel}</span></div>
+        {busy?<span className="sync-state"><span className="sync-spin"/>自动同步中</span>:
+          <span className="sync-state">{dayEvents.length} 项安排</span>}
       </div>
-      <div className="timetable-track" style={{height:(MAX_TIME-MIN_TIME)/60*PX_PER_HOUR}}>
-        {Array.from({length:lastHour-firstHour+1},(_,i)=>i+firstHour).map(hour=><div className="timetable-line" key={hour} style={{top:position(hour*60)}}/>)}
-        {!busy&&timed.length===0&&<div className="timetable-empty">当天暂无课程安排</div>}
-        {timed.map(({event,start,end,left,width,tone})=>{
-          const top=position(Math.max(MIN_TIME,start))
-          const height=Math.max(44,position(Math.min(MAX_TIME,end))-top-3)
-          return <article key={event.id} className={'time-class '+tone+
-              (event.id.startsWith('personal-')?' personal-schedule-item':'')}
-            onClick={()=>{if(event.id.startsWith('personal-'))onEditSchedule(event.id)}}
-            style={{top,left:left+'%',width:'calc('+width+'% - 5px)',height}}>
-            <strong>{event.title}</strong>
-            <span className="time-class-range">{timeText(event.startTime)}–{timeText(event.endTime)}</span>
-            {event.courseName&&!/^(课程活动|正式课表)$/.test(event.courseName)&&<small>{event.courseName}</small>}
-          </article>
-        })}
-        {(()=>{
-          if(selected!==today)return null
-          const now=new Date(),p=new Intl.DateTimeFormat('en-US',{timeZone:TZ,hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(now)
-          const nowM=Number(p.find(v=>v.type==='hour')?.value)*60+Number(p.find(v=>v.type==='minute')?.value)
-          return nowM>=MIN_TIME&&nowM<=MAX_TIME?<div className="time-now" style={{top:position(nowM)}}/>:null
-        })()}
+      <div className="day-category-list">
+        {dayGroups.map(group=><section className={'day-group day-group--'+group.kind}
+            key={group.kind} aria-label={group.title}>
+          <div className="day-group-title">
+            <div className="day-group-heading"><span className="day-group-dot"/>
+              <h2>{group.title}</h2></div>
+            <span>{group.items.length} 项</span>
+          </div>
+          <div className="day-group-body">
+            {group.items.length===0?
+              <div className="day-group-empty">暂无{group.title}</div>:
+              group.items.map(event=>
+                <div key={event.id} className={'day-group-item'+
+                  (event.id.startsWith('personal-')?' is-editable':'')}>
+                  <div className="day-item-time">
+                    <strong>{timeText(event.startTime)}</strong>
+                    {isTimed(event)&&timeText(event.endTime)!==timeText(event.startTime)&&
+                      <small>{timeText(event.endTime)}</small>}
+                  </div>
+                  <div className="day-item-copy">
+                    <strong>{event.title}</strong>
+                    {schedulePlace(event)&&
+                      <span className="day-item-place">教室 · {schedulePlace(event)}</span>}
+                    {event.courseName&&!schedulePlace(event)&&
+                      event.courseName!=='正式课表'&&event.courseName!=='个人日程'&&
+                      <span className="day-item-subtitle">{event.courseName}</span>}
+                  </div>
+                  {event.id.startsWith('personal-')&&
+                    <button type="button" className="day-item-edit"
+                      onClick={()=>onEditSchedule(event.id)}>编辑</button>}
+                </div>)}
+          </div>
+        </section>)}
       </div>
-    </section>}
-    {untimed.length>0&&<section className="schedule-extras glass"><div className="schedule-section-label">全天安排</div>
-      {untimed.map(e=><div className="schedule-extra" key={e.id}>
-        <span className="event-dot"/><span>{e.title}</span>
-        {e.id.startsWith('personal-')&&<button type="button" className="schedule-extra-edit"
-          onClick={()=>onEditSchedule(e.id)}>编辑</button>}
-      </div>)}</section>}
     </>}
     </div>
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
