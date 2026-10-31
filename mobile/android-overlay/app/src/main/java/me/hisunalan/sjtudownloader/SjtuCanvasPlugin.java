@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -63,6 +64,7 @@ public class SjtuCanvasPlugin extends Plugin {
     private final ExecutorService io = Executors.newFixedThreadPool(3);
     private final Map<String, AtomicBoolean> cancels = new ConcurrentHashMap<>();
 
+    private final AtomicBoolean calendarSsoInFlight = new AtomicBoolean(false);
     private SessionCookieVault sessionVault;
 
     private synchronized SessionCookieVault vault() {
@@ -130,7 +132,12 @@ public class SjtuCanvasPlugin extends Plugin {
                         HttpURLConnection connection = connect(BASE + "/api/v1/users/self/profile", null);
                         ok = connection.getResponseCode() == 200;
                         connection.disconnect();
-                        if (ok) vault().saveAfterVerification();
+                        if (ok) {
+                            vault().saveAfterVerification();
+                            // Canvas & calendar issue different sessions: silently attempt a
+                            // new calendar SSO using the just-authenticated jAccount jar.
+                            startSilentCalendarSso();
+                        }
                     } catch (Exception ignored) {}
                     final boolean verified = ok;
                     new Handler(Looper.getMainLooper()).post(() -> {
@@ -344,6 +351,81 @@ public class SjtuCanvasPlugin extends Plugin {
         } catch (Exception e) {
             Toast.makeText(getContext(), "无法打开认证应用，请尝试网页账号登录", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private static boolean hasCalendarSessionCookie() {
+        String cookies = CookieManager.getInstance().getCookie("https://calendar.sjtu.edu.cn/");
+        if (cookies == null) return false;
+        for (String pair : cookies.split(";")) {
+            if (pair.trim().toUpperCase(Locale.ROOT).startsWith("JSESSIONID=") &&
+                pair.trim().length() > "JSESSIONID=".length()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Unlike Canvas, the official timetable needs its own calendar.sjtu.edu.cn
+     * JSESSIONID. Reproduce the desktop client's silent GET /login handshake.
+     * The user must explicitly approve any additional permissions in the visible
+     * "同步交大官方课表" screen; this background check never clicks approval.
+     */
+    private void startSilentCalendarSso() {
+        if (!calendarSsoInFlight.compareAndSet(false, true)) return;
+        getActivity().runOnUiThread(() -> {
+            if (hasCalendarSessionCookie()) {
+                calendarSsoInFlight.set(false);
+                return;
+            }
+            FrameLayout container = getActivity().findViewById(android.R.id.content);
+            if (container == null) { calendarSsoInFlight.set(false); return; }
+            WebView silent = new WebView(getActivity());
+            silent.getSettings().setJavaScriptEnabled(true);
+            silent.getSettings().setDomStorageEnabled(true);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(silent, true);
+            FrameLayout.LayoutParams layout = new FrameLayout.LayoutParams(dp(1), dp(1));
+            silent.setAlpha(0.01f);
+            container.addView(silent, layout);
+            Handler handler = new Handler(Looper.getMainLooper());
+            AtomicBoolean finished = new AtomicBoolean(false);
+            Runnable cleanup = () -> {
+                if (!finished.compareAndSet(false, true)) return;
+                silent.stopLoading();
+                container.removeView(silent);
+                silent.destroy();
+                calendarSsoInFlight.set(false);
+            };
+            silent.setWebViewClient(new WebViewClient() {
+                @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                    // Do not launch external apps or handle consent in a hidden WebView.
+                    return !"https".equalsIgnoreCase(req.getUrl().getScheme());
+                }
+                @Override public void onPageFinished(WebView view, String url) {
+                    if (finished.get()) return;
+                    if (url.startsWith("https://calendar.sjtu.edu.cn/") && hasCalendarSessionCookie()) {
+                        CookieManager.getInstance().flush();
+                        io.execute(() -> {
+                            try {
+                                // Check the real endpoint before recording a verified session.
+                                String month = new java.text.SimpleDateFormat("yyyy-MM", Locale.ROOT)
+                                    .format(new java.util.Date());
+                                officialCalendarEvents(month);
+                                vault().saveAfterVerification();
+                            } catch (Exception ignored) { }
+                            handler.post(cleanup);
+                        });
+                    } else if (isOfficialJaccountPage(url)) {
+                        // User approval/login is required; do not fake user interaction.
+                        handler.post(cleanup);
+                    }
+                }
+                @Override public void onReceivedError(WebView view, WebResourceRequest request,
+                    android.webkit.WebResourceError error) {
+                    if (request.isForMainFrame()) handler.post(cleanup);
+                }
+            });
+            handler.postDelayed(cleanup, 12_000);
+            silent.loadUrl("https://calendar.sjtu.edu.cn/login");
+        });
     }
 
     @PluginMethod
