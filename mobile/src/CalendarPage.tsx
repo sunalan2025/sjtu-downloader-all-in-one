@@ -23,6 +23,7 @@ const nextDay = (day: string, offset: number) => {
 }
 const dayIndex = (day: string) => new Date(day+'T12:00:00+08:00').getUTCDay()
 const monday = (day: string) => nextDay(day, -(dayIndex(day)+6)%7)
+export const currentWeekStart = () => monday(currentDate())
 const timeText = (time: string) => {
   if (!time || /^\d{4}-\d\d-\d\d$/.test(time)) return '全天'
   const d = new Date(time)
@@ -66,9 +67,10 @@ function placeClasses(events:CalendarEvent[]): Placed[] {
   flush()
   return placed
 }
-export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOfficial,officialConnected}:{
+export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRefresh,onOfficial,officialConnected}:{
   month:string
   onMonthChange:(month:string)=>void
+  onWeekChange:(weekStart:string)=>void
   events:CalendarEvent[]
   busy:boolean
   onRefresh:()=>void
@@ -119,10 +121,12 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
   const shift=(offset:number)=>{
     const next=nextDay(selected,offset)
     setSelected(next)
+    if(monday(next)!==monday(selected))onWeekChange(monday(next))
     if(next.slice(0,7)!==month)onMonthChange(next.slice(0,7))
   }
   const select=(date:string)=>{
     setSelected(date)
+    if(monday(date)!==monday(selected))onWeekChange(monday(date))
     if(date.slice(0,7)!==month)onMonthChange(date.slice(0,7))
   }
   const [year,mon]=month.split('-').map(Number)
@@ -164,7 +168,7 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
     </section>
     <div className="schedule-day-head"><div><strong>{Number(selected.slice(5,7))} 月 {Number(selected.slice(-2))} 日</strong><span>{dayLabel}</span></div>
       {busy?<span className="sync-state"><span className="sync-spin"/>同步中</span>:<span className="sync-state">{classEvents.length} 节课程 · {homework.length} 项作业</span>}</div>
-    {homework.length>0&&<div className="deadline-wrapper">    <section className="deadline-section">
+    {homework.length>0&&<div className="deadline-wrapper"><section className="deadline-section">
       <div className="schedule-section-title"><h2>作业截止</h2><span>{homework.length?homework.length+' 项':'无'}</span></div>
       <div className="deadline-grid">{homework.sort((a,b)=>a.startTime.localeCompare(b.startTime)).map(e=>
         <article className="deadline-card glass" key={e.id}>
@@ -180,7 +184,7 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
         {Array.from({length:lastHour-firstHour+1},(_,i)=>i+firstHour).map(hour=><div key={hour} className="timetable-hour" style={{top:position(hour*60)}}>{pad(hour)}:00</div>)}
       </div>
       <div className="timetable-track" style={{height:(MAX_TIME-MIN_TIME)/60*PX_PER_HOUR}}>
-        {Array.from({length:16},(_,i)=>i+7).map(hour=><div className="timetable-line" key={hour} style={{top:position(hour*60)}}/>)}
+        {Array.from({length:lastHour-firstHour+1},(_,i)=>i+firstHour).map(hour=><div className="timetable-line" key={hour} style={{top:position(hour*60)}}/>)}
         {!busy&&timed.length===0&&<div className="timetable-empty">当天暂无课程安排</div>}
         {timed.map(({event,start,end,left,width,tone})=>{
           const top=position(Math.max(MIN_TIME,start))
