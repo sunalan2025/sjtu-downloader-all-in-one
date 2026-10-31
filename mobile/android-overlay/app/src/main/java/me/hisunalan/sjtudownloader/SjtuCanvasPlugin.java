@@ -406,8 +406,10 @@ public class SjtuCanvasPlugin extends Plugin {
                         io.execute(() -> {
                             try {
                                 // Check the real endpoint before recording a verified session.
-                                String month = new java.text.SimpleDateFormat("yyyy-MM", Locale.ROOT)
-                                    .format(new java.util.Date());
+                                java.text.SimpleDateFormat formatter =
+                                    new java.text.SimpleDateFormat("yyyy-MM", Locale.ROOT);
+                                formatter.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+                                String month = formatter.format(new java.util.Date());
                                 officialCalendarEvents(month);
                                 vault().saveAfterVerification();
                             } catch (Exception ignored) { }
@@ -865,6 +867,8 @@ public class SjtuCanvasPlugin extends Plugin {
             try {
                 JSONObject profile = getObject(BASE + "/api/v1/users/self/profile");
                 vault().saveAfterVerification();
+                // Existing Canvas login: refresh the other service independently.
+                if (!hasCalendarSessionCookie()) startSilentCalendarSso();
                 JSObject result = new JSObject();
                 result.put("loggedIn", true);
                 result.put("name", profile.optString("name", ""));
