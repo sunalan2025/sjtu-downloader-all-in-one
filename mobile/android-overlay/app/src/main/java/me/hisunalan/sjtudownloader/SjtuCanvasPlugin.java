@@ -1,6 +1,7 @@
 package me.hisunalan.sjtudownloader;
 
 import android.app.Activity;
+import me.hisunalan.sjtudownloader.beta.R;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
