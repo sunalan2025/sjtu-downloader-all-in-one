@@ -24,6 +24,25 @@ if (!manifest.includes('android:enableOnBackInvokedCallback')) {
   // backButton handles nested in-app navigation.
   manifest = manifest.replace('<application', '<application android:enableOnBackInvokedCallback="true"')
 }
+// Register the native Home screen widget in Capacitor's generated manifest.
+// Never overwrite the generated manifest (its activities/providers can change).
+if (!manifest.includes('TodayScheduleWidget')) {
+  if (!manifest.includes('</application>')) throw new Error('Android <application> missing')
+  const receiver = `
+    <receiver android:name="me.hisunalan.sjtudownloader.TodayScheduleWidget"
+        android:label="SJTU 今日课表" android:exported="true">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+        <action android:name="android.intent.action.DATE_CHANGED"/>
+        <action android:name="android.intent.action.TIME_SET"/>
+        <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+      </intent-filter>
+      <meta-data android:name="android.appwidget.provider"
+          android:resource="@xml/today_schedule_widget_info"/>
+    </receiver>
+  `
+  manifest = manifest.replace('</application>', receiver + '\n</application>')
+}
 writeFileSync(manifestPath, manifest)
 if (!manifest.includes('android:name="me.hisunalan.sjtudownloader.MainActivity"')) {
   throw new Error('Expected Android launcher activity override is missing')
