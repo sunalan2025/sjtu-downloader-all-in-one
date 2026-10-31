@@ -525,31 +525,9 @@ export function CanvasBrowser() {
   const canvasCourseTaskIds = useAppStore(s => s.canvasCourseTaskIds)
   const progressMap = useAppStore(s => s.progress)
 
-  // ── 导航与选择态解耦：进入子文件夹时自动清空该分类的全选态 ──
+  // ── 导航与选择态解耦：进入子文件夹/分类时自动清空全选态，保持未选择状态 ──
   const handleNavigate = useCallback((next: NetdiskNavState) => {
-    if (next.level === 'category' && next.courseId && next.categoryId) {
-      const cId = Number(next.courseId)
-      const catKey = next.categoryId as 'files' | 'videos' | 'assignments' | 'pptPdf'
-      const tIds = courseTaskIds(cId)
-      const idsToRemove = catKey === 'files' ? tIds.files
-        : catKey === 'videos' ? [...tIds.teacher, ...tIds.ppt, ...tIds.moduleVideo]
-        : catKey === 'assignments' ? tIds.assignments
-        : catKey === 'pptPdf' ? tIds.pptPdf : []
-
-      if (catKey === 'videos') {
-        setCanvasCourseCategorySelection(cId, { teacher: false, ppt: false, moduleVideo: false })
-      } else {
-        setCanvasCourseCategorySelection(cId, { [catKey]: false })
-      }
-
-      if (idsToRemove.length > 0) {
-        setSelected(prev => {
-          const nextSet = new Set(prev)
-          for (const id of idsToRemove) nextSet.delete(id)
-          return nextSet
-        })
-      }
-    } else if (next.level === 'course' && next.courseId) {
+    if ((next.level === 'course' || next.level === 'category') && next.courseId) {
       const cId = Number(next.courseId)
       setCanvasCourseCategorySelection(cId, {
         files: false, teacher: false, ppt: false, moduleVideo: false, assignments: false, pptPdf: false

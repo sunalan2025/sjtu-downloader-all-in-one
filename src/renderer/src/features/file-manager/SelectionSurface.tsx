@@ -19,6 +19,7 @@ export function SelectionSurface({
   onActivate,
   onContextMenu,
   column = false,
+  toggleOnClick = false,
   children,
   className = '',
   label
@@ -29,6 +30,7 @@ export function SelectionSurface({
   onActivate?: (id: string) => void
   onContextMenu?: (request: SelectionMenuRequest) => void
   column?: boolean
+  toggleOnClick?: boolean
   children: ReactNode
   className?: string
   label: string
@@ -64,7 +66,7 @@ export function SelectionSurface({
     return row && root.current?.contains(row) ? row : null
   }
   const choose = (id: string, event: MouseEvent | React.KeyboardEvent) => {
-    commitRef.current(selectItem(ids, current.current, id, anchor.current, event))
+    commitRef.current(selectItem(ids, current.current, id, anchor.current, event, toggleOnClick))
     if (!event.shiftKey || anchor.current === null) anchor.current = id
   }
   const showMenu = (id: string | null, x: number, y: number) => {
@@ -198,7 +200,7 @@ export function SelectionSurface({
         } else if (id && key === ' ' && !(event.target as Element).closest(controls)) {
           event.preventDefault()
           event.stopPropagation()
-          commitRef.current(selectItem(ids, current.current, id, anchor.current, { ...event, ctrlKey: true }))
+          commitRef.current(selectItem(ids, current.current, id, anchor.current, { ...event, ctrlKey: true }, toggleOnClick))
           anchor.current = id
         } else if (['arrowdown', 'arrowup', 'arrowleft', 'arrowright'].includes(key)) {
           const offset = key === 'arrowup' || key === 'arrowleft' ? -1 : 1
@@ -211,7 +213,7 @@ export function SelectionSurface({
           )
           next?.focus({ preventScroll: true })
           next?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-          if (!event.ctrlKey && !event.metaKey) choose(nextId, event)
+          if (!event.ctrlKey && !event.metaKey && !toggleOnClick) choose(nextId, event)
         }
       }}
       onPointerDown={event => {

@@ -34,8 +34,12 @@ export const selectableFiles = (files: NetdiskFileItem[]): CourseSelectionItem[]
   }))
 export function CourseSelectionSurface({
   items,
+  toggleOnClick = true,
   ...props
-}: Omit<ComponentProps<typeof SelectionSurface>, 'onSelectionChange' | 'items'> & { items: CourseSelectionItem[] }) {
+}: Omit<ComponentProps<typeof SelectionSurface>, 'onSelectionChange' | 'items'> & {
+  items: CourseSelectionItem[]
+  toggleOnClick?: boolean
+}) {
   const buildActions = useContext(CourseMenuContext)
   const [menu, setMenu] = useState<SelectionMenuRequest | null>(null)
   const targets = menu ? items.filter(item => menu.selectedIds.includes(item.id)) : []
@@ -63,9 +67,15 @@ export function CourseSelectionSurface({
       <SelectionSurface
         {...props}
         items={items}
+        toggleOnClick={toggleOnClick}
         onContextMenu={buildActions ? setMenu : undefined}
         onSelectionChange={(_next, changed) => {
-          for (const id of changed) items.find(item => item.id === id)?.onToggle()
+          for (const id of changed) {
+            const item = items.find(it => it.id === id)
+            if (item && !item.disabled) {
+              item.onToggle()
+            }
+          }
         }}
       />
       {menu && <ContextMenu point={menu} actions={actions} onClose={() => setMenu(null)} />}

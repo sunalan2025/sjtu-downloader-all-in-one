@@ -29,6 +29,7 @@ import { computeBatchStats } from '../download/progress'
 import type {
   CnmoocChapter,
   CnmoocCourse,
+  CnmoocItem,
   CnmoocSelectedItem,
   DownloadTaskSpec
 } from '@shared/types'
@@ -337,6 +338,38 @@ export function CnmoocBrowser() {
     }
   }, [selectedCount, downloading, courses, courseData, selected, resourceFilter, downloadMode, setDownloading])
 
+  // 单条极速下载/上传通道
+  const handleSingleDownloadItem = useCallback(
+    async (course: CnmoocCourse, item: CnmoocItem, chapterTitle: string) => {
+      const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
+      const picked: CnmoocSelectedItem = {
+        itemId: item.itemId,
+        itemType: item.itemType,
+        title: item.title,
+        chapter: chapterTitle
+      }
+      const r = await window.api.cnmooc.buildSpecs(course.name, course.courseId, [picked], resourceFilter)
+      if (!r.ok || !r.specs || r.specs.length === 0) return
+      const specs = r.specs
+      for (const spec of specs) {
+        if (isAudioOnly && (spec.fileName.endsWith('.mp4') || (spec as any).source === 'cnmooc-video')) {
+          spec.fileName = spec.fileName.replace(/\.mp4$/, '.m4a')
+          spec.extractAudio = true
+        }
+      }
+      const curLinked = useAppStore.getState().cloudLinkedIds
+      setDownloading(true)
+      const result = await submitDownloadBatch(specs, {
+        isBothMode: downloadMode === 'both',
+        existingCloudLinkedIds: curLinked
+      })
+      if (!result.ok) {
+        setDownloading(false)
+      }
+    },
+    [downloadMode, resourceFilter, setDownloading]
+  )
+
   // 单任务 / 全局 控制
   const onPauseTask = useCallback((id: string) => { window.api.download.pause(id).catch(() => undefined) }, [])
   const onCancelTask = useCallback((id: string) => { window.api.download.cancel(id).catch(() => undefined) }, [])
@@ -385,6 +418,7 @@ export function CnmoocBrowser() {
             type: meta.type,
             selected: selected.has(tid),
             onToggle: () => onToggle(tid),
+            onDownloadSingle: () => { void handleSingleDownloadItem(c, it, ch.chapter) },
             renderExtra: (
               <CnmoocItemProgress
                 tid={tid}
@@ -407,7 +441,7 @@ export function CnmoocBrowser() {
           icon: 'folder',
           state: chTri,
           onToggle: () => {
-            onToggleMany(chIds, chTri !== 'all')
+            onToggleMany(chIds, chTri === 'none')
           },
           items,
           emptyMessage: '该章节暂无可下载资源'
@@ -431,7 +465,7 @@ export function CnmoocBrowser() {
         itemCount: ids.length,
         categories,
         onToggle: () => {
-          onToggleMany(ids, triState !== 'all')
+          onToggleMany(ids, triState === 'none')
         },
         onToggleCategory: (catId, on) => {
           const cd = courseData[c.courseId]
@@ -458,29 +492,13 @@ export function CnmoocBrowser() {
   }, [
     filteredCourses, courseData, selected, progressMap, cloudLinkedIds,
     onToggleMany, onToggle, onPauseTask, onCancelTask, onResumeTask,
-    videoQualityOption, resourceFilter
+    videoQualityOption, resourceFilter, handleSingleDownloadItem
   ])
 
   // ── 导航与选择态解耦：进入子文件夹/分类时自动清空全选态，保持未选择状态 ──
   const handleNavigate = useCallback(
     (next: NetdiskNavState) => {
-      if (next.level === 'category' && next.courseId && next.categoryId) {
-        const cId = String(next.courseId)
-        const cd = courseData[cId]
-        const chapter = cd?.chapters.find(ch => ch.chapter === next.categoryId)
-        const idsToRemove = chapter
-          ? chapter.items
-              .filter(it => !isCnmoocQuizOrExercise(it.title, it.itemType))
-              .map(it => makeTid(cId, it.itemId))
-          : []
-        if (idsToRemove.length > 0) {
-          setSelected(prev => {
-            const nextSet = new Set(prev)
-            for (const id of idsToRemove) nextSet.delete(id)
-            return nextSet
-          })
-        }
-      } else if (next.level === 'course' && next.courseId) {
+      if ((next.level === 'course' || next.level === 'category') && next.courseId) {
         const cId = String(next.courseId)
         const cd = courseData[cId]
         const idsToRemove = cd
@@ -562,7 +580,11 @@ export function CnmoocBrowser() {
             viewMode={courseViewMode}
             navState={navState}
             onNavigate={handleNavigate}
+            onDownloadSingle={item => {
+              if (item.onDownloadSingle) item.onDownloadSingle()
+            }}
             onStartDownload={() => void onDownload()}
+            hideCategoryChips
           />
         )}
       </div>

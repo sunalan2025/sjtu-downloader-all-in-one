@@ -327,6 +327,34 @@ export function AuditedCourses() {
     }
   }
 
+  // 单条极速下载/上传通道
+  const handleSingleDownloadTask = useCallback(
+    async (task: VideoTask) => {
+      const isAudioOnly = useAppStore.getState().videoQualityOption === 'audio_only'
+      if (isAudioOnly && task.angle === 3) return
+      const finalFileName = isAudioOnly ? task.fileName.replace(/\.mp4$/, '.m4a') : task.fileName
+      const spec: DownloadTaskSpec = {
+        taskId: task.taskId,
+        url: '',
+        courseName: task.courseName,
+        fileName: finalFileName,
+        refId: task.refId,
+        angle: task.angle,
+        extractAudio: isAudioOnly
+      }
+      const curLinked = useAppStore.getState().cloudLinkedIds
+      setDownloading(true)
+      const result = await submitDownloadBatch([spec], {
+        isBothMode: downloadMode === 'both',
+        existingCloudLinkedIds: curLinked
+      })
+      if (!result.ok) {
+        setDownloading(false)
+      }
+    },
+    [downloadMode, setDownloading]
+  )
+
   // 单任务 / 全局 控制
   const onPauseTask = useCallback((id: string) => {
     window.api.download.pause(id).catch(() => undefined)
@@ -377,6 +405,7 @@ export function AuditedCourses() {
         date: t.lectureDate,
         selected: selected.has(t.taskId),
         onToggle: () => onToggle(t.taskId),
+        onDownloadSingle: () => { void handleSingleDownloadTask(t) },
         renderExtra: (
           <AuditedItemProgress
             tid={t.taskId}
@@ -401,6 +430,10 @@ export function AuditedCourses() {
           if (isAudioOnly) return
           onToggle(t.taskId)
         },
+        onDownloadSingle: () => {
+          if (isAudioOnly) return
+          void handleSingleDownloadTask(t)
+        },
         renderExtra: (
           <AuditedItemProgress
             tid={t.taskId}
@@ -422,8 +455,7 @@ export function AuditedCourses() {
           icon: isAudioOnly ? 'audio' : 'video',
           state: triStateFromCount(teacherSelCount, teacherTasks.length),
           onToggle: () => {
-            const isAll = teacherSelCount === teacherTasks.length
-            toggleSelectMany(teacherTasks.map(t => t.taskId), !isAll)
+            toggleSelectMany(teacherTasks.map(t => t.taskId), teacherSelCount === 0)
           },
           items: teacherItems,
           emptyMessage: isAudioOnly ? '暂无教师音频录像' : '暂无教师视角录像'
@@ -438,8 +470,7 @@ export function AuditedCourses() {
           disabledReason: isAudioOnly ? '无独立音频流' : undefined,
           onToggle: () => {
             if (isAudioOnly) return
-            const isAll = pptSelCount === pptTasks.length
-            toggleSelectMany(pptTasks.map(t => t.taskId), !isAll)
+            toggleSelectMany(pptTasks.map(t => t.taskId), pptSelCount === 0)
           },
           items: pptItems,
           emptyMessage: '暂无课堂PPT视角录像'
@@ -471,7 +502,7 @@ export function AuditedCourses() {
         itemCount: tasks.length,
         categories,
         onToggle: () => {
-          onToggleMany(taskIds, triState !== 'all')
+          onToggleMany(taskIds, triState === 'none')
         },
         summary: stats && (stats.done > 0 || stats.active > 0 || stats.failed > 0)
           ? { done: stats.done, downloading: stats.active, errors: stats.failed, inflight: stats.inflight, total: stats.total }
@@ -481,7 +512,7 @@ export function AuditedCourses() {
   }, [
     filteredCourses, tasksByCourse, selected, progressMap, isBothMode,
     cloudLinkedIds, onToggleMany, onToggle, toggleSelectMany, onPauseTask, onCancelTask, onResumeTask,
-    videoQualityOption
+    videoQualityOption, handleSingleDownloadTask
   ])
 
   const handleRelogin = useCallback(() => {
@@ -493,24 +524,7 @@ export function AuditedCourses() {
   // ── 导航与选择态解耦：进入子文件夹/分类时自动清空全选态，保持未选择状态 ──
   const handleNavigate = useCallback(
     (next: NetdiskNavState) => {
-      if (next.level === 'category' && next.courseId && next.categoryId) {
-        const cId = Number(next.courseId)
-        const tasks = tasksByCourse[cId] ?? EMPTY_TASKS
-        const idsToRemove =
-          next.categoryId === 'teacher'
-            ? tasks.filter(t => t.angle === 0).map(t => t.taskId)
-            : next.categoryId === 'ppt'
-              ? tasks.filter(t => t.angle === 3).map(t => t.taskId)
-              : tasks.map(t => t.taskId)
-
-        if (idsToRemove.length > 0) {
-          setSelected(prev => {
-            const nextSet = new Set(prev)
-            for (const id of idsToRemove) nextSet.delete(id)
-            return nextSet
-          })
-        }
-      } else if (next.level === 'course' && next.courseId) {
+      if ((next.level === 'course' || next.level === 'category') && next.courseId) {
         const cId = Number(next.courseId)
         const tasks = tasksByCourse[cId] ?? EMPTY_TASKS
         if (tasks.length > 0) {
@@ -581,7 +595,11 @@ export function AuditedCourses() {
             viewMode={courseViewMode}
             navState={navState}
             onNavigate={handleNavigate}
+            onDownloadSingle={item => {
+              if (item.onDownloadSingle) item.onDownloadSingle()
+            }}
             onStartDownload={() => void onDownload()}
+            hideCategoryChips
           />
         )}
       </div>

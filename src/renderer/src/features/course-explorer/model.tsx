@@ -134,4 +134,6 @@ export interface NetdiskCourseExplorerProps {
   onTogglePptPdf?: (enabled: boolean) => void
   downloadMode?: DownloadMode
   onViewModeChange?: (mode: CourseViewMode) => void
+  /** 是否隐藏底栏动作岛的分类芯片组（极简模式） */
+  hideCategoryChips?: boolean
 }

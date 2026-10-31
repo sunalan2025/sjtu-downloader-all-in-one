@@ -338,7 +338,7 @@ export function ListView({
                   </td>
                   <td className="py-2.5 px-4 text-right" onClick={e => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-2">
-                      {!item.disabled && (
+                      {!item.disabled && (onDownloadSingle || item.onDownloadSingle || item.onDownload) && (
                         <button
                           type="button"
                           data-testid="single-download-btn"

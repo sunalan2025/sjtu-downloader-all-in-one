@@ -30,6 +30,8 @@ export interface FloatingCommandIslandProps {
   selectedSummary: SelectedSummary
   /** 是否处于单门课程视图（为 true 时左侧胶囊展示分类数而非课程数） */
   isSingleCourse?: boolean
+  /** 是否隐藏中间的分类芯片组（极简模式） */
+  hideCategoryChips?: boolean
   /** 分类激活状态（未传则默认全部激活） */
   categorySelection?: CategorySelectionState
   /** 分类激活切换回调 */
@@ -98,6 +100,7 @@ export const STORAGE_DEST_OPTIONS: Array<{ key: DownloadMode; label: string }> =
 export function FloatingCommandIsland({
   selectedSummary,
   isSingleCourse = false,
+  hideCategoryChips = false,
   categorySelection,
   onToggleCategory,
   perspective,
@@ -275,72 +278,76 @@ export function FloatingCommandIsland({
       {/* 分割线 */}
       <div className="h-4 w-px bg-bd-strong shrink-0" />
 
-      {/* ② 中间分类交互芯片组 */}
-      <div className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
-        {/* 课件芯片 */}
-        <button
-          type="button"
-          role="button"
-          aria-pressed={activeCategoryState.files}
-          onClick={() => handleToggleCategory('files')}
-          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
-            activeCategoryState.files
-              ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-              : 'border-bd text-text-3 hover:text-text-1 bg-surface-2 hover:bg-surface-3'
-          }`}
-        >
-          <span>📘 课件 {selectedSummary.filesCount ?? 0}</span>
-        </button>
+      {/* ② 中间分类交互芯片组（可由 hideCategoryChips 隐藏，为旁听课程与好大学在线呈现极简外观） */}
+      {!hideCategoryChips && (
+        <>
+          <div className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
+            {/* 课件芯片 */}
+            <button
+              type="button"
+              role="button"
+              aria-pressed={activeCategoryState.files}
+              onClick={() => handleToggleCategory('files')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
+                activeCategoryState.files
+                  ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
+                  : 'border-bd text-text-3 hover:text-text-1 bg-surface-2 hover:bg-surface-3'
+              }`}
+            >
+              <span>📘 课件 {selectedSummary.filesCount ?? 0}</span>
+            </button>
 
-        {/* 视频/音频芯片（悬停显示当前机位/音频提示，点击切换勾选） */}
-        <button
-          type="button"
-          role="button"
-          aria-pressed={activeCategoryState.videos}
-          onClick={() => handleToggleCategory('videos')}
-          title={videoChipTitle}
-          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
-            activeCategoryState.videos
-              ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-              : 'border-bd text-text-3 hover:text-text-1 bg-surface-2 hover:bg-surface-3'
-          }`}
-        >
-          <span>{videoChipLabel}</span>
-        </button>
+            {/* 视频/音频芯片（悬停显示当前机位/音频提示，点击切换勾选） */}
+            <button
+              type="button"
+              role="button"
+              aria-pressed={activeCategoryState.videos}
+              onClick={() => handleToggleCategory('videos')}
+              title={videoChipTitle}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
+                activeCategoryState.videos
+                  ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
+                  : 'border-bd text-text-3 hover:text-text-1 bg-surface-2 hover:bg-surface-3'
+              }`}
+            >
+              <span>{videoChipLabel}</span>
+            </button>
 
-        {/* 作业芯片 */}
-        <button
-          type="button"
-          role="button"
-          aria-pressed={activeCategoryState.assignments}
-          onClick={() => handleToggleCategory('assignments')}
-          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
-            activeCategoryState.assignments
-              ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-              : 'border-bd text-text-3 hover:text-text-1 bg-surface-2 hover:bg-surface-3'
-          }`}
-        >
-          <span>📝 作业 {selectedSummary.assignCount ?? 0}</span>
-        </button>
+            {/* 作业芯片 */}
+            <button
+              type="button"
+              role="button"
+              aria-pressed={activeCategoryState.assignments}
+              onClick={() => handleToggleCategory('assignments')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
+                activeCategoryState.assignments
+                  ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
+                  : 'border-bd text-text-3 hover:text-text-1 bg-surface-2 hover:bg-surface-3'
+              }`}
+            >
+              <span>📝 作业 {selectedSummary.assignCount ?? 0}</span>
+            </button>
 
-        {/* PPT 讲义芯片 */}
-        <button
-          type="button"
-          role="button"
-          aria-pressed={activeCategoryState.pptPdf}
-          onClick={() => handleToggleCategory('pptPdf')}
-          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
-            activeCategoryState.pptPdf
-              ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
-              : 'border-bd text-text-3 hover:text-text-1 bg-surface-2 hover:bg-surface-3'
-          }`}
-        >
-          <span>📑 PPT讲义 {selectedSummary.pptCount ?? 0}</span>
-        </button>
-      </div>
+            {/* PPT 讲义芯片 */}
+            <button
+              type="button"
+              role="button"
+              aria-pressed={activeCategoryState.pptPdf}
+              onClick={() => handleToggleCategory('pptPdf')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs border transition-all duration-150 cursor-pointer ${
+                activeCategoryState.pptPdf
+                  ? 'bg-accent/10 text-accent font-semibold border-accent/30 shadow-2xs'
+                  : 'border-bd text-text-3 hover:text-text-1 bg-surface-2 hover:bg-surface-3'
+              }`}
+            >
+              <span>📑 PPT讲义 {selectedSummary.pptCount ?? 0}</span>
+            </button>
+          </div>
 
-      {/* 分割线 */}
-      <div className="h-4 w-px bg-bd-strong shrink-0" />
+          {/* 分割线 */}
+          <div className="h-4 w-px bg-bd-strong shrink-0" />
+        </>
+      )}
 
       {/* ④ 主执行大按钮：下载中变为进度环 + done/total（继承已死的 OverallProgressBar 职责） */}
       {batchActive && batchProgress ? (

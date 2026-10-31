@@ -31,7 +31,7 @@ export function CourseCard({ course, onNavigate }: { course: NetdiskCourseItem; 
       className={`group relative flex flex-col items-center justify-start rounded-xl p-2.5 transition-all duration-150 cursor-pointer select-none ${
         isSelected ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs' : 'hover:bg-surface-2/70 active:bg-surface-3/50'
       }`}
-      title={`${c.name} · 双击查看内容`}
+      title={`${c.name} · 单击切换全课勾选 · 双击进入查看`}
     >
       {/* macOS 风格圆圈复选框 (左上角) */}
       <div
@@ -132,7 +132,7 @@ export function GridView({
     return (
       <CourseSelectionSurface key={courses.map(course => course.id).join(',')} label="课程网格" items={selectableCourses(termGroups ? termGroups.flatMap(group => group.items) : courses)}
         onOpen={id => { const course = courses.find(c => String(c.id) === id); if (course) { course.onEnter?.(); onNavigate({ level: 'course', courseId: course.id }) } }}
-        className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-28' : 'pb-6'}`}>
+        className={`h-full overflow-y-auto px-2 py-1.5 ${isSelected ? 'pb-28' : 'pb-6'}`}>
         {termGroups ? (
           <div className="space-y-6">
             {termGroups.map(group => {
@@ -192,7 +192,7 @@ export function GridView({
     return (
       <CourseSelectionSurface label="课程分类网格" items={selectableCategories(currentCourse.categories)}
         onOpen={id => onNavigate({ level: 'category', courseId: currentCourse.id, categoryId: id })}
-        className={`h-full overflow-y-auto p-1.5 ${isSelected ? 'pb-28' : 'pb-4'}`}>
+        className={`h-full overflow-y-auto px-2 py-1.5 ${isSelected ? 'pb-28' : 'pb-4'}`}>
         <div className="mb-4 flex items-center justify-between rounded-xl border border-bd bg-surface-1 p-3">
           <div className="flex items-center gap-3">
             <span
@@ -238,7 +238,7 @@ export function GridView({
                 className={`group relative flex flex-col items-center justify-start rounded-xl p-2.5 transition-all duration-150 cursor-pointer select-none ${
                   isCatSelected ? 'bg-accent/15 ring-1 ring-accent/40 shadow-xs' : 'hover:bg-surface-2/70 active:bg-surface-3/50'
                 }`}
-                title={`${cat.name} · 双击查看内容`}
+                title={`${cat.name} · 单击切换整章勾选 · 双击进入查看`}
               >
                 {/* macOS 风格圆圈复选框 (左上角) */}
                 <div
@@ -285,7 +285,7 @@ export function GridView({
   return (
     <CourseSelectionSurface label="课件网格" items={selectableFiles(displayedItems)}
       onOpen={id => { const item = displayedItems.find(item => item.id === id); if (item) onInspectFile?.(item) }}
-      className={`h-full overflow-y-auto ${isSelected ? 'pb-28' : 'pb-4'}`}>
+      className={`h-full overflow-y-auto px-2 py-1.5 ${isSelected ? 'pb-28' : 'pb-4'}`}>
       <CategoryLevelHeader
         category={currentCategory}
         displayedCount={displayedItems.length}
@@ -300,7 +300,7 @@ export function GridView({
       {displayedItems.length === 0 ? (
         <div className="py-12 text-center text-xs text-text-3">{currentCategory.emptyMessage || '该分类下暂无资源'}</div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3 pb-6 select-none">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 gap-3 pb-6 select-none p-1">
           {displayedItems.map(item => (
             <div
               key={item.id}
@@ -321,7 +321,7 @@ export function GridView({
                   ? item.disabledReason
                   : item.assignmentMeta
                     ? `${item.name}\n作业全量归档（含题目说明与评语.md、题目附件${item.assignmentMeta.teacherAttachmentCount > 0 ? ` [${item.assignmentMeta.teacherAttachmentCount}个]` : ''}、本人提交原件${item.assignmentMeta.submissionFileCount > 0 ? ` [${item.assignmentMeta.submissionFileCount}个]` : ''}）\n${item.assignmentMeta.hasSubmission ? (item.assignmentMeta.submissionScore !== undefined ? `得分: ${item.assignmentMeta.submissionScore}分` : '已提交待批改') : '未提交'}${item.assignmentMeta.dueAt ? `\n截止时间: ${item.assignmentMeta.dueAt.slice(0, 16).replace('T', ' ')}` : ''}`
-                    : `${item.name} · 点击勾选`
+                    : `${item.name} · 单击切换勾选 · 双击查看详情`
               }
             >
               {/* macOS 风格圆圈复选框 (左上角) */}
@@ -339,7 +339,7 @@ export function GridView({
                 />
               </div>
 
-              {/* 悬停即现极速下载按钮 (右上角) */}
+              {/* 悬停即现极速下载/上传按钮 (右上角) */}
               {!item.disabled && (
                 <button
                   type="button"

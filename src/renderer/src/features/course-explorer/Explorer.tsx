@@ -48,7 +48,8 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   hasPptPdf,
   onTogglePptPdf,
   downloadMode: _downloadMode,
-  onViewModeChange
+  onViewModeChange,
+  hideCategoryChips
 }: NetdiskCourseExplorerProps) {
   const [detailFile, setDetailFile] = useState<NetdiskFileItem | null>(null)
   const [query, setQuery] = useState('')
@@ -65,8 +66,6 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   }) })), [sourceCourses, navState.courseId, navState.categoryId, query, kind, sort, descending])
   const viewportRef = useVisibleCourses(courses, `${viewMode}:${navState.level}:${navState.courseId ?? ''}:${groupByTerm}`)
   const onNavigate: NetdiskCourseExplorerProps['onNavigate'] = next => {
-    // Opening another directory starts a new selection scope, like the cloud drive.
-    for (const course of courses) if (course.state !== 'none') course.onToggle()
     setDetailFile(null)
     setQuery('')
     setKind('all')
@@ -74,7 +73,6 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
   }
   const history = useNavigationHistory(navState, onNavigate, JSON.stringify(sourceCourses.map(course => course.id)))
   const filterChanged = () => {
-    for (const course of sourceCourses) if (course.state !== 'none') course.onToggle()
     setDetailFile(null)
   }
   const storeDownloadMode = useAppStore(s => s.downloadMode)
@@ -563,6 +561,7 @@ export const NetdiskCourseExplorer = memo(function NetdiskCourseExplorer({
             pptCount: selectedStats.pptCount
           }}
           isSingleCourse={selectedStats.isSingleCourse}
+          hideCategoryChips={hideCategoryChips}
           categorySelection={categorySelectionState}
           onToggleCategory={handleToggleIslandCategory}
           perspective={selectedStats.effectivePerspective ?? perspective ?? currentCourse?.perspective ?? sharedPerspective}

@@ -9,9 +9,10 @@ export function selectItem(
   selected: ReadonlySet<string>,
   id: string,
   anchor: string | null,
-  modifiers: SelectionModifiers = {}
+  modifiers: SelectionModifiers = {},
+  toggleOnClick = false
 ) {
-  const additive = modifiers.ctrlKey || modifiers.metaKey
+  const additive = modifiers.ctrlKey || modifiers.metaKey || toggleOnClick
   if (modifiers.shiftKey && anchor !== null && ids.includes(anchor)) {
     const start = ids.indexOf(anchor)
     const end = ids.indexOf(id)
