@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Haptics } from '@capacitor/haptics'
+import { flushSync } from 'react-dom'
 import native, { isAndroid, type CanvasCourse, type DownloadProgress, type CalendarEvent, type CourseDownloadItem } from './native'
-import { BatchCourseBrowser, type CourseBrowserHandle } from './BatchCourseBrowser'
+import { BatchCourseBrowser, type CourseBrowserHandle, type CourseSelection } from './BatchCourseBrowser'
 import { CalendarPage, currentMonth, currentWeekStart, shanghaiDate } from './CalendarPage'
 import { Icon, type IconName } from './Icon'
 
@@ -28,6 +29,42 @@ export default function App() {
   const tabRef = useRef<Tab>('home')
   tabRef.current = tab
   const courseBrowser = useRef<CourseBrowserHandle>(null)
+  const [selection, setSelection] = useState<CourseSelection>({ count: 0, busy: false, scope: null })
+  const onSelectionChange = useCallback((next: CourseSelection) => {
+    setSelection(previous => previous.count === next.count &&
+      previous.busy === next.busy && previous.scope === next.scope ? previous : next)
+  }, [])
+  const transitionSerial = useRef(0)
+  // Snapshot the outgoing page on supporting WebViews; CSS animates a directional edge-mask.
+  const showTab = useCallback((next: Tab) => {
+    const previous = tabRef.current
+    if (previous === next) return
+    const direction = nav.findIndex(t => t.id === next) > nav.findIndex(t => t.id === previous)
+      ? 'forward' : 'backward'
+    const root = document.documentElement
+    root.dataset.tabDirection = direction
+    const update = () => {
+      tabRef.current = next
+      setTab(next)
+      if (next !== 'courses') setSelection({ count: 0, busy: false, scope: null })
+      window.scrollTo(0, 0)
+    }
+    const transitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => { finished: Promise<void> }
+    }
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const serial = ++transitionSerial.current
+    if (!reduced && typeof transitionDocument.startViewTransition === 'function') {
+      root.dataset.viewTransition = 'active'
+      const transition = transitionDocument.startViewTransition(() => flushSync(update))
+      void transition.finished.catch(() => {}).finally(() => {
+        if (transitionSerial.current === serial) root.dataset.viewTransition = 'fallback'
+      })
+    } else {
+      root.dataset.viewTransition = 'fallback'
+      update()
+    }
+  }, [])
   const calendarRequestId = useRef(0)
   const lastCalendarFetch = useRef(0)
   const weeklyCache = useRef(new Map<string, {
@@ -37,11 +74,11 @@ export default function App() {
     // The Android system gesture/button first closes a nested course view,
     // then moves to Home, and only minimizes from the root.
     if (tabRef.current === 'courses' && courseBrowser.current?.goBack()) return
-    if (tabRef.current !== 'home') { setTab('home'); return }
+    if (tabRef.current !== 'home') { showTab('home'); return }
     void CapacitorApp.minimizeApp().catch(() => {})
-  }, [])
+  }, [showTab])
   const switchTab = (next: Tab) => {
-    if (next === tab) return
+    if (next === tabRef.current) return
     if (next === 'calendar') {
       // Returning to the calendar always shows today's schedule automatically.
       const current = currentMonth()
@@ -51,8 +88,7 @@ export default function App() {
       else if (loggedIn && Date.now() - lastCalendarFetch.current > 90_000) void loadCalendar(week, true)
     }
     if (isAndroid) void Haptics.selectionChanged().catch(() => {})
-    setTab(next)
-    window.scrollTo({ top: 0, behavior: 'instant' })
+    showTab(next)
   }
   const [loggedIn, setLoggedIn] = useState(false)
   const [sessionChecking, setSessionChecking] = useState(isAndroid)
@@ -147,7 +183,7 @@ export default function App() {
     try {
       await native.login()
       await refreshSession()
-      setTab('courses')
+      showTab('courses')
     } catch (e) { setNotice('登录未完成：' + String(e)) }
     finally { setBusy(false) }
   }
@@ -156,7 +192,7 @@ export default function App() {
     try {
       await native.logout()
       weeklyCache.current.clear(); setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setOfficialConnected(false)
-      setTab('home')
+      showTab('home')
     } catch (e) { setNotice(String(e)) }
   }
   async function loadCourses(): Promise<void> {
@@ -237,7 +273,7 @@ export default function App() {
       bytes: 0,
       total: x.file.size
     })), ...old])
-    setTab('downloads')
+    showTab('downloads')
     let cursor = 0
     async function worker() {
       while (cursor < specs.length) {
@@ -270,6 +306,8 @@ export default function App() {
   const finished = jobs.filter(j => j.state === 'done').length
   const today = shanghaiDate(new Date().toISOString())
   const todayEvents = events.filter(e => shanghaiDate(e.startTime) === today).slice(0, 3)
+  const batchActive = tab === 'courses' && loggedIn && !sessionChecking && selection.count > 0
+  const tabIndex = nav.findIndex(item => item.id === tab)
 
   return <div className="app">
     <div className="ambient ambient-one" aria-hidden="true"/>
@@ -320,7 +358,7 @@ export default function App() {
             ? <div className="loading-note">正在恢复登录…</div>
             : <BatchCourseBrowser ref={courseBrowser} courses={courses} loggedIn={loggedIn} loading={busy}
                 onRefresh={() => void loadCourses()} onLogin={() => void login()}
-                onBatchDownload={downloadBatch} onNotice={setNotice}/>)}
+                onBatchDownload={downloadBatch} onNotice={setNotice} onSelectionChange={onSelectionChange}/>)}
           {tab === 'calendar' && (loggedIn
             ? <>
               <CalendarPage month={month} onMonthChange={setMonth} onWeekChange={setWeekStart}
@@ -360,10 +398,24 @@ export default function App() {
         </div>
       </section>
     </div>
-    <nav className="bottom-nav glass" aria-label="主导航">{nav.map(item => <button type="button" key={item.id}
-      className={item.id === tab ? 'selected' : ''} onClick={() => switchTab(item.id)}
-      aria-current={item.id === tab ? 'page' : undefined}>
-      <span className="nav-icon"><Icon name={item.icon} size={21}/></span><span>{item.text}</span>
-    </button>)}</nav>
+    <div className={'bottom-dock glass' + (batchActive ? ' is-batch' : '')}>
+      {batchActive ? <div className="batch-dock" role="group" aria-label="批量下载操作">
+        <button type="button" className="primary batch-dock-action" disabled={!isAndroid || selection.busy}
+          onClick={() => courseBrowser.current?.downloadSelection()}>
+          <Icon name="download" size={20}/>
+          {selection.busy ? '正在扫描课程资料…'
+            : selection.scope === 'files' ? '下载 ' + selection.count + ' 个文件'
+              : '下载 ' + selection.count + ' 门课程'}
+        </button>
+      </div> : <nav className="bottom-nav" aria-label="主导航">
+        <span className="nav-slider" aria-hidden="true"
+          style={{ transform: 'translate3d(' + (tabIndex * 100) + '%,0,0)' }}/>
+        {nav.map(item => <button type="button" key={item.id}
+          className={item.id === tab ? 'selected' : ''} onClick={() => switchTab(item.id)}
+          aria-current={item.id === tab ? 'page' : undefined}>
+          <span className="nav-icon"><Icon name={item.icon} size={21}/></span><span>{item.text}</span>
+        </button>)}
+      </nav>}
+    </div>
   </div>
 }
