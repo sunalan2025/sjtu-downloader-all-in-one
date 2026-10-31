@@ -30,8 +30,8 @@ function currentSemester(semesters: string[]): string {
   const academicStart = fall ? year : year - 1
   const range = String(academicStart) + '-' + String(academicStart + 1)
   const season = fall
-    ? /秋|fall|autumn|第一学期|第1学期|上学期|(?:[-/_]\\s*1\\s*$)/i
-    : /春|spring|第二学期|第2学期|下学期|(?:[-/_]\\s*2\\s*$)/i
+    ? /秋|fall|autumn|第一学期|第1学期|上学期|(?:[-/_]\s*1\s*$)/i
+    : /春|spring|第二学期|第2学期|下学期|(?:[-/_]\s*2\s*$)/i
   const scored = semesters.map(label => {
     const matchingYear = label.includes(String(year)) || label.includes(String(academicStart))
     const matchingSeason = season.test(label)
