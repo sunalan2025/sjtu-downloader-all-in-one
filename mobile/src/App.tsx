@@ -258,7 +258,7 @@ export default function App() {
     if(tab!=='home')return
     if(!isAndroid||!loggedIn){setHomeSchoolEvents([]);return}
     const todayWeek=currentWeekStart()
-    const weeks=[todayWeek,dateOffset(todayWeek,7)]
+    const weeks=[todayWeek,dateOffset(todayWeek,7),dateOffset(todayWeek,14)]
     let disposed=false
     const read=async(week:string)=>{
       const cache=weeklyCache.current.get(week)
