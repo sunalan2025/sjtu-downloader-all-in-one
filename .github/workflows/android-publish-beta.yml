@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41196660367 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41203334079 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.3-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.3-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.4-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.4-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.3-beta
+          TAG=android-v0.4.4-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.3-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.4-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.3-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.4-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.3 Beta" \
-              --notes "Android v0.4.3 Beta · 修复顶栏额外留白，移除无用的右上角盾牌和日历连接状态卡；新增周 / 日课表视图；改为按周按需请求、并行加载正式课表、后台补充作业及三分钟周数据缓存。无需卸载旧 Beta 即可覆盖安装。提醒：尚未在真实校方账号和用户机型上验证全部接口。\\n\\n注意：这是采用公开测试签名的非正式 Beta 包，不能作为可信正式发行版；请勿通过不明来源传播或安装。会话与学校账号仍以学校官方 SSO 为准。"
+              --title "SJTU Downloader Android v0.4.4 Beta" \
+              --notes "Android v0.4.4 Beta: fixes repeated tab animations and flashing; aligns the seven-day timetable to one shared time axis; unifies the Android status bar and WebView background; preserves selection-to-download bottom dock. APK sourced from successful CI run 41203334079. Visual behavior on individual devices remains to be verified. Signed with a PUBLIC TEST-ONLY key. Not for production or trusted distribution."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
