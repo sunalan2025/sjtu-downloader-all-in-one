@@ -225,6 +225,28 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     return true
   }
 
+  // Android's system Back gesture must unwind selection before navigation.
+  // When browsing a folder, the first Back only dismisses its checkboxes;
+  // a second Back actually leaves the folder.
+  const handleBack = () => {
+    if (active) {
+      if (fileSelectMode || selectedFiles.size > 0) {
+        stopTouchSelect()
+        setSelectedFiles(new Set())
+        setFileSelectMode(false)
+        return true
+      }
+      return closeCourse()
+    }
+    if (courseSelectMode || chosenCourses.size > 0) {
+      stopCourseTouch()
+      setChosenCourses(new Set())
+      setCourseSelectMode(false)
+      return true
+    }
+    return false
+  }
+
   const semesters = useMemo(() =>
     Array.from(new Set(courses.map(c => c.term || '未分类学期'))).sort((a, b) => b.localeCompare(a, 'zh-CN')), [courses])
   const term = termChoice === '' ? '' : termChoice && semesters.includes(termChoice)
@@ -240,6 +262,14 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   ), [files, kind, search])
   const selectableFiles = visibleFiles.filter(f => !f.locked)
   const chosen = courses.filter(c => chosenCourses.has(c.id))
+  // The selection controls are transient: clearing the last selected item
+  // automatically returns to the ordinary course/file list.
+  useEffect(() => {
+    if (fileSelectMode && selectedFiles.size === 0) setFileSelectMode(false)
+  }, [fileSelectMode, selectedFiles.size])
+  useEffect(() => {
+    if (courseSelectMode && chosenCourses.size === 0) setCourseSelectMode(false)
+  }, [courseSelectMode, chosenCourses.size])
   useEffect(() => {
     onSelectionChange({
       count: loggedIn ? (active ? selectedFiles.size : chosenCourses.size) : 0,
@@ -325,7 +355,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   }
 
   useImperativeHandle(ref, () => ({
-    goBack: closeCourse,
+    goBack: handleBack,
     downloadSelection: () => { if (active) void downloadFiles(); else void downloadCourses() },
     clearSelection: () => {
       if (active) { setSelectedFiles(new Set()); setFileSelectMode(false) }
@@ -339,7 +369,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
       <strong>登录后查看课程</strong>
       <button className="primary" onClick={onLogin} disabled={!isAndroid}>使用 jAccount 登录 <Icon name="arrow" size={15}/></button></div>
     : active ? <>
-      <div className="row-actions"><button className="text-button" onClick={closeCourse}>
+      <div className="row-actions"><button className="text-button" onClick={() => void handleBack()}>
         <Icon name="left" size={16}/> 返回课程</button><span className="muted-count">{files.length} 个</span></div>
       <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索课件" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索文件"/></label>
       <div className="category-chips">{(Object.keys(categoryNames) as Kind[]).map(k => <button key={k} className={k===kind?'chosen':''} onClick={()=>setKind(k)}>{categoryNames[k]}</button>)}</div>
@@ -405,9 +435,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
         <option value="">全部学期（{courses.length}）</option>
         {semesters.map(t=><option key={t} value={t}>{t}</option>)}
       </select></label>
-      {!courseSelectMode?<div className="file-select-hint">
-        点击课程查看资料；长按课程后可滑动连续多选
-      </div>:<div className="batch-toolbar file-selection-toolbar">
+      {courseSelectMode&&<div className="batch-toolbar file-selection-toolbar">
         <button className="text-button" onClick={() => setChosenCourses(old=>{
           const next=new Set(old),ids=courseList.map(item=>item.id)
           const full=ids.length>0&&ids.every(id=>next.has(id))

@@ -202,8 +202,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     {display==='week' && <section className="week-overview glass" aria-label="适配手机的本周课程时间表">
       <div className="week-view-toolbar">
         <div className="week-view-caption">
-          <strong>本周时间表</strong>
-          <span>前一天 · <b>选中日期居中</b> · 后一天</span>
+          <strong>三日课表</strong>
         </div>
         <div className="week-page-buttons" role="group" aria-label="切换显示的日期">
           <button type="button" aria-label="显示前一天" onClick={()=>shift(-1)}>
