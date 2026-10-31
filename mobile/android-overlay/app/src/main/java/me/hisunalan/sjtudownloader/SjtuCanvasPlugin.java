@@ -1,6 +1,10 @@
 package me.hisunalan.sjtudownloader;
 
 import android.app.Activity;
+import android.content.res.ColorStateList;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
+import android.view.Gravity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
@@ -76,17 +80,17 @@ public class SjtuCanvasPlugin extends Plugin {
     @PluginMethod
     public void login(PluginCall call) {
         getActivity().runOnUiThread(() -> {
-            Dialog dialog = new Dialog(getActivity(), android.R.style.Theme_Material_Light_NoActionBar);
+            Dialog dialog = new Dialog(getActivity(), R.style.SJTUGlassDialog);
             LinearLayout panel = new LinearLayout(getActivity());
             panel.setOrientation(LinearLayout.VERTICAL);
-            panel.setBackgroundColor(Color.WHITE);
+            panel.setBackgroundResource(R.drawable.sjtu_glass_native_surface);
             LinearLayout toolbar = new LinearLayout(getActivity());
             toolbar.setOrientation(LinearLayout.HORIZONTAL);
             toolbar.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            toolbar.setPadding(dp(16), dp(8), dp(12), dp(8));
-            toolbar.setBackgroundColor(Color.WHITE);
+            toolbar.setPadding(dp(10), dp(7), dp(10), dp(7));
+            toolbar.setBackgroundColor(Color.TRANSPARENT);
             TextView title = new TextView(getActivity());
-            title.setText("交大统一身份认证 · 手机端");
+            title.setText("账号登录");
             title.setTextSize(14);
             title.setTextColor(Color.rgb(27, 61, 99));
             title.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -95,13 +99,9 @@ public class SjtuCanvasPlugin extends Plugin {
             check.setText("完成登录");
             check.setTextSize(11);
             toolbar.addView(check);
-            Button close = new Button(getActivity());
-            close.setText("关闭");
-            close.setTextSize(11);
+            TextView close = glassAction("×", false);
             toolbar.addView(close);
-            Button jwb = new Button(getActivity());
-            jwb.setText("交我办");
-            jwb.setTextSize(11);
+            TextView jwb = glassAction("交我办", true);
             toolbar.addView(jwb);
             panel.addView(toolbar);
             WebView browser = new WebView(getActivity());
@@ -312,6 +312,32 @@ public class SjtuCanvasPlugin extends Plugin {
         browser.evaluateJavascript(script, ignored -> {});
     }
 
+    /** Frosted, rounded actions that don't inherit the default Android Button skin. */
+    private TextView glassAction(String label, boolean accented) {
+        TextView view = new TextView(getActivity());
+        view.setText(label);
+        view.setTextSize(12);
+        view.setGravity(Gravity.CENTER);
+        view.setTypeface(null, android.graphics.Typeface.BOLD);
+        view.setTextColor(accented ? Color.rgb(36, 95, 165) : Color.rgb(91, 111, 138));
+        view.setMinHeight(dp(40));
+        view.setMinWidth(dp(label.equals("×") ? 36 : 51));
+        view.setPadding(dp(9), dp(5), dp(9), dp(5));
+        GradientDrawable background = new GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            accented ? new int[]{0xEAF6FBFF,0xC8DDEEFF}
+                     : new int[]{0xEFFFFFFF,0xB5FFFFFF});
+        background.setCornerRadius(dp(13));
+        background.setStroke(dp(1), Color.WHITE);
+        view.setBackground(new RippleDrawable(
+            ColorStateList.valueOf(0x394F8EBD), background, null));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, dp(40));
+        params.setMargins(dp(3), 0, dp(3), 0);
+        view.setLayoutParams(params);
+        return view;
+    }
+
     private int dp(int value) {
         return Math.round(value * getContext().getResources().getDisplayMetrics().density);
     }
@@ -453,24 +479,24 @@ public class SjtuCanvasPlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             // calendar.sjtu.edu.cn has an independent SSO session. The WebView
             // and native HTTP client use the SAME CookieManager.
-            Dialog dialog = new Dialog(getActivity(), android.R.style.Theme_Material_Light_NoActionBar);
+            Dialog dialog = new Dialog(getActivity(), R.style.SJTUGlassDialog);
             AtomicBoolean settled = new AtomicBoolean(false);
             AtomicBoolean checking = new AtomicBoolean(false);
             Handler handler = new Handler(Looper.getMainLooper());
             LinearLayout panel = new LinearLayout(getActivity());
             panel.setOrientation(LinearLayout.VERTICAL);
-            panel.setBackgroundColor(Color.WHITE);
+            panel.setBackgroundResource(R.drawable.sjtu_glass_native_surface);
             LinearLayout header = new LinearLayout(getActivity());
             header.setGravity(android.view.Gravity.CENTER_VERTICAL);
             TextView title = new TextView(getActivity());
-            title.setText("交大正式课表 · 独立认证");
+            title.setText("交大课表");
             title.setPadding(dp(12), 0, 0, 0);
             header.addView(title, new LinearLayout.LayoutParams(0, dp(54), 1));
             Button done = new Button(getActivity());
             done.setText("完成同步");
             header.addView(done);
             Button close = new Button(getActivity());
-            close.setText("关闭");
+            close.setText("×");
             header.addView(close);
             panel.addView(header);
             WebView browser = new WebView(getActivity());
