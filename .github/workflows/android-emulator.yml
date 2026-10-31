@@ -54,10 +54,7 @@ jobs:
           arch: x86_64
           profile: pixel_5
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            bash mobile/scripts/android-emulator-smoke.sh
-            cd mobile/android
-            ./gradlew connectedDebugAndroidTest --no-daemon
+          script: bash -lc 'bash mobile/scripts/android-emulator-smoke.sh && cd mobile/android && bash ./gradlew connectedDebugAndroidTest --no-daemon'
       - name: Upload emulator screenshots and logs
         if: always()
         uses: actions/upload-artifact@v4
