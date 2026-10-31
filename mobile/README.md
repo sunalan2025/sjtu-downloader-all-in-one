@@ -1,4 +1,4 @@
-# SJTU Downloader for Android — v0.3 Beta
+# SJTU Downloader for Android — v0.4 Beta
 
 独立 Android 测试应用。代码位于 `feature/android-mvp`，不修改桌面版主线。
 
@@ -50,3 +50,12 @@ Android 工程和 native overlay 由 `android:prepare` 自动处理。也可进�
 **边界**：会话是否继续有效由交大服务端决定；服务端过期/撤销或校园网不可达时无法绕过登录限制。清除应用数据、卸载重装将删除会话。明确点击“退出登录”并确认会同时清除 WebView Cookies 与加密的会话备份；不会在普通关闭应用时清除。
 
 测试：`SessionCookieVaultTest` 使用虚构的本地会话 Cookie，在 Android 模拟器上检查加密、Vault 实例重建后恢复、退出后不可恢复。模拟器冒烟测试会 force-stop 和重新启动真实 APK。因为 CI 没有交大账号，真实服务器登录续期能力必须在已登录的实体手机上验证。
+
+## v0.4 — Liquid Glass 风格与系统返回
+
+- 全面改版为 iOS Liquid Glass 启发的**玻璃质感**：半透明层次、背景模糊、边缘高光、柔和渐变与浮动底部导航。实现为 Android/Chromium WebView 的 CSS 风格；并非苹果系统原生私有特效。
+- 极简信息：主页只保留欢迎区、课程/下载数和**有内容时**才出现的今日日程；不再重复底部导航的快捷入口。课程列表只显示课程名，学期通过筛选器查看；下载页不再重复铺满统计卡。接口诊断折叠在日历下方，问题仍可排查。
+- 动画：Tab 过渡淡入与位移、玻璃按钮按压回弹、选中态动态变化；Android 支持的设备上提供轻触选择反馈。尊重用户的 `prefers-reduced-motion` 与降低透明度/增加对比度设置。
+- Android 系统返回：引入官方 Capacitor App 插件，优先退出课程文件详情，再返回首页；首页返回把应用最小化而不主动注销登录；登录中的原生 Dialog 由系统返回关闭。按 Android 系统能力启用预测性返回回调，避免网页级自制边缘滑动与系统手势冲突。
+- 原生认证弹窗移除系统默认 Material Button 外观，统一圆角、轻玻璃按钮及浅色背景；交我办快捷登录和正式课表独立 SSO 改动继续保留。
+- 正式课表需要从 `calendar.sjtu.edu.cn` 独立建立会话；Canvas 全部 200 不等于正式课表具备 Cookie。若学校需要同意授权，应通过可见的官方登录窗口完成；无法绕过官方流程。
