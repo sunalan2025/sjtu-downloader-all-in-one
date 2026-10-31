@@ -124,12 +124,12 @@ export default function App() {
     setDiagnosing(true)
     try {
       const d = await native.diagnoseAuth()
-      setDiagnostic('Canvas Cookie: ' + d.canvasCookie + '\\n'
-        + 'jAccount Cookie: ' + d.jaccountCookie + '\\n'
-        + '正式课表 Cookie: ' + d.officialCalendarCookie + '\\n'
-        + 'Canvas 用户信息: ' + d.canvasProfile + '\\n'
-        + 'Canvas 课程: ' + d.canvasCourses + '\\n'
-        + 'Canvas 日历: ' + d.canvasCalendar + '\\n'
+      setDiagnostic('Canvas Cookie: ' + d.canvasCookie + '\n'
+        + 'jAccount Cookie: ' + d.jaccountCookie + '\n'
+        + '正式课表 Cookie: ' + d.officialCalendarCookie + '\n'
+        + 'Canvas 用户信息: ' + d.canvasProfile + '\n'
+        + 'Canvas 课程: ' + d.canvasCourses + '\n'
+        + 'Canvas 日历: ' + d.canvasCalendar + '\n'
         + '正式课表: ' + d.officialCalendar)
     } catch(e) { setDiagnostic('诊断异常：' + String(e)) }
     finally { setDiagnosing(false) }
