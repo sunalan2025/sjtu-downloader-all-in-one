@@ -105,7 +105,10 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     const record={timer:null as number|null,anchor:index,last:index,
       x:finger.clientX,y:finger.clientY,active:fileSelectMode}
     touchSelect.current=record
-    if(fileSelectMode){markSelectionRange(index,index);return}
+    // A normal tap in selection mode is handled by onClick, while dragging
+    // extends the range in onTouchMove. Selecting on touch-start would cause
+    // the subsequent click to immediately toggle the row back off.
+    if(fileSelectMode)return
     record.timer=window.setTimeout(()=>{
       if(touchSelect.current!==record)return
       record.active=true
