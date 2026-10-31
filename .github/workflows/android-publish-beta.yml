@@ -38,7 +38,7 @@ jobs:
             gh release upload "$TAG" SJTU-Downloader-Android-v0.4.1-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
             gh release create "$TAG" SJTU-Downloader-Android-v0.4.1-Beta.apk SHA256SUMS.txt \
-              --repo "$REPO" --target "5c7067e45af3185818217f3a3915707116aab5c4" --prerelease --latest=false \
+              --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
               --title "SJTU Downloader Android v0.4.1 Beta" \
               --notes "Android v0.4.1 Beta · 修复课程文件列表偶发 Software caused connection abort，采用短暂自动重试和页内重试按钮，并保持学期分类、批量下载与 Liquid Glass 界面。下载下方 APK 文件即可覆盖安装，无须进入 Actions。\\n\\n注意：这是采用公开测试签名的非正式 Beta 包，不能作为可信正式发行版；请勿通过不明来源传播或安装。会话与学校账号仍以学校官方 SSO 为准。"
           fi
