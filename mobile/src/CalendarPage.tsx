@@ -67,7 +67,8 @@ function placeClasses(events:CalendarEvent[]): Placed[] {
   flush()
   return placed
 }
-export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRefresh,onOfficial,officialConnected}:{
+export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRefresh,onOfficial,officialConnected,
+  onAddSchedule,onEditSchedule}:{
   month:string
   onMonthChange:(month:string)=>void
   onWeekChange:(weekStart:string)=>void
@@ -76,6 +77,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
   onRefresh:()=>void
   onOfficial:()=>void
   officialConnected?:boolean
+  onAddSchedule:(date:string)=>void
+  onEditSchedule:(id:string)=>void
 }) {
   const today=currentDate()
   const [selected,setSelected]=useState(today)
@@ -172,6 +175,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
           <button type="button" className={display==='day'?'on':''} onClick={()=>{if(display!=='day')setHasNestedMotion(true);setMotionDirection('forward');setDisplay('day')}}>日</button>
         </div>
         <button type="button" className="today-pill" onClick={()=>{select(today);setView('week');setDisplay('day')}}>今天</button>
+        <button type="button" className="calendar-add" onClick={()=>onAddSchedule(selected)}
+          aria-label={'添加 '+selected+' 的个人日程'}>＋</button>
         <button type="button" className="icon-button" aria-label="同步日程" disabled={busy} onClick={onRefresh}><Icon name="refresh" size={18}/></button>
       </div>
     </div>
@@ -273,7 +278,10 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
                       height:Math.max(24,weekPosition(end)-weekPosition(start)-3),
                       left:left+'%',width:'calc('+width+'% - 2px)'
                     }}
-                    onClick={()=>{select(date);setDisplay('day')}}
+                    onClick={()=>{
+                      if(event.id.startsWith('personal-'))onEditSchedule(event.id)
+                      else {select(date);setDisplay('day')}
+                    }}
                     aria-label={timeText(event.startTime)+' '+event.title}>
                     <span>{timeText(event.startTime)}</span>
                     <strong>{event.title}</strong>
@@ -308,7 +316,9 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
         {timed.map(({event,start,end,left,width,tone})=>{
           const top=position(Math.max(MIN_TIME,start))
           const height=Math.max(44,position(Math.min(MAX_TIME,end))-top-3)
-          return <article key={event.id} className={'time-class '+tone}
+          return <article key={event.id} className={'time-class '+tone+
+              (event.id.startsWith('personal-')?' personal-schedule-item':'')}
+            onClick={()=>{if(event.id.startsWith('personal-'))onEditSchedule(event.id)}}
             style={{top,left:left+'%',width:'calc('+width+'% - 5px)',height}}>
             <strong>{event.title}</strong>
             <span className="time-class-range">{timeText(event.startTime)}–{timeText(event.endTime)}</span>
@@ -324,7 +334,11 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
       </div>
     </section>}
     {untimed.length>0&&<section className="schedule-extras glass"><div className="schedule-section-label">全天安排</div>
-      {untimed.map(e=><div className="schedule-extra" key={e.id}><span className="event-dot"/>{e.title}</div>)}</section>}
+      {untimed.map(e=><div className="schedule-extra" key={e.id}>
+        <span className="event-dot"/><span>{e.title}</span>
+        {e.id.startsWith('personal-')&&<button type="button" className="schedule-extra-edit"
+          onClick={()=>onEditSchedule(e.id)}>编辑</button>}
+      </div>)}</section>}
     </>}
     </div>
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
