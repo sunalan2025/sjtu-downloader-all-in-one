@@ -884,6 +884,7 @@ public class SjtuCanvasPlugin extends Plugin {
                 if(!ids.isEmpty()){
                     // All context codes included, but at most 2 requests per ~20
                     // courses rather than per-course assignment calls.
+                    weekQueries:
                     for(int offset=0;offset<ids.size();offset+=20){
                         StringBuilder contexts=new StringBuilder();
                         for(int i=offset;i<Math.min(ids.size(),offset+20);i++)
@@ -899,7 +900,7 @@ public class SjtuCanvasPlugin extends Plugin {
                                 }
                             }catch(Exception e){
                                 calendarDenied=true;
-                                if(safeError(e).contains("401") || safeError(e).contains("403"))break;
+                                if(safeError(e).contains("401") || safeError(e).contains("403"))break weekQueries;
                             }
                         }
                     }
