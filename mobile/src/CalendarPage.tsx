@@ -111,7 +111,10 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onRef
     const seen=new Set<string>()
     for(const event of events){
       const date=shanghaiDate(event.startTime)
-      const key=[date,event.title,event.type,timeText(event.startTime)].join('|')
+      // User-created events are distinct even if their title and time match a
+      // school event or another personal entry.
+      const key=event.id.startsWith('personal-') ? event.id :
+        [date,event.title,event.type,timeText(event.startTime)].join('|')
       if(!date||seen.has(key))continue
       seen.add(key)
       map.set(date,[...(map.get(date)||[]),event])
