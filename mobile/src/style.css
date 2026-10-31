@@ -115,3 +115,30 @@ button:focus-visible,input:focus-visible{outline:3px solid #7dbaf5;outline-offse
 .nav-icon{height:31px;width:49px;border-radius:10px;display:grid;place-items:center}
 @media(min-width:700px){.content{padding-top:34px}.hero{padding:42px}.hero h1{font-size:39px}.metric-grid{gap:15px}.bottom-nav{justify-content:center;gap:90px}}
 @media(max-width:350px){.content{padding-left:14px;padding-right:14px}.topbar{padding-left:14px;padding-right:14px}.brand-text strong{font-size:12px}.metric{padding:14px 10px}.metric small{font-size:10px}.bottom-nav button{min-width:58px}}
+
+
+/* Desktop-brand identity and batch-course controls */
+.brand-mark{background:#f9f6e9;overflow:hidden;border:1px solid #e5e5dc;box-shadow:0 5px 13px #40516b1b}
+.brand-mark img{display:block;width:100%;height:100%;object-fit:cover}
+.semester-select{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0 16px;border:1px solid #e5eaf1;background:#fff;border-radius:14px;padding:13px 15px;font-size:12px;color:#647892;font-weight:700}
+.semester-select select{max-width:72%;background:transparent;border:none;outline:none;color:#254e77;text-align:right;font-size:12px;font-weight:750}
+.batch-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 12px;color:#8a9aab;font-size:11px}
+.batch-toolbar .text-button{padding:7px 4px}
+.batch-course-row{padding:0;gap:0;min-height:80px;overflow:hidden}
+.select-circle{width:24px;height:24px;flex-shrink:0;border:1.5px solid #becbd8;border-radius:50%;background:#fff;display:grid;place-items:center;color:#fff;margin:0 12px 0 15px;padding:0}
+.select-circle.checked{background:#377cb7;border-color:#377cb7}
+.select-circle:disabled{opacity:.35}
+.course-card-open{border:0;background:transparent;display:flex;gap:12px;align-items:center;text-align:left;flex:1;min-width:0;padding:13px 13px 13px 0;color:#172f4c}
+.course-card-open .course-text{flex:1;min-width:0}
+.course-card-open .course-text strong{font-size:12px;line-height:1.55}
+.course-card-open .course-text small{font-size:10px}
+.row-selected{border-color:#8eb3d9;background:#f7fbff}
+.category-chips{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;margin:10px 0 15px}
+.category-chips::-webkit-scrollbar{display:none}
+.category-chips button{flex-shrink:0;border:1px solid #e6edf4;background:#fff;border-radius:50px;color:#71879e;padding:8px 12px;font-size:11px;font-weight:700}
+.category-chips button.chosen{background:#245c97;color:#fff;border-color:#245c97}
+.batch-sticky{position:sticky;bottom:calc(70px + max(var(--safe-bottom),env(safe-area-inset-bottom,0px)));margin:18px 0 12px;padding:10px;background:#ffffffed;border:1px solid #e5ecf3;border-radius:16px;box-shadow:0 4px 20px #172a4a19;z-index:5;text-align:center}
+.batch-sticky .primary{width:100%;justify-content:center}
+.job-state.queued{color:#657a98;background:#f0f3f7}
+.calendar-warning{margin:0 0 16px 0;align-items:center}
+.calendar-warning .text-button{font-size:11px;color:#a05b31}
