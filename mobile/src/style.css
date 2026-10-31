@@ -59,7 +59,7 @@ button:active:not(:disabled) { transform:scale(.965); }
 .topbar {
   position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;
   margin:0 12px;border-radius:0 0 25px 25px;border-top:0;
-  padding:calc(13px + max(var(--safe-top),env(safe-area-inset-top,0px))) 15px 13px;
+  padding:9px 13px;
   background:rgba(255,255,255,.52);
   -webkit-backdrop-filter:blur(32px) saturate(170%);
   backdrop-filter:blur(32px) saturate(170%);
@@ -78,36 +78,44 @@ button:active:not(:disabled) { transform:scale(.965); }
 .screen-motion {
   min-height:30vh;
   view-transition-name:mobile-screen;
-  animation:screenEnterForward .37s cubic-bezier(.2,.78,.2,1) both;
+  contain:layout;
 }
-html[data-tab-direction="backward"] .screen-motion {animation-name:screenEnterBackward;}
-html[data-view-transition="active"] .screen-motion {animation:none;}
-/* Directional clipping forms a short edge-mask wipe, with slide as a fallback. */
+/* One animation source at a time: native View Transitions OR the CSS fallback. */
+html[data-view-transition="fallback"] .screen-motion {
+  animation:screenEnterForward .30s cubic-bezier(.22,1,.36,1) both;
+}
+html[data-view-transition="fallback"][data-tab-direction="backward"] .screen-motion {
+  animation-name:screenEnterBackward;
+}
 @keyframes screenEnterForward {
-  from {opacity:.5;transform:translate3d(26px,0,0) scale(.992);clip-path:inset(0 0 0 22%);filter:blur(3px);}
-  to {opacity:1;transform:translate3d(0,0,0) scale(1);clip-path:inset(0);filter:blur(0);}
+  from {opacity:.82;transform:translate3d(22px,0,0);clip-path:inset(0 0 0 12%);}
+  to {opacity:1;transform:translate3d(0,0,0);clip-path:inset(0);}
 }
 @keyframes screenEnterBackward {
-  from {opacity:.5;transform:translate3d(-26px,0,0) scale(.992);clip-path:inset(0 22% 0 0);filter:blur(3px);}
-  to {opacity:1;transform:translate3d(0,0,0) scale(1);clip-path:inset(0);filter:blur(0);}
+  from {opacity:.82;transform:translate3d(-22px,0,0);clip-path:inset(0 12% 0 0);}
+  to {opacity:1;transform:translate3d(0,0,0);clip-path:inset(0);}
 }
 @keyframes screenExitForward {
-  to {opacity:.1;transform:translate3d(-18px,0,0) scale(.992);clip-path:inset(0 16% 0 0);}
+  from {opacity:1;transform:translate3d(0,0,0);}
+  to {opacity:.65;transform:translate3d(-18px,0,0);}
 }
 @keyframes screenExitBackward {
-  to {opacity:.1;transform:translate3d(18px,0,0) scale(.992);clip-path:inset(0 0 0 16%);}
+  from {opacity:1;transform:translate3d(0,0,0);}
+  to {opacity:.65;transform:translate3d(18px,0,0);}
 }
+::view-transition-old(root) {animation:none;opacity:0;}
+::view-transition-new(root) {animation:none;}
 html[data-tab-direction="forward"]::view-transition-old(mobile-screen) {
-  animation:screenExitForward .28s ease-in both;
+  animation:screenExitForward .28s cubic-bezier(.4,0,1,1) both;
 }
 html[data-tab-direction="forward"]::view-transition-new(mobile-screen) {
-  animation:screenEnterForward .37s cubic-bezier(.2,.78,.2,1) both;
+  animation:screenEnterForward .32s cubic-bezier(.22,1,.36,1) both;
 }
 html[data-tab-direction="backward"]::view-transition-old(mobile-screen) {
-  animation:screenExitBackward .28s ease-in both;
+  animation:screenExitBackward .28s cubic-bezier(.4,0,1,1) both;
 }
 html[data-tab-direction="backward"]::view-transition-new(mobile-screen) {
-  animation:screenEnterBackward .37s cubic-bezier(.2,.78,.2,1) both;
+  animation:screenEnterBackward .32s cubic-bezier(.22,1,.36,1) both;
 }
 .home-stage {position:relative;overflow:hidden;border-radius:32px;min-height:230px;padding:32px 26px;
   box-shadow:0 18px 45px rgba(68,96,148,.11),inset 0 1px #fff;}
@@ -382,18 +390,6 @@ html[data-tab-direction="backward"]::view-transition-new(mobile-screen) {
 .file-retry-panel .primary {margin-top:4px;}
 
 
-/* Floating brand bar: system status icons remain on a clean canvas, with glass below. */
-.topbar.glass {
-  top: calc(max(var(--safe-top), env(safe-area-inset-top, 0px)) + 12px);
-  margin: calc(max(var(--safe-top), env(safe-area-inset-top, 0px)) + 12px) 16px 0;
-  padding: 9px 13px;
-  border: 1px solid rgba(255,255,255,.82);
-  border-radius: 24px;
-  background: rgba(249,252,255,.62);
-  box-shadow: 0 7px 25px rgba(55,85,130,.10), inset 0 1px rgba(255,255,255,.90);
-}
-@media(min-width:700px) {.topbar.glass { margin-left:22px;margin-right:22px; }}
-@media(max-width:350px) {.topbar.glass { margin-left:10px;margin-right:10px; }}
 .calendar-head { align-items:center; }
 .calendar-head-actions {display:flex;align-items:center;gap:8px;}
 .today-pill {height:35px;padding:0 15px;border:1px solid #ffffffce;border-radius:18px;
@@ -419,7 +415,7 @@ html[data-tab-direction="backward"]::view-transition-new(mobile-screen) {
 .week-indicators.has-homework{color:#d19a5f;}
 .week-day.active .week-indicators{color:#fff;}
 .month-fold {padding:12px 6px 2px;border-top:1px solid #ffffff94;margin-top:10px;
- animation:screenRise .26s both;}
+ animation:calendarPanelForward .26s both;}
 .month-fold-title {display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;
  font-size:12px;font-weight:700;color:#5d7896;padding:0 4px;}
 .month-fold-title button{border:0;background:none;color:#7489a1;}
@@ -487,22 +483,27 @@ html[data-tab-direction="backward"]::view-transition-new(mobile-screen) {
  background:rgba(255,255,255,.43);}
 .no-classes svg{color:#8fb0d5}
 
-/* Consistent edge-to-edge backdrop behind Android's transparent status bar.
-   Only one native inset is reserved: no stacked blank band above the brand. */
+/* The status-bar region belongs to the same continuous canvas.  Only the
+   glass header itself is inset, not the whole WebView or a second white strip. */
 .app::before {
   content:'';
   position:fixed;top:0;left:0;right:0;
-  height:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 8px);
-  pointer-events:none;z-index:-1;
-  background:linear-gradient(110deg,#edf3fd,#f3f4fc 58%,#eaf5fb);
+  height:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 12px);
+  background:linear-gradient(135deg,#eff4fc,#f5f6fb 64%,#eaf6fa);
+  pointer-events:none;z-index:0;
 }
+.app-shell {position:relative;z-index:1;}
 .topbar.glass {
-  top:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 4px);
-  margin-top:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 4px);
-  padding:8px 12px;
+  top:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 8px);
+  margin:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 8px) 16px 0;
+  padding:9px 13px;
   justify-content:flex-start;
-  border-radius:22px;
+  border:1px solid rgba(255,255,255,.82);
+  border-radius:24px;
+  background:rgba(249,252,255,.62);
 }
+@media(min-width:700px){.topbar.glass{margin-left:22px;margin-right:22px;}}
+@media(max-width:350px){.topbar.glass{margin-left:10px;margin-right:10px;}}
 .home-session-line{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-top:21px;}
 .home-session-line .session-indicator{margin-top:0;}
 .quiet-logout{border:none;background:transparent;color:#92a0b3;font-size:11px;padding:9px 3px;}
@@ -543,20 +544,20 @@ html[data-tab-direction="backward"]::view-transition-new(mobile-screen) {
 .course-screen {animation:courseListReveal .34s cubic-bezier(.2,.78,.2,1) both;}
 .course-screen--detail {animation-name:courseDetailReveal;}
 @keyframes courseDetailReveal {
-  from {opacity:.55;transform:translate3d(20px,0,0);clip-path:inset(0 0 0 17%);}
+  from {opacity:.88;transform:translate3d(18px,0,0);clip-path:inset(0 0 0 9%);}
   to {opacity:1;transform:none;clip-path:inset(0);}
 }
 @keyframes courseListReveal {
-  from {opacity:.55;transform:translate3d(-20px,0,0);clip-path:inset(0 17% 0 0);}
+  from {opacity:.88;transform:translate3d(-18px,0,0);clip-path:inset(0 9% 0 0);}
   to {opacity:1;transform:none;clip-path:inset(0);}
 }
 .calendar-panel-transition {animation:calendarPanelForward .33s cubic-bezier(.2,.78,.2,1) both;}
 .calendar-panel--backward {animation-name:calendarPanelBackward;}
 @keyframes calendarPanelForward {
-  from {opacity:.52;transform:translate3d(17px,0,0);clip-path:inset(0 0 0 12%);}
+  from {opacity:.88;transform:translate3d(15px,0,0);clip-path:inset(0 0 0 9%);}
   to {opacity:1;transform:none;clip-path:inset(0);}
 }
 @keyframes calendarPanelBackward {
-  from {opacity:.52;transform:translate3d(-17px,0,0);clip-path:inset(0 12% 0 0);}
+  from {opacity:.88;transform:translate3d(-15px,0,0);clip-path:inset(0 9% 0 0);}
   to {opacity:1;transform:none;clip-path:inset(0);}
 }

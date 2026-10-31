@@ -35,6 +35,7 @@ export default function App() {
       previous.busy === next.busy && previous.scope === next.scope ? previous : next)
   }, [])
   const transitionSerial = useRef(0)
+  const activeTransition = useRef<{ skipTransition(): void } | null>(null)
   // Snapshot the outgoing page on supporting WebViews; CSS animates a directional edge-mask.
   const showTab = useCallback((next: Tab) => {
     const previous = tabRef.current
@@ -42,6 +43,10 @@ export default function App() {
     const direction = nav.findIndex(t => t.id === next) > nav.findIndex(t => t.id === previous)
       ? 'forward' : 'backward'
     const root = document.documentElement
+    // Finish the previous animation before starting another, instead of stacking
+    // old screenshots when the user taps multiple tabs quickly.
+    activeTransition.current?.skipTransition()
+    activeTransition.current = null
     root.dataset.tabDirection = direction
     const update = () => {
       tabRef.current = next
@@ -50,15 +55,22 @@ export default function App() {
       window.scrollTo(0, 0)
     }
     const transitionDocument = document as Document & {
-      startViewTransition?: (callback: () => void) => { finished: Promise<void> }
+      startViewTransition?: (callback: () => void) => {
+        finished: Promise<void>
+        skipTransition(): void
+      }
     }
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     const serial = ++transitionSerial.current
     if (!reduced && typeof transitionDocument.startViewTransition === 'function') {
       root.dataset.viewTransition = 'active'
       const transition = transitionDocument.startViewTransition(() => flushSync(update))
+      activeTransition.current = transition
       void transition.finished.catch(() => {}).finally(() => {
-        if (transitionSerial.current === serial) root.dataset.viewTransition = 'fallback'
+        if (activeTransition.current === transition) activeTransition.current = null
+        // Never switch to 'fallback' here: doing so replays the incoming page
+        // animation after the native view transition and causes a visible flash.
+        if (transitionSerial.current === serial) root.dataset.viewTransition = 'settled'
       })
     } else {
       root.dataset.viewTransition = 'fallback'
