@@ -23,4 +23,13 @@ if (manifest.includes('android:name=".MainActivity"')) {
 if (!manifest.includes('android:name="me.hisunalan.sjtudownloader.MainActivity"')) {
   throw new Error('Expected Android launcher activity override is missing')
 }
-console.log('Android native sources synchronized and launcher activity registered.')
+const gradlePath = 'android/app/build.gradle'
+let gradle = readFileSync(gradlePath, 'utf8')
+const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+const [major, minor, patch] = pkg.version.split('.').map(Number)
+const versionCode = major * 10000 + minor * 100 + patch
+if (!Number.isInteger(versionCode) || versionCode <= 0) throw new Error('Invalid Android package version')
+gradle = gradle.replace(/versionCode\\s+\\d+/, 'versionCode ' + versionCode)
+gradle = gradle.replace(/versionName\\s+"[^"]+"/, 'versionName "' + pkg.version + '"')
+writeFileSync(gradlePath, gradle)
+console.log('Android native sources synchronized, launcher registered, version ' + pkg.version)
