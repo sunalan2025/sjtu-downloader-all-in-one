@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Haptics } from '@capacitor/haptics'
-import { flushSync } from 'react-dom'
 import native, { isAndroid, type CanvasCourse, type DownloadProgress, type CalendarEvent, type CourseDownloadItem } from './native'
 import { BatchCourseBrowser, type CourseBrowserHandle, type CourseSelection } from './BatchCourseBrowser'
 import { CalendarPage, currentMonth, currentWeekStart, shanghaiDate } from './CalendarPage'
@@ -34,48 +33,32 @@ export default function App() {
     setSelection(previous => previous.count === next.count &&
       previous.busy === next.busy && previous.scope === next.scope ? previous : next)
   }, [])
-  const transitionSerial = useRef(0)
-  const activeTransition = useRef<{ skipTransition(): void } | null>(null)
-  // Snapshot the outgoing page on supporting WebViews; CSS animates a directional edge-mask.
+  const motionTimer = useRef<number | null>(null)
+  // No screenshots of outgoing pages: Android WebView can retain ghost frames
+  // when view transitions composite over translucent glass cards.
   const showTab = useCallback((next: Tab) => {
     const previous = tabRef.current
     if (previous === next) return
-    const direction = nav.findIndex(t => t.id === next) > nav.findIndex(t => t.id === previous)
-      ? 'forward' : 'backward'
+    const direction = nav.findIndex(t => t.id === next) >
+      nav.findIndex(t => t.id === previous) ? 'forward' : 'backward'
     const root = document.documentElement
-    // Finish the previous animation before starting another, instead of stacking
-    // old screenshots when the user taps multiple tabs quickly.
-    activeTransition.current?.skipTransition()
-    activeTransition.current = null
+    if (motionTimer.current !== null) window.clearTimeout(motionTimer.current)
     root.dataset.tabDirection = direction
-    const update = () => {
-      tabRef.current = next
-      setTab(next)
-      if (next !== 'courses') setSelection({ count: 0, busy: false, scope: null })
-      window.scrollTo(0, 0)
-    }
-    const transitionDocument = document as Document & {
-      startViewTransition?: (callback: () => void) => {
-        finished: Promise<void>
-        skipTransition(): void
-      }
-    }
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const serial = ++transitionSerial.current
-    if (!reduced && typeof transitionDocument.startViewTransition === 'function') {
-      root.dataset.viewTransition = 'active'
-      const transition = transitionDocument.startViewTransition(() => flushSync(update))
-      activeTransition.current = transition
-      void transition.finished.catch(() => {}).finally(() => {
-        if (activeTransition.current === transition) activeTransition.current = null
-        // Never switch to 'fallback' here: doing so replays the incoming page
-        // animation after the native view transition and causes a visible flash.
-        if (transitionSerial.current === serial) root.dataset.viewTransition = 'settled'
-      })
-    } else {
-      root.dataset.viewTransition = 'fallback'
-      update()
+    root.dataset.screenMotion = reduced ? 'settled' : 'running'
+    tabRef.current = next
+    setTab(next)
+    if (next !== 'courses') setSelection({ count: 0, busy: false, scope: null })
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    if (!reduced) {
+      motionTimer.current = window.setTimeout(() => {
+        root.dataset.screenMotion = 'settled'
+        motionTimer.current = null
+      }, 230)
     }
+  }, [])
+  useEffect(() => () => {
+    if (motionTimer.current !== null) window.clearTimeout(motionTimer.current)
   }, [])
   const calendarRequestId = useRef(0)
   const lastCalendarFetch = useRef(0)
