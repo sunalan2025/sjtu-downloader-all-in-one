@@ -109,9 +109,12 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
   const homework=dayEvents.filter(isHomework)
   const timed=placeClasses([...classEvents,...activityEvents])
   const untimed=dayEvents.filter(e=>!isHomework(e)&&!isTimed(e))
-  const MIN_TIME=7*60
-  const MAX_TIME=22*60
-  const PX_PER_HOUR=52
+  // Trim empty morning/evening hours so homework and classes fit on one screen.
+  const firstHour=timed.length?Math.max(6,Math.floor(Math.min(...timed.map(e=>e.start))/60)-1):8
+  const lastHour=timed.length?Math.min(23,Math.ceil(Math.max(...timed.map(e=>e.end))/60)+1):11
+  const MIN_TIME=firstHour*60
+  const MAX_TIME=lastHour*60
+  const PX_PER_HOUR=53
   const position=(m:number)=>Math.max(0,(m-MIN_TIME)/60*PX_PER_HOUR)
   const shift=(offset:number)=>{
     const next=nextDay(selected,offset)
@@ -171,9 +174,10 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
         </article>)}</div>
     </section>
     </div>}
+    {!busy&&timed.length===0?<div className="no-classes glass"><Icon name="book" size={20}/>今天没有课程安排</div>:
     <section className="timetable glass" aria-label="当日课程时间课表">
       <div className="timetable-axis">
-        {Array.from({length:16},(_,i)=>i+7).map(hour=><div key={hour} className="timetable-hour" style={{top:position(hour*60)}}>{pad(hour)}:00</div>)}
+        {Array.from({length:lastHour-firstHour+1},(_,i)=>i+firstHour).map(hour=><div key={hour} className="timetable-hour" style={{top:position(hour*60)}}>{pad(hour)}:00</div>)}
       </div>
       <div className="timetable-track" style={{height:(MAX_TIME-MIN_TIME)/60*PX_PER_HOUR}}>
         {Array.from({length:16},(_,i)=>i+7).map(hour=><div className="timetable-line" key={hour} style={{top:position(hour*60)}}/>)}
@@ -195,7 +199,7 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
           return nowM>=MIN_TIME&&nowM<=MAX_TIME?<div className="time-now" style={{top:position(nowM)}}/>:null
         })()}
       </div>
-    </section>
+    </section>}
     {untimed.length>0&&<section className="schedule-extras glass"><div className="schedule-section-label">全天安排</div>
       {untimed.map(e=><div className="schedule-extra" key={e.id}><span className="event-dot"/>{e.title}</div>)}</section>}
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
