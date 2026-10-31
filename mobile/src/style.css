@@ -434,3 +434,8 @@ button:active:not(:disabled) { transform:scale(.965); }
  .time-class strong{font-size:11px;}
 }
 @media(prefers-reduced-motion: reduce){.sync-spin{animation:none!important}}
+
+.no-classes {display:flex;align-items:center;justify-content:center;gap:10px;
+ border-radius:22px;padding:28px 15px;color:#849bb3;font-size:13px;
+ background:rgba(255,255,255,.43);}
+.no-classes svg{color:#8fb0d5}
