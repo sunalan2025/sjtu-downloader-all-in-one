@@ -52,6 +52,17 @@ jobs:
       - name: Build debug APK
         working-directory: mobile/android
         run: bash ./gradlew assembleDebug --no-daemon
+      - name: Verify Android package identity and launcher
+        shell: bash
+        working-directory: mobile/android
+        run: |
+          AAPT="$ANDROID_HOME/build-tools/35.0.0/aapt"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$AAPT" dump badging "$APK" | tee /tmp/sjtu-android-badging.txt
+          grep -q "name='me.hisunalan.sjtudownloader.beta'" /tmp/sjtu-android-badging.txt
+          grep -q "launchable-activity: name='me.hisunalan.sjtudownloader.MainActivity'" /tmp/sjtu-android-badging.txt
+          grep -q "versionCode='300'" /tmp/sjtu-android-badging.txt
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
