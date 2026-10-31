@@ -120,6 +120,8 @@ public class SjtuCanvasPlugin extends Plugin {
             panel.addView(browser, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
             AtomicBoolean settled = new AtomicBoolean(false);
             AtomicBoolean checking = new AtomicBoolean(false);
+            AtomicBoolean jwbAutoClicked = new AtomicBoolean(false);
+            Handler loginHandler = new Handler(Looper.getMainLooper());
             Runnable verify = () -> {
                 if (!checking.compareAndSet(false, true)) return;
                 io.execute(() -> {
@@ -149,22 +151,14 @@ public class SjtuCanvasPlugin extends Plugin {
                     });
                 });
             };
+            // The first user tap on Login automatically follows the REAL official
+            // Mobile -> 交我办 button inside jAccount, which produces a dynamic
+            // jaccount://login?uuid=... value. We NEVER synthesize that UUID.
             jwb.setOnClickListener(v -> {
-                // Invoke only an actual link supplied by the official jAccount login page.
-                // Do not construct undocumented deep links or fake successful authentication.
-                String script = "(function(){if(location.hostname!=='jaccount.sjtu.edu.cn')return 'domain';" +
-                    "var nodes=Array.from(document.querySelectorAll('a,button,[role=button],input'));" +
-                    "var match=nodes.find(n=>/交我办/.test(n.innerText||n.textContent||n.value||n.getAttribute('aria-label')||''));" +
-                    "if(match){match.click();return 'clicked';}" +
-                    "if(typeof window.appLogin==='function'){window.appLogin();return 'clicked';}" +
-                    "return 'missing'})()";
-                browser.evaluateJavascript(script, response -> {
-                    if (!"\"clicked\"".equals(response)) {
-                        Toast.makeText(getContext(),
-                            "当前官方登录页尚未显示“交我办”入口，可使用网页账号登录",
-                            Toast.LENGTH_LONG).show();
-                    }
-                });
+                jwbAutoClicked.set(false);
+                activateMobileMode(browser);
+                loginHandler.postDelayed(() ->
+                    clickOfficialJiaowoban(browser, jwbAutoClicked, true), 400);
             });
             check.setOnClickListener(v -> verify.run());
             close.setOnClickListener(v -> dialog.cancel());
@@ -180,13 +174,24 @@ public class SjtuCanvasPlugin extends Plugin {
                 }
                 @Override public void onPageFinished(WebView view, String url) {
                     if (url.startsWith(BASE) && !url.contains("/login")) verify.run();
-                    if (url.startsWith("https://jaccount.sjtu.edu.cn/")) activateMobileMode(browser);
+                    if (url.startsWith("https://jaccount.sjtu.edu.cn/")) {
+                        activateMobileMode(browser);
+                        for (long delay : new long[]{550, 1500, 2900}) {
+                            loginHandler.postDelayed(() -> {
+                                if (dialog.isShowing() && !settled.get() && !jwbAutoClicked.get()) {
+                                    clickOfficialJiaowoban(browser, jwbAutoClicked, false);
+                                }
+                            }, delay);
+                        }
+                    }
                 }
             });
             browser.setWebChromeClient(new WebChromeClient() {
                 @Override public boolean onCreateWindow(WebView view, boolean isDialog,
                     boolean isUserGesture, Message resultMsg) {
-                    if (!isUserGesture) return false;
+                    // The user already chose the App login flow. jAccount's
+                    // script may open its generated app-link without hasGesture.
+                    if (!isUserGesture && !isOfficialJaccountPage(browser.getUrl())) return false;
                     WebView popup = new WebView(getActivity());
                     popup.setWebViewClient(new WebViewClient() {
                         @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
@@ -240,6 +245,34 @@ public class SjtuCanvasPlugin extends Plugin {
             ViewCompat.requestApplyInsets(panel);
             // Let Canvas redirect to jAccount's official MOBILE login page and its 交我办 option.
             browser.loadUrl(BASE + "/login/openid_connect");
+        });
+    }
+
+    private boolean isOfficialJaccountPage(String url) {
+        if (url == null) return false;
+        Uri uri = Uri.parse(url);
+        return "https".equalsIgnoreCase(uri.getScheme()) &&
+            "jaccount.sjtu.edu.cn".equalsIgnoreCase(uri.getHost());
+    }
+
+    /** Reuse the official login page's dynamic app-link; do not forge deep links. */
+    private void clickOfficialJiaowoban(WebView browser, AtomicBoolean clicked,
+                                        boolean showFallback) {
+        if (clicked.get() || !isOfficialJaccountPage(browser.getUrl())) return;
+        String script = "(function(){if(location.hostname!=='jaccount.sjtu.edu.cn')return 'skip';" +
+            "var nodes=Array.from(document.querySelectorAll('a,button,[role=button],input'));" +
+            "var target=nodes.find(n=>/交我办/.test(n.innerText||n.textContent||n.value||n.getAttribute('aria-label')||''));" +
+            "if(target){target.click();return 'clicked';}" +
+            "if(typeof window.appLogin==='function'){window.appLogin();return 'clicked';}" +
+            "return 'missing'})()";
+        browser.evaluateJavascript(script, result -> {
+            if ("\"clicked\"".equals(result)) {
+                clicked.set(true);
+            } else if (showFallback) {
+                Toast.makeText(getContext(),
+                    "官方页面未提供交我办快捷入口，可选择网页账号登录",
+                    Toast.LENGTH_LONG).show();
+            }
         });
     }
 
