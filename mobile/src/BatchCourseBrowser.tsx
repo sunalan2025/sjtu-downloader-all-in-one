@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useMemo, useState } from 'react'
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import native, { isAndroid, type CanvasCourse, type CanvasFile, type CourseDownloadItem } from './native'
 
@@ -35,12 +35,17 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [kind, setKind] = useState<Kind>('all')
   const [fetching, setFetching] = useState(false)
+  const [fileError, setFileError] = useState('')
+  const fileRequestId = useRef(0)
   const [collecting, setCollecting] = useState(false)
 
   const closeCourse = () => {
     if (!active) return false
+    fileRequestId.current++
     setActive(null)
     setFiles([])
+    setFileError('')
+    setFetching(false)
     setSearch('')
     setSelectedFiles(new Set())
     return true
@@ -75,12 +80,25 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
       return copy
     })
   }
+  async function loadCourseFiles(course: CanvasCourse) {
+    const request = ++fileRequestId.current
+    setFetching(true)
+    setFileError('')
+    try {
+      const result = await native.files({ courseId: course.id })
+      if (fileRequestId.current === request) setFiles(result.items)
+    } catch (error) {
+      if (fileRequestId.current === request) {
+        const message = String(error).replace(/^(Error:\\s*)+/i, '').trim()
+        setFileError(message || '网络连接中断，请稍后重试')
+      }
+    } finally {
+      if (fileRequestId.current === request) setFetching(false)
+    }
+  }
   async function openCourse(course: CanvasCourse) {
     setActive(course); setFiles([]); setSelectedFiles(new Set()); setKind('all'); setSearch('')
-    setFetching(true)
-    try { setFiles((await native.files({ courseId: course.id })).items) }
-    catch (error) { onNotice('读取课程文件失败：' + String(error)) }
-    finally { setFetching(false) }
+    await loadCourseFiles(course)
   }
   async function downloadFiles() {
     if (!active || selectedFiles.size === 0) return
@@ -139,7 +157,15 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
         return next
       })}>{selectableFiles.length && selectableFiles.every(f => selectedFiles.has(f.id)) ? '取消全选' : '全选'}</button>
       {selectedFiles.size>0 && <span>已选 {selectedFiles.size}</span>}</div>
-      {fetching ? <div className="loading-note">正在扫描课程文件…</div>
+      {fetching ? <div className="loading-note">正在读取文件…</div>
+        : fileError ? <div className="file-retry-panel glass" role="alert">
+          <Icon name="wifi" size={22}/>
+          <strong>暂时无法读取文件</strong>
+          <span>{fileError}</span>
+          <button className="primary" onClick={() => void loadCourseFiles(active)}>
+            <Icon name="refresh" size={16}/> 重试
+          </button>
+        </div>
         : visibleFiles.length ? <div className="item-list">{visibleFiles.map(file =>
           <div className={'file-row '+(selectedFiles.has(file.id)?'row-selected':'')} key={file.id}>
             <button disabled={file.locked} className={'select-circle '+(selectedFiles.has(file.id)?'checked':'')} aria-label={'选择 '+file.name} aria-pressed={selectedFiles.has(file.id)} onClick={()=>toggleFile(file.id)}>{selectedFiles.has(file.id) && <Icon name="check" size={14}/>}</button>
