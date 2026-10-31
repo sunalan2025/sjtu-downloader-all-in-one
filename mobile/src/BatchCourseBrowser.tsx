@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import native, { isAndroid, type CanvasCourse, type CanvasFile, type CourseDownloadItem } from './native'
 
@@ -14,7 +14,34 @@ const displayBytes = (bytes: number) => bytes > 1024 ** 2
   ? (bytes / (1024 ** 2)).toFixed(1) + ' MB'
   : bytes > 1024 ? (bytes / 1024).toFixed(0) + ' KB' : (bytes || 0) + ' B'
 
-export type CourseBrowserHandle = { goBack: () => boolean }
+export type CourseBrowserHandle = {
+  goBack: () => boolean
+  downloadSelection: () => void
+  clearSelection: () => void
+}
+export type CourseSelection = { count: number; busy: boolean; scope: 'courses' | 'files' | null }
+function currentSemester(semesters: string[]): string {
+  const date = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric'
+  }).formatToParts(new Date())
+  const year = Number(date.find(part => part.type === 'year')?.value)
+  const month = Number(date.find(part => part.type === 'month')?.value)
+  const fall = month >= 8
+  const academicStart = fall ? year : year - 1
+  const range = String(academicStart) + '-' + String(academicStart + 1)
+  const season = fall
+    ? /秋|fall|autumn|第一学期|第1学期|上学期|(?:[-/_]\\s*1\\s*$)/i
+    : /春|spring|第二学期|第2学期|下学期|(?:[-/_]\\s*2\\s*$)/i
+  const scored = semesters.map(label => {
+    const matchingYear = label.includes(String(year)) || label.includes(String(academicStart))
+    const matchingSeason = season.test(label)
+    const matchingRange = label.includes(range) ||
+      (label.includes(String(academicStart)) && label.includes(String(academicStart + 1)))
+    return { label, score: matchingYear && matchingSeason ? 10 + (matchingRange ? 2 : 0) : 0 }
+  }).sort((a, b) => b.score - a.score)
+  return scored[0]?.score ? scored[0].label :
+    (semesters.find(s => s !== '未分类学期') || semesters[0] || '')
+}
 type BrowserProps = {
   courses: CanvasCourse[]
   loggedIn: boolean
@@ -23,11 +50,12 @@ type BrowserProps = {
   onLogin: () => void
   onBatchDownload: (tasks: CourseDownloadItem[]) => Promise<void>
   onNotice: (text: string) => void
+  onSelectionChange: (selection: CourseSelection) => void
 }
 export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(function BatchCourseBrowser(
-  { courses, loggedIn, loading, onRefresh, onLogin, onBatchDownload, onNotice }, ref
+  { courses, loggedIn, loading, onRefresh, onLogin, onBatchDownload, onNotice, onSelectionChange }, ref
 ) {
-  const [term, setTerm] = useState('')
+  const [termChoice, setTermChoice] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [chosenCourses, setChosenCourses] = useState<Set<string>>(new Set())
   const [active, setActive] = useState<CanvasCourse | null>(null)
@@ -50,10 +78,11 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     setSelectedFiles(new Set())
     return true
   }
-  useImperativeHandle(ref, () => ({ goBack: closeCourse }), [active])
 
   const semesters = useMemo(() =>
     Array.from(new Set(courses.map(c => c.term || '未分类学期'))).sort((a, b) => b.localeCompare(a, 'zh-CN')), [courses])
+  const term = termChoice === '' ? '' : termChoice && semesters.includes(termChoice)
+    ? termChoice : currentSemester(semesters)
   const courseList = useMemo(() => courses.filter(c => {
     const matchesTerm = !term || (c.term || '未分类学期') === term
     const q = search.trim().toLowerCase()
@@ -65,6 +94,14 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
   ), [files, kind, search])
   const selectableFiles = visibleFiles.filter(f => !f.locked)
   const chosen = courses.filter(c => chosenCourses.has(c.id))
+  useEffect(() => {
+    onSelectionChange({
+      count: loggedIn ? (active ? selectedFiles.size : chosenCourses.size) : 0,
+      busy: !active && collecting,
+      scope: active ? 'files' : 'courses'
+    })
+  }, [active, collecting, chosenCourses.size, selectedFiles.size, loggedIn, onSelectionChange])
+  useEffect(() => () => onSelectionChange({ count: 0, busy: false, scope: null }), [onSelectionChange])
 
   function toggleCourse(id: string) {
     setChosenCourses(old => {
@@ -139,6 +176,14 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
     } finally { setCollecting(false) }
   }
 
+  useImperativeHandle(ref, () => ({
+    goBack: closeCourse,
+    downloadSelection: () => { if (active) void downloadFiles(); else void downloadCourses() },
+    clearSelection: () => {
+      if (active) setSelectedFiles(new Set())
+      else setChosenCourses(new Set())
+    }
+  }))
   return <>
     <div className="page-intro compact"><h1>{active ? active.name : '课程'}</h1></div>
     {!loggedIn ? <div className="empty-box"><div className="empty-picture"><Icon name="shield" size={28}/></div>
@@ -156,7 +201,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
         ids.forEach(id=>fully?next.delete(id):next.add(id))
         return next
       })}>{selectableFiles.length && selectableFiles.every(f => selectedFiles.has(f.id)) ? '取消全选' : '全选'}</button>
-      {selectedFiles.size>0 && <span>已选 {selectedFiles.size}</span>}</div>
+      {selectedFiles.size>0 && <button className="text-button clear-selection" onClick={() => setSelectedFiles(new Set())}>取消选择（{selectedFiles.size}）</button>}</div>
       {fetching ? <div className="loading-note">正在读取文件…</div>
         : fileError ? <div className="file-retry-panel glass" role="alert">
           <Icon name="wifi" size={22}/>
@@ -173,11 +218,10 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
             <span className="file-info"><strong>{file.name}</strong><small>{file.locked ? '无权限' : displayBytes(file.size)}</small></span>
             <button className="small-action" disabled={file.locked} aria-label={'下载 '+file.name} onClick={()=>void onBatchDownload([{file,courseName:active.name,term:active.term}])}><Icon name="download" size={17}/></button>
           </div>)}</div> : <div className="empty-box"><div className="empty-picture"><Icon name="file" size={28}/></div><strong>暂无文件</strong></div>}
-      {selectedFiles.size > 0 && <div className="batch-sticky"><button className="primary" disabled={!isAndroid} onClick={()=>void downloadFiles()}><Icon name="download" size={17}/> 下载 {selectedFiles.size} 个文件</button></div>}
     </> : <>
       <label className="search-field"><Icon name="search" size={19}/><input aria-label="搜索课程" value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索课程"/></label>
       <div className="row-actions"><span className="muted-count">{courseList.length} 门</span><button className="text-button" onClick={onRefresh} disabled={loading}><Icon name="refresh" size={16}/> 刷新课程</button></div>
-      <label className="semester-select"><span className="sr-only">学期筛选</span><select aria-label="选择学期" value={term} onChange={e=>setTerm(e.target.value)}>
+      <label className="semester-select"><span className="sr-only">学期筛选</span><select aria-label="选择学期" value={term} onChange={e=>setTermChoice(e.target.value)}>
         <option value="">全部学期（{courses.length}）</option>
         {semesters.map(t=><option key={t} value={t}>{t}</option>)}
       </select></label>
@@ -187,7 +231,7 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
         const fully=ids.length>0&&ids.every(id=>next.has(id))
         ids.forEach(id=>fully?next.delete(id):next.add(id))
         return next
-      })}>{courseList.length && courseList.every(c=>chosenCourses.has(c.id))?'取消全选':'全选'}</button>{chosenCourses.size>0 && <span>已选 {chosenCourses.size}</span>}</div>
+      })}>{courseList.length && courseList.every(c=>chosenCourses.has(c.id))?'取消全选':'全选'}</button>{chosenCourses.size>0 && <button className="text-button clear-selection" onClick={() => setChosenCourses(new Set())}>取消选择（{chosenCourses.size}）</button>}</div>
       {loading ? <div className="loading-note">正在同步课程…</div>
         : courseList.length ? <div className="course-list">{courseList.map(c =>
         <div className="course-card batch-course-row" key={c.id}>
@@ -195,8 +239,6 @@ export const BatchCourseBrowser = forwardRef<CourseBrowserHandle, BrowserProps>(
           <button className="course-card-open" onClick={()=>void openCourse(c)}><span className="course-symbol"><Icon name="book" size={18}/></span><span className="course-text"><strong>{c.name}</strong></span><Icon name="right" className="chevron" size={17}/></button>
         </div>)}</div>
         : <div className="empty-box"><div className="empty-picture"><Icon name="book" size={28}/></div><strong>暂无课程</strong></div>}
-      {chosenCourses.size > 0 && <div className="batch-sticky"><button className="primary" disabled={!isAndroid || collecting} onClick={()=>void downloadCourses()}>
-        <Icon name="download" size={17}/>{collecting?'正在扫描课程资料…':'下载 '+chosenCourses.size+' 门课程'}</button></div>}
     </>}
   </>
 })
