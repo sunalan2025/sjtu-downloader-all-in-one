@@ -42,6 +42,7 @@ jobs:
           npm run android:prepare
           cp -r android-overlay/. android/
           npm run android:prepare
+          npm run android:icons
       - name: Use stable test signing certificate
         shell: bash
         run: |
