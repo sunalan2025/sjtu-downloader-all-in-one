@@ -103,13 +103,13 @@ public class SjtuCanvasPlugin extends Plugin {
             title.setTextColor(Color.rgb(27, 61, 99));
             title.setTypeface(null, android.graphics.Typeface.BOLD);
             toolbar.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
-            Button check = new Button(getActivity());
-            check.setText("完成登录");
-            check.setTextSize(11);
+            TextView check = glassAction("完成登录", false);
+            check.setVisibility(View.GONE);
             toolbar.addView(check);
             TextView close = glassAction("×", false);
             toolbar.addView(close);
             TextView jwb = glassAction("交我办", true);
+            jwb.setVisibility(View.GONE);
             toolbar.addView(jwb);
             panel.addView(toolbar);
             WebView browser = new WebView(getActivity());
@@ -155,6 +155,8 @@ public class SjtuCanvasPlugin extends Plugin {
             AtomicBoolean appLaunched = new AtomicBoolean(false);
             Runnable showWebFallback = () -> {
                 if (splash.getParent() != null) browserHost.removeView(splash);
+                check.setVisibility(View.VISIBLE);
+                jwb.setVisibility(View.VISIBLE);
             };
             fallback.setOnClickListener(v -> showWebFallback.run());
             AtomicBoolean settled = new AtomicBoolean(false);
