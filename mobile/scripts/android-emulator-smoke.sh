@@ -14,9 +14,11 @@ sleep 3
 adb exec-out screencap -p > mobile/emulator-results/calendar.png
 adb shell uiautomator dump /sdcard/window.xml || true
 adb pull /sdcard/window.xml mobile/emulator-results/calendar-hierarchy.xml || true
-adb shell input tap 320 560
-sleep 4
+adb shell input tap 540 1350
+sleep 12
 adb exec-out screencap -p > mobile/emulator-results/login-attempt.png
+adb shell uiautomator dump /sdcard/window.xml || true
+adb pull /sdcard/window.xml mobile/emulator-results/login-hierarchy.xml || true
 adb logcat -d -v brief > mobile/emulator-results/logcat.txt
 if grep -q 'FATAL EXCEPTION.*' mobile/emulator-results/logcat.txt; then
   echo "Android app has a fatal exception"
