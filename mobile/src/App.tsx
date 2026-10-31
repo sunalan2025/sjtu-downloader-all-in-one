@@ -7,7 +7,10 @@ import { CalendarPage, currentMonth, currentWeekStart, shanghaiDate } from './Ca
 import { Icon, type IconName } from './Icon'
 
 type Tab = 'home' | 'courses' | 'calendar' | 'downloads'
-type Job = { taskId: string; fileName: string; state: 'queued' | 'active' | 'done' | 'error' | 'cancelled'; bytes: number; total: number; error?: string }
+type Job = {
+  taskId: string; fileName: string; state: 'queued' | 'active' | 'done' | 'error' | 'cancelled'
+  bytes: number; total: number; error?: string; uri?: string; savedPath?: string
+}
 
 function formatBytes(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '—'
@@ -75,7 +78,25 @@ export default function App() {
   const [sessionChecking, setSessionChecking] = useState(isAndroid)
   const [user, setUser] = useState('')
   const [courses, setCourses] = useState<CanvasCourse[]>([])
-  const [jobs, setJobs] = useState<Job[]>([])
+  const [jobs, setJobs] = useState<Job[]>(() => {
+    try {
+      const cached: unknown = JSON.parse(window.localStorage.getItem('sjtu-downloaded-files-v1') || '[]')
+      if (!Array.isArray(cached)) return []
+      return cached.filter((item): item is Job =>
+        typeof item === 'object' && item !== null &&
+        typeof item.taskId === 'string' && typeof item.fileName === 'string' &&
+        item.state === 'done' && typeof item.savedPath === 'string' &&
+        typeof item.uri === 'string').slice(0, 150)
+    } catch { return [] }
+  })
+  const [migrating, setMigrating] = useState(false)
+  useEffect(() => {
+    // Only persist completed files, not queued tasks that cannot survive a restart.
+    try {
+      const finished = jobs.filter(job => job.state === 'done' && job.uri && job.savedPath).slice(0, 150)
+      window.localStorage.setItem('sjtu-downloaded-files-v1', JSON.stringify(finished))
+    } catch { /* Disabled WebView storage must not prevent downloads. */ }
+  }, [jobs])
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [month, setMonth] = useState(currentMonth())
   const [weekStart, setWeekStart] = useState(currentWeekStart())
@@ -261,14 +282,15 @@ export default function App() {
         const job = specs[cursor++]
         setJobs(old => old.map(j => j.taskId === job.taskId ? { ...j, state: 'active' } : j))
         try {
-          await native.download({
+          const saved = await native.download({
             fileId: job.file.id,
             taskId: job.taskId,
             term: job.term,
             courseName: job.courseName
           })
           setJobs(old => old.map(j => j.taskId === job.taskId ?
-            { ...j, state: 'done', bytes: j.total } : j))
+            { ...j, state: 'done', bytes: j.total, uri: saved.uri,
+              fileName: saved.fileName, savedPath: saved.savedPath } : j))
         } catch (error) {
           const message = String(error)
           setJobs(old => old.map(j => j.taskId === job.taskId ?
@@ -281,6 +303,24 @@ export default function App() {
   async function cancel(taskId: string): Promise<void> {
     try { await native.cancelDownload({ taskId }) }
     catch (e) { setNotice(String(e)) }
+  }
+  async function openDownloadedFile(uri: string): Promise<void> {
+    try { await native.openDownloadedFile({ uri }) }
+    catch (e) { setNotice('打开文件失败：' + String(e)) }
+  }
+  async function exportLegacyDownloads(): Promise<void> {
+    if (migrating) return
+    setMigrating(true)
+    try {
+      const result = await native.exportLegacyDownloads()
+      setNotice(result.count > 0
+        ? '已将 ' + result.count + ' 个旧版文件导出至「下载/SJTU Downloader」'
+          + (result.skipped ? '，还有 ' + result.skipped + ' 个未能导出。' : '。')
+        : result.skipped
+          ? '发现 ' + result.skipped + ' 个旧文件导出失败，请检查手机剩余存储空间。'
+          : '未发现需要迁移的旧版下载文件。')
+    } catch (e) { setNotice('导出旧文件失败：' + String(e)) }
+    finally { setMigrating(false) }
   }
 
   const active = jobs.filter(j => j.state === 'active').length
@@ -356,6 +396,16 @@ export default function App() {
             </>)}
           {tab === 'downloads' && <>
             <div className="page-intro"><h1>下载</h1><span className="muted-count">{active ? active + ' 项进行中' : jobs.length + ' 项任务'}</span></div>
+            <div className="download-location glass">
+              <div className="download-location-text">
+                <strong>文件保存位置</strong>
+                <span>手机文件管理 → 下载 → SJTU Downloader</span>
+              </div>
+              {isAndroid && <button type="button" className="legacy-import"
+                disabled={migrating} onClick={() => void exportLegacyDownloads()}>
+                {migrating ? '导出中…' : '找回旧版文件'}
+              </button>}
+            </div>
             {!jobs.length ? <div className="empty-box glass"><Icon name="download" size={29}/><strong>暂无下载</strong></div>
               : <div className="job-list">{jobs.map(j => <div className="job-card glass" key={j.taskId}>
                 <div className="job-row">
@@ -373,6 +423,11 @@ export default function App() {
                   <div style={{width: (j.total > 0 ? Math.min(100, (j.bytes / j.total) * 100) : 3) + '%'}}/>
                 </div>}
                 {j.state === 'active' && <button className="text-button cancel-action" onClick={() => void cancel(j.taskId)}>取消</button>}
+                {j.state === 'done' && j.savedPath && <div className="download-saved">
+                  <span title={j.savedPath}>已保存：{j.savedPath}</span>
+                  {j.uri?.startsWith('content://media/') &&
+                    <button type="button" onClick={() => void openDownloadedFile(j.uri!)}>打开文件</button>}
+                </div>}
                 {j.error && <small className="error-text">{j.error}</small>}
               </div>)}</div>}
           </>}

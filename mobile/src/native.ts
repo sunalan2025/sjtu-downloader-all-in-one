@@ -46,7 +46,11 @@ type NativeCanvasApi = {
   status(): Promise<{ loggedIn: boolean; name?: string; savedSessionEncrypted?: boolean }>
   courses(): Promise<{ items: CanvasCourse[] }>
   files(options: { courseId: string }): Promise<{ items: CanvasFile[] }>
-  download(options: { fileId: string; taskId: string; courseName?: string; term?: string }): Promise<{ uri: string; fileName: string }>
+  download(options: { fileId: string; taskId: string; courseName?: string; term?: string }): Promise<{
+    uri: string; fileName: string; savedPath: string; publicDownload: boolean
+  }>
+  openDownloadedFile(options: { uri: string }): Promise<{ ok: boolean }>
+  exportLegacyDownloads(): Promise<{ count: number; skipped: number; savedPath: string }>
   cancelDownload(options: { taskId: string }): Promise<{ ok: boolean }>
   logout(): Promise<{ ok: boolean }>
   addListener(

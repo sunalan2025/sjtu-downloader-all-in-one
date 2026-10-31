@@ -591,3 +591,24 @@ button:active:not(:disabled) { transform:scale(.965); }
   from {clip-path:inset(0 100% 0 0);}
   to {clip-path:inset(0);}
 }
+
+/* Downloads are visible in the public Android Downloads collection. */
+.download-location {
+  display:flex;align-items:center;gap:10px;justify-content:space-between;
+  border-radius:18px;padding:13px 12px;margin-bottom:12px;
+}
+.download-location-text{display:flex;flex-direction:column;gap:5px;min-width:0;}
+.download-location-text strong{font-size:12px;color:#456887;}
+.download-location-text span{font-size:11px;color:#758aa5;overflow-wrap:anywhere;line-height:1.45;}
+.legacy-import{
+  flex:none;border:1px solid rgba(121,166,219,.30);border-radius:12px;
+  background:rgba(219,236,255,.76);color:#3e71aa;
+  font-size:11px;font-weight:670;padding:10px 9px;
+}
+.download-saved{margin-top:10px;display:flex;align-items:center;gap:10px;justify-content:space-between;}
+.download-saved span{min-width:0;flex:1;overflow-wrap:anywhere;color:#6389a5;font-size:11px;line-height:1.5;}
+.download-saved button{
+  border:1px solid rgba(121,166,219,.35);border-radius:10px;
+  background:rgba(229,242,255,.87);color:#3775b2;
+  padding:9px 10px;font-size:11px;font-weight:700;white-space:nowrap;
+}
