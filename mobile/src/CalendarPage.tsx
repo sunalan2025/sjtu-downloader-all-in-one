@@ -112,7 +112,7 @@ export function CalendarPage({month,onMonthChange,events,busy,onRefresh,onOffici
   const MIN_TIME=7*60
   const MAX_TIME=22*60
   const PX_PER_HOUR=52
-  const position=(m:number)=Math.max(0,(m-MIN_TIME)/60*PX_PER_HOUR)
+  const position=(m:number)=>Math.max(0,(m-MIN_TIME)/60*PX_PER_HOUR)
   const shift=(offset:number)=>{
     const next=nextDay(selected,offset)
     setSelected(next)
