@@ -25,6 +25,18 @@ export type CalendarEvent = {
   type: 'assignment' | 'event' | 'course'
 }
 
+export type WidgetStatus = {
+  instances: number
+  courses: number
+  deadlines: number
+  updatedAt: number
+  lastRenderAt: number
+  lastRenderedInstances: number
+  lastRenderError: string
+  manufacturer: string
+  ignoringBatteryOptimizations: boolean
+}
+
 export type NativeInsets = { top: number; bottom: number; left: number; right: number }
 
 export type CourseDownloadItem = { file: CanvasFile; courseName: string; term: string }
@@ -55,6 +67,9 @@ type NativeCanvasApi = {
     title: string; location: string; startMs: number; endMs: number;
     kind: 'course' | 'deadline'
   }[]; clear?: boolean }): Promise<{ ok: boolean }>
+  widgetStatus(): Promise<WidgetStatus>
+  refreshTodayWidget(): Promise<WidgetStatus>
+  openWidgetSettings(options: { section: 'app' | 'battery' }): Promise<{ ok: boolean }>
   cancelDownload(options: { taskId: string }): Promise<{ ok: boolean }>
   logout(): Promise<{ ok: boolean }>
   addListener(
