@@ -8,6 +8,7 @@ import android.graphics.drawable.RippleDrawable;
 import android.view.Gravity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.provider.Settings;
 import android.net.Uri;
 import android.view.View;
 import android.widget.FrameLayout;
@@ -563,6 +564,60 @@ public class SjtuCanvasPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("桌面课表更新失败：" + safeError(e));
         }
+    }
+
+    /** OEM launchers render our RemoteViews, while Android AppWidgetManager
+     * controls binding. No photos/files/calendar runtime permission is needed:
+     * the widget reads only our own private SharedPreferences. */
+    @PluginMethod
+    public void widgetStatus(PluginCall call) {
+        try {
+            JSObject status = TodayScheduleWidget.status(getContext());
+            call.resolve(status);
+        } catch (Exception e) {
+            call.reject("读取桌面组件状态失败：" + safeError(e));
+        }
+    }
+
+    @PluginMethod
+    public void refreshTodayWidget(PluginCall call) {
+        try {
+            TodayScheduleWidget.refresh(getContext());
+            call.resolve(TodayScheduleWidget.status(getContext()));
+        } catch (Exception e) {
+            call.reject("刷新桌面组件失败：" + safeError(e));
+        }
+    }
+
+    /** Use public system settings rather than private/nonportable OEM APIs.
+     * App battery management or autostart must be allowed by the user. */
+    @PluginMethod
+    public void openWidgetSettings(PluginCall call) {
+        String section = call.getString("section", "app");
+        getActivity().runOnUiThread(() -> {
+            try {
+                Intent settings;
+                if ("battery".equals(section)) {
+                    settings = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                } else {
+                    settings = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    settings.setData(Uri.parse("package:" + getContext().getPackageName()));
+                }
+                settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    getActivity().startActivity(settings);
+                } catch (ActivityNotFoundException unavailable) {
+                    Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    fallback.setData(Uri.parse("package:" + getContext().getPackageName()));
+                    getActivity().startActivity(fallback);
+                }
+                JSObject result = new JSObject();
+                result.put("ok", true);
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject("无法打开系统设置：" + safeError(e));
+            }
+        });
     }
 
     @PluginMethod
