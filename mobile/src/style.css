@@ -993,3 +993,77 @@ button:active:not(:disabled) { transform:scale(.965); }
  .week-overview--7 .week-time-event{min-width:0;}
  .week-overview--7 .week-time-header,.week-overview--7 .week-all-day-chip{text-align:left;}
 }
+
+/* Android tablet landscape: persistent left navigation rail. Phone and
+   tablet portrait keep their familiar bottom dock. One dock for every tab,
+   while batch selection uses a floating action inside the available pane. */
+.nav-slider{transform:translate3d(calc(var(--nav-index,0)*100%),0,0);}
+.bottom-dock.is-batch .bottom-nav{display:none;}
+@media (orientation:landscape) and (min-width:740px) and (min-height:420px){
+  :root{--rail-width:92px;}
+  .app-shell{
+    max-width:none;width:auto;min-width:0;min-height:100dvh;
+    margin:0 0 0 calc(var(--rail-width) + 18px);
+    padding-top:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 10px);
+  }
+  .content{
+    width:100%;max-width:1540px;min-width:0;
+    margin:0 auto;padding:
+      clamp(16px,2vw,30px) clamp(16px,2.5vw,42px)
+      calc(28px + max(var(--safe-bottom),env(safe-area-inset-bottom,0px)));
+  }
+  .topbar{margin:0 clamp(16px,2.5vw,42px);border-radius:22px;}
+  .bottom-dock{
+    left:calc(max(var(--safe-left),env(safe-area-inset-left,0px)) + 10px);
+    right:auto;top:calc(max(var(--safe-top),env(safe-area-inset-top,0px)) + 10px);
+    bottom:calc(max(var(--safe-bottom),env(safe-area-inset-bottom,0px)) + 10px);
+    width:var(--rail-width);max-width:none;min-height:0;margin:0;
+    border-radius:25px;display:flex;flex-direction:column;
+    background:rgba(245,249,255,.76);
+  }
+  .bottom-nav,.bottom-dock.is-batch .bottom-nav{
+    display:flex;flex-direction:column;align-items:stretch;
+    justify-content:flex-start;min-height:0;width:100%;
+    flex:1;gap:5px;padding:7px;
+  }
+  .bottom-nav button{
+    flex:none;width:100%;min-height:65px;padding:7px 3px;
+    gap:4px;border-radius:17px;font-size:11px;
+  }
+  .bottom-nav button.selected .nav-icon{transform:scale(1.1);}
+  .nav-slider{
+    top:7px;left:7px;bottom:auto;
+    width:calc(100% - 14px);height:65px;border-radius:17px;
+    transform:translate3d(0,calc(var(--nav-index,0)*70px),0);
+    transition:transform .35s cubic-bezier(.18,.86,.26,1.08);
+  }
+  .bottom-dock.is-batch{background:rgba(245,249,255,.76);}
+  .bottom-dock.is-batch .batch-dock{
+    position:fixed;z-index:55;
+    left:calc(max(var(--safe-left),env(safe-area-inset-left,0px)) + var(--rail-width) + 30px);
+    right:calc(max(var(--safe-right),env(safe-area-inset-right,0px)) + 22px);
+    bottom:calc(max(var(--safe-bottom),env(safe-area-inset-bottom,0px)) + 18px);
+    min-height:0;padding:0;display:flex;justify-content:center;
+    pointer-events:none;
+  }
+  .batch-dock-action{
+    pointer-events:auto;width:min(100%,470px);
+    box-shadow:0 12px 34px rgba(40,94,167,.26);
+  }
+  .bottom-dock.is-batch~*{min-width:0;}
+  .week-overview,.week-timetable-scroll,.week-timetable-grid{
+    min-width:0;max-width:100%;
+  }
+  .screen-motion{min-width:0;}
+  .downloads-layout{max-width:100%;min-width:0;}
+  .downloads-task-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(265px,1fr));}
+  .recent-agenda-groups{min-width:0;}
+  .home-stage{min-height:195px;padding:26px 32px;}
+  .page-intro{margin-top:0;}
+}
+@media (orientation:landscape) and (min-width:740px) and (max-height:540px){
+  .bottom-nav button{min-height:53px;}
+  .nav-slider{height:53px;transform:translate3d(0,calc(var(--nav-index,0)*58px),0);}
+  .bottom-dock{border-radius:20px;}
+  .bottom-nav .nav-icon{height:24px;}
+}

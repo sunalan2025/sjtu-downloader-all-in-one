@@ -873,15 +873,16 @@ export default function App() {
             : selection.scope === 'files' ? '下载 ' + selection.count + ' 个文件'
               : '下载 ' + selection.count + ' 门课程'}
         </button>
-      </div> : <nav className="bottom-nav" aria-label="主导航">
+      </div> : null}
+      <nav className="bottom-nav" aria-label="主导航">
         <span className="nav-slider" aria-hidden="true"
-          style={{ transform: 'translate3d(' + (tabIndex * 100) + '%,0,0)' }}/>
+          style={{ '--nav-index': tabIndex } as React.CSSProperties}/>
         {nav.map(item => <button type="button" key={item.id}
           className={item.id === tab ? 'selected' : ''} onClick={() => switchTab(item.id)}
           aria-current={item.id === tab ? 'page' : undefined}>
           <span className="nav-icon"><Icon name={item.icon} size={21}/></span><span>{item.text}</span>
         </button>)}
-      </nav>}
+      </nav>
     </div>
   </div>
 }

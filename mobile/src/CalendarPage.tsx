@@ -160,7 +160,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   const weekFirstHour=weekTimed.length
     ? Math.max(6,Math.floor(Math.min(...weekTimed.map(e=>minute(e.startTime)))/60)-1) : 8
   const weekLastHour=weekTimed.length
-    ? Math.min(23,Math.max(weekFirstHour+3,
+    ? Math.min(24,Math.max(weekFirstHour+3,
         Math.ceil(Math.max(...weekTimed.map(e=>Math.max(minute(e.endTime,minute(e.startTime)+45),minute(e.startTime)+28)))/60)+1))
     : 18
   // The all-day lane has a *shared* height across all three columns. Compute it
@@ -179,6 +179,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     },0)+Math.max(0,entries.length-1)*5
   }))
   const WEEK_HOUR_PX=54
+  // 23:59 deadlines must remain inside the lane through 24:00, never
+  // clamped to the 23:00 boundary as in the old tablet/week layout.
   const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX
   const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
   const dayEvents=eventMap.get(selected)||[]
