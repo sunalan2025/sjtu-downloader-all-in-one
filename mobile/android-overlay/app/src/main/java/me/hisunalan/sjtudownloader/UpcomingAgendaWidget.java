@@ -50,7 +50,9 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
         long now=System.currentTimeMillis();
         ArrayList<TodayScheduleWidget.Item> upcoming=new ArrayList<>();
         for(TodayScheduleWidget.Item item:TodayScheduleWidget.load(context)) {
-            if(item.start < now || item.start > now + TodayScheduleWidget.DEADLINE_HORIZON)
+            if((item.deadline && item.start < now) ||
+               (!item.deadline && item.end <= now) ||
+                item.start > now + TodayScheduleWidget.DEADLINE_HORIZON)
                 continue;
             upcoming.add(item);
         }
@@ -64,6 +66,9 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
                 for(int i=0;i<rows.length;i++){
                     if(i<n){
                         view.setTextViewText(rows[i],row(upcoming.get(i),now));
+                        view.setTextColor(rows[i],upcoming.get(i).deadline
+                            ? android.graphics.Color.rgb(155,101,51)
+                            : android.graphics.Color.rgb(57,87,119));
                         view.setViewVisibility(rows[i],View.VISIBLE);
                     }else if(i==0){
                         view.setTextViewText(rows[i],

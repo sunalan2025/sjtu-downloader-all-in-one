@@ -325,7 +325,7 @@ export default function App() {
       return
     }
     const todayWeek=currentWeekStart()
-    const weeks=[todayWeek,dateOffset(todayWeek,7),dateOffset(todayWeek,14)]
+    const weeks=[todayWeek,dateOffset(todayWeek,-7),dateOffset(todayWeek,7),dateOffset(todayWeek,14)]
     const loaded=new Map<string,CalendarEvent[]>()
     let disposed=false
     setHomeCalendarLoaded(false)
