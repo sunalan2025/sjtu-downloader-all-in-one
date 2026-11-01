@@ -647,7 +647,9 @@ export default function App() {
           ? requestedEnd : startMs+45*60*1000
       return {
         id:event.id,title:event.title.trim(),location:schedulePlace(event),
-        startMs,endMs,kind:deadline?'deadline' as const:'course' as const
+        startMs,endMs,kind:deadline?'deadline' as const:'course' as const,
+        category:kind==='exam'?'exam' as const:
+          kind==='homework'?'homework' as const:'course' as const
       }
     }).filter(item=>item.title&&Number.isFinite(item.startMs)&&item.startMs<cutoff
       &&item.startMs>=now-8*24*60*60*1000
@@ -659,7 +661,9 @@ export default function App() {
         return true
       }).sort((a,b)=>a.startMs-b.startMs)
       .slice(0,300)
-      .map(({title,location,startMs,endMs,kind})=>({title,location,startMs,endMs,kind}))
+      .map(({title,location,startMs,endMs,kind,category})=>({
+        title,location,startMs,endMs,kind,category
+      }))
     // An empty remote response may be a temporary school outage. Do not erase
     // an otherwise valid widget cache unless the account was logged out.
     if(loggedIn&&items.length===0)return

@@ -40,9 +40,10 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
     private static String row(TodayScheduleWidget.Item item,long now) {
         String when=TodayScheduleWidget.format(item.start,
             "M/d HH:mm");
-        String tag=item.deadline ? "截止" : "课";
+        String tag="course".equals(item.category) ? "课程"
+            : "exam".equals(item.category) ? "考试" : "作业";
         if (item.deadline && item.start < now + 3*60*60_000L)
-            tag="即将截止";
+            tag="exam".equals(item.category) ? "即将考试" : "即将截止";
         return when + "  · " + tag + "\n" + item.title;
     }
 
@@ -56,7 +57,9 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
                 continue;
             upcoming.add(item);
         }
-        int n=Math.min(upcoming.size(),3);
+        int n=Math.min(upcoming.size(),2);
+        int success=0;
+        String failure="";
         int[] rows={R.id.agenda_item_one,R.id.agenda_item_two,R.id.agenda_item_three};
         for(int id:ids){
             try {
@@ -74,12 +77,18 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
                         view.setTextViewText(rows[i],
                             "近期没有待办\n点击应用同步最新日程");
                         view.setViewVisibility(rows[i],View.VISIBLE);
+                    }else if(i==2 && upcoming.size()>2){
+                        view.setTextViewText(rows[i],
+                            "还有 " + (upcoming.size()-2) + " 项 · 点击查看");
+                        view.setViewVisibility(rows[i],View.VISIBLE);
                     }else view.setViewVisibility(rows[i],View.GONE);
                 }
                 view.setOnClickPendingIntent(R.id.agenda_root,
                     TodayScheduleWidget.openApp(context));
                 manager.updateAppWidget(id,view);
+                success++;
             } catch(Exception error){
+                failure=error.getClass().getSimpleName();
                 try{
                     RemoteViews fallback=new RemoteViews(context.getPackageName(),
                         R.layout.today_schedule_widget_fallback);
@@ -88,8 +97,13 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
                     fallback.setOnClickPendingIntent(R.id.widget_fallback_root,
                         TodayScheduleWidget.openApp(context));
                     manager.updateAppWidget(id,fallback);
+                    success++;
                 }catch(Exception ignored){}
             }
         }
+        TodayScheduleWidget.preferences(context).edit()
+            .putInt("agendaRenderedInstances",success)
+            .putString("agendaRenderError",failure.isEmpty()?"":"agenda:"+failure)
+            .apply();
     }
 }

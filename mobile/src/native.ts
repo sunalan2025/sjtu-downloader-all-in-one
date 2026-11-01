@@ -71,6 +71,7 @@ type NativeCanvasApi = {
   updateTodayWidget(options: { items: {
     title: string; location: string; startMs: number; endMs: number;
     kind: 'course' | 'deadline'
+    category?: 'course' | 'homework' | 'exam'
   }[]; clear?: boolean }): Promise<{ ok: boolean }>
   widgetStatus(): Promise<WidgetStatus>
   refreshTodayWidget(): Promise<WidgetStatus>

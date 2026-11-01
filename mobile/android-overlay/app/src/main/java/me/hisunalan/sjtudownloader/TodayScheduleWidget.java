@@ -50,12 +50,15 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         final String title;
         final String place;
         final boolean deadline;
-        Item(long start, long end, String title, String place, boolean deadline) {
+        final String category;
+        Item(long start, long end, String title, String place,
+             boolean deadline, String category) {
             this.start = start;
             this.end = end;
             this.title = title;
             this.place = place;
             this.deadline = deadline;
+            this.category = category;
         }
     }
 
@@ -83,6 +86,9 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 clean.put("location", location.substring(0, Math.min(location.length(), 85)));
                 clean.put("kind", "deadline".equals(event.optString("kind", ""))
                     ? "deadline" : "course");
+                String category = event.optString("category", "");
+                clean.put("category", "exam".equals(category) ? "exam"
+                    : "homework".equals(category) ? "homework" : "course");
                 safe.put(clean);
             } catch (Exception ignored) {}
         }
@@ -107,7 +113,8 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 if (start <= 0 || end < start || title.isEmpty()) continue;
                 items.add(new Item(start, end, title,
                     item.optString("location", "").trim(),
-                    "deadline".equals(item.optString("kind", ""))));
+                    "deadline".equals(item.optString("kind", "")),
+                    item.optString("category", "")));
             }
         } catch (Exception ignored) {}
         items.sort(Comparator.comparingLong(item -> item.start));
@@ -175,8 +182,10 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         status.put("deadlines", deadlines);
         status.put("updatedAt", prefs.getLong(UPDATED, 0));
         status.put("lastRenderAt", prefs.getLong("lastRenderAt", 0));
-        status.put("lastRenderedInstances", prefs.getInt("lastRenderedInstances", 0));
-        status.put("lastRenderError", prefs.getString("lastRenderError", ""));
+        status.put("lastRenderedInstances", prefs.getInt("lastRenderedInstances", 0)
+            + prefs.getInt("agendaRenderedInstances", 0));
+        status.put("lastRenderError", prefs.getString("lastRenderError", "")
+            + prefs.getString("agendaRenderError", ""));
         status.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER);
         android.os.PowerManager power = (android.os.PowerManager)
             context.getSystemService(Context.POWER_SERVICE);
