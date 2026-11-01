@@ -110,6 +110,7 @@ export default function App() {
       if (month !== current) setMonth(current)
       if (weekStart !== week) setWeekStart(week)
       else if (loggedIn && Date.now() - lastCalendarFetch.current > 90_000) void loadCalendar(week, true)
+      if(loggedIn && Date.now()-lastExamFetch.current>5*60_000)void loadExamSchedule()
     }
     if (isAndroid) void Haptics.selectionChanged().catch(() => {})
     showTab(next)
@@ -137,6 +138,13 @@ export default function App() {
     } catch { /* Disabled WebView storage must not prevent downloads. */ }
   }, [jobs])
   const [events, setEvents] = useState<CalendarEvent[]>([])
+  const [examEvents,setExamEvents]=useState<CalendarEvent[]>([])
+  const [examConnected,setExamConnected]=useState(false)
+  const [examSource,setExamSource]=useState('')
+  const [examChecking,setExamChecking]=useState(false)
+  const [examWarning,setExamWarning]=useState('')
+  const lastExamFetch=useRef(0)
+  const examRequest=useRef(0)
   const [neighborEvents, setNeighborEvents] = useState<CalendarEvent[]>([])
   const [homeSchoolEvents,setHomeSchoolEvents]=useState<CalendarEvent[]>([])
   const [homeCalendarLoaded,setHomeCalendarLoaded]=useState(false)
@@ -261,6 +269,32 @@ export default function App() {
     void loadCalendar(weekStart)
   }, [weekStart, loggedIn])
 
+  // Desktop schedule-fetcher independently merges StudyAtSJTU exam events.
+  // Keep this request off the weekly timetable critical path and distinguish
+  // "not authorized" from an authenticated semester with zero exams.
+  useEffect(()=>{
+    if(!isAndroid)return
+    if(loggedIn)void loadExamSchedule()
+    else{
+      ++examRequest.current
+      setExamEvents([]);setExamConnected(false)
+      setExamSource('');setExamWarning('')
+    }
+  },[loggedIn])
+  useEffect(()=>{
+    if(!loggedIn||!isAndroid)return
+    const onVisible=()=>{
+      if(document.visibilityState==='visible'&&Date.now()-lastExamFetch.current>5*60_000)
+        void loadExamSchedule()
+    }
+    document.addEventListener('visibilitychange',onVisible)
+    window.addEventListener('online',onVisible)
+    return ()=>{
+      document.removeEventListener('visibilitychange',onVisible)
+      window.removeEventListener('online',onVisible)
+    }
+  },[loggedIn])
+
   useEffect(() => {
     if (!isAndroid || !loggedIn) return
     const check = () => {
@@ -378,6 +412,45 @@ export default function App() {
     return ()=>{disposed=true}
   },[weekStart,loggedIn])
 
+  async function loadExamSchedule(force=false): Promise<void> {
+    if(!isAndroid)return
+    if(!force&&Date.now()-lastExamFetch.current<5*60_000)return
+    const request=++examRequest.current
+    lastExamFetch.current=Date.now()
+    setExamChecking(true)
+    try{
+      const response=await native.exams({force})
+      if(request!==examRequest.current)return
+      if(response.connected){
+        setExamEvents(response.items)
+        setExamConnected(true)
+        setExamSource(response.source||'学校')
+        setExamWarning('')
+      }else{
+        setExamConnected(false)
+        setExamWarning(response.warning||'考试系统需要单独认证')
+      }
+    }catch(error){
+      if(request===examRequest.current)
+        setExamWarning('读取考试安排失败：'+String(error))
+    }finally{
+      if(request===examRequest.current)setExamChecking(false)
+    }
+  }
+  async function connectExams(source:'study'|'jiaowu'):Promise<void> {
+    if(!isAndroid)return
+    setExamChecking(true)
+    try{
+      const result=await native.openExamPortal({source})
+      if(result.ok){
+        lastExamFetch.current=0
+        await loadExamSchedule(true)
+      }
+    }catch(error){
+      setExamWarning('连接考试系统失败：'+String(error))
+    }finally{setExamChecking(false)}
+  }
+
   async function refreshSession(): Promise<void> {
     setSessionChecking(true)
     try {
@@ -406,7 +479,9 @@ export default function App() {
     if (!window.confirm('确定退出登录吗？这会清除手机上保存的交大登录会话。')) return
     try {
       await native.logout()
-      weeklyCache.current.clear(); setLoggedIn(false); setUser(''); setCourses([]); setEvents([]); setCalendarWarning(''); setOfficialConnected(false)
+      weeklyCache.current.clear(); setLoggedIn(false); setUser(''); setCourses([]); setEvents([]);
+      setExamEvents([]);setExamConnected(false);setExamSource('');lastExamFetch.current=0;
+      setCalendarWarning(''); setOfficialConnected(false)
       showTab('home')
     } catch (e) { setNotice(String(e)) }
   }
@@ -531,9 +606,9 @@ export default function App() {
 
   const active = jobs.filter(j => j.state === 'active').length
   const today = shanghaiDate(new Date().toISOString())
-  const calendarEvents = [...events,...neighborEvents,...personalEvents.map(asCalendarEvent)]
+  const calendarEvents = [...events,...neighborEvents,...examEvents,...personalEvents.map(asCalendarEvent)]
   const lastAgendaDate=dateOffset(today,13)
-  const upcomingEvents=[...homeSchoolEvents,...personalEvents.map(asCalendarEvent)]
+  const upcomingEvents=[...homeSchoolEvents,...examEvents,...personalEvents.map(asCalendarEvent)]
     .filter(event=>{
       const day=shanghaiDate(event.startTime)
       return day>=today&&day<=lastAgendaDate
@@ -552,7 +627,7 @@ export default function App() {
     if (!isAndroid || sessionChecking) return
     if (loggedIn && !homeCalendarLoaded) return
     const school=loggedIn?homeSchoolEvents:[]
-    const rows=[...school,...personalEvents.map(asCalendarEvent)].sort(compareEvents)
+    const rows=[...school,...examEvents,...personalEvents.map(asCalendarEvent)].sort(compareEvents)
     const now=Date.now()
     const cutoff=now+21*24*60*60*1000
     const seen=new Set<string>()
@@ -590,7 +665,7 @@ export default function App() {
     void native.updateTodayWidget({items,clear:!loggedIn})
       .then(()=>{if(widgetDetailsOpen)void refreshWidgetStatus()})
       .catch(error=>setWidgetMessage('组件同步失败：'+String(error)))
-  },[loggedIn,sessionChecking,homeCalendarLoaded,homeSchoolEvents,personalEvents,widgetDetailsOpen,refreshWidgetStatus])
+  },[loggedIn,sessionChecking,homeCalendarLoaded,homeSchoolEvents,examEvents,personalEvents,widgetDetailsOpen,refreshWidgetStatus])
 
   useEffect(()=>{
     if(widgetDetailsOpen)void refreshWidgetStatus()
@@ -724,6 +799,10 @@ export default function App() {
                 events={calendarEvents} busy={calendarBusy}
                 onOfficial={()=>{if(loggedIn)void openOfficialCalendar();else void login()}}
                 officialConnected={officialConnected}
+                examConnected={examConnected} examChecking={examChecking}
+                examWarning={examWarning} examSource={examSource}
+                onExamConnect={()=>{if(loggedIn)void connectExams('study');else void login()}}
+                onExamFallback={()=>{if(loggedIn)void connectExams('jiaowu');else void login()}}
                 onAddSchedule={addSchedule} onEditSchedule={editSchedule}/>
               {!loggedIn&&<div className="calendar-notice">
                 个人日程可离线使用；登录交我办后将合并显示学校课表与作业。
