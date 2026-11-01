@@ -892,7 +892,7 @@ public class SjtuCanvasPlugin extends Plugin {
             try {
                 vault().restoreOnce();
                 JSObject result = examService.fetch(force);
-                if (result.getBool("connected")) vault().saveAfterVerification();
+                if (result.optBoolean("connected", false)) vault().saveAfterVerification();
                 call.resolve(result);
             } catch (Exception error) {
                 call.reject("考试信息获取失败：" + safeError(error));
@@ -944,7 +944,7 @@ public class SjtuCanvasPlugin extends Plugin {
                     try {
                         examService.invalidate();
                         JSObject data = examService.fetch(true);
-                        good = data.getBool("connected");
+                        good = data.optBoolean("connected", false);
                         if (good) vault().saveAfterVerification();
                     } catch (Exception ignored) {}
                     final boolean ok = good;
