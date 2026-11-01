@@ -41,6 +41,7 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
         String when=TodayScheduleWidget.format(item.start,
             "M/d HH:mm");
         String tag="course".equals(item.category) ? "课程"
+            : "event".equals(item.category) ? "日程"
             : "exam".equals(item.category) ? "考试" : "作业";
         if (item.deadline && item.start < now + 3*60*60_000L)
             tag="exam".equals(item.category) ? "即将考试" : "即将截止";

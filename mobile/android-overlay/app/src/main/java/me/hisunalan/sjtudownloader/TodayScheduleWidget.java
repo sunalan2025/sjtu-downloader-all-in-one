@@ -88,7 +88,8 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                     ? "deadline" : "course");
                 String category = event.optString("category", "");
                 clean.put("category", "exam".equals(category) ? "exam"
-                    : "homework".equals(category) ? "homework" : "course");
+                    : "homework".equals(category) ? "homework"
+                    : "event".equals(category) ? "event" : "course");
                 safe.put(clean);
             } catch (Exception ignored) {}
         }
@@ -267,7 +268,8 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
             long start = midnight(now, offset);
             long end = midnight(now, offset + 1);
             ArrayList<Item> classes = new ArrayList<>();
-            for (Item item : all) if (!item.deadline && item.start >= start && item.start < end)
+            for (Item item : all) if (!item.deadline && !"event".equals(item.category)
+                    && item.start >= start && item.start < end)
                 classes.add(item);
             try {
                 RemoteViews view = new RemoteViews(context.getPackageName(),

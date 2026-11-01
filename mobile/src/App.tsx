@@ -649,7 +649,8 @@ export default function App() {
         id:event.id,title:event.title.trim(),location:schedulePlace(event),
         startMs,endMs,kind:deadline?'deadline' as const:'course' as const,
         category:kind==='exam'?'exam' as const:
-          kind==='homework'?'homework' as const:'course' as const
+          kind==='homework'?'homework' as const:
+          event.type==='course'?'course' as const:'event' as const
       }
     }).filter(item=>item.title&&Number.isFinite(item.startMs)&&item.startMs<cutoff
       &&item.startMs>=now-8*24*60*60*1000
