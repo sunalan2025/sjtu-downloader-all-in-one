@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/agenda_root"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/today_widget_surface"
+    android:paddingLeft="12dp" android:paddingRight="12dp"
+    android:paddingTop="11dp" android:paddingBottom="10dp">
+    <LinearLayout android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView android:id="@+id/agenda_caption"
+            android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="近期安排" android:textStyle="bold"
+            android:textSize="12sp" android:textColor="#325F90"/>
+        <TextView android:id="@+id/agenda_counter"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="0 项" android:textSize="10sp"
+            android:textColor="#8F789F"/>
+    </LinearLayout>
+    <TextView android:id="@+id/agenda_item_one"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:maxLines="2"
+        android:ellipsize="end" android:text="打开应用同步日程"
+        android:textSize="10sp" android:lineSpacingExtra="2dp"
+        android:textColor="#395777"/>
+    <TextView android:id="@+id/agenda_item_two"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:maxLines="2"
+        android:ellipsize="end" android:text=""
+        android:textSize="10sp" android:lineSpacingExtra="2dp"
+        android:textColor="#395777"/>
+    <TextView android:id="@+id/agenda_item_three"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:maxLines="2"
+        android:ellipsize="end" android:text=""
+        android:textSize="10sp" android:lineSpacingExtra="2dp"
+        android:textColor="#395777"/>
+</LinearLayout>
