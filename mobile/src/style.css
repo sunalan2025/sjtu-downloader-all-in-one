@@ -1134,12 +1134,14 @@ button:active:not(:disabled) { transform:scale(.965); }
   .home-stage{min-height:195px;padding:26px 32px;}
   .page-intro{margin-top:0;}
 }
-@media (orientation:landscape) and (min-width:740px) and (max-height:540px){
+@media (orientation:landscape) and (min-width:740px) and (min-height:420px) and (max-height:540px){
   .rail-header{margin-bottom:8px;min-height:48px;}
   .bottom-nav button{min-height:53px;}
   .bottom-nav .nav-icon{height:28px;}
 }
 @media (orientation:landscape) and (min-width:740px) and (min-height:420px)
-  and (prefers-reduced-transparency:reduce){
+  and (prefers-reduced-transparency:reduce),
+  (orientation:landscape) and (min-width:740px) and (min-height:420px)
+  and (prefers-contrast:more){
   .bottom-dock,.bottom-dock.is-batch{background:transparent!important;border:0!important;}
 }
