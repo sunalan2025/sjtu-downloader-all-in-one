@@ -43,9 +43,11 @@
         android:layout_marginTop="4dp" android:text="下一节课程提醒"
         android:textColor="#527CA6" android:textSize="10sp"
         android:maxLines="1" android:ellipsize="end"/>
-    <View android:layout_width="match_parent" android:layout_height="1dp"
+    <!-- RemoteViews cannot reliably inflate android.view.View. A plain
+         TextView is a supported widget host class on AOSP and OEM launchers. -->
+    <TextView android:layout_width="match_parent" android:layout_height="1dp"
         android:background="#306896BB" android:layout_marginTop="10dp"
-        android:layout_marginBottom="9dp"/>
+        android:layout_marginBottom="9dp" android:text=""/>
     <TextView android:id="@+id/widget_deadline_label"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="近期 DEADLINE" android:textColor="#B07640"
