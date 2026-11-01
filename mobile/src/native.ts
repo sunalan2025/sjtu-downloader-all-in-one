@@ -52,8 +52,9 @@ type NativeCanvasApi = {
   }>
   openDownloadedFile(options: { uri: string }): Promise<{ ok: boolean }>
   updateTodayWidget(options: { items: {
-    title: string; location: string; startMs: number; endMs: number
-  }[] }): Promise<{ ok: boolean }>
+    title: string; location: string; startMs: number; endMs: number;
+    kind: 'course' | 'deadline'
+  }[]; clear?: boolean }): Promise<{ ok: boolean }>
   cancelDownload(options: { taskId: string }): Promise<{ ok: boolean }>
   logout(): Promise<{ ok: boolean }>
   addListener(

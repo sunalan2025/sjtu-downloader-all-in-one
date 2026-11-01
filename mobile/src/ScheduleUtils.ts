@@ -37,3 +37,21 @@ export function clockText(time:string):string {
   return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',
     hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(value)
 }
+
+/** Normalize official timezone offsets, Canvas UTC due_at and date-only items
+ * before ordering any mixed schedule. Date-only assignments are due at the
+ * end of their Shanghai calendar day; all-day personal events start at 00:00. */
+export function eventMillis(event:CalendarEvent):number {
+  const value=event.startTime
+  if(/^\d{4}-\d\d-\d\d$/.test(value)) {
+    const suffix=event.type==='assignment'?'T23:59:59+08:00':'T00:00:00+08:00'
+    return Date.parse(value+suffix)
+  }
+  const parsed=Date.parse(value)
+  return Number.isFinite(parsed)?parsed:Number.POSITIVE_INFINITY
+}
+export function compareEvents(a:CalendarEvent,b:CalendarEvent):number {
+  return eventMillis(a)-eventMillis(b) ||
+    (a.type==='assignment'?1:0)-(b.type==='assignment'?1:0) ||
+    a.title.localeCompare(b.title,'zh-CN')
+}

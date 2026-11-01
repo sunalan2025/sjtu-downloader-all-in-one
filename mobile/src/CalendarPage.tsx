@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from './Icon'
 import type { CalendarEvent } from './native'
-import { scheduleKind, scheduleLabel, schedulePlace } from './ScheduleUtils'
+import { scheduleKind, scheduleLabel, schedulePlace, compareEvents } from './ScheduleUtils'
 
 const TZ = 'Asia/Shanghai'
 const DOW = ['周日','周一','周二','周三','周四','周五','周六']
@@ -117,6 +117,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
       seen.add(key)
       map.set(date,[...(map.get(date)||[]),event])
     }
+    for(const values of map.values())values.sort(compareEvents)
     return map
   },[events])
   // Both the hour labels and all seven day columns use one minute-to-pixel
@@ -151,7 +152,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     (['schedule','homework','exam'] as const).map(kind=>({
       kind,title:scheduleLabel(kind),
       items:dayEvents.filter(event=>scheduleKind(event)===kind)
-        .sort((a,b)=>a.startTime.localeCompare(b.startTime))
+        .sort(compareEvents)
     }))
   const shift=(offset:number)=>{
     setHasNestedMotion(true)

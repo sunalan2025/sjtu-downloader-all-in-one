@@ -5,7 +5,8 @@ import native, { isAndroid, type CanvasCourse, type DownloadProgress, type Calen
 import { BatchCourseBrowser, type CourseBrowserHandle, type CourseSelection } from './BatchCourseBrowser'
 import { CalendarPage, currentMonth, currentWeekStart, shanghaiDate } from './CalendarPage'
 import { Icon, type IconName } from './Icon'
-import { scheduleKind, scheduleLabel, schedulePlace, dateOffset, shortDate, clockText } from './ScheduleUtils'
+import { scheduleKind, scheduleLabel, schedulePlace, dateOffset, shortDate, clockText,
+  compareEvents, eventMillis } from './ScheduleUtils'
 import { PersonalScheduleEditor, asCalendarEvent, readPersonalEvents,
   PERSONAL_STORAGE_KEY, type PersonalEvent } from './PersonalSchedule'
 
@@ -138,6 +139,7 @@ export default function App() {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [neighborEvents, setNeighborEvents] = useState<CalendarEvent[]>([])
   const [homeSchoolEvents,setHomeSchoolEvents]=useState<CalendarEvent[]>([])
+  const [homeCalendarLoaded,setHomeCalendarLoaded]=useState(false)
   const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>(readPersonalEvents)
   const [editingSchedule, setEditingSchedule] = useState<{current:PersonalEvent|null;date:string}|null>(null)
   useEffect(()=>{
@@ -256,7 +258,8 @@ export default function App() {
   // whatever historical/future week the user last browsed in the calendar.
   useEffect(()=>{
     if(tab!=='home')return
-    if(!isAndroid||!loggedIn){setHomeSchoolEvents([]);return}
+    if(!isAndroid||!loggedIn){setHomeSchoolEvents([]);setHomeCalendarLoaded(false);return}
+    setHomeCalendarLoaded(false)
     const todayWeek=currentWeekStart()
     const weeks=[todayWeek,dateOffset(todayWeek,7),dateOffset(todayWeek,14)]
     let disposed=false
@@ -272,7 +275,10 @@ export default function App() {
       }catch{return cache?.items||[]}
     }
     void Promise.all(weeks.map(read)).then(groups=>{
-      if(!disposed)setHomeSchoolEvents(groups.flat())
+      if(!disposed){
+        setHomeSchoolEvents(groups.flat().sort(compareEvents))
+        setHomeCalendarLoaded(true)
+      }
     })
     return ()=>{disposed=true}
   },[tab,loggedIn])
@@ -464,45 +470,52 @@ export default function App() {
       const day=shanghaiDate(event.startTime)
       return day>=today&&day<=lastAgendaDate
     })
-    .sort((a,b)=>a.startTime.localeCompare(b.startTime))
+    .sort(compareEvents)
     .filter((event,index,list)=>list.findIndex(other=>other.id===event.id)===index)
   const firstThree=[today,dateOffset(today,1),dateOffset(today,2)]
   const extraAgendaDates=Array.from(new Set(upcomingEvents
     .map(event=>shanghaiDate(event.startTime))
     .filter(day=>day>firstThree[2]))).slice(0,7)
   const agendaDates=[...firstThree,...extraAgendaDates]
-  // The launcher widget receives a small local snapshot whenever the school
-  // calendar, adjacent weeks or offline personal events change. Android later
-  // updates the countdown on its own: no login credentials leave this WebView.
+  // Only publish a complete, current-week snapshot. v0.4.11 sent an empty
+  // array on mount and overwrote previously synchronized data before the first
+  // network response. Preserve Android's last nonempty snapshot while loading.
   useEffect(() => {
     if (!isAndroid || sessionChecking) return
-    const rows = loggedIn
-      ? [...events,...neighborEvents,...homeSchoolEvents,...personalEvents.map(asCalendarEvent)]
-      : personalEvents.map(asCalendarEvent)
-    const seen=new Set<string>()
+    if (loggedIn && !homeCalendarLoaded) return
+    const school=loggedIn?homeSchoolEvents:[]
+    const rows=[...school,...personalEvents.map(asCalendarEvent)].sort(compareEvents)
     const now=Date.now()
-    const tomorrowHorizon=now+22*24*60*60*1000
-    const items=rows
-      .filter(event=>event.type==='course'||event.id.startsWith('personal-'))
-      .filter(event=>scheduleKind(event)==='schedule')
-      .map(event=>({
+    const cutoff=now+21*24*60*60*1000
+    const seen=new Set<string>()
+    const items=rows.map(event=>{
+      const kind=scheduleKind(event)
+      // School timetable and personal timed plans are class/agenda entries;
+      // all Canvas homework and recognized exams are displayed as deadlines.
+      const deadline=kind==='homework'||kind==='exam'
+      const startMs=eventMillis(event)
+      const endMs=deadline ? startMs :
+        Date.parse(event.endTime) || startMs + 45*60*1000
+      return {
         id:event.id,title:event.title.trim(),location:schedulePlace(event),
-        startMs:new Date(event.startTime).getTime(),
-        endMs:new Date(event.endTime).getTime()
-      }))
-      .filter(item=>item.title&&Number.isFinite(item.startMs)&&Number.isFinite(item.endMs)
-        &&item.endMs>item.startMs&&item.startMs>=now-24*60*60*1000
-        &&item.startMs<tomorrowHorizon)
+        startMs,endMs,kind:deadline?'deadline' as const:'course' as const
+      }
+    }).filter(item=>item.title&&Number.isFinite(item.startMs)&&item.startMs<cutoff
+      &&item.startMs>=now-24*60*60*1000
+      &&Number.isFinite(item.endMs)&&(item.kind==='deadline'||item.endMs>item.startMs))
       .filter(item=>{
-        const key=item.id||[item.title,item.startMs].join('|')
+        const key=item.id||[item.title,item.startMs,item.kind].join('|')
         if(seen.has(key))return false
         seen.add(key)
         return true
-      })
+      }).sort((a,b)=>a.startMs-b.startMs)
       .slice(0,300)
-      .map(({title,location,startMs,endMs})=>({title,location,startMs,endMs}))
-    void native.updateTodayWidget({items}).catch(()=>{})
-  },[loggedIn,sessionChecking,events,neighborEvents,homeSchoolEvents,personalEvents])
+      .map(({title,location,startMs,endMs,kind})=>({title,location,startMs,endMs,kind}))
+    // An empty remote response may be a temporary school outage. Do not erase
+    // an otherwise valid widget cache unless the account was logged out.
+    if(loggedIn&&items.length===0)return
+    void native.updateTodayWidget({items,clear:!loggedIn}).catch(()=>{})
+  },[loggedIn,sessionChecking,homeCalendarLoaded,homeSchoolEvents,personalEvents])
 
   const batchActive = tab === 'courses' && loggedIn && !sessionChecking && selection.count > 0
   const tabIndex = nav.findIndex(item => item.id === tab)
