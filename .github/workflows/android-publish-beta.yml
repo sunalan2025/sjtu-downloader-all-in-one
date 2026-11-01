@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41221840405 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41267322471 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.11-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.11-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.12-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.12-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.11-beta
+          TAG=android-v0.4.12-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.11-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.12-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.11-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.12-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.11 Beta" \
-              --notes "Android v0.4.11 Beta: Home statistics (Courses, Downloading, Completed) have been removed entirely; the SJTU Downloader brand header now appears only on Home. Introduces a real native Android home screen widget named SJTU Today Schedule (about 4x3), displaying the current or upcoming class, classroom, countdown until start/end, and the next class. Data comes from already-synced official school calendar and local personal events; no passwords/tokens are saved in the widget. Widget state refreshes when the app syncs, at day rollover and at requested class-change/15-minute reminder boundaries using inexact Android alarms. Battery policies may delay updates: it is not a guaranteed minute-accurate countdown or notification push. Add it by long-pressing the Android home screen and choosing Widgets > SJTU Downloader Beta > SJTU Today Schedule. Compiled, Android manifest widget receiver inspected, APK identity verified by GitHub Actions run 41221840405. No OEM-specific launcher testing yet; public TEST signing only."
+              --title "SJTU Downloader Android v0.4.12 Beta" \
+              --notes "Android v0.4.12 Beta: fixed empty Today Schedule launcher widget caused by an initial empty calendar snapshot and a course-only feed that excluded Canvas assignments. The redesigned native 4x3 widget shows the current/next class, classroom, start/end countdown and a separate Upcoming Deadline section listing the next two homework/exam due times within 14 days. Preserves cached data during asynchronous sign-in and schedule loading; only explicitly cleared on logout. Canvas restricted-calendar fallback now adds permitted per-course assignments asynchronously. Home recent agenda and Day schedule now order mixed classes, homework and exams by real normalized timestamps and color-coded type badges. In Week schedule, timed assignments appear at their true hour instead of the all-day row; untimed tasks remain above. APK, widget receiver and Android compilation verified by GitHub Actions run 41267322471. To fill the widget, open the updated app after login and allow school calendar loading; resize or re-add the widget if it is still the older small size. Background updates use inexact Android alarms, may be delayed by battery policy and do not send notification push alerts. Public test-signed Beta, not a production release."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
