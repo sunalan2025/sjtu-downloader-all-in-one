@@ -363,6 +363,6 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     </div>}
     {examConnected&&<div className="exam-connected-note">
       已连接{examSource||'学校'}考试信息 · 考试安排自动同步
-    </div>
+    </div>}
   </>
 }
