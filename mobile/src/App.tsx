@@ -68,8 +68,18 @@ function DownloadCard({job,onCancel,onOpen}:{
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
-  const [railExpanded,setRailExpanded]=useState(()=>typeof window!=='undefined' &&
-    window.matchMedia('(orientation:landscape) and (min-width:1050px) and (min-height:420px)').matches)
+  const [railExpanded,setRailExpanded]=useState(()=>{
+    try{
+      const saved=window.localStorage.getItem('sjtu-navigation-rail')
+      if(saved==='expanded'||saved==='collapsed')return saved==='expanded'
+    }catch{ /* Private browsing may disable persistent storage. */ }
+    return typeof window!=='undefined' &&
+      window.matchMedia('(orientation:landscape) and (min-width:1000px) and (min-height:420px)').matches
+  })
+  useEffect(()=>{
+    try{window.localStorage.setItem('sjtu-navigation-rail',railExpanded?'expanded':'collapsed')}
+    catch{ /* This preference is optional. */ }
+  },[railExpanded])
   const tabRef = useRef<Tab>('home')
   tabRef.current = tab
   const courseBrowser = useRef<CourseBrowserHandle>(null)
