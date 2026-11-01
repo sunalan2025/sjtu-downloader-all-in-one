@@ -89,6 +89,8 @@ public class SjtuCanvasPlugin extends Plugin {
     private final ExecutorService calendarAuthIo = Executors.newSingleThreadExecutor();
     private final ExecutorService examIo = Executors.newSingleThreadExecutor();
     private final MobileExamService examService = new MobileExamService();
+    private final AtomicBoolean silentExamConnecting = new AtomicBoolean(false);
+    private volatile long lastSilentExamAttempt = 0L;
     private volatile Runnable cancelSilentCalendarSso;
 
     private volatile long calendarVerifiedUntil = 0L;
@@ -898,6 +900,126 @@ public class SjtuCanvasPlugin extends Plugin {
                 call.reject("考试信息获取失败：" + safeError(error));
             }
         });
+    }
+
+
+    /** Reuse an existing school jAccount session in a tiny, temporary WebView.
+     * No credential form is filled or consent button is auto-approved. If
+     * authentication requires interaction, the visible portal action remains.
+     * The worker never blocks Canvas/official course data fetches. */
+    @PluginMethod
+    public void resumeExamSession(PluginCall call) {
+        if (!silentExamConnecting.compareAndSet(false, true)) {
+            JSObject reply = new JSObject();
+            reply.put("connected", false);
+            call.resolve(reply);
+            return;
+        }
+        getActivity().runOnUiThread(() -> {
+            try {
+                vault().restoreOnce();
+                String schoolCookie = CookieManager.getInstance()
+                    .getCookie("https://jaccount.sjtu.edu.cn/");
+                if (schoolCookie == null || schoolCookie.trim().isEmpty() ||
+                    System.currentTimeMillis() - lastSilentExamAttempt < 4 * 60_000L) {
+                    silentExamConnecting.set(false);
+                    JSObject reply = new JSObject();
+                    reply.put("connected", false);
+                    call.resolve(reply);
+                    return;
+                }
+                lastSilentExamAttempt = System.currentTimeMillis();
+                trySilentExamSite(call, 0);
+            } catch (Exception error) {
+                silentExamConnecting.set(false);
+                JSObject reply = new JSObject();
+                reply.put("connected", false);
+                call.resolve(reply);
+            }
+        });
+    }
+
+    private void trySilentExamSite(PluginCall call, int index) {
+        if (index >= 2) {
+            silentExamConnecting.set(false);
+            JSObject reply = new JSObject();
+            reply.put("connected", false);
+            call.resolve(reply);
+            return;
+        }
+        String base = index == 0 ? "https://j.sjtu.edu.cn" : "https://i.sjtu.edu.cn";
+        String url = index == 0 ? base + "/app/ui/index" : base + "/jaccountlogin";
+        Handler handler = new Handler(Looper.getMainLooper());
+        try {
+            FrameLayout host = getActivity().findViewById(android.R.id.content);
+            if (host == null) throw new Exception("WebView host unavailable");
+            WebView browser = new WebView(getActivity());
+            browser.getSettings().setJavaScriptEnabled(true);
+            browser.getSettings().setDomStorageEnabled(true);
+            browser.getSettings().setSupportMultipleWindows(false);
+            CookieManager.getInstance().setAcceptCookie(true);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
+            // Attached to the activity so the Android WebView renderer is
+            // actually scheduled, but 1x1 / transparent and non-interactive.
+            browser.setAlpha(0.01f);
+            browser.setFocusable(false);
+            browser.setClickable(false);
+            host.addView(browser, new FrameLayout.LayoutParams(1, 1));
+            AtomicBoolean finished = new AtomicBoolean(false);
+            Runnable cleanup = () -> {
+                try {
+                    browser.stopLoading();
+                    host.removeView(browser);
+                    browser.destroy();
+                } catch (Exception ignored) { }
+            };
+            final Runnable[] timeout = new Runnable[1];
+            Runnable next = () -> {
+                if (!finished.compareAndSet(false, true)) return;
+                handler.removeCallbacks(timeout[0]);
+                cleanup.run();
+                trySilentExamSite(call, index + 1);
+            };
+            timeout[0] = next;
+            browser.setWebViewClient(new WebViewClient() {
+                @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    return !"https".equalsIgnoreCase(request.getUrl().getScheme());
+                }
+                @Override public void onPageFinished(WebView view, String loaded) {
+                    if (loaded == null || !loaded.startsWith(base + "/")) return;
+                    if (loaded.contains("/login") || loaded.contains("oauth")) return;
+                    handler.postDelayed(() -> {
+                        if (!finished.compareAndSet(false, true)) return;
+                        handler.removeCallbacks(timeout[0]);
+                        cleanup.run();
+                        examIo.execute(() -> {
+                            try {
+                                examService.invalidate();
+                                JSObject exams = examService.fetch(true);
+                                if (exams.optBoolean("connected", false)) {
+                                    silentExamConnecting.set(false);
+                                    JSObject reply = new JSObject();
+                                    reply.put("connected", true);
+                                    reply.put("source", exams.optString("source", ""));
+                                    vault().saveAfterVerification();
+                                    call.resolve(reply);
+                                } else {
+                                    getActivity().runOnUiThread(() ->
+                                        trySilentExamSite(call, index + 1));
+                                }
+                            } catch (Exception error) {
+                                getActivity().runOnUiThread(() ->
+                                    trySilentExamSite(call, index + 1));
+                            }
+                        });
+                    }, 850);
+                }
+            });
+            handler.postDelayed(timeout[0], 9000);
+            browser.loadUrl(url);
+        } catch (Exception error) {
+            trySilentExamSite(call, index + 1);
+        }
     }
 
     /** A user-initiated SSO flow for the separate StudyAtSJTU/registrar portal.
