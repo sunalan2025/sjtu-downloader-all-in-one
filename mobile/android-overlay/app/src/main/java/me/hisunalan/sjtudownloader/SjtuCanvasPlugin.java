@@ -1147,6 +1147,43 @@ public class SjtuCanvasPlugin extends Plugin {
         return result;
     }
 
+    /** Canvas timestamps are often UTC, while the schedule is Asia/Shanghai.
+     * Comparing the raw ISO text with yyyy-MM-dd loses events near midnight,
+     * particularly late-night deadlines on Sunday and 23:59 deadlines.
+     * Normalize to the calendar's actual local day before week filtering. */
+    private static String shanghaiDayFromApi(String value) {
+        if (value == null || value.trim().isEmpty()) return "";
+        String time = value.trim();
+        if (time.matches("20[0-9]{2}-[0-9]{2}-[0-9]{2}")) return time;
+        String[] formats = {
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mmXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+            "yyyy-MM-dd'T'HH:mm:ssX",
+            "yyyy-MM-dd'T'HH:mmX",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm"
+        };
+        for (String pattern : formats) {
+            try {
+                java.text.SimpleDateFormat parser =
+                    new java.text.SimpleDateFormat(pattern,Locale.ROOT);
+                parser.setLenient(false);
+                parser.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+                java.text.ParsePosition position = new java.text.ParsePosition(0);
+                java.util.Date parsed = parser.parse(time,position);
+                if(parsed==null || position.getIndex()!=time.length())continue;
+                java.text.SimpleDateFormat local =
+                    new java.text.SimpleDateFormat("yyyy-MM-dd",Locale.ROOT);
+                local.setTimeZone(TimeZone.getTimeZone("Asia/Shanghai"));
+                return local.format(parsed);
+            } catch(Exception ignored) { }
+        }
+        return time.length()>=10 ? time.substring(0,10) : "";
+    }
+
     private static void addCanvasEvent(java.util.Map<String,JSObject> output,
                                         JSONObject item,String type,String courseName) {
         JSONObject assignment=item.optJSONObject("assignment");
@@ -1230,7 +1267,8 @@ public class SjtuCanvasPlugin extends Plugin {
                             JSONObject assignment=item.optJSONObject("assignment");
                             String dt=item.optString("start_at",item.optString("due_at",""));
                             if(dt.isEmpty()&&assignment!=null)dt=assignment.optString("due_at","");
-                            if(dt.compareTo(begin)<0 || dt.compareTo(end)>=0)continue;
+                            String localDate=shanghaiDayFromApi(dt);
+                            if(localDate.compareTo(begin)<0 || localDate.compareTo(end)>=0)continue;
                             addCanvasEvent(canvasItems,item,assignment==null?"event":"assignment","");
                         }
                     }catch(Exception ignored){}
@@ -1251,7 +1289,10 @@ public class SjtuCanvasPlugin extends Plugin {
                 result.put("items",combined);
                 result.put("officialConnected",officialOk);
                 result.put("authRequired",false);
-                result.put("needsSupplement",calendarDenied && !ids.isEmpty());
+                // Canvas calendar_events may omit due_at even with HTTP 200.
+                // Supplement via each authorized course's assignments endpoint
+                // in the background, including when the calendar API succeeded.
+                result.put("needsSupplement",!ids.isEmpty());
                 if(!officialOk && !calendarDenied)result.put("warning","正式课表未授权，可连接交大课表。");
                 if(calendarDenied)result.put("warning","部分 Canvas 日历受限，正在补充课程作业。");
                 call.resolve(result);
@@ -1283,7 +1324,8 @@ public class SjtuCanvasPlugin extends Plugin {
                                 JSONObject a=raw.optJSONObject(i);
                                 if(a==null)continue;
                                 String due=a.optString("due_at","");
-                                if(due.compareTo(begin)<0 || due.compareTo(end)>=0)continue;
+                                String localDue=shanghaiDayFromApi(due);
+                                if(localDue.compareTo(begin)<0 || localDue.compareTo(end)>=0)continue;
                                 JSObject entry=new JSObject();
                                 entry.put("id","assignment:"+id+":"+a.optString("id",String.valueOf(i)));
                                 entry.put("title",a.optString("name","作业截止"));
