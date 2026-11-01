@@ -1,4 +1,4 @@
-# SJTU Downloader for Android — v0.4.12 Beta
+# SJTU Downloader for Android — v0.4.13 Beta
 
 独立 Android 测试应用。代码位于 `feature/android-mvp`，不修改桌面版主线。
 
@@ -132,3 +132,12 @@ Android 工程和 native overlay 由 `android:prepare` 自动处理。也可进�
 - **真正时间排序**：统一解析学校时区时间、UTC 截止时间、纯日期值；日课表成为按时刻排序的单列表，用日程/作业/考试彩色标签区分，主页近期安排也按时间排序。纯日期作业按当日结束排序。
 - **更新限制**：课前 15 分钟与 Deadline 时间使用 Android 非精确闹钟更新，省电策略可能延迟，并非通知栏推送。
 - **安装后**：打开应用同步一次课表；如旧小组件大小不足，请调整到约 4×3 或重新添加。
+
+## v0.4.13 · OEM 桌面组件空白排查与适配
+
+- **桌面布局修复**：Android RemoteViews 只支持有限的 View 类。旧小组件使用普通 `<View>` 标签作为分隔线，部分 OEM 启动器会拒绝绘制。已改为 RemoteViews 支持的 TextView 分隔线，并提供 TextView-only 备用布局。
+- **可观察状态**：首页「桌面课表小组件 → 检查状态」显示系统已添加组件的数量、本地课程/Deadline 缓存条数、缓存最近更新时间、Android 成功提交绘制的实例数量和原生提交异常，避免“空白但没有诊断”。
+- **自动与手动更新**：仍使用 Android AppWidgetManager 和应用私有 SharedPreferences，不需要存储访问权限。新增手动「重新绘制组件」和通用 Android「后台耗电设置 / 应用权限设置」入口；OEM 原生自启动权限由用户自行决定，软件无法静默授予。
+- **国产系统适配**：依系统返回的 manufacturer 给出 vivo/iQOO OriginOS、Xiaomi/Redmi HyperOS、OPPO/realme/OnePlus、Huawei/Honor 的背景自启/耗电管理提示。没有硬编码 OEM 私有 Settings Activity；不申请直接取消电池优化的特殊权限。
+- **及时显示课程**：首页当前周同步完即推送小组件，而不再等待未来两周全部网络请求完成；未来周/Canvas 作业继续增量合并。若学校授权失败，状态面板能确认缓存为空。
+- **更新限制**：后台自动刷新仍受 Doze/OEM 电池限制，但前台主动同步后应立刻提交 RemoteViews。若状态显示“已缓存且已提交”，桌面仍白屏，问题通常位于第三方启动器或厂商桌面绘制链路，需真机日志核实。
