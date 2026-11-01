@@ -274,7 +274,7 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
             try {
                 RemoteViews view = new RemoteViews(context.getPackageName(),
                     R.layout.today_schedule_widget);
-                view.setTextViewText(R.id.widget_date, format(start,"M月d日 E"));
+                view.setTextViewText(R.id.widget_date, format(start,"M/d E"));
                 String badge = offset == 0 ? "今日 " + classes.size() + " 节课" :
                     offset > 0 ? "未来 · " + classes.size() + " 节课" :
                     "已过去 · " + classes.size() + " 节课";

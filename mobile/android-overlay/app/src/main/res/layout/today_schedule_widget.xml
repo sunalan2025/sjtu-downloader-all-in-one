@@ -15,7 +15,7 @@
         android:layout_height="wrap_content" android:orientation="horizontal"
         android:gravity="center_vertical" android:layout_marginTop="9dp">
         <TextView android:id="@+id/widget_prev"
-            android:layout_width="27dp" android:layout_height="34dp"
+            android:layout_width="22dp" android:layout_height="34dp"
             android:gravity="center" android:text="‹"
             android:textColor="#356CA5" android:textSize="26sp"
             android:contentDescription="查看前一天"/>
@@ -23,11 +23,11 @@
             android:layout_width="0dp" android:layout_weight="1"
             android:layout_height="wrap_content" android:gravity="center"
             android:singleLine="true" android:ellipsize="end"
-            android:text="11月1日 周日"
+            android:text="11/1 周日"
             android:textColor="#264C76" android:textStyle="bold"
             android:textSize="12sp"/>
         <TextView android:id="@+id/widget_next"
-            android:layout_width="27dp" android:layout_height="34dp"
+            android:layout_width="22dp" android:layout_height="34dp"
             android:gravity="center" android:text="›"
             android:textColor="#356CA5" android:textSize="26sp"
             android:contentDescription="查看后一天"/>
