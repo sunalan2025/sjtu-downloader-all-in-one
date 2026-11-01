@@ -181,7 +181,11 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   const WEEK_HOUR_PX=54
   // 23:59 deadlines must remain inside the lane through 24:00, never
   // clamped to the 23:00 boundary as in the old tablet/week layout.
-  const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX
+  // Reserve a full card-height below the 24:00 tick. A deadline at
+  // 23:59 otherwise gets clipped to a one-pixel strip even when the axis
+  // includes midnight; keep its time label and title fully tappable.
+  const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX+
+    (weekLastHour===24?WEEK_HOUR_PX:0)
   const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
   const dayEvents=eventMap.get(selected)||[]
   const shift=(offset:number)=>{
