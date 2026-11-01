@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41269921100 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41270695507 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.13-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.13-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.14-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.14-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.13-beta
+          TAG=android-v0.4.14-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.13-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.14-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.13-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.14-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.13 Beta" \
-              --notes "Android v0.4.13 Beta: fixed OEM/OriginOS/HyperOS launcher widgets that showed no text by removing an unsupported android.view.View divider from the RemoteViews layout (now uses the supported TextView class). Includes a minimal supported-layout fallback, diagnostics for widget instance count, cached classes/deadlines, last sync and render attempt, and an optional Home widget status panel. A manual Repaint Widget action and Android App/Battery Settings links help users diagnose vendor background restrictions, with per-brand instructions for Vivo/iQOO, Xiaomi/Redmi, OPPO/realme/OnePlus and Huawei/Honor. No unrelated media/storage permissions or automatic battery bypass. The current-week classes now publish immediately as soon as their own request finishes, without waiting for future weeks. Built and APK validated by GitHub Actions run 41269921100. Vendor-specific launcher rendering still needs testing on a physical OEM device; status reports update attempts rather than confirmation of pixels. Public TEST-SIGNED beta only."
+              --title "SJTU Downloader Android v0.4.14 Beta" \
+              --notes "Android v0.4.14 Beta: mobile calendar now includes genuine, individually authenticated SJTU examination information like the desktop client. Native HTTPS integration queries j.sjtu.edu.cn/app/stu/exam/semester/list (semester from school/calendar/info) and falls back to the registrar i.sjtu.edu.cn/kwgl/kscx_cxXsksxxIndex.html exam listing when available. Official exam events include subject, exam type, China Standard Time, exam-room location and distinct purple exam styling in the centered weekly timetable and chronological day timeline. Exams also appear in Home Recent Agenda and the 14-day widget Deadline feed. When the exam portals require their own SSO session, the Calendar page provides separate Connect Exam options for StudyAtSJTU and registrar, using an in-app WebView with jAccount popup support; lack of authorization is not misreported as no exams. Exam fetching uses a separate executor and 5-minute cache, without blocking school timetable loads. JavaScript typecheck, Android APK build and APK identity checks passed in GitHub Actions run 41270695507. Real exam-data/login verification still needs a university account and physical-device testing. This is a publicly TEST-SIGNED beta only."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
