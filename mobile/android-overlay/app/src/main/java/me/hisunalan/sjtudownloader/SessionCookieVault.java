@@ -20,13 +20,14 @@ import javax.crypto.spec.GCMParameterSpec;
 /**
  * Encrypted recovery of *verified* SJTU session cookies between Android process restarts.
  *
- * Never stores jAccount passwords. Limit recovery to the two application services
+ * Never stores jAccount passwords. Limit recovery to the explicitly verified SJTU services
  * and session-identity cookies; other WebView cookies use the standard persistent jar.
  * Backend token validity still controls access.
  */
 final class SessionCookieVault {
     private static final String[] HOSTS = {
-        "oc.sjtu.edu.cn", "calendar.sjtu.edu.cn"
+        "oc.sjtu.edu.cn", "calendar.sjtu.edu.cn",
+        "j.sjtu.edu.cn", "i.sjtu.edu.cn"
     };
     private static final String PREF_FILE = "sjtu_android_session_v1";
     private static final String PREF_VALUE = "sealed_session";

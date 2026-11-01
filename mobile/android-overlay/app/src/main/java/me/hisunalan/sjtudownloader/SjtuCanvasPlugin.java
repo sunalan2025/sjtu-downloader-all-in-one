@@ -87,6 +87,8 @@ public class SjtuCanvasPlugin extends Plugin {
 
     private final AtomicBoolean calendarSsoInFlight = new AtomicBoolean(false);
     private final ExecutorService calendarAuthIo = Executors.newSingleThreadExecutor();
+    private final ExecutorService examIo = Executors.newSingleThreadExecutor();
+    private final MobileExamService examService = new MobileExamService();
     private volatile Runnable cancelSilentCalendarSso;
 
     private volatile long calendarVerifiedUntil = 0L;
@@ -877,6 +879,130 @@ public class SjtuCanvasPlugin extends Plugin {
         } finally {
             if (connection != null) connection.disconnect();
         }
+    }
+
+    /**
+     * Mirrors desktop exam-service.ts. Exam auth is independent of Canvas and
+     * official calendar SSO: failed auth is NOT interpreted as zero exams.
+     */
+    @PluginMethod
+    public void exams(PluginCall call) {
+        boolean force = Boolean.TRUE.equals(call.getBoolean("force", false));
+        examIo.execute(() -> {
+            try {
+                vault().restoreOnce();
+                JSObject result = examService.fetch(force);
+                if (result.getBool("connected")) vault().saveAfterVerification();
+                call.resolve(result);
+            } catch (Exception error) {
+                call.reject("考试信息获取失败：" + safeError(error));
+            }
+        });
+    }
+
+    /** A user-initiated SSO flow for the separate StudyAtSJTU/registrar portal.
+     * It uses the same Android WebView CookieManager as the native exam API.
+     * No jAccount credentials are collected or stored by this plugin.
+     */
+    @PluginMethod
+    public void openExamPortal(PluginCall call) {
+        String source = call.getString("source", "study");
+        boolean registrar = "jiaowu".equals(source);
+        String base = registrar ? "https://i.sjtu.edu.cn" : "https://j.sjtu.edu.cn";
+        String url = registrar ? base + "/jaccountlogin" : base + "/app/ui/index";
+        getActivity().runOnUiThread(() -> {
+            Dialog dialog = new Dialog(getActivity(), R.style.SJTUGlassDialog);
+            LinearLayout panel = new LinearLayout(getActivity());
+            panel.setOrientation(LinearLayout.VERTICAL);
+            panel.setBackgroundResource(R.drawable.sjtu_glass_native_surface);
+            LinearLayout toolbar = new LinearLayout(getActivity());
+            toolbar.setGravity(Gravity.CENTER_VERTICAL);
+            TextView title = new TextView(getActivity());
+            title.setText(registrar ? "教务考试安排" : "学在交大考试");
+            title.setPadding(dp(12),0,0,0);
+            toolbar.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
+            TextView done = glassAction("完成连接",true);
+            toolbar.addView(done);
+            TextView close = glassAction("×", false);
+            toolbar.addView(close);
+            panel.addView(toolbar);
+            WebView browser = new WebView(getActivity());
+            browser.getSettings().setJavaScriptEnabled(true);
+            browser.getSettings().setDomStorageEnabled(true);
+            browser.getSettings().setSupportMultipleWindows(true);
+            CookieManager.getInstance().setAcceptCookie(true);
+            CookieManager.getInstance().setAcceptThirdPartyCookies(browser, true);
+            panel.addView(browser, new LinearLayout.LayoutParams(-1,0,1));
+            AtomicBoolean finished = new AtomicBoolean(false);
+            AtomicBoolean verifying = new AtomicBoolean(false);
+            Handler handler = new Handler(Looper.getMainLooper());
+            Runnable verify = () -> {
+                if (finished.get() || !dialog.isShowing()) return;
+                if (!verifying.compareAndSet(false,true)) return;
+                examIo.execute(() -> {
+                    boolean good = false;
+                    try {
+                        examService.invalidate();
+                        JSObject data = examService.fetch(true);
+                        good = data.getBool("connected");
+                        if (good) vault().saveAfterVerification();
+                    } catch (Exception ignored) {}
+                    final boolean ok = good;
+                    handler.post(() -> {
+                        verifying.set(false);
+                        if (!dialog.isShowing() || finished.get()) return;
+                        if (ok) {
+                            if (finished.compareAndSet(false,true)) {
+                                JSObject result = new JSObject();
+                                result.put("ok",true);
+                                call.resolve(result);
+                            }
+                            dialog.dismiss();
+                        } else {
+                            Toast.makeText(getContext(),
+                                "考试服务尚未完成授权，请在页面中登录后重试",
+                                Toast.LENGTH_LONG).show();
+                        }
+                    });
+                });
+            };
+            browser.setWebViewClient(new WebViewClient() {
+                @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    if ("https".equalsIgnoreCase(request.getUrl().getScheme())) return false;
+                    if (shouldLaunchLoginApp(request.getUrl(),view.getUrl(),request.hasGesture()))
+                        openLoginAppLink(request.getUrl(), browser);
+                    return true;
+                }
+                @Override public void onPageFinished(WebView view,String loaded) {
+                    if (isOfficialJaccountPage(loaded)) activateMobileMode(view);
+                    else if (loaded != null && loaded.startsWith(base + "/")) {
+                        handler.postDelayed(verify,500);
+                    }
+                }
+            });
+            done.setOnClickListener(view -> verify.run());
+            close.setOnClickListener(view -> dialog.dismiss());
+            dialog.setContentView(panel);
+            ViewCompat.setOnApplyWindowInsetsListener(panel, (view,insets) -> {
+                Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() |
+                    WindowInsetsCompat.Type.displayCutout());
+                view.setPadding(bars.left,bars.top,bars.right,bars.bottom);
+                return insets;
+            });
+            dialog.setOnDismissListener(ignored -> {
+                browser.stopLoading();
+                browser.destroy();
+                if (finished.compareAndSet(false,true)) {
+                    JSObject result = new JSObject();
+                    result.put("ok",false);
+                    call.resolve(result);
+                }
+            });
+            dialog.show();
+            Window window = dialog.getWindow();
+            if (window != null) window.setLayout(-1,-1);
+            browser.loadUrl(url);
+        });
     }
 
     /** Native equivalent of desktop schedule-fetcher.ts, with separate official SSO cookies. */
@@ -1674,6 +1800,7 @@ public class SjtuCanvasPlugin extends Plugin {
     public void logout(PluginCall call) {
         courseContextExpiresAt=0L;
         courseContextCache=new java.util.ArrayList<>();
+        examService.invalidate();
 
         io.execute(() -> {
             vault().clearSavedSession();
