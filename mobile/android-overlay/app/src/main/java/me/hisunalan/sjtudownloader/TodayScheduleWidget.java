@@ -22,42 +22,48 @@ import java.util.Locale;
 import java.util.TimeZone;
 
 /**
- * A real Android launcher widget. It works from locally cached, explicitly
- * synchronized course times (not a background login) and never stores tokens.
- * Android may defer inexact updates while sleeping; no exact-alarm permission.
+ * Native Android home widget with two independent feeds: today classes and
+ * upcoming deadlines. The app periodically sends a local-only snapshot; the
+ * widget does not request credentials or contact school servers by itself.
  */
 public final class TodayScheduleWidget extends AppWidgetProvider {
     private static final String PREFS = "sjtu-today-widget-v1";
     private static final String EVENTS = "events";
+    private static final String UPDATED = "updated";
     private static final String ACTION_REFRESH =
         "me.hisunalan.sjtudownloader.WIDGET_REFRESH";
     private static final TimeZone ZONE = TimeZone.getTimeZone("Asia/Shanghai");
+    private static final long MINUTE = 60_000L;
+    private static final long DAY = 24L * 60L * MINUTE;
+    private static final long DEADLINE_HORIZON = 14 * DAY;
 
     private static final class Item {
         final long start;
         final long end;
         final String title;
         final String place;
-        Item(long start, long end, String title, String place) {
+        final boolean deadline;
+        Item(long start, long end, String title, String place, boolean deadline) {
             this.start = start;
             this.end = end;
             this.title = title;
             this.place = place;
+            this.deadline = deadline;
         }
     }
 
-    /** Called when app calendars or custom events change. Safe without widgets. */
-    public static void persist(Context context, JSONArray incoming) {
+    /** Do not replace a valid saved school timetable with a transient empty
+     * React render while the asynchronous session/calendar is still loading. */
+    public static void persist(Context context, JSONArray incoming, boolean clear) {
         JSONArray safe = new JSONArray();
-        int limit = Math.min(incoming.length(), 300);
+        int limit = Math.min(incoming.length(), 350);
         for (int i = 0; i < limit; i++) {
             JSONObject event = incoming.optJSONObject(i);
             if (event == null) continue;
             long start = event.optLong("startMs", 0);
             long end = event.optLong("endMs", 0);
             String title = event.optString("title", "").trim();
-            if (start <= 0 || end <= start || title.isEmpty()) continue;
-            // Store only non-sensitive display data and small bounded strings.
+            if (start <= 0 || end < start || title.isEmpty()) continue;
             JSONObject clean = new JSONObject();
             try {
                 clean.put("startMs", start);
@@ -65,11 +71,16 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 clean.put("title", title.substring(0, Math.min(title.length(), 100)));
                 String place = event.optString("location", "");
                 clean.put("location", place.substring(0, Math.min(place.length(), 85)));
+                clean.put("kind", "deadline".equals(event.optString("kind", "")) ?
+                    "deadline" : "course");
                 safe.put(clean);
             } catch (Exception ignored) {}
         }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(EVENTS, safe.toString()).apply();
+        if (safe.length() > 0 || clear) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(EVENTS, safe.toString())
+                .putLong(UPDATED, System.currentTimeMillis()).apply();
+        }
         refresh(context);
     }
 
@@ -106,8 +117,8 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         }
     }
 
-    private static ArrayList<Item> loadToday(Context context, long todayStart, long tomorrowStart) {
-        ArrayList<Item> result = new ArrayList<>();
+    private static ArrayList<Item> load(Context context) {
+        ArrayList<Item> events = new ArrayList<>();
         SharedPreferences preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         try {
             JSONArray saved = new JSONArray(preferences.getString(EVENTS, "[]"));
@@ -116,33 +127,36 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 if (event == null) continue;
                 long start = event.optLong("startMs", 0L);
                 long end = event.optLong("endMs", 0L);
-                if (start < todayStart || start >= tomorrowStart || end <= start) continue;
                 String title = event.optString("title", "").trim();
-                if (title.isEmpty()) continue;
-                result.add(new Item(start, end, title, event.optString("location", "").trim()));
+                if (start <= 0 || end < start || title.isEmpty()) continue;
+                events.add(new Item(start, end, title,
+                    event.optString("location", "").trim(),
+                    "deadline".equals(event.optString("kind", "course"))));
             }
         } catch (Exception ignored) {}
-        result.sort(Comparator.comparingLong(item -> item.start));
-        return result;
+        events.sort(Comparator.comparingLong(item -> item.start));
+        return events;
     }
 
-    private static String clock(long value) {
-        SimpleDateFormat format = new SimpleDateFormat("HH:mm", Locale.CHINA);
-        format.setTimeZone(ZONE);
-        return format.format(new Date(value));
+    private static String format(long value, String pattern) {
+        SimpleDateFormat formatter = new SimpleDateFormat(pattern, Locale.CHINA);
+        formatter.setTimeZone(ZONE);
+        return formatter.format(new Date(value));
     }
 
-    private static String day(long now) {
-        SimpleDateFormat format = new SimpleDateFormat("M月d日 E", Locale.CHINA);
-        format.setTimeZone(ZONE);
-        return format.format(new Date(now));
+    private static String remaining(long millis) {
+        long minutes = Math.max(1L, (millis + MINUTE - 1L) / MINUTE);
+        if (minutes >= 60L) {
+            return (minutes / 60L) + "小时" +
+                (minutes % 60L == 0 ? "" : (minutes % 60L) + "分");
+        }
+        return minutes + "分钟";
     }
 
-    private static String remaining(long timeMillis) {
-        long minutes = Math.max(1L, (timeMillis + 59_999L) / 60_000L);
-        return minutes >= 60L
-            ? (minutes / 60L) + "小时" + (minutes % 60L == 0 ? "" : (minutes % 60L) + "分")
-            : minutes + "分钟";
+    private static String deadlineDescription(Item item, long midnight, long tomorrow) {
+        String prefix = item.start < tomorrow ? "今天" :
+            item.start < tomorrow + DAY ? "明天" : format(item.start, "M/d");
+        return prefix + " " + format(item.start, "HH:mm") + "  ·  " + item.title;
     }
 
     private static PendingIntent refreshIntent(Context context) {
@@ -162,8 +176,8 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         if (alarms == null) return;
         PendingIntent pending = refreshIntent(context);
         alarms.cancel(pending);
-        // Inexact while-idle alarms need no special exact-alarm permission and
-        // are allowed to run after the app is swiped away, but can be delayed.
+        // Android 12+ restricts exact alarms; approximate countdowns use a
+        // normal while-idle alarm and may be delayed by battery-saving policy.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pending);
         } else {
@@ -173,25 +187,37 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
 
     private static void render(Context context, AppWidgetManager manager, int[] ids) {
         long now = System.currentTimeMillis();
-        Calendar clock = Calendar.getInstance(ZONE);
-        clock.setTimeInMillis(now);
-        clock.set(Calendar.HOUR_OF_DAY, 0);
-        clock.set(Calendar.MINUTE, 0);
-        clock.set(Calendar.SECOND, 0);
-        clock.set(Calendar.MILLISECOND, 0);
-        long midnight = clock.getTimeInMillis();
-        clock.add(Calendar.DAY_OF_YEAR, 1);
-        long tomorrow = clock.getTimeInMillis();
+        Calendar dayClock = Calendar.getInstance(ZONE);
+        dayClock.setTimeInMillis(now);
+        dayClock.set(Calendar.HOUR_OF_DAY, 0);
+        dayClock.set(Calendar.MINUTE, 0);
+        dayClock.set(Calendar.SECOND, 0);
+        dayClock.set(Calendar.MILLISECOND, 0);
+        long midnight = dayClock.getTimeInMillis();
+        dayClock.add(Calendar.DAY_OF_YEAR, 1);
+        long tomorrow = dayClock.getTimeInMillis();
 
-        ArrayList<Item> events = loadToday(context, midnight, tomorrow);
+        ArrayList<Item> saved = load(context);
+        ArrayList<Item> classes = new ArrayList<>();
+        ArrayList<Item> deadlines = new ArrayList<>();
+        for (Item item : saved) {
+            if (item.deadline) {
+                if (item.start >= now && item.start <= now + DEADLINE_HORIZON) {
+                    deadlines.add(item);
+                }
+            } else if (item.start >= midnight && item.start < tomorrow) {
+                classes.add(item);
+            }
+        }
+        // load() sorted all events chronologically; retain that order in each
+        // independent feed rather than mixing deadlines into class slots.
         Item current = null;
         Item next = null;
         int completed = 0;
-        for (Item item : events) {
+        for (Item item : classes) {
             if (item.end <= now) {
                 completed++;
             } else if (item.start <= now) {
-                // Prefer the course with the closest start in rare overlaps.
                 if (current == null || item.start > current.start) current = item;
             } else if (next == null) {
                 next = item;
@@ -201,29 +227,37 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         String badge;
         String title;
         String detail;
-        String footer;
+        String nextLine;
         if (current != null) {
-            badge = "● 正在上课  ·  距下课 " + remaining(current.end - now);
+            badge = "● 正在上课 · 距下课 " + remaining(current.end - now);
             title = current.title;
-            detail = clock(current.start) + "–" + clock(current.end) +
+            detail = format(current.start, "HH:mm") + "–" + format(current.end, "HH:mm") +
                 (current.place.isEmpty() ? "" : "  ·  " + current.place);
-            footer = next != null ? "下一节  " + clock(next.start) + "  " + next.title
-                : "今天最后一节  ·  专注当下";
+            nextLine = next == null ? "今天最后一节 · 专注当下" :
+                "下一节 " + format(next.start, "HH:mm") + "  " + next.title;
         } else if (next != null) {
-            badge = next.start - now <= 15L * 60_000L
-                ? "● 即将上课  ·  还有 " + remaining(next.start - now)
-                : "下一节课  ·  " + clock(next.start);
+            badge = next.start - now <= 15L * MINUTE
+                ? "● 即将上课 · 还有 " + remaining(next.start - now)
+                : "下一节课 · " + format(next.start, "HH:mm");
             title = next.title;
-            detail = clock(next.start) + "–" + clock(next.end) +
+            detail = format(next.start, "HH:mm") + "–" + format(next.end, "HH:mm") +
                 (next.place.isEmpty() ? "" : "  ·  " + next.place);
-            footer = "今日 " + events.size() + " 节  ·  已完成 " + completed + " 节";
+            nextLine = "今日 " + classes.size() + " 节 · 已完成 " + completed + " 节";
         } else {
-            badge = events.isEmpty() ? "尚未同步今日课程" : "✓ 今天的课程已结束";
-            title = events.isEmpty() ? "今天暂无课程" : "课程已完成";
-            detail = events.isEmpty() ? "打开应用同步课表" : "今天辛苦啦";
-            footer = events.isEmpty() ? "点击卡片进入 SJTU Downloader"
-                : "共 " + events.size() + " 节课程  ·  明天见";
+            badge = saved.isEmpty() ? "打开应用同步课表" :
+                classes.isEmpty() ? "今日暂无课程" : "✓ 今天的课程已结束";
+            title = classes.isEmpty() ? "今天没有安排课程" : "今日课程已完成";
+            detail = classes.isEmpty() ? "点击组件打开应用获取最新课表" : "好好休息，准备下一程";
+            nextLine = classes.isEmpty() ? "同步后自动显示当前与下一节课" :
+                "今天共 " + classes.size() + " 节课";
         }
+
+        String deadlineLabel = "近期 DEADLINE  ·  " + deadlines.size() + " 项";
+        String firstDeadline = deadlines.size() > 0
+            ? deadlineDescription(deadlines.get(0), midnight, tomorrow)
+            : "近期暂无待截止作业";
+        String secondDeadline = deadlines.size() > 1
+            ? deadlineDescription(deadlines.get(1), midnight, tomorrow) : "";
 
         Intent open = new Intent(context, MainActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -231,28 +265,36 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         for (int id : ids) {
             RemoteViews view = new RemoteViews(context.getPackageName(), R.layout.today_schedule_widget);
-            view.setTextViewText(R.id.widget_date, day(now));
+            view.setTextViewText(R.id.widget_date, format(now, "M月d日 E"));
             view.setTextViewText(R.id.widget_badge, badge);
             view.setTextViewText(R.id.widget_title, title);
             view.setTextViewText(R.id.widget_detail, detail);
-            view.setTextViewText(R.id.widget_footer, footer);
+            view.setTextViewText(R.id.widget_next, nextLine);
+            view.setTextViewText(R.id.widget_deadline_label, deadlineLabel);
+            view.setTextViewText(R.id.widget_deadline_one, firstDeadline);
+            view.setTextViewText(R.id.widget_deadline_two, secondDeadline);
+            view.setViewVisibility(R.id.widget_deadline_two, secondDeadline.isEmpty() ?
+                android.view.View.GONE : android.view.View.VISIBLE);
             view.setOnClickPendingIntent(R.id.widget_root, openApp);
             manager.updateAppWidget(id, view);
         }
 
-        // Midnight changes the selected day. Further updates are scheduled at
-        // the class 15-minute reminder boundary, start and end, plus lightweight
-        // countdown refreshes. OEM power management may delay delivery.
-        long upcoming = tomorrow + 60_000L;
-        for (Item item : events) {
-            long[] moments = { item.start - 15L * 60_000L, item.start, item.end };
+        long upcoming = tomorrow + MINUTE;
+        for (Item item : classes) {
+            long[] moments = {item.start - 15L * MINUTE, item.start, item.end};
             for (long moment : moments) {
-                if (moment > now + 60_000L) upcoming = Math.min(upcoming, moment);
+                if (moment > now + MINUTE) upcoming = Math.min(upcoming, moment);
             }
         }
-        if (current != null || (next != null && next.start - now < 45L * 60_000L)) {
-            upcoming = Math.min(upcoming, now + 10L * 60_000L);
+        for (Item item : deadlines) {
+            long[] moments = {item.start - DAY, item.start - 3L * 60L * MINUTE, item.start};
+            for (long moment : moments) {
+                if (moment > now + MINUTE) upcoming = Math.min(upcoming, moment);
+            }
         }
-        scheduleRefresh(context, Math.max(now + 60_000L, upcoming));
+        if (current != null || (next != null && next.start - now < 45L * MINUTE)) {
+            upcoming = Math.min(upcoming, now + 10L * MINUTE);
+        }
+        scheduleRefresh(context, Math.max(now + MINUTE, upcoming));
     }
 }
