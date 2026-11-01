@@ -67,7 +67,7 @@ function placeClasses(events:CalendarEvent[]): Placed[] {
   return placed
 }
 export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOfficial,officialConnected,
-  onAddSchedule,onEditSchedule}:{
+  onAddSchedule,onEditSchedule,onExamConnect,onExamFallback,examConnected,examChecking,examWarning,examSource}:{
   month:string
   onMonthChange:(month:string)=>void
   onWeekChange:(weekStart:string)=>void
@@ -75,6 +75,12 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   busy:boolean
   onOfficial:()=>void
   officialConnected?:boolean
+  examConnected:boolean
+  examChecking:boolean
+  examWarning?:string
+  examSource?:string
+  onExamConnect:()=>void
+  onExamFallback:()=>void
   onAddSchedule:(date:string)=>void
   onEditSchedule:(id:string)=>void
 }) {
@@ -295,7 +301,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                     aria-label={timeText(event.startTime)+' '+event.title}>
                     <span>{event.type==='assignment'?'截止 ':''}{timeText(event.startTime)}</span>
                     <strong>{event.title}</strong>
-                    {event.type==='course'&&schedulePlace(event)&&
+                    {(event.type==='course'||event.type==='exam')&&schedulePlace(event)&&
                       <small className="week-classroom" title={schedulePlace(event)}>
                         {schedulePlace(event)}
                       </small>}
@@ -324,7 +330,9 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                   <small>{timeText(event.endTime)}</small>}
               </div>
               <div className="day-item-copy">
-                <span className={'day-kind-pill day-kind-'+kind}>{scheduleLabel(kind)}</span>
+                <span className={'day-kind-pill day-kind-'+kind}>
+                  {event.type==='exam'&&event.examType?event.examType:scheduleLabel(kind)}
+                </span>
                 <strong>{event.title}</strong>
                 {schedulePlace(event)&&
                   <span className="day-item-place">教室 · {schedulePlace(event)}</span>}
@@ -343,5 +351,18 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
       <Icon name="school" size={18}/><span>连接正式课表</span><Icon name="right" size={16}/>
     </button>}
+    {!examConnected&&<div className="exam-connect-panel glass">
+      <div className="exam-connect-copy">
+        <strong>{examChecking?'正在读取学校考试安排…':'连接考试信息'}</strong>
+        <span>{examWarning||'从学在交大同步正式考试时间、类型与考场'}</span>
+      </div>
+      <div className="exam-connect-actions">
+        <button type="button" disabled={examChecking} onClick={onExamConnect}>学在交大</button>
+        <button type="button" disabled={examChecking} onClick={onExamFallback}>教务备用</button>
+      </div>
+    </div>}
+    {examConnected&&<div className="exam-connected-note">
+      已连接{examSource||'学校'}考试信息 · 考试安排自动同步
+    </div>
   </>
 }

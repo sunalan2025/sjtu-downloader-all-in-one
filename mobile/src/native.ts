@@ -22,7 +22,8 @@ export type CalendarEvent = {
   endTime: string
   courseName: string
   location?: string
-  type: 'assignment' | 'event' | 'course'
+  examType?: string
+  type: 'assignment' | 'event' | 'course' | 'exam'
 }
 
 export type WidgetStatus = {
@@ -55,6 +56,10 @@ type NativeCanvasApi = {
   calendarWeek(options: { weekStart: string }): Promise<{ items: CalendarEvent[]; warning?: string; authRequired?: boolean; officialConnected?: boolean; needsSupplement: boolean }>
   calendarWeekSupplement(options: { weekStart: string }): Promise<{ items: CalendarEvent[] }>
   openOfficialCalendar(): Promise<{ ok: boolean }>
+  exams(options?: { force?: boolean }): Promise<{
+    items: CalendarEvent[]; connected: boolean; source?: string; warning?: string
+  }>
+  openExamPortal(options: { source: 'study' | 'jiaowu' }): Promise<{ ok: boolean }>
   diagnoseAuth(): Promise<{ savedSessionEncrypted: boolean; canvasCookie: boolean; jaccountCookie: boolean; officialCalendarCookie: boolean; canvasProfile: string; canvasCalendar: string; canvasCourses: string; officialCalendar: string }>
   status(): Promise<{ loggedIn: boolean; name?: string; savedSessionEncrypted?: boolean }>
   courses(): Promise<{ items: CanvasCourse[] }>

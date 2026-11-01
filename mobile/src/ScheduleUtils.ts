@@ -6,7 +6,7 @@ import type { CalendarEvent } from './native'
 export type ScheduleKind='schedule'|'homework'|'exam'
 const EXAM_WORDS=/(考试|期中|期末|随堂测|测试|测验|小测|笔试|机考|闭卷|开卷|quiz|exam|midterm|final\s*exam|\btest\b)/i
 export function scheduleKind(item:CalendarEvent):ScheduleKind {
-  if(EXAM_WORDS.test(item.title))return 'exam'
+  if(item.type==='exam'||EXAM_WORDS.test(item.title))return 'exam'
   return item.type==='assignment'?'homework':'schedule'
 }
 export function scheduleLabel(kind:ScheduleKind):string {
