@@ -681,8 +681,13 @@ export default function App() {
                 </p>
                 {widgetStatus?.updatedAt ? <p className="widget-status-sub">
                   最近同步：{new Date(widgetStatus.updatedAt).toLocaleString('zh-CN')}
-                  {widgetStatus.lastRenderError?' · 更新异常：'+widgetStatus.lastRenderError:''}
+                  {' · '}最近提交绘制：{widgetStatus.lastRenderedInstances} 个
+                  {widgetStatus.lastRenderError?' · 原生提交异常：'+widgetStatus.lastRenderError:''}
                 </p> : null}
+                {widgetStatus && <p className="widget-status-sub">
+                  后台电量限制：{widgetStatus.ignoringBatteryOptimizations?'系统标准电池优化已豁免':'可能受限制（可手动设置）'}
+                  {' · '}桌面是否真的显示仍由系统启动器决定
+                </p>}
                 {widgetMessage&&<p role="status" className="widget-status-sub">{widgetMessage}</p>}
                 <div className="widget-panel-buttons">
                   <button type="button" disabled={widgetBusy} onClick={()=>void refreshLauncherWidget()}>
