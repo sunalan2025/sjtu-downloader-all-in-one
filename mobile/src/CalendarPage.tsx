@@ -124,7 +124,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
       window.removeEventListener('resize',measure)
       window.removeEventListener('orientationchange',measure)
     }
-  },[display,selected])
+  },[display,selected,availableWidth>=1000,availableWidth>=660])
   // Use the *actual timetable content width*, rather than tablet model name.
   // A generous landscape canvas shows the standard Mon–Sun week.
   // Medium landscape shows 5 contiguous days including the selected date;
