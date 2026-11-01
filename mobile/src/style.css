@@ -900,3 +900,8 @@ button:active:not(:disabled) { transform:scale(.965); }
 .day-kind-exam{background:#f6e6f3;color:#a5699e;}
 .day-timeline-item.kind-homework .day-item-time{color:#ae814d;}
 .day-timeline-item.kind-exam .day-item-time{color:#aa6e9c;}
+
+/* Timed Canvas deadlines belong at their real hour, not in the all-day row.
+   Only date-only tasks remain in the expanded all-day lane. */
+.week-time-event.week-time-homework{background:#fff0dc;color:#9b713f;border-left-color:#d4a46e;}
+.week-time-event.week-time-exam{background:#f6e6f5;color:#9a5796;border-left-color:#be8ab4;}

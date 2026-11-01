@@ -123,7 +123,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   // Both the hour labels and all seven day columns use one minute-to-pixel
   // function. Vertical positions never depend on how many cards precede a class.
   const weekTimed=visibleWeekDates.flatMap(date =>
-    (eventMap.get(date)||[]).filter(event=>!isHomework(event)&&isTimed(event)))
+    (eventMap.get(date)||[]).filter(isTimed))
   const weekFirstHour=weekTimed.length
     ? Math.max(6,Math.floor(Math.min(...weekTimed.map(e=>minute(e.startTime)))/60)-1) : 8
   const weekLastHour=weekTimed.length
@@ -134,7 +134,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   // from the number and approximate wrapped line counts of the actual entries.
   // Each item is rendered in full rather than hidden under an unusable "+N".
   const allDayFor=(date:string)=>(eventMap.get(date)||[])
-    .filter(event=>isHomework(event)||!isTimed(event))
+    .filter(event=>!isTimed(event))
   const allDayHeight=Math.max(70,...visibleWeekDates.map(date=>{
     const entries=allDayFor(date)
     return 12+entries.reduce((height,event)=>{
@@ -256,8 +256,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
           </div>
           {visibleWeekDates.map(date=>{
             const entries=eventMap.get(date)||[]
-            const allDay=entries.filter(e=>isHomework(e)||!isTimed(e))
-            const placed=placeClasses(entries.filter(e=>!isHomework(e)))
+            const allDay=entries.filter(e=>!isTimed(e))
+            const placed=placeClasses(entries)
             const weekday=DOW[dayIndex(date)]
             return <div key={date} className={'week-time-column'+(date===today?' is-today':'')+(date===selected?' is-selected':'')}
               data-date={date}>
@@ -280,7 +280,9 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                 {Array.from({length:weekLastHour-weekFirstHour+1},(_,i)=>i+weekFirstHour).map(hour=>
                   <div key={hour} className="week-hour-rule" style={{top:weekPosition(hour*60)}}/>)}
                 {placed.map(({event,start,end,left,width,tone})=>
-                  <button type="button" key={event.id} className={'week-time-event '+tone}
+                  <button type="button" key={event.id} className={'week-time-event '+tone+
+                    (event.type==='assignment'?' week-time-homework':'')+
+                    (scheduleKind(event)==='exam'?' week-time-exam':'')}
                     style={{
                       top:weekPosition(start),
                       height:Math.max(24,weekPosition(end)-weekPosition(start)-3),
@@ -291,7 +293,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                       else {select(date);setDisplay('day')}
                     }}
                     aria-label={timeText(event.startTime)+' '+event.title}>
-                    <span>{timeText(event.startTime)}</span>
+                    <span>{event.type==='assignment'?'截止 ':''}{timeText(event.startTime)}</span>
                     <strong>{event.title}</strong>
                     {event.type==='course'&&schedulePlace(event)&&
                       <small className="week-classroom" title={schedulePlace(event)}>
