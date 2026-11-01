@@ -299,7 +299,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                       else {select(date);setDisplay('day')}
                     }}
                     aria-label={timeText(event.startTime)+' '+event.title}>
-                    <span>{event.type==='assignment'?'截止 ':''}{timeText(event.startTime)}</span>
+                    <span>{event.type==='exam'?'考试 ':event.type==='assignment'?'截止 ':''}{timeText(event.startTime)}</span>
                     <strong>{event.title}</strong>
                     {(event.type==='course'||event.type==='exam')&&schedulePlace(event)&&
                       <small className="week-classroom" title={schedulePlace(event)}>
@@ -335,7 +335,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                 </span>
                 <strong>{event.title}</strong>
                 {schedulePlace(event)&&
-                  <span className="day-item-place">教室 · {schedulePlace(event)}</span>}
+                  <span className="day-item-place">{event.type==='exam'?'考场':'教室'} · {schedulePlace(event)}</span>}
                 {event.courseName&&!schedulePlace(event)&&
                   event.courseName!=='正式课表'&&event.courseName!=='个人日程'&&
                   <span className="day-item-subtitle">{event.courseName}</span>}
