@@ -980,6 +980,34 @@ public class SjtuCanvasPlugin extends Plugin {
                     }
                 }
             });
+            browser.setWebChromeClient(new WebChromeClient() {
+                @Override public boolean onCreateWindow(WebView view, boolean isDialog,
+                        boolean isUserGesture, Message resultMsg) {
+                    if (!isUserGesture && !isOfficialJaccountPage(browser.getUrl())) return false;
+                    WebView popup = new WebView(getActivity());
+                    popup.setWebViewClient(new WebViewClient() {
+                        @Override public boolean shouldOverrideUrlLoading(WebView view,
+                                WebResourceRequest request) {
+                            Uri uri=request.getUrl();
+                            if ("https".equalsIgnoreCase(uri.getScheme())) {
+                                browser.loadUrl(uri.toString());
+                            } else if (shouldLaunchLoginApp(uri,browser.getUrl(),true)) {
+                                openLoginAppLink(uri,browser);
+                            }
+                            return true;
+                        }
+                        @Override public void onPageStarted(WebView view,String url,
+                                android.graphics.Bitmap favicon) {
+                            if (url.startsWith("https://"))browser.loadUrl(url);
+                        }
+                    });
+                    panel.addView(popup,new LinearLayout.LayoutParams(1,1));
+                    WebView.WebViewTransport transport=(WebView.WebViewTransport)resultMsg.obj;
+                    transport.setWebView(popup);
+                    resultMsg.sendToTarget();
+                    return true;
+                }
+            });
             done.setOnClickListener(view -> verify.run());
             close.setOnClickListener(view -> dialog.dismiss());
             dialog.setContentView(panel);
