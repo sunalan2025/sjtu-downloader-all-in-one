@@ -633,7 +633,8 @@ export default function App() {
     const seen=new Set<string>()
     const items=rows.filter(event=>
       // Personal all-day tasks are not lectures starting at midnight.
-      event.type==='assignment'||!/^\d{4}-\d\d-\d\d$/.test(event.startTime)
+      event.type==='assignment'||event.type==='exam'||
+      !/^\d{4}-\d\d-\d\d$/.test(event.startTime)
     ).map(event=>{
       const kind=scheduleKind(event)
       // School timetable and personal timed plans are class/agenda entries;
