@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41321585237 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41324875052 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.16-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.16-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.17-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.17-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.16-beta
+          TAG=android-v0.4.17-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.16-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.17-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.16-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.17-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.16 Beta" \
-              --notes "Android v0.4.16 Beta: Exam details from the same StudyAtSJTU and registrar sources as Desktop are now synchronized without another manual tap when the existing jAccount SSO session can be reused. If the separate exam session is missing, Android attempts a bounded invisible non-interactive WebView OAuth navigation to the Study and registrar portals, then fetches exams again; users still must complete any interactive identity verification themselves. Corrected Canvas deadline handling: all due_at dates are grouped by Asia/Shanghai rather than raw UTC string comparisons, per-course assignments are reconciled in the background even when the calendar API responds successfully, and the week timeline extends to midnight with enough visible space for a 23:59 homework card. On landscape tablets (width >= 740 CSS px and height >= 420 px), navigation is moved into a persistent left rail on Home, Courses, Calendar and Downloads; batch download action is moved to the content pane while the rail stays visible. Phones/portrait keep the bottom navigation. GitHub Actions CI build 41321585237 completed all 14 steps successfully. Actual school SSO and late-night deadlines require live-account verification, and OEM tablet layouts still require real-device inspection. Public test-signed beta only."
+              --title "SJTU Downloader Android v0.4.17 Beta" \
+              --notes "Android v0.4.17 Beta: Replaces the tablet landscape sidebar's relocated glass sliding-pill navigation with a purpose-built collapsible vertical menu. Expanded: left-aligned 21px icon, main label, and short secondary description for Home/Courses/Calendar/Downloads in long horizontal rows; collapsed: compact accessible icon buttons with an expand control. Soft blue row gradients and a restrained active-side accent replace the raised white-glass selection pill. The former floating rail backdrop, hard glass border, and side shadow are removed. A single shared application background extends under the sidebar, with a broad feathered gradient toward the main content to avoid visible color seams. Main content and batch action adapt smoothly to sidebar width; tablet size and rotation choose compact/wide defaults unless the user has explicitly set a preference. Phone and portrait bottom navigation is unchanged. Accessibility and reduced-motion rules preserved. CI Android build 41324875052 passed all 14 steps; actual OEM launcher appearance, unusual DPI and split screen need physical-device inspection. Public test-signed beta only."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
