@@ -2,87 +2,63 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:orientation="vertical"
-    android:gravity="center_vertical"
+    android:gravity="top"
     android:background="@drawable/today_widget_surface"
-    android:paddingLeft="17dp"
-    android:paddingRight="17dp"
+    android:paddingLeft="15dp"
+    android:paddingRight="15dp"
     android:paddingTop="13dp"
-    android:paddingBottom="13dp"
+    android:paddingBottom="11dp"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
+    <LinearLayout android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:orientation="horizontal"
         android:gravity="center_vertical">
-        <TextView
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:text="●  SJTU · 今日课表"
-            android:textColor="#3A72AF"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:singleLine="true"
+        <TextView android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="wrap_content" android:text="● SJTU 今日课表"
+            android:textColor="#346FAE" android:textSize="11sp"
+            android:textStyle="bold" android:singleLine="true"
             android:ellipsize="end"/>
-        <TextView
-            android:id="@+id/widget_date"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="11月1日 周日"
-            android:textColor="#758CA8"
-            android:textSize="10sp"
+        <TextView android:id="@+id/widget_date" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="11月1日 周日"
+            android:textColor="#7289A7" android:textSize="10sp"
             android:singleLine="true"/>
     </LinearLayout>
-    <TextView
-        android:id="@+id/widget_badge"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="下一节课 · 08:00"
-        android:textColor="#397AB7"
-        android:textSize="11sp"
-        android:textStyle="bold"
-        android:singleLine="true"
-        android:ellipsize="end"/>
-    <TextView
-        android:id="@+id/widget_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
-        android:text="打开应用同步今天的课程"
-        android:textColor="#253C5B"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:maxLines="2"
-        android:ellipsize="end"/>
-    <TextView
-        android:id="@+id/widget_detail"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="5dp"
-        android:textColor="#617F9D"
-        android:textSize="11sp"
-        android:maxLines="2"
-        android:ellipsize="end"
-        android:text="08:00–09:40 · 教室"/>
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"/>
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="#1F6596CC"
-        android:layout_marginTop="7dp"
-        android:layout_marginBottom="8dp"/>
-    <TextView
-        android:id="@+id/widget_footer"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="下一节课程提示"
-        android:textColor="#5D7792"
-        android:textSize="11sp"
-        android:maxLines="2"
-        android:ellipsize="end"/>
+    <TextView android:id="@+id/widget_badge"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:text="下一节课"
+        android:textColor="#297FC0" android:textStyle="bold"
+        android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+    <TextView android:id="@+id/widget_title"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="4dp" android:text="今天暂无课程"
+        android:textColor="#253D5C" android:textSize="17sp"
+        android:textStyle="bold" android:maxLines="2" android:ellipsize="end"/>
+    <TextView android:id="@+id/widget_detail"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="3dp" android:text="课程时间和教室"
+        android:textColor="#6785A4" android:textSize="10sp"
+        android:maxLines="1" android:ellipsize="end"/>
+    <TextView android:id="@+id/widget_next"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="4dp" android:text="下一节课程提醒"
+        android:textColor="#527CA6" android:textSize="10sp"
+        android:maxLines="1" android:ellipsize="end"/>
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:background="#306896BB" android:layout_marginTop="10dp"
+        android:layout_marginBottom="9dp"/>
+    <TextView android:id="@+id/widget_deadline_label"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="近期 DEADLINE" android:textColor="#B07640"
+        android:textStyle="bold" android:textSize="11sp"
+        android:maxLines="1" android:ellipsize="end"/>
+    <TextView android:id="@+id/widget_deadline_one"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="5dp" android:text="近期暂无待截止作业"
+        android:textColor="#445C79" android:textSize="11sp"
+        android:maxLines="2" android:ellipsize="end"/>
+    <TextView android:id="@+id/widget_deadline_two"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="4dp" android:text=""
+        android:textColor="#6B8099" android:textSize="10sp"
+        android:maxLines="1" android:ellipsize="end"/>
 </LinearLayout>

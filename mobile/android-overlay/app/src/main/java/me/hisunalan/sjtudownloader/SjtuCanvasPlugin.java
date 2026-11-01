@@ -555,7 +555,8 @@ public class SjtuCanvasPlugin extends Plugin {
         try {
             JSArray incoming = call.getArray("items");
             TodayScheduleWidget.persist(getContext(),
-                incoming == null ? new JSArray() : incoming);
+                incoming == null ? new JSArray() : incoming,
+                Boolean.TRUE.equals(call.getBoolean("clear", false)));
             JSObject result = new JSObject();
             result.put("ok", true);
             call.resolve(result);
