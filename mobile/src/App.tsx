@@ -23,11 +23,11 @@ function formatBytes(value: number): string {
   if (value < 1024 ** 3) return (value / 1024 ** 2).toFixed(1) + ' MB'
   return (value / 1024 ** 3).toFixed(2) + ' GB'
 }
-const nav: { id: Tab; text: string; icon: IconName }[] = [
-  { id: 'home', text: '首页', icon: 'home' },
-  { id: 'courses', text: '课程', icon: 'book' },
-  { id: 'calendar', text: '日历', icon: 'calendar' },
-  { id: 'downloads', text: '下载', icon: 'download' }
+const nav: { id: Tab; text: string; hint: string; icon: IconName }[] = [
+  { id: 'home', text: '首页', hint: '近期安排与概览', icon: 'home' },
+  { id: 'courses', text: '课程', hint: '教学资料与文件', icon: 'book' },
+  { id: 'calendar', text: '日历', hint: '课表、考试与作业', icon: 'calendar' },
+  { id: 'downloads', text: '下载', hint: '任务与历史记录', icon: 'download' }
 ]
 /** Standalone card with no dependency on the old generic job-list selectors.
  * All content and controls wrap within the available portrait width. */
@@ -68,6 +68,8 @@ function DownloadCard({job,onCancel,onOpen}:{
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('home')
+  const [railExpanded,setRailExpanded]=useState(()=>typeof window!=='undefined' &&
+    window.matchMedia('(orientation:landscape) and (min-width:1050px) and (min-height:420px)').matches)
   const tabRef = useRef<Tab>('home')
   tabRef.current = tab
   const courseBrowser = useRef<CourseBrowserHandle>(null)
@@ -691,7 +693,7 @@ export default function App() {
   const batchActive = tab === 'courses' && loggedIn && !sessionChecking && selection.count > 0
   const tabIndex = nav.findIndex(item => item.id === tab)
 
-  return <div className="app">
+  return <div className={'app '+(railExpanded?'rail-expanded':'rail-collapsed')}>
     <div className="ambient ambient-one" aria-hidden="true"/>
     <div className="ambient ambient-two" aria-hidden="true"/>
     <div className="app-shell">
@@ -885,13 +887,27 @@ export default function App() {
               : '下载 ' + selection.count + ' 门课程'}
         </button>
       </div> : null}
+      <div className="rail-header">
+        <button type="button" className="rail-toggle" onClick={()=>setRailExpanded(v=>!v)}
+          aria-label={railExpanded?'收起侧栏导航':'展开侧栏导航'}
+          aria-expanded={railExpanded}
+          title={railExpanded?'收起侧栏':'展开侧栏'}>
+          <span className="rail-toggle-symbol" aria-hidden="true">
+            <span className="rail-toggle-spine"/><Icon name={railExpanded?'left':'right'} size={16}/>
+          </span>
+          <span className="rail-toggle-label">{railExpanded?'收起侧栏':'展开侧栏'}</span>
+        </button>
+      </div>
       <nav className="bottom-nav" aria-label="主导航">
         <span className="nav-slider" aria-hidden="true"
           style={{ '--nav-index': tabIndex } as React.CSSProperties}/>
         {nav.map(item => <button type="button" key={item.id}
           className={item.id === tab ? 'selected' : ''} onClick={() => switchTab(item.id)}
+          aria-label={item.text}
+          title={railExpanded?undefined:item.text}
           aria-current={item.id === tab ? 'page' : undefined}>
-          <span className="nav-icon"><Icon name={item.icon} size={21}/></span><span>{item.text}</span>
+          <span className="nav-icon"><Icon name={item.icon} size={21}/></span>
+          <span className="nav-label"><strong>{item.text}</strong><small>{item.hint}</small></span>
         </button>)}
       </nav>
     </div>
