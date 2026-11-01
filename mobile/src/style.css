@@ -943,3 +943,27 @@ button:active:not(:disabled) { transform:scale(.965); }
   .widget-panel-buttons{grid-template-columns:1fr 1fr;}
   .widget-panel-buttons button:first-child{grid-column:span 2;}
 }
+
+/* Official registrar exams: explicit source, without mistaking Canvas keyword
+   matches for authenticated examination data. Portrait-safe action buttons. */
+.exam-connect-panel{
+  display:flex;flex-direction:column;gap:11px;min-width:0;
+  border-radius:17px;padding:13px 14px;margin-top:11px;
+  border:1px solid rgba(206,182,225,.38);
+  background:linear-gradient(125deg,rgba(250,240,253,.73),rgba(238,246,255,.75));
+}
+.exam-connect-copy{min-width:0;display:flex;flex-direction:column;gap:5px;}
+.exam-connect-copy strong{font-size:12px;color:#815e9e;font-weight:720;}
+.exam-connect-copy span{font-size:11px;line-height:1.5;color:#937fa4;overflow-wrap:anywhere;}
+.exam-connect-actions{display:flex;gap:9px;flex-wrap:wrap;}
+.exam-connect-actions button{
+  border:1px solid rgba(147,113,176,.23);border-radius:11px;
+  background:rgba(247,234,252,.89);padding:9px 13px;
+  color:#815ba1;font-size:11px;font-weight:700;
+}
+.exam-connect-actions button:disabled{opacity:.6;}
+.exam-connected-note{
+  text-align:center;color:#8c7aa3;font-size:11px;
+  line-height:1.5;margin:12px 0 0;
+}
+.week-time-exam>span:first-child{font-weight:770;color:#8e5a9b;}
