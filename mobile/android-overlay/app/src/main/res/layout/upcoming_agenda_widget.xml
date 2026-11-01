@@ -5,7 +5,7 @@
     android:orientation="vertical"
     android:background="@drawable/today_widget_surface"
     android:paddingLeft="12dp" android:paddingRight="12dp"
-    android:paddingTop="11dp" android:paddingBottom="10dp">
+    android:paddingTop="8dp" android:paddingBottom="7dp">
     <LinearLayout android:layout_width="match_parent"
         android:layout_height="wrap_content" android:orientation="horizontal"
         android:gravity="center_vertical">
@@ -21,13 +21,13 @@
     </LinearLayout>
     <TextView android:id="@+id/agenda_item_one"
         android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="10dp" android:maxLines="2"
+        android:layout_marginTop="6dp" android:maxLines="2"
         android:ellipsize="end" android:text="打开应用同步日程"
         android:textSize="10sp" android:lineSpacingExtra="2dp"
         android:textColor="#395777"/>
     <TextView android:id="@+id/agenda_item_two"
         android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="8dp" android:maxLines="2"
+        android:layout_marginTop="5dp" android:maxLines="2"
         android:ellipsize="end" android:text=""
         android:textSize="10sp" android:lineSpacingExtra="2dp"
         android:textColor="#395777"/>
