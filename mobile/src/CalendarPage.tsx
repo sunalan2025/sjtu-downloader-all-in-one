@@ -387,11 +387,11 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     </button>}
     {!examConnected&&<div className="exam-connect-panel glass">
       <div className="exam-connect-copy">
-        <strong>{examChecking?'正在读取学校考试安排…':'连接考试信息'}</strong>
-        <span>{examWarning||'从学在交大同步正式考试时间、类型与考场'}</span>
+        <strong>{examChecking?'正在自动连接考试系统…':'考试信息'}</strong>
+        <span>{examWarning||'已尝试使用交大登录态自动同步；如仍需认证，可手动连接考试服务。'}</span>
       </div>
       <div className="exam-connect-actions">
-        <button type="button" disabled={examChecking} onClick={onExamConnect}>学在交大</button>
+        <button type="button" disabled={examChecking} onClick={onExamConnect}>手动连接学在交大</button>
         <button type="button" disabled={examChecking} onClick={onExamFallback}>教务备用</button>
       </div>
     </div>}

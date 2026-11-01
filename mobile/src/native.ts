@@ -60,6 +60,7 @@ type NativeCanvasApi = {
     items: CalendarEvent[]; connected: boolean; source?: string; warning?: string
   }>
   openExamPortal(options: { source: 'study' | 'jiaowu' }): Promise<{ ok: boolean }>
+  resumeExamSession(): Promise<{ connected: boolean; source?: string }>
   diagnoseAuth(): Promise<{ savedSessionEncrypted: boolean; canvasCookie: boolean; jaccountCookie: boolean; officialCalendarCookie: boolean; canvasProfile: string; canvasCalendar: string; canvasCourses: string; officialCalendar: string }>
   status(): Promise<{ loggedIn: boolean; name?: string; savedSessionEncrypted?: boolean }>
   courses(): Promise<{ items: CanvasCourse[] }>

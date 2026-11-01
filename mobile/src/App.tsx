@@ -419,7 +419,18 @@ export default function App() {
     lastExamFetch.current=Date.now()
     setExamChecking(true)
     try{
-      const response=await native.exams({force})
+      let response=await native.exams({force})
+      if(request!==examRequest.current)return
+      if(!response.connected && loggedIn){
+        // Like the desktop app, first try to establish the exam portal's
+        // separate SSO session via existing jAccount cookies. No password
+        // prompt is necessary when the school session is still valid.
+        try{
+          const silent=await native.resumeExamSession()
+          if(request!==examRequest.current)return
+          if(silent.connected)response=await native.exams({force:true})
+        }catch{ /* Visible login remains a manual fallback. */ }
+      }
       if(request!==examRequest.current)return
       if(response.connected){
         setExamEvents(response.items)
@@ -710,7 +721,7 @@ export default function App() {
             </section>
             <section className="today-brief recent-agenda">
               <div className="recent-agenda-head">
-                <h2>近期安排 <span>课程、作业与个人日程</span></h2>
+                <h2>近期安排 <span>课程、考试、作业与个人日程</span></h2>
                 <button type="button" onClick={()=>addSchedule(today)}>＋ 添加日程</button>
               </div>
               <div className="recent-agenda-groups">
