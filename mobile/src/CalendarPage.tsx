@@ -250,10 +250,12 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
           <strong>课表</strong>
         </div>
         <div className="week-page-buttons" role="group" aria-label="切换显示的日期">
-          <button type="button" aria-label="显示前一天" onClick={()=>shift(-1)}>
+          <button type="button" aria-label={visibleWeekCount===7?'上一周':'显示前一天'}
+            onClick={()=>shift(visibleWeekCount===7?-7:-1)}>
             <Icon name="left" size={17}/>
           </button>
-          <button type="button" aria-label="显示后一天" onClick={()=>shift(1)}>
+          <button type="button" aria-label={visibleWeekCount===7?'下一周':'显示后一天'}
+            onClick={()=>shift(visibleWeekCount===7?7:1)}>
             <Icon name="right" size={17}/>
           </button>
         </div>
@@ -272,7 +274,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
           if(!touch)return
           const dx=touch.clientX-start.x,dy=touch.clientY-start.y
           if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)*1.3){
-            shift(dx<0?1:-1)
+            shift(dx<0?(visibleWeekCount===7?7:1):(visibleWeekCount===7?-7:-1))
           }
         }}
         onTouchCancel={()=>{weekSwipeStart.current=null}}>
