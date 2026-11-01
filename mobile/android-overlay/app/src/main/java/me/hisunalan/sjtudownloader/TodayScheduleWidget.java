@@ -273,10 +273,25 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 RemoteViews view = new RemoteViews(context.getPackageName(),
                     R.layout.today_schedule_widget);
                 view.setTextViewText(R.id.widget_date, format(start,"M月d日 E"));
-                view.setTextViewText(R.id.widget_badge,
-                    offset == 0 ? "今天 · " + classes.size() + " 项" :
-                    offset > 0 ? "未来 · " + classes.size() + " 项" :
-                    "已过去 · " + classes.size() + " 项");
+                String badge = offset == 0 ? "今日 " + classes.size() + " 节课" :
+                    offset > 0 ? "未来 · " + classes.size() + " 节课" :
+                    "已过去 · " + classes.size() + " 节课";
+                if (offset == 0) {
+                    for(Item item:classes){
+                        if(item.start<=now && item.end>now) {
+                            long minutes=Math.max(1L,(item.end-now+MINUTE-1)/MINUTE);
+                            badge="● 正在上课 · " + minutes + " 分后下课";
+                            break;
+                        }
+                        if(item.start>now){
+                            long minutes=Math.max(1L,(item.start-now+MINUTE-1)/MINUTE);
+                            badge=minutes<60 ? "下节还有 " + minutes + " 分钟" :
+                                "下一节 " + format(item.start,"HH:mm");
+                            break;
+                        }
+                    }
+                }
+                view.setTextViewText(R.id.widget_badge,badge);
                 int[] rowIds = {R.id.widget_class_one,R.id.widget_class_two,
                     R.id.widget_class_three};
                 if (classes.isEmpty()) {
