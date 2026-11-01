@@ -280,57 +280,74 @@ export default function App() {
     }
   }, [weekStart, loggedIn])
 
-  // Home uses today's actual week and the next week, independently of
-  // whatever historical/future week the user last browsed in the calendar.
+  // Show today's school timetable as soon as its own week arrives. Previously
+  // a slow request for a second/third week blocked publishing *all* data to
+  // the home screen widget, including the current day's already loaded class.
   useEffect(()=>{
     if(tab!=='home')return
-    if(!isAndroid||!loggedIn){setHomeSchoolEvents([]);setHomeCalendarLoaded(false);return}
-    setHomeCalendarLoaded(false)
+    if(!isAndroid||!loggedIn){
+      setHomeSchoolEvents([])
+      setHomeCalendarLoaded(false)
+      return
+    }
     const todayWeek=currentWeekStart()
     const weeks=[todayWeek,dateOffset(todayWeek,7),dateOffset(todayWeek,14)]
-    const supplementWeeks:string[]=[]
+    const loaded=new Map<string,CalendarEvent[]>()
     let disposed=false
-    const read=async(week:string)=>{
-      const cache=weeklyCache.current.get(week)
-      if(cache&&Date.now()-cache.savedAt<3*60_000)return cache.items
-      try {
-        const response=await native.calendarWeek({weekStart:week})
-        weeklyCache.current.set(week,{items:response.items,
-          officialConnected:!!response.officialConnected,
-          warning:response.warning||'',savedAt:Date.now()})
-        if(response.needsSupplement)supplementWeeks.push(week)
-        return response.items
-      }catch{return cache?.items||[]}
+    setHomeCalendarLoaded(false)
+    const publish=()=>{
+      if(disposed)return
+      const seen=new Set<string>()
+      const merged=weeks.flatMap(week=>loaded.get(week)||[])
+        .filter(item=>{
+          const key=item.id+'|'+item.startTime
+          if(seen.has(key))return false
+          seen.add(key)
+          return true
+        }).sort(compareEvents)
+      setHomeSchoolEvents(merged)
+      if(loaded.has(todayWeek))setHomeCalendarLoaded(true)
     }
-    void Promise.all(weeks.map(read)).then(groups=>{
-      if(!disposed){
-        setHomeSchoolEvents(groups.flat().sort(compareEvents))
-        setHomeCalendarLoaded(true)
-        // Restricted Canvas calendars often still allow assignment endpoints.
-        // Fetch in the background without blocking the initial timetable.
-        for(const week of supplementWeeks){
-          void native.calendarWeekSupplement({weekStart:week}).then(extra=>{
-            if(disposed)return
-            setHomeSchoolEvents(previous=>{
-              const known=new Set(previous.map(item=>item.id))
-              const added=extra.items.filter(item=>{
-                if(known.has(item.id))return false
-                known.add(item.id)
-                return true
-              })
-              return added.length?[...previous,...added].sort(compareEvents):previous
-            })
-            const cached=weeklyCache.current.get(week)
-            if(cached){
-              const known=new Set(cached.items.map(item=>item.id))
-              weeklyCache.current.set(week,{...cached,items:[
-                ...cached.items,...extra.items.filter(item=>!known.has(item.id))
-              ]})
-            }
-          }).catch(()=>{})
+    for(const week of weeks){
+      void (async()=>{
+        let items:CalendarEvent[]=[]
+        let needsSupplement=false
+        const cached=weeklyCache.current.get(week)
+        if(cached && Date.now()-cached.savedAt<180_000){
+          items=cached.items
+        } else {
+          try{
+            const response=await native.calendarWeek({weekStart:week})
+            items=response.items
+            needsSupplement=response.needsSupplement
+            weeklyCache.current.set(week,{items,
+              officialConnected:!!response.officialConnected,
+              warning:response.warning||'',savedAt:Date.now()})
+          }catch{items=cached?.items||[]}
         }
-      }
-    })
+        if(disposed)return
+        loaded.set(week,items)
+        publish()
+        if(needsSupplement){
+          try{
+            const supplement=await native.calendarWeekSupplement({weekStart:week})
+            if(disposed)return
+            const ids=new Set(items.map(item=>item.id))
+            const extra=supplement.items.filter(item=>{
+              if(ids.has(item.id))return false
+              ids.add(item.id)
+              return true
+            })
+            if(extra.length){
+              loaded.set(week,[...items,...extra])
+              const cache=weeklyCache.current.get(week)
+              if(cache)weeklyCache.current.set(week,{...cache,items:[...items,...extra]})
+              publish()
+            }
+          }catch{ /* Restricted coursework never blocks available classes. */ }
+        }
+      })()
+    }
     return ()=>{disposed=true}
   },[tab,loggedIn])
 
