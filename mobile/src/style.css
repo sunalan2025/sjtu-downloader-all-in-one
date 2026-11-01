@@ -905,3 +905,41 @@ button:active:not(:disabled) { transform:scale(.965); }
    Only date-only tasks remain in the expanded all-day lane. */
 .week-time-event.week-time-homework{background:#fff0dc;color:#9b713f;border-left-color:#d4a46e;}
 .week-time-event.week-time-exam{background:#f6e6f5;color:#9a5796;border-left-color:#be8ab4;}
+
+/* Compact, opt-in widget diagnostics; does not crowd the Home agenda. */
+.home-widget-panel{
+  min-width:0;margin:18px 0 16px;border-radius:20px;
+  border:1px solid rgba(255,255,255,.88);
+  background:rgba(244,250,255,.68);overflow:hidden;
+}
+.home-widget-toggle{
+  display:flex;align-items:center;justify-content:space-between;
+  width:100%;gap:10px;border:0;background:transparent;
+  padding:14px 15px;text-align:left;color:#3b6186;
+}
+.home-widget-toggle>span:first-child{
+  display:flex;gap:9px;align-items:center;font-size:12px;font-weight:730;
+}
+.home-widget-arrow{font-size:11px;color:#7192b5;flex:none;}
+.home-widget-body{padding:0 15px 15px;}
+.widget-data-state{margin:2px 0 6px;font-size:12px;line-height:1.5;color:#42678b;}
+.widget-status-sub{font-size:11px;line-height:1.5;color:#7c91aa;margin:7px 0;}
+.widget-panel-buttons{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:7px;margin:12px 0 10px;
+}
+.widget-panel-buttons button{
+  min-width:0;border:1px solid rgba(91,151,218,.23);
+  border-radius:11px;background:rgba(222,237,253,.85);
+  color:#4378b1;padding:10px 5px;font-size:10px;
+  font-weight:700;line-height:1.4;overflow-wrap:anywhere;
+}
+.widget-panel-buttons button:disabled{opacity:.55;}
+.widget-permission-guide{
+  font-size:11px;line-height:1.65;color:#8395aa;
+  margin:9px 0 0;overflow-wrap:anywhere;
+}
+@media(max-width:360px){
+  .widget-panel-buttons{grid-template-columns:1fr 1fr;}
+  .widget-panel-buttons button:first-child{grid-column:span 2;}
+}
