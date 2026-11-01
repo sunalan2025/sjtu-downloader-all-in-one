@@ -77,9 +77,29 @@ export default function App() {
       window.matchMedia('(orientation:landscape) and (min-width:1000px) and (min-height:420px)').matches
   })
   useEffect(()=>{
-    try{window.localStorage.setItem('sjtu-navigation-rail',railExpanded?'expanded':'collapsed')}
-    catch{ /* This preference is optional. */ }
-  },[railExpanded])
+    const followViewport=()=>{
+      try{
+        if(window.localStorage.getItem('sjtu-navigation-rail'))return
+      }catch{ /* Follow viewport when storage is unavailable. */ }
+      setRailExpanded(window.matchMedia(
+        '(orientation:landscape) and (min-width:1000px) and (min-height:420px)'
+      ).matches)
+    }
+    window.addEventListener('orientationchange',followViewport)
+    window.addEventListener('resize',followViewport)
+    return ()=>{
+      window.removeEventListener('orientationchange',followViewport)
+      window.removeEventListener('resize',followViewport)
+    }
+  },[])
+  const toggleRail=()=>{
+    setRailExpanded(previous=>{
+      const next=!previous
+      try{window.localStorage.setItem('sjtu-navigation-rail',next?'expanded':'collapsed')}
+      catch{ /* The navigation still works without storage. */ }
+      return next
+    })
+  }
   const tabRef = useRef<Tab>('home')
   tabRef.current = tab
   const courseBrowser = useRef<CourseBrowserHandle>(null)
@@ -898,7 +918,7 @@ export default function App() {
         </button>
       </div> : null}
       <div className="rail-header">
-        <button type="button" className="rail-toggle" onClick={()=>setRailExpanded(v=>!v)}
+        <button type="button" className="rail-toggle" onClick={toggleRail}
           aria-label={railExpanded?'收起侧栏导航':'展开侧栏导航'}
           aria-expanded={railExpanded}
           title={railExpanded?'收起侧栏':'展开侧栏'}>
