@@ -13,6 +13,7 @@ import android.os.Build;
 import android.widget.RemoteViews;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import com.getcapacitor.JSObject;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -92,6 +93,45 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
             return;
         }
         render(context, manager, ids);
+    }
+
+    /**
+     * A diagnostic of stored data and update *attempts*. The launcher process
+     * owns actual rendering, so this method never claims that text was visible.
+     * No personal content is returned, only counts and state.
+     */
+    public static JSObject status(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSObject result = new JSObject();
+        int courses = 0;
+        int deadlines = 0;
+        try {
+            JSONArray saved = new JSONArray(prefs.getString(EVENTS, "[]"));
+            for (int i = 0; i < saved.length(); i++) {
+                JSONObject item = saved.optJSONObject(i);
+                if (item == null) continue;
+                if ("deadline".equals(item.optString("kind", ""))) deadlines++;
+                else courses++;
+            }
+        } catch (Exception ignored) {}
+        int instances = 0;
+        try {
+            instances = AppWidgetManager.getInstance(context).getAppWidgetIds(
+                new ComponentName(context, TodayScheduleWidget.class)).length;
+        } catch (Exception ignored) {}
+        result.put("instances", instances);
+        result.put("courses", courses);
+        result.put("deadlines", deadlines);
+        result.put("updatedAt", prefs.getLong(UPDATED, 0L));
+        result.put("lastRenderAt", prefs.getLong("lastRenderAt", 0L));
+        result.put("lastRenderedInstances", prefs.getInt("lastRenderedInstances", 0));
+        result.put("lastRenderError", prefs.getString("lastRenderError", ""));
+        result.put("manufacturer", Build.MANUFACTURER == null ? "" : Build.MANUFACTURER);
+        android.os.PowerManager power = (android.os.PowerManager)
+            context.getSystemService(Context.POWER_SERVICE);
+        result.put("ignoringBatteryOptimizations", power != null &&
+            power.isIgnoringBatteryOptimizations(context.getPackageName()));
+        return result;
     }
 
     @Override public void onUpdate(Context context, AppWidgetManager manager, int[] ids) {
@@ -263,7 +303,10 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent openApp = PendingIntent.getActivity(context, 7002, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        int success = 0;
+        String failure = "";
         for (int id : ids) {
+            try {
             RemoteViews view = new RemoteViews(context.getPackageName(), R.layout.today_schedule_widget);
             view.setTextViewText(R.id.widget_date, format(now, "M月d日 E"));
             view.setTextViewText(R.id.widget_badge, badge);
@@ -277,7 +320,29 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 android.view.View.GONE : android.view.View.VISIBLE);
             view.setOnClickPendingIntent(R.id.widget_root, openApp);
             manager.updateAppWidget(id, view);
+            success++;
+            } catch (Exception failed) {
+                failure = failed.getClass().getSimpleName();
+                // A second, intentionally tiny TextView-only layout can
+                // remain visible on OEM launchers rejecting complex RemoteViews.
+                try {
+                    RemoteViews fallback = new RemoteViews(context.getPackageName(),
+                        R.layout.today_schedule_widget_fallback);
+                    fallback.setTextViewText(R.id.widget_fallback_message,
+                        "桌面组件无法加载完整布局\n点击打开应用检查更新");
+                    fallback.setOnClickPendingIntent(R.id.widget_fallback_root, openApp);
+                    manager.updateAppWidget(id, fallback);
+                    success++;
+                } catch (Exception nested) {
+                    failure += "/" + nested.getClass().getSimpleName();
+                }
+            }
         }
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong("lastRenderAt", now)
+            .putInt("lastRenderedInstances", success)
+            .putString("lastRenderError", failure)
+            .apply();
 
         long upcoming = tomorrow + MINUTE;
         for (Item item : classes) {
