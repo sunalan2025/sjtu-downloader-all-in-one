@@ -68,6 +68,7 @@ jobs:
           # only present in source code. AAPT validates this on every release.
           "$AAPT" dump xmltree "$APK" AndroidManifest.xml > /tmp/sjtu-manifest-tree.txt
           grep -q 'TodayScheduleWidget' /tmp/sjtu-manifest-tree.txt
+          grep -q 'UpcomingAgendaWidget' /tmp/sjtu-manifest-tree.txt
       - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:

@@ -650,7 +650,7 @@ export default function App() {
         startMs,endMs,kind:deadline?'deadline' as const:'course' as const
       }
     }).filter(item=>item.title&&Number.isFinite(item.startMs)&&item.startMs<cutoff
-      &&item.startMs>=now-24*60*60*1000
+      &&item.startMs>=now-8*24*60*60*1000
       &&Number.isFinite(item.endMs)&&(item.kind==='deadline'||item.endMs>item.startMs))
       .filter(item=>{
         const key=item.id||[item.title,item.startMs,item.kind].join('|')

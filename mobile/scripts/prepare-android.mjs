@@ -43,6 +43,24 @@ if (!manifest.includes('TodayScheduleWidget')) {
   `
   manifest = manifest.replace('</application>', receiver + '\n</application>')
 }
+if (!manifest.includes('UpcomingAgendaWidget')) {
+  if (!manifest.includes('</application>')) throw new Error('Android application tag missing')
+  manifest = manifest.replace('</application>', `
+    <receiver android:name="me.hisunalan.sjtudownloader.UpcomingAgendaWidget"
+        android:label="SJTU 近期日程 · 迷你" android:exported="true">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+        <action android:name="android.intent.action.DATE_CHANGED"/>
+        <action android:name="android.intent.action.TIME_SET"/>
+        <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+      </intent-filter>
+      <meta-data android:name="android.appwidget.provider"
+          android:resource="@xml/upcoming_agenda_widget_info"/>
+    </receiver>
+  ` + '\n</application>')
+}
+manifest = manifest.replace('android:label="SJTU 今日课表"',
+  'android:label="SJTU 迷你课表 · 可翻页"')
 writeFileSync(manifestPath, manifest)
 if (!manifest.includes('android:name="me.hisunalan.sjtudownloader.MainActivity"')) {
   throw new Error('Expected Android launcher activity override is missing')
