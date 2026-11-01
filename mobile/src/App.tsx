@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Haptics } from '@capacitor/haptics'
-import native, { isAndroid, type CanvasCourse, type DownloadProgress, type CalendarEvent, type CourseDownloadItem } from './native'
+import native, { isAndroid, type CanvasCourse, type DownloadProgress, type CalendarEvent, type CourseDownloadItem, type WidgetStatus } from './native'
 import { BatchCourseBrowser, type CourseBrowserHandle, type CourseSelection } from './BatchCourseBrowser'
 import { CalendarPage, currentMonth, currentWeekStart, shanghaiDate } from './CalendarPage'
 import { Icon, type IconName } from './Icon'
@@ -140,6 +140,32 @@ export default function App() {
   const [neighborEvents, setNeighborEvents] = useState<CalendarEvent[]>([])
   const [homeSchoolEvents,setHomeSchoolEvents]=useState<CalendarEvent[]>([])
   const [homeCalendarLoaded,setHomeCalendarLoaded]=useState(false)
+  const [widgetDetailsOpen,setWidgetDetailsOpen]=useState(false)
+  const [widgetStatus,setWidgetStatus]=useState<WidgetStatus|null>(null)
+  const [widgetBusy,setWidgetBusy]=useState(false)
+  const [widgetMessage,setWidgetMessage]=useState('')
+  const refreshWidgetStatus=useCallback(async()=>{
+    if(!isAndroid)return
+    try{
+      const status=await native.widgetStatus()
+      setWidgetStatus(status)
+      setWidgetMessage('')
+    }catch(error){setWidgetMessage('状态读取失败：'+String(error))}
+  },[])
+  async function refreshLauncherWidget() {
+    setWidgetBusy(true)
+    try{
+      const status=await native.refreshTodayWidget()
+      setWidgetStatus(status)
+      setWidgetMessage(status.instances===0?'系统没有检测到已添加的小组件，请重新添加。':
+        '已向桌面提交刷新。若仍不显示，查看下方后台运行设置。')
+    }catch(error){setWidgetMessage('刷新失败：'+String(error))}
+    finally{setWidgetBusy(false)}
+  }
+  async function openLauncherSettings(section:'app'|'battery') {
+    try{await native.openWidgetSettings({section})}
+    catch(error){setWidgetMessage('打开系统设置失败：'+String(error))}
+  }
   const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>(readPersonalEvents)
   const [editingSchedule, setEditingSchedule] = useState<{current:PersonalEvent|null;date:string}|null>(null)
   useEffect(()=>{
@@ -544,8 +570,14 @@ export default function App() {
     // An empty remote response may be a temporary school outage. Do not erase
     // an otherwise valid widget cache unless the account was logged out.
     if(loggedIn&&items.length===0)return
-    void native.updateTodayWidget({items,clear:!loggedIn}).catch(()=>{})
-  },[loggedIn,sessionChecking,homeCalendarLoaded,homeSchoolEvents,personalEvents])
+    void native.updateTodayWidget({items,clear:!loggedIn})
+      .then(()=>{if(widgetDetailsOpen)void refreshWidgetStatus()})
+      .catch(error=>setWidgetMessage('组件同步失败：'+String(error)))
+  },[loggedIn,sessionChecking,homeCalendarLoaded,homeSchoolEvents,personalEvents,widgetDetailsOpen,refreshWidgetStatus])
+
+  useEffect(()=>{
+    if(widgetDetailsOpen)void refreshWidgetStatus()
+  },[widgetDetailsOpen,refreshWidgetStatus])
 
   const batchActive = tab === 'courses' && loggedIn && !sessionChecking && selection.count > 0
   const tabIndex = nav.findIndex(item => item.id === tab)
@@ -614,6 +646,51 @@ export default function App() {
                 })}
               </div>
             </section>
+            {isAndroid && <section className="home-widget-panel glass">
+              <button type="button" className="home-widget-toggle"
+                aria-expanded={widgetDetailsOpen}
+                onClick={()=>setWidgetDetailsOpen(value=>!value)}>
+                <span><Icon name="calendar" size={17}/> 桌面课表小组件</span>
+                <span className="home-widget-arrow">{widgetDetailsOpen?'收起':'检查状态'}</span>
+              </button>
+              {widgetDetailsOpen && <div className="home-widget-body">
+                <p className="widget-data-state">
+                  {widgetStatus?(
+                    widgetStatus.instances===0?'尚未检测到添加的小组件':
+                    widgetStatus.courses+widgetStatus.deadlines===0?'已添加组件，但本地还没有课表或 Deadline 数据':
+                    '已缓存 '+widgetStatus.courses+' 条日程、'+widgetStatus.deadlines+
+                    ' 条 Deadline；检测到 '+widgetStatus.instances+' 个组件'
+                  ):'正在读取组件状态…'}
+                </p>
+                {widgetStatus?.updatedAt ? <p className="widget-status-sub">
+                  最近同步：{new Date(widgetStatus.updatedAt).toLocaleString('zh-CN')}
+                  {widgetStatus.lastRenderError?' · 更新异常：'+widgetStatus.lastRenderError:''}
+                </p> : null}
+                {widgetMessage&&<p role="status" className="widget-status-sub">{widgetMessage}</p>}
+                <div className="widget-panel-buttons">
+                  <button type="button" disabled={widgetBusy} onClick={()=>void refreshLauncherWidget()}>
+                    {widgetBusy?'刷新中…':'重新绘制组件'}
+                  </button>
+                  <button type="button" onClick={()=>void openLauncherSettings('battery')}>后台耗电设置</button>
+                  <button type="button" onClick={()=>void openLauncherSettings('app')}>应用权限设置</button>
+                </div>
+                <p className="widget-permission-guide">
+                  {/vivo|iqoo/i.test(widgetStatus?.manufacturer||'')
+                    ? 'vivo / iQOO：在系统设置搜索「自启动」「后台高耗电」或「后台耗电管理」，允许本应用后台活动。'
+                    : /xiaomi|redmi/i.test(widgetStatus?.manufacturer||'')
+                    ? '小米 / 红米：在系统设置搜索「后台自启动」并打开；省电策略设置为「无限制」。'
+                    : /oppo|realme|oneplus/i.test(widgetStatus?.manufacturer||'')
+                    ? 'OPPO / 一加 / realme：在应用耗电管理中允许后台活动和自启动。'
+                    : /huawei|honor/i.test(widgetStatus?.manufacturer||'')
+                    ? '华为 / 荣耀：在应用启动管理中关闭自动管理，允许自启动和后台运行。'
+                    : '如果更新不及时，请在系统应用设置中允许后台活动和自启动。'}
+                </p>
+                <p className="widget-permission-guide">
+                  桌面展示本机已同步的课表不需要存储权限。后台设置只能帮助后续更新；
+                  如果课表仍为空，请先确认应用日历里已有课程和作业。
+                </p>
+              </div>}
+            </section>}
           </>}
           {tab === 'courses' && (sessionChecking
             ? <div className="loading-note">正在恢复登录…</div>
