@@ -148,12 +148,6 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX
   const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
   const dayEvents=eventMap.get(selected)||[]
-  const dayGroups: {kind:'schedule'|'homework'|'exam';title:string;items:CalendarEvent[]}[] =
-    (['schedule','homework','exam'] as const).map(kind=>({
-      kind,title:scheduleLabel(kind),
-      items:dayEvents.filter(event=>scheduleKind(event)===kind)
-        .sort(compareEvents)
-    }))
   const shift=(offset:number)=>{
     setHasNestedMotion(true)
     setMotionDirection(offset < 0 ? 'backward' : 'forward')
@@ -317,40 +311,31 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
         {busy?<span className="sync-state"><span className="sync-spin"/>自动同步中</span>:
           <span className="sync-state">{dayEvents.length} 项安排</span>}
       </div>
-      <div className="day-category-list">
-        {dayGroups.map(group=><section className={'day-group day-group--'+group.kind}
-            key={group.kind} aria-label={group.title}>
-          <div className="day-group-title">
-            <div className="day-group-heading"><span className="day-group-dot"/>
-              <h2>{group.title}</h2></div>
-            <span>{group.items.length} 项</span>
-          </div>
-          <div className="day-group-body">
-            {group.items.length===0?
-              <div className="day-group-empty">暂无{group.title}</div>:
-              group.items.map(event=>
-                <div key={event.id} className={'day-group-item'+
-                  (event.id.startsWith('personal-')?' is-editable':'')}>
-                  <div className="day-item-time">
-                    <strong>{timeText(event.startTime)}</strong>
-                    {isTimed(event)&&timeText(event.endTime)!==timeText(event.startTime)&&
-                      <small>{timeText(event.endTime)}</small>}
-                  </div>
-                  <div className="day-item-copy">
-                    <strong>{event.title}</strong>
-                    {schedulePlace(event)&&
-                      <span className="day-item-place">教室 · {schedulePlace(event)}</span>}
-                    {event.courseName&&!schedulePlace(event)&&
-                      event.courseName!=='正式课表'&&event.courseName!=='个人日程'&&
-                      <span className="day-item-subtitle">{event.courseName}</span>}
-                  </div>
-                  {event.id.startsWith('personal-')&&
-                    <button type="button" className="day-item-edit"
-                      onClick={()=>onEditSchedule(event.id)}>编辑</button>}
-                </div>)}
-          </div>
-        </section>)}
-      </div>
+      <section className="day-timeline glass" aria-label="按时间顺序排列的日程、作业和考试">
+        {dayEvents.length===0?<div className="day-group-empty">当天没有课程、作业或考试</div>:
+          dayEvents.map(event=>{
+            const kind=scheduleKind(event)
+            return <div key={event.id} className={'day-group-item day-timeline-item kind-'+kind}>
+              <div className="day-item-time">
+                <strong>{timeText(event.startTime)}</strong>
+                {isTimed(event)&&timeText(event.endTime)!==timeText(event.startTime)&&
+                  <small>{timeText(event.endTime)}</small>}
+              </div>
+              <div className="day-item-copy">
+                <span className={'day-kind-pill day-kind-'+kind}>{scheduleLabel(kind)}</span>
+                <strong>{event.title}</strong>
+                {schedulePlace(event)&&
+                  <span className="day-item-place">教室 · {schedulePlace(event)}</span>}
+                {event.courseName&&!schedulePlace(event)&&
+                  event.courseName!=='正式课表'&&event.courseName!=='个人日程'&&
+                  <span className="day-item-subtitle">{event.courseName}</span>}
+              </div>
+              {event.id.startsWith('personal-')&&
+                <button type="button" className="day-item-edit"
+                  onClick={()=>onEditSchedule(event.id)}>编辑</button>}
+            </div>
+          })}
+      </section>
     </>}
     </div>
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>

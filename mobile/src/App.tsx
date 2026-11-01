@@ -262,6 +262,7 @@ export default function App() {
     setHomeCalendarLoaded(false)
     const todayWeek=currentWeekStart()
     const weeks=[todayWeek,dateOffset(todayWeek,7),dateOffset(todayWeek,14)]
+    const supplementWeeks:string[]=[]
     let disposed=false
     const read=async(week:string)=>{
       const cache=weeklyCache.current.get(week)
@@ -271,6 +272,7 @@ export default function App() {
         weeklyCache.current.set(week,{items:response.items,
           officialConnected:!!response.officialConnected,
           warning:response.warning||'',savedAt:Date.now()})
+        if(response.needsSupplement)supplementWeeks.push(week)
         return response.items
       }catch{return cache?.items||[]}
     }
@@ -278,6 +280,29 @@ export default function App() {
       if(!disposed){
         setHomeSchoolEvents(groups.flat().sort(compareEvents))
         setHomeCalendarLoaded(true)
+        // Restricted Canvas calendars often still allow assignment endpoints.
+        // Fetch in the background without blocking the initial timetable.
+        for(const week of supplementWeeks){
+          void native.calendarWeekSupplement({weekStart:week}).then(extra=>{
+            if(disposed)return
+            setHomeSchoolEvents(previous=>{
+              const known=new Set(previous.map(item=>item.id))
+              const added=extra.items.filter(item=>{
+                if(known.has(item.id))return false
+                known.add(item.id)
+                return true
+              })
+              return added.length?[...previous,...added].sort(compareEvents):previous
+            })
+            const cached=weeklyCache.current.get(week)
+            if(cached){
+              const known=new Set(cached.items.map(item=>item.id))
+              weeklyCache.current.set(week,{...cached,items:[
+                ...cached.items,...extra.items.filter(item=>!known.has(item.id))
+              ]})
+            }
+          }).catch(()=>{})
+        }
       }
     })
     return ()=>{disposed=true}
