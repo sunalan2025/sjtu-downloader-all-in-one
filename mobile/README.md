@@ -1,4 +1,4 @@
-# SJTU Downloader for Android — v0.4.13 Beta
+# SJTU Downloader for Android — v0.4.14 Beta
 
 独立 Android 测试应用。代码位于 `feature/android-mvp`，不修改桌面版主线。
 
@@ -141,3 +141,11 @@ Android 工程和 native overlay 由 `android:prepare` 自动处理。也可进�
 - **国产系统适配**：依系统返回的 manufacturer 给出 vivo/iQOO OriginOS、Xiaomi/Redmi HyperOS、OPPO/realme/OnePlus、Huawei/Honor 的背景自启/耗电管理提示。没有硬编码 OEM 私有 Settings Activity；不申请直接取消电池优化的特殊权限。
 - **及时显示课程**：首页当前周同步完即推送小组件，而不再等待未来两周全部网络请求完成；未来周/Canvas 作业继续增量合并。若学校授权失败，状态面板能确认缓存为空。
 - **更新限制**：后台自动刷新仍受 Doze/OEM 电池限制，但前台主动同步后应立刻提交 RemoteViews。若状态显示“已缓存且已提交”，桌面仍白屏，问题通常位于第三方启动器或厂商桌面绘制链路，需真机日志核实。
+
+## v0.4.14 Beta · 正式考试安排与桌面端数据源对齐
+
+- **新增真实考试数据**：移动端不再仅按作业/事件标题中的考试关键词分类，而是通过 Android 原生 HTTPS 请求读取桌面端使用的 **学在交大** `j.sjtu.edu.cn/app/stu/exam/semester/list`，并尝试读取 `/app/stu/school/calendar/info` 以获取正确学期。如主源不可用或无考试，尝试教务信息服务网 `i.sjtu.edu.cn/kwgl/kscx_cxXsksxxIndex.html?doType=query`。
+- **单独考试授权**：学在交大和教务系统与 Canvas/正式课表属于不同 SSO 服务。无独立登录态时，日历底部显示「连接考试信息」及学在交大/教务备用入口；Android 原生 WebView 使用用户的既有交大认证，成功后保存加密会话 Cookie，不收集密码。授权失败与确实没有考试分别展示。
+- **考试显示**：正式考试被明确标记为 `type=exam`，展示考试科目、类型、北京时间、考场；加入移动端周课表/日课表、首页近期安排、桌面组件近期 Deadline。日课表标注「考场」，周课表独立紫色考试样式，按时间排序。
+- **性能**：考试接口在独立后台线程中加载，使用 5 分钟内存缓存；失败 15 秒后可重试，不阻塞既有课程与 Canvas 下载、正式课表加载。应用返回前台时可自动同步已授权的考试信息。
+- **限制**：无考试系统独立授权时不会伪造官方考试；具体考试发布与否取决于学在交大/教务 API 返回结果。请通过真实账户和考试学期确认是否与桌面端一致。
