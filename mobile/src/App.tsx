@@ -513,14 +513,19 @@ export default function App() {
     const now=Date.now()
     const cutoff=now+21*24*60*60*1000
     const seen=new Set<string>()
-    const items=rows.map(event=>{
+    const items=rows.filter(event=>
+      // Personal all-day tasks are not lectures starting at midnight.
+      event.type==='assignment'||!/^\d{4}-\d\d-\d\d$/.test(event.startTime)
+    ).map(event=>{
       const kind=scheduleKind(event)
       // School timetable and personal timed plans are class/agenda entries;
       // all Canvas homework and recognized exams are displayed as deadlines.
       const deadline=kind==='homework'||kind==='exam'
       const startMs=eventMillis(event)
+      const requestedEnd=Date.parse(event.endTime)
       const endMs=deadline ? startMs :
-        Date.parse(event.endTime) || startMs + 45*60*1000
+        Number.isFinite(requestedEnd)&&requestedEnd>startMs
+          ? requestedEnd : startMs+45*60*1000
       return {
         id:event.id,title:event.title.trim(),location:schedulePlace(event),
         startMs,endMs,kind:deadline?'deadline' as const:'course' as const
