@@ -984,3 +984,12 @@ button:active:not(:disabled) { transform:scale(.965); }
 }
 .week-overview--7 .week-time-header{gap:3px;}
 .week-overview--7 .week-all-day-chip{font-size:10px;}
+
+/* Landscape tablets: use all available horizontal space and give seven days
+   a genuine Monday–Sunday equal-column grid, never a centered three-day strip. */
+@media (orientation:landscape) and (min-width:700px){
+ .app-shell,.content,.calendar-panel-transition,.week-overview{max-width:none;width:100%;min-width:0;}
+ .week-overview--7 .week-timetable-grid{width:100%;}
+ .week-overview--7 .week-time-event{min-width:0;}
+ .week-overview--7 .week-time-header,.week-overview--7 .week-all-day-chip{text-align:left;}
+}
