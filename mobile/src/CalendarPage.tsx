@@ -129,8 +129,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   // A generous landscape canvas shows the standard Mon–Sun week.
   // Medium landscape shows 5 contiguous days including the selected date;
   // narrow portrait stays centered at selected-1/selected/selected+1.
-  const visibleWeekCount=landscape && availableWidth>=1000?7:
-    landscape && availableWidth>=660?5:3
+  const visibleWeekCount=landscape && availableWidth>=880?7:
+    landscape && availableWidth>=550?5:3
   const selectedIndex=weekDates.indexOf(selected)
   const fiveStart=Math.max(0,Math.min(2,(selectedIndex<0?0:selectedIndex)-2))
   const visibleWeekDates=visibleWeekCount===7?weekDates:
