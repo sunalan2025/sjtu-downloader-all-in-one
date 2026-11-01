@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41292052324 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41321585237 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.15-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.15-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.16-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.16-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.15-beta
+          TAG=android-v0.4.16-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.15-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.16-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.15-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.16-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.15 Beta" \
-              --notes "Android v0.4.15 Beta: Responsive tablet-landscape week timetable now uses actual available content width and offers five continuous days on medium landscape screens or a standard Monday-to-Sunday seven-column week on wide screens (no forced centered date in seven-day mode). Seven-day arrows and horizontal swipes advance a full week; narrow phones keep the centered three-day view. Launcher widgets have been redesigned as TWO separately addable compact variants: (1) a roughly 2x3 portrait Daily Class Timetable with previous/next date buttons, per-widget date offset, classes, classrooms and approximate current/next class countdown; (2) a roughly 2x2 square Upcoming Agenda with nearest courses, personal schedules, homework deadlines and official exams chronologically sorted, showing two detailed entries and a remaining-count summary. Compatible RemoteViews layouts, Android 12 targetCell dimensions and both manifest receivers included; existing legacy widget provider migrated to the compact timetable. Eight preceding days of calendar data can be cached for browsing. Changes compiled and both widget receivers verified in APK by Android CI run 41292052324. OEM launcher allocation/arrow interactions and tablet layout must still be tested on physical devices; inexact alarm timing may be delayed by battery management. Public TEST-SIGNED Beta, not production trusted."
+              --title "SJTU Downloader Android v0.4.16 Beta" \
+              --notes "Android v0.4.16 Beta: Exam details from the same StudyAtSJTU and registrar sources as Desktop are now synchronized without another manual tap when the existing jAccount SSO session can be reused. If the separate exam session is missing, Android attempts a bounded invisible non-interactive WebView OAuth navigation to the Study and registrar portals, then fetches exams again; users still must complete any interactive identity verification themselves. Corrected Canvas deadline handling: all due_at dates are grouped by Asia/Shanghai rather than raw UTC string comparisons, per-course assignments are reconciled in the background even when the calendar API responds successfully, and the week timeline extends to midnight with enough visible space for a 23:59 homework card. On landscape tablets (width >= 740 CSS px and height >= 420 px), navigation is moved into a persistent left rail on Home, Courses, Calendar and Downloads; batch download action is moved to the content pane while the rail stays visible. Phones/portrait keep the bottom navigation. GitHub Actions CI build 41321585237 completed all 14 steps successfully. Actual school SSO and late-night deadlines require live-account verification, and OEM tablet layouts still require real-device inspection. Public test-signed beta only."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
