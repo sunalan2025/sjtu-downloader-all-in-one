@@ -967,3 +967,20 @@ button:active:not(:disabled) { transform:scale(.965); }
   line-height:1.5;margin:12px 0 0;
 }
 .week-time-exam>span:first-child{font-weight:770;color:#8e5a9b;}
+
+/* Tablet landscape: the timeline owns the full comfortable reading canvas.
+   The number of day columns is selected from ResizeObserver's actual width. */
+@media (orientation:landscape) and (min-width:740px){
+  .app-shell{max-width:none;width:100%;}
+  .content{max-width:1500px;padding-left:clamp(18px,3.2vw,56px);
+    padding-right:clamp(18px,3.2vw,56px);}
+  .week-overview{min-width:0;width:100%;}
+  .week-timetable-grid{--week-head-height:56px;}
+  .week-time-event{padding:6px 7px;gap:4px;}
+  .week-time-event strong{font-size:clamp(10px,1.15vw,13px);-webkit-line-clamp:3;}
+  .week-time-event span{font-size:10px;}
+  .week-time-header strong{font-size:17px;}
+  .week-all-day-chip{padding:6px 7px;font-size:11px;}
+}
+.week-overview--7 .week-time-header{gap:3px;}
+.week-overview--7 .week-all-day-chip{font-size:10px;}

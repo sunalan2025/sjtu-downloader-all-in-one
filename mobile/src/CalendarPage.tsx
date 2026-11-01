@@ -103,12 +103,39 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   },[today])
   const weekStart=monday(selected)
   const weekDates=Array.from({length:7},(_,i)=>nextDay(weekStart,i))
-  // Phone view is ALWAYS the selected date in the middle, with its immediate
-  // neighbors on either side. Do not partition the week into pages: that put
-  // Monday/Tuesday selection at the edge and hid Sunday beside Monday.
   const weekSwipeStart=useRef<{x:number;y:number}|null>(null)
-  const visibleWeekDates=[nextDay(selected,-1),selected,nextDay(selected,1)]
-  const visibleWeekCount=3
+  const weekContainer=useRef<HTMLElement|null>(null)
+  const [availableWidth,setAvailableWidth]=useState(0)
+  const [landscape,setLandscape]=useState(
+    ()=>window.matchMedia('(orientation: landscape)').matches)
+  useEffect(()=>{
+    const node=weekContainer.current
+    const measure=()=>{
+      setAvailableWidth(node?.getBoundingClientRect().width||window.innerWidth)
+      setLandscape(window.matchMedia('(orientation: landscape)').matches)
+    }
+    const observer=typeof ResizeObserver!=='undefined' ? new ResizeObserver(measure):null
+    if(node)observer?.observe(node)
+    window.addEventListener('resize',measure)
+    window.addEventListener('orientationchange',measure)
+    measure()
+    return()=>{
+      observer?.disconnect()
+      window.removeEventListener('resize',measure)
+      window.removeEventListener('orientationchange',measure)
+    }
+  },[])
+  // Use the *actual timetable content width*, rather than tablet model name.
+  // A generous landscape canvas shows the standard Mon–Sun week.
+  // Medium landscape shows 5 contiguous days including the selected date;
+  // narrow portrait stays centered at selected-1/selected/selected+1.
+  const visibleWeekCount=landscape && availableWidth>=1000?7:
+    landscape && availableWidth>=660?5:3
+  const selectedIndex=weekDates.indexOf(selected)
+  const fiveStart=Math.max(0,Math.min(2,(selectedIndex<0?0:selectedIndex)-2))
+  const visibleWeekDates=visibleWeekCount===7?weekDates:
+    visibleWeekCount===5?weekDates.slice(fiveStart,fiveStart+5):
+    [nextDay(selected,-1),selected,nextDay(selected,1)]
 
   const eventMap=useMemo(()=>{
     const map=new Map<string,CalendarEvent[]>()
@@ -146,7 +173,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     return 12+entries.reduce((height,event)=>{
       // Portrait day columns are about 85–115 CSS px wide; allow wrapping
       // with extra headroom for long Chinese homework names.
-      const lines=Math.max(1,Math.ceil(event.title.length/7))
+      const approximateLetters=visibleWeekCount===7?15:visibleWeekCount===5?11:7
+      const lines=Math.max(1,Math.ceil(event.title.length/approximateLetters))
       return height+Math.max(36,19+lines*15)
     },0)+Math.max(0,entries.length-1)*5
   }))
@@ -212,9 +240,11 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
       </div>}
     </section>
 
-    <div key={display === 'week' ? 'week-' + selected : 'day-' + selected}
+    <div key={display === 'week' ? 'week-' + selected + '-' + visibleWeekCount : 'day-' + selected}
       className={'calendar-panel-transition' + (hasNestedMotion ? ' nested-motion' : '') + ' calendar-panel--' + motionDirection}>
-    {display==='week' && <section className="week-overview glass" aria-label="适配手机的本周课程时间表">
+    {display==='week' && <section ref={weekContainer}
+      className={'week-overview glass week-overview--'+visibleWeekCount}
+      aria-label={visibleWeekCount===7?'周一到周日完整周课表':visibleWeekCount===5?'五天课表':'三天课表'}>
       <div className="week-view-toolbar">
         <div className="week-view-caption">
           <strong>课表</strong>
