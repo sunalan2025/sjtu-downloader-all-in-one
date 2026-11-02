@@ -15,7 +15,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="打开应用同步桌面组件"
+        android:text="应用同步后显示日程"
         android:textSize="12sp"
         android:lineSpacingExtra="4dp"
         android:textColor="#344E72"/>

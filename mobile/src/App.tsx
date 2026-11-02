@@ -357,7 +357,8 @@ export default function App() {
       return
     }
     const todayWeek=currentWeekStart()
-    const weeks=[todayWeek,dateOffset(todayWeek,-7),dateOffset(todayWeek,7),dateOffset(todayWeek,14)]
+    const weeks=[todayWeek,dateOffset(todayWeek,-7),dateOffset(todayWeek,7),
+      dateOffset(todayWeek,14),dateOffset(todayWeek,21)]
     const loaded=new Map<string,CalendarEvent[]>()
     let disposed=false
     setHomeCalendarLoaded(false)
@@ -672,13 +673,9 @@ export default function App() {
     const school=loggedIn?homeSchoolEvents:[]
     const rows=[...school,...examEvents,...personalEvents.map(asCalendarEvent)].sort(compareEvents)
     const now=Date.now()
-    const cutoff=now+21*24*60*60*1000
+    const cutoff=Date.parse(dateOffset(today,22)+'T00:00:00+08:00')
     const seen=new Set<string>()
-    const items=rows.filter(event=>
-      // Personal all-day tasks are not lectures starting at midnight.
-      event.type==='assignment'||event.type==='exam'||
-      !/^\d{4}-\d\d-\d\d$/.test(event.startTime)
-    ).map(event=>{
+    const items=rows.map(event=>{
       const kind=scheduleKind(event)
       // School timetable and personal timed plans are class/agenda entries;
       // all Canvas homework and recognized exams are displayed as deadlines.
@@ -691,6 +688,7 @@ export default function App() {
       return {
         id:event.id,title:event.title.trim(),location:schedulePlace(event),
         startMs,endMs,kind:deadline?'deadline' as const:'course' as const,
+        allDay:/^\d{4}-\d\d-\d\d$/.test(event.startTime),
         category:kind==='exam'?'exam' as const:
           kind==='homework'?'homework' as const:
           event.type==='course'?'course' as const:'event' as const
@@ -705,8 +703,8 @@ export default function App() {
         return true
       }).sort((a,b)=>a.startMs-b.startMs)
       .slice(0,300)
-      .map(({title,location,startMs,endMs,kind,category})=>({
-        title,location,startMs,endMs,kind,category
+      .map(({title,location,startMs,endMs,kind,category,allDay})=>({
+        title,location,startMs,endMs,kind,category,allDay
       }))
     // An empty remote response may be a temporary school outage. Do not erase
     // an otherwise valid widget cache unless the account was logged out.

@@ -76,16 +76,14 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
                         view.setViewVisibility(rows[i],View.VISIBLE);
                     }else if(i==0){
                         view.setTextViewText(rows[i],
-                            "近期没有待办\n点击应用同步最新日程");
+                            "近期没有待办\n打开应用后会自动同步");
                         view.setViewVisibility(rows[i],View.VISIBLE);
                     }else if(i==2 && upcoming.size()>2){
                         view.setTextViewText(rows[i],
-                            "还有 " + (upcoming.size()-2) + " 项 · 点击查看");
+                            "还有 " + (upcoming.size()-2) + " 项");
                         view.setViewVisibility(rows[i],View.VISIBLE);
                     }else view.setViewVisibility(rows[i],View.GONE);
                 }
-                view.setOnClickPendingIntent(R.id.agenda_root,
-                    TodayScheduleWidget.openApp(context));
                 manager.updateAppWidget(id,view);
                 success++;
             } catch(Exception error){
@@ -94,9 +92,7 @@ public final class UpcomingAgendaWidget extends AppWidgetProvider {
                     RemoteViews fallback=new RemoteViews(context.getPackageName(),
                         R.layout.today_schedule_widget_fallback);
                     fallback.setTextViewText(R.id.widget_fallback_message,
-                        "近日安排\n点击进入应用同步日程");
-                    fallback.setOnClickPendingIntent(R.id.widget_fallback_root,
-                        TodayScheduleWidget.openApp(context));
+                        "近日安排\n打开应用同步后会刷新");
                     manager.updateAppWidget(id,fallback);
                     success++;
                 }catch(Exception ignored){}
