@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41368041401 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41374072391 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.18-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.18-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.19-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.19-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.18-beta
+          TAG=android-v0.4.19-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.18-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.19-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.18-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.19-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.18 Beta" \
-              --notes "Android v0.4.18 Beta: fixed homework deadlines appearing as unreadable tiny strips, especially at 23:59. Deadlines are point-in-time items, not 28-minute lectures; in the weekly timetable they now appear in a shared-height, fully wrapped task/deadline lane above the hour grid, with the actual Shanghai deadline time or an honest day-only label. All titles remain visible, and DOM scrollHeight measurements protect them from clipping under narrow columns, OEM font scaling, and 3/5/7-day layouts. Timed classes, official exams, and personal events retain their real timeline positions. When overlapping or visually too-close events would be crushed into multiple slivers, the timetable groups them into a full-width N-events card; tapping any grouped card or deadline opens a scrollable details sheet with every complete event title, actual time, type, location, and a link to the full chronological day list. 00:00-06:00 events are no longer clamped to 06:00. Android CI run 41368041401 passed all 14 steps including APK validation. Actual phone/tablet/OEM visual behavior remains to be inspected on devices. Public test-signed prerelease."
+              --title "SJTU Downloader Android v0.4.19 Beta" \
+              --notes "Android v0.4.19 Beta: Reworked BOTH Android launcher widgets into clean, fully vertically scrollable DAILY schedules rather than capped 2/3-item previews. The new launcher UI contains only previous-day and next-day arrows, date, a concise count, and a native scrolling list. It includes every cached class, personal event, all-day item, officially synchronized exam and homework deadline for that day in time order, with multiline full titles, class/exam end times, actual due times and location when known. No widget root, row, footer or fallback has an app-launch PendingIntent; scrolling or tapping a schedule never jumps into the application. Each widget instance keeps its own independently navigable day, with arrow navigation covering 7 days back and 21 days forward; mobile Home preloads weeks spanning that range. Android 12+ uses the platform RemoteCollectionItems adapter, while Android 11 and older use an explicitly registered permission-protected RemoteViewsService. The previous compact Upcoming Agenda receiver remains registered and now delegates to the same scrollable daily renderer, preserving existing widget IDs. Automatic widget updates occur after the app refreshes its local cache and around day change, avoiding needless 30-minute wakeups. Android's RemoteViews widgets do NOT offer portable horizontal-swipe callbacks: sideways date navigation is provided by the real clickable left/right arrows; vertical swipe is natively supported. No new permissions or background school login. GitHub Actions Android build 41374072391 succeeded in all 14 steps. Physical OEM launcher scrolling, resizing, and Android 11 adapter behavior require on-device verification. Public test-signed beta."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
