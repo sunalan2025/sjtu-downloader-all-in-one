@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon } from './Icon'
 import type { CalendarEvent } from './native'
 import { scheduleKind, scheduleLabel, schedulePlace, compareEvents } from './ScheduleUtils'
@@ -100,11 +101,20 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   const [view,setView]=useState<'week'|'month'>('week')
   const [display,setDisplay]=useState<'week'|'day'>('week')
   const [detailEvents,setDetailEvents]=useState<CalendarEvent[]|null>(null)
+  const closeDetailsRef=useRef<HTMLButtonElement|null>(null)
   useEffect(()=>{
     if(!detailEvents)return
+    const previousFocus=document.activeElement instanceof HTMLElement?document.activeElement:null
+    const previousOverflow=document.body.style.overflow
+    document.body.style.overflow='hidden'
+    closeDetailsRef.current?.focus()
     const onEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setDetailEvents(null)}
     document.addEventListener('keydown',onEscape)
-    return ()=>document.removeEventListener('keydown',onEscape)
+    return ()=>{
+      document.body.style.overflow=previousOverflow
+      document.removeEventListener('keydown',onEscape)
+      previousFocus?.focus()
+    }
   },[detailEvents])
   const [motionDirection,setMotionDirection]=useState<'forward'|'backward'>('forward')
   const [hasNestedMotion,setHasNestedMotion]=useState(false)
@@ -123,6 +133,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   const weekDates=Array.from({length:7},(_,i)=>nextDay(weekStart,i))
   const weekSwipeStart=useRef<{x:number;y:number}|null>(null)
   const weekContainer=useRef<HTMLElement|null>(null)
+  const [measuredLane,setMeasuredLane]=useState<{key:string;height:number}|null>(null)
   const [availableWidth,setAvailableWidth]=useState(0)
   const [landscape,setLandscape]=useState(
     ()=>window.matchMedia('(orientation: landscape)').matches)
@@ -190,7 +201,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   // instead of dropping items or hiding them behind a "+N" placeholder.
   const deadlineColumnWidth=Math.max(52,(availableWidth-58)/visibleWeekDates.length-10)
   const approximateLetters=Math.max(4,Math.floor((deadlineColumnWidth-8)/10))
-  const allDayHeight=Math.max(70,...visibleWeekDates.map(date=>{
+  const estimatedLaneHeight=Math.max(70,...visibleWeekDates.map(date=>{
     const entries=allDayFor(date)
     return 14+entries.reduce((sum,event)=>{
       const weightedLength=[...event.title].reduce((n,ch)=>n+(ch.charCodeAt(0)<128?.6:1),0)
@@ -198,6 +209,35 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
       return sum+Math.max(47,29+lines*15)
     },0)+Math.max(0,entries.length-1)*5
   }))
+  const laneKey=visibleWeekDates.join('|')+'@'+Math.round(availableWidth)+':'+
+    visibleWeekDates.map(date=>(eventMap.get(date)||[]).filter(isDeadlineLaneItem)
+      .map(e=>e.id+e.title).join(',')).join('|')
+  const allDayHeight=Math.max(estimatedLaneHeight,
+    measuredLane?.key===laneKey?measuredLane.height:0)
+  // CSS text wrapping depends on real rendered column width, fonts and system
+  // scaling. Measure each lane's scrollHeight so even long task titles remain
+  // visible on narrow OEM WebViews where a character-count estimate falls short.
+  useLayoutEffect(()=>{
+    if(display!=='week')return
+    const measure=()=>{
+      const lanes=weekContainer.current?.querySelectorAll<HTMLElement>(
+        '.week-time-column .week-all-day')
+      if(!lanes?.length)return
+      let required=estimatedLaneHeight
+      for(const lane of lanes){
+        required=Math.max(required,lane.scrollHeight+2)
+      }
+      setMeasuredLane(previous=>previous?.key===laneKey&&previous.height>=required
+        ?previous:{key:laneKey,height:required})
+    }
+    measure()
+    const animation=window.requestAnimationFrame(measure)
+    window.addEventListener('resize',measure)
+    return ()=>{
+      window.cancelAnimationFrame(animation)
+      window.removeEventListener('resize',measure)
+    }
+  },[display,laneKey,estimatedLaneHeight])
   const WEEK_HOUR_PX=54
   const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX+
     (weekLastHour===24?WEEK_HOUR_PX:0)
@@ -409,7 +449,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
       </section>
     </>}
     </div>
-    {detailEvents&&<div className="week-detail-scrim"
+    {detailEvents&&createPortal(<div className="week-detail-scrim"
       onMouseDown={event=>{if(event.target===event.currentTarget)setDetailEvents(null)}}>
       <section className="week-detail-sheet" role="dialog" aria-modal="true"
         aria-labelledby="week-detail-title">
@@ -420,7 +460,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
               '同一时段的 '+detailEvents.length+' 项安排':'日程详情'}</h2>
           </div>
           <button type="button" aria-label="关闭日程详情"
-            className="week-detail-close" onClick={()=>setDetailEvents(null)}>
+            className="week-detail-close" ref={closeDetailsRef}
+            onClick={()=>setDetailEvents(null)}>
             <Icon name="close" size={19}/>
           </button>
         </div>
@@ -454,7 +495,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
             setDetailEvents(null)
           }}>查看当天完整时间列表 <Icon name="right" size={16}/></button>
       </section>
-    </div>}
+    </div>,document.body)}
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
       <Icon name="school" size={18}/><span>连接正式课表</span><Icon name="right" size={16}/>
     </button>}
