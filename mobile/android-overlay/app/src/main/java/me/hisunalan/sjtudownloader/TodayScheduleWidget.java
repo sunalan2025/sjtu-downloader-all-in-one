@@ -13,7 +13,6 @@ import android.net.Uri;
 import android.os.Build;
 import android.view.View;
 import android.widget.RemoteViews;
-import android.widget.RemoteViewsService;
 import com.getcapacitor.JSObject;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -26,10 +25,13 @@ import java.util.Locale;
 import java.util.TimeZone;
 
 /**
- * Compact, independent 2x3 daily timetable widget. Its left/right controls
- * navigate each instance separately and never launch the full app.
- * Reads cached course metadata only; no background school login or storage
- * permission. A second, separate UpcomingAgendaWidget renders the deadlines.
+ * Minimal, vertically scrollable full-day calendar widget. All cached
+ * courses, homework deadlines, exams and personal events remain accessible
+ * within the launcher. Day arrows navigate each instance independently;
+ * no calendar row or container opens the application.
+ *
+ * Shares this renderer with the smaller legacy UpcomingAgendaWidget.
+ * Never runs background school authentication or requires storage permission.
  */
 public final class TodayScheduleWidget extends AppWidgetProvider {
     static final String PREFS = "sjtu-today-widget-v1";
@@ -142,13 +144,6 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         calendar.set(Calendar.MILLISECOND, 0);
         calendar.add(Calendar.DAY_OF_YEAR, offset);
         return calendar.getTimeInMillis();
-    }
-
-    static PendingIntent openApp(Context context) {
-        Intent intent = new Intent(context, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        return PendingIntent.getActivity(context, 7202, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     private static PendingIntent pageIntent(Context context, int id, int direction) {
