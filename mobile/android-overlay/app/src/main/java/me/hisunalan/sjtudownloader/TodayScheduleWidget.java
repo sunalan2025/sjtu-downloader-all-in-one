@@ -225,8 +225,7 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
             SharedPreferences prefs = preferences(context);
             int next = Math.max(-7, Math.min(21, prefs.getInt(OFFSET + id, 0) + step));
             prefs.edit().putInt(OFFSET + id, next).apply();
-            if (compactWidget) renderAgenda(context, manager, new int[]{id});
-            else render(context,manager,new int[]{id});
+            render(context,manager,new int[]{id},compactWidget,true);
         } else if (ACTION_REFRESH.equals(action) ||
             Intent.ACTION_DATE_CHANGED.equals(action) ||
             Intent.ACTION_TIME_CHANGED.equals(action) ||
@@ -330,15 +329,15 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
     }
 
     static void renderAgenda(Context context, AppWidgetManager manager, int[] ids) {
-        render(context,manager,ids,true);
+        render(context,manager,ids,true,false);
     }
 
     private static void render(Context context, AppWidgetManager manager, int[] ids) {
-        render(context,manager,ids,false);
+        render(context,manager,ids,false,false);
     }
 
     private static void render(Context context, AppWidgetManager manager,
-                               int[] ids,boolean compact) {
+                               int[] ids,boolean compact,boolean resetScroll) {
         long now = System.currentTimeMillis();
         ArrayList<Item> all = load(context);
         SharedPreferences prefs = preferences(context);
@@ -356,9 +355,9 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 view.setTextViewText(R.id.widget_empty,
                     all.isEmpty() ? "暂无已同步安排" : "这一天暂无安排");
                 attachList(context,view,id,items);
-                // A new date starts at the top of the scrollable day's list.
-                // Updating school data keeps the actual rows intact; no row
-                // clicks or collection PendingIntent templates are installed.
+                // Explicit day navigation starts at the beginning of the new
+                // day. Routine cache refreshes preserve the user's scroll.
+                if (resetScroll) view.setScrollPosition(R.id.widget_list,0);
                 // Only these arrows navigate. No app-launch PendingIntent on
                 // the root or list rows, so scrolling never opens the app.
                 view.setOnClickPendingIntent(R.id.widget_prev,pageIntent(context,id,-1));
@@ -382,11 +381,10 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 }
             }
         }
-        SharedPreferences.Editor report = prefs.edit();
+        SharedPreferences.Editor report = prefs.edit().putLong("lastRenderAt",now);
         if (compact) report.putInt("agendaRenderedInstances",success)
             .putString("agendaRenderError",failure.isEmpty()?"":"agenda:"+failure);
-        else report.putLong("lastRenderAt",now)
-            .putInt("lastRenderedInstances",success)
+        else report.putInt("lastRenderedInstances",success)
             .putString("lastRenderError",failure);
         report.apply();
         // No countdown badge or live minute-by-minute text remains. Refresh
