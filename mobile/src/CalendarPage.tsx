@@ -37,35 +37,46 @@ const minute = (time: string, fallback = 480) => {
 const isTimed = (e: CalendarEvent) => /^\d{2}:\d{2}$/.test(timeText(e.startTime))
 const isHomework = (e: CalendarEvent) => e.type === 'assignment'
 const COURSE_COLORS = ['indigo','teal','lavender','amber'] as const
-type Placed = { event:CalendarEvent; start:number; end:number; left:number; width:number; tone:string }
-function placeClasses(events:CalendarEvent[]): Placed[] {
-  const sorted=events.filter(isTimed).map(event=>({
-    event,start:minute(event.startTime),end:Math.max(minute(event.endTime,minute(event.startTime)+45),minute(event.startTime)+28)
-  })).sort((a,b)=>a.start-b.start||a.end-b.end)
-  const placed:Placed[]=[]
-  let cluster:typeof sorted=[]
+type WeekBlock = { start:number; end:number; events:CalendarEvent[]; tone:string }
+/**
+ * Homework deadlines are instants, not 28-minute lectures. They are displayed
+ * as readable cards in the above-timeline deadline lane, with their actual
+ * clock time, instead of manufacturing a clipped 23:59 calendar block.
+ *
+ * For real timed events, combine physically overlapping *visual cards* into
+ * one full-width stack indicator. Narrow 3/5/7-column views must never shrink
+ * 3+ concurrent events to unreadable 20px-wide slivers.
+ */
+function placeClasses(events:CalendarEvent[]):WeekBlock[] {
+  const timed=events.filter(e=>isTimed(e)&&e.type!=='assignment')
+    .map(event=>{
+      const start=minute(event.startTime)
+      const clockEnd=minute(event.endTime,start+45)
+      return {event,start,end:Math.max(start+52,clockEnd)}
+    }).sort((a,b)=>a.start-b.start||a.end-b.end||a.event.title.localeCompare(b.event.title,'zh-CN'))
+  const blocks:WeekBlock[]=[]
+  let cluster:typeof timed=[]
+  let clusterEnd=-1
   const flush=()=>{
     if(!cluster.length)return
-    const ends:number[]=[]
-    const cols:number[]=[]
-    for(const item of cluster){
-      let c=ends.findIndex(x=>x<=item.start)
-      if(c<0){c=ends.length;ends.push(item.end)}else ends[c]=item.end
-      cols.push(c)
-    }
-    const width=100/ends.length
-    cluster.forEach((item,i)=>placed.push({...item,left:cols[i]*width,width,
-      tone:COURSE_COLORS[Math.abs([...item.event.title].reduce((a,c)=>a+c.charCodeAt(0),0))%COURSE_COLORS.length]}))
+    const events=cluster.map(entry=>entry.event)
+    const title=events[0].title
+    blocks.push({
+      start:cluster[0].start,end:clusterEnd,events,
+      tone:COURSE_COLORS[Math.abs([...title].reduce((sum,c)=>sum+c.charCodeAt(0),0))%COURSE_COLORS.length]
+    })
     cluster=[]
+    clusterEnd=-1
   }
-  let activeEnd=-1
-  for(const item of sorted){
-    if(cluster.length&&item.start>=activeEnd)flush()
-    cluster.push(item);activeEnd=Math.max(activeEnd,item.end)
+  for(const item of timed){
+    if(cluster.length&&item.start>=clusterEnd)flush()
+    cluster.push(item)
+    clusterEnd=Math.max(clusterEnd,item.end)
   }
   flush()
-  return placed
+  return blocks
 }
+const isDeadlineLaneItem=(e:CalendarEvent)=>e.type==='assignment'||!isTimed(e)
 export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOfficial,officialConnected,
   onAddSchedule,onEditSchedule,onExamConnect,onExamFallback,examConnected,examChecking,examWarning,examSource}:{
   month:string
@@ -88,6 +99,13 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   const [selected,setSelected]=useState(today)
   const [view,setView]=useState<'week'|'month'>('week')
   const [display,setDisplay]=useState<'week'|'day'>('week')
+  const [detailEvents,setDetailEvents]=useState<CalendarEvent[]|null>(null)
+  useEffect(()=>{
+    if(!detailEvents)return
+    const onEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setDetailEvents(null)}
+    document.addEventListener('keydown',onEscape)
+    return ()=>document.removeEventListener('keydown',onEscape)
+  },[detailEvents])
   const [motionDirection,setMotionDirection]=useState<'forward'|'backward'>('forward')
   const [hasNestedMotion,setHasNestedMotion]=useState(false)
   const selectedRef=useRef(selected)
@@ -153,40 +171,38 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
     for(const values of map.values())values.sort(compareEvents)
     return map
   },[events])
-  // Both the hour labels and all seven day columns use one minute-to-pixel
-  // function. Vertical positions never depend on how many cards precede a class.
-  const weekTimed=visibleWeekDates.flatMap(date =>
-    (eventMap.get(date)||[]).filter(isTimed))
+  // Deadline points live in the shared-height task lane above the hour grid.
+  // The hour axis is based on actual timed lessons/exams, not a 23:59 DDL,
+  // which would otherwise extend every day's view through midnight.
+  const weekTimed=visibleWeekDates.flatMap(date=>
+    (eventMap.get(date)||[]).filter(e=>isTimed(e)&&e.type!=='assignment'))
   const weekFirstHour=weekTimed.length
     ? Math.max(6,Math.floor(Math.min(...weekTimed.map(e=>minute(e.startTime)))/60)-1) : 8
   const weekLastHour=weekTimed.length
     ? Math.min(24,Math.max(weekFirstHour+3,
-        Math.ceil(Math.max(...weekTimed.map(e=>Math.max(minute(e.endTime,minute(e.startTime)+45),minute(e.startTime)+28)))/60)+1))
+        Math.ceil(Math.max(...weekTimed.map(e=>Math.max(
+          minute(e.endTime,minute(e.startTime)+45),minute(e.startTime)+52)))/60)+1))
     : 18
-  // The all-day lane has a *shared* height across all three columns. Compute it
-  // from the number and approximate wrapped line counts of the actual entries.
-  // Each item is rendered in full rather than hidden under an unusable "+N".
   const allDayFor=(date:string)=>(eventMap.get(date)||[])
-    .filter(event=>!isTimed(event))
+    .filter(isDeadlineLaneItem)
+  // The three/five/seven day columns share one deadline-lane height.
+  // Account for full multi-line task titles and a separate HH:mm badge
+  // instead of dropping items or hiding them behind a "+N" placeholder.
+  const deadlineColumnWidth=Math.max(52,(availableWidth-58)/visibleWeekDates.length-10)
+  const approximateLetters=Math.max(4,Math.floor((deadlineColumnWidth-8)/10))
   const allDayHeight=Math.max(70,...visibleWeekDates.map(date=>{
     const entries=allDayFor(date)
-    return 12+entries.reduce((height,event)=>{
-      // Portrait day columns are about 85–115 CSS px wide; allow wrapping
-      // with extra headroom for long Chinese homework names.
-      const approximateLetters=visibleWeekCount===7?15:visibleWeekCount===5?11:7
-      const lines=Math.max(1,Math.ceil(event.title.length/approximateLetters))
-      return height+Math.max(36,19+lines*15)
+    return 14+entries.reduce((sum,event)=>{
+      const weightedLength=[...event.title].reduce((n,ch)=>n+(ch.charCodeAt(0)<128?.6:1),0)
+      const lines=Math.max(1,Math.ceil(weightedLength/approximateLetters))
+      return sum+Math.max(47,29+lines*15)
     },0)+Math.max(0,entries.length-1)*5
   }))
   const WEEK_HOUR_PX=54
-  // 23:59 deadlines must remain inside the lane through 24:00, never
-  // clamped to the 23:00 boundary as in the old tablet/week layout.
-  // Reserve a full card-height below the 24:00 tick. A deadline at
-  // 23:59 otherwise gets clipped to a one-pixel strip even when the axis
-  // includes midnight; keep its time label and title fully tappable.
   const weekHeight=(weekLastHour-weekFirstHour)*WEEK_HOUR_PX+
     (weekLastHour===24?WEEK_HOUR_PX:0)
-  const weekPosition=(minutes:number)=>Math.max(0,Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
+  const weekPosition=(minutes:number)=>Math.max(0,
+    Math.min(weekHeight,(minutes-weekFirstHour*60)/60*WEEK_HOUR_PX))
   const dayEvents=eventMap.get(selected)||[]
   const shift=(offset:number)=>{
     setHasNestedMotion(true)
@@ -267,7 +283,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
         </div>
       </div>
       <div className="week-timetable-scroll" role="region" tabIndex={0}
-        aria-label="每小时对齐的周课表，点击课程查看当天详情"
+        aria-label="每小时对齐的周课表，截止任务完整显示在时间轴上方，重叠课程可点击查看全部"
         onTouchStart={e=>{
           const touch=e.touches[0]
           if(touch)weekSwipeStart.current={x:touch.clientX,y:touch.clientY}
@@ -291,7 +307,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
           } as React.CSSProperties}>
           <div className="week-time-axis">
             <div className="week-time-header week-axis-heading">时间</div>
-            <div className="week-all-day week-axis-all-day">全天</div>
+            <div className="week-all-day week-axis-all-day">全天<br/>截止</div>
             <div className="week-hour-column" style={{height:weekHeight}}>
               {Array.from({length:weekLastHour-weekFirstHour+1},(_,i)=>i+weekFirstHour).map(hour=>
                 <div className="week-time-label" key={hour}
@@ -300,7 +316,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
           </div>
           {visibleWeekDates.map(date=>{
             const entries=eventMap.get(date)||[]
-            const allDay=entries.filter(e=>!isTimed(e))
+            const allDay=entries.filter(isDeadlineLaneItem)
             const placed=placeClasses(entries)
             const weekday=DOW[dayIndex(date)]
             return <div key={date} className={'week-time-column'+(date===today?' is-today':'')+(date===selected?' is-selected':'')}
@@ -310,40 +326,47 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                 <span>{weekday}</span><strong>{Number(date.slice(-2))}</strong>
               </button>
               <div className="week-all-day">
-                {allDay.length>0 ? allDay.map(event=>
-                  <button type="button" key={event.id} className="week-all-day-chip"
-                    onClick={()=>{
-                      if(event.id.startsWith('personal-'))onEditSchedule(event.id)
-                      else {select(date);setDisplay('day')}
-                    }}
-                    aria-label={event.title} title={event.title}>
-                    <span>{event.title}</span>
-                  </button>) : <span className="week-all-day-empty">—</span>}
+                {allDay.length>0 ? allDay.map(event=>{
+                  const kind=scheduleKind(event)
+                  return <button type="button" key={event.id}
+                    className={'week-all-day-chip week-deadline-'+kind}
+                    onClick={()=>setDetailEvents([event])}
+                    aria-label={timeText(event.startTime)+' '+event.title}
+                    title={event.title}>
+                    <span className="week-deadline-time">
+                      {isTimed(event)?timeText(event.startTime):'全天'}
+                      {event.type==='assignment'?' 截止':''}
+                    </span>
+                    <strong>{event.title}</strong>
+                  </button>
+                }) : <span className="week-all-day-empty">—</span>}
               </div>
               <div className="week-hour-lane" style={{height:weekHeight}}>
                 {Array.from({length:weekLastHour-weekFirstHour+1},(_,i)=>i+weekFirstHour).map(hour=>
                   <div key={hour} className="week-hour-rule" style={{top:weekPosition(hour*60)}}/>)}
-                {placed.map(({event,start,end,left,width,tone})=>
-                  <button type="button" key={event.id} className={'week-time-event '+tone+
-                    (event.type==='assignment'?' week-time-homework':'')+
-                    (scheduleKind(event)==='exam'?' week-time-exam':'')}
-                    style={{
-                      top:weekPosition(start),
-                      height:Math.max(24,weekPosition(end)-weekPosition(start)-3),
-                      left:left+'%',width:'calc('+width+'% - 2px)'
-                    }}
-                    onClick={()=>{
-                      if(event.id.startsWith('personal-'))onEditSchedule(event.id)
-                      else {select(date);setDisplay('day')}
-                    }}
-                    aria-label={timeText(event.startTime)+' '+event.title}>
-                    <span>{event.type==='exam'?'考试 ':event.type==='assignment'?'截止 ':''}{timeText(event.startTime)}</span>
-                    <strong>{event.title}</strong>
-                    {(event.type==='course'||event.type==='exam')&&schedulePlace(event)&&
-                      <small className="week-classroom" title={schedulePlace(event)}>
-                        {schedulePlace(event)}
-                      </small>}
-                  </button>)}
+                {placed.map(({events:overlaps,start,end,tone})=>{
+                  const primary=overlaps[0]
+                  const many=overlaps.length>1
+                  const styleEnd=Math.max(46,weekPosition(end)-weekPosition(start)-3)
+                  // Keep late-night exams tappable inside the final hour.
+                  const top=Math.max(0,Math.min(weekPosition(start),weekHeight-styleEnd))
+                  return <button type="button" key={primary.id+'-'+start}
+                    className={'week-time-event '+tone+
+                      (scheduleKind(primary)==='exam'?' week-time-exam':'')+
+                      (many?' week-time-stack':'')}
+                    style={{top,height:styleEnd,left:'2px',width:'calc(100% - 4px)'}}
+                    onClick={()=>setDetailEvents(overlaps)}
+                    aria-label={many?timeText(primary.startTime)+' 开始的 '+overlaps.length+
+                      ' 项安排，点击查看完整内容':timeText(primary.startTime)+' '+primary.title}
+                    title={many?overlaps.map(e=>timeText(e.startTime)+' '+e.title).join('\n'):primary.title}>
+                    <span className="week-event-time">{timeText(primary.startTime)}
+                      {many?' · '+overlaps.length+' 项':''}</span>
+                    <strong>{many?'同一时段 '+overlaps.length+' 项安排':primary.title}</strong>
+                    {many?<small className="week-overlap-preview">{overlaps.map(e=>e.title).join('、')}</small>:
+                      (primary.type==='course'||primary.type==='exam')&&schedulePlace(primary)&&
+                      <small className="week-classroom">{schedulePlace(primary)}</small>}
+                  </button>
+                })}
               </div>
             </div>
           })}
@@ -386,6 +409,52 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
       </section>
     </>}
     </div>
+    {detailEvents&&<div className="week-detail-scrim"
+      onMouseDown={event=>{if(event.target===event.currentTarget)setDetailEvents(null)}}>
+      <section className="week-detail-sheet" role="dialog" aria-modal="true"
+        aria-labelledby="week-detail-title">
+        <div className="week-detail-top">
+          <div>
+            <span>完整日程</span>
+            <h2 id="week-detail-title">{detailEvents.length>1?
+              '同一时段的 '+detailEvents.length+' 项安排':'日程详情'}</h2>
+          </div>
+          <button type="button" aria-label="关闭日程详情"
+            className="week-detail-close" onClick={()=>setDetailEvents(null)}>
+            <Icon name="close" size={19}/>
+          </button>
+        </div>
+        <div className="week-detail-list">
+          {[...detailEvents].sort(compareEvents).map(event=>{
+            const kind=scheduleKind(event)
+            return <article key={event.id} className={'week-detail-item week-detail-'+kind}>
+              <div className="week-detail-meta">
+                <span className={'day-kind-pill day-kind-'+kind}>
+                  {event.type==='exam'&&event.examType?event.examType:scheduleLabel(kind)}
+                </span>
+                <time>{timeText(event.startTime)}
+                  {isTimed(event)&&timeText(event.endTime)!==timeText(event.startTime)
+                    ?' — '+timeText(event.endTime):''}</time>
+              </div>
+              <strong>{event.title}</strong>
+              {schedulePlace(event)&&<p>{event.type==='exam'?'考场':'地点'} · {schedulePlace(event)}</p>}
+              {event.courseName&&event.courseName!==event.title&&
+                event.courseName!=='正式课表'&&event.courseName!=='个人日程'&&
+                <p>{event.courseName}</p>}
+              {event.id.startsWith('personal-')&&<button type="button"
+                onClick={()=>{setDetailEvents(null);onEditSchedule(event.id)}}>编辑日程</button>}
+            </article>
+          })}
+        </div>
+        <button type="button" className="week-detail-day"
+          onClick={()=>{
+            const date=shanghaiDate(detailEvents[0].startTime)
+            select(date)
+            setDisplay('day')
+            setDetailEvents(null)
+          }}>查看当天完整时间列表 <Icon name="right" size={16}/></button>
+      </section>
+    </div>}
     {!officialConnected&&<button className="connect-timetable glass" onClick={onOfficial}>
       <Icon name="school" size={18}/><span>连接正式课表</span><Icon name="right" size={16}/>
     </button>}
