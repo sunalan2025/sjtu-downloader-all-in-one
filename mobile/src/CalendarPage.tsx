@@ -310,6 +310,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
       <div className="week-view-toolbar">
         <div className="week-view-caption">
           <strong>课表</strong>
+          <span>截止任务完整展开 · 重叠日程点开查看</span>
         </div>
         <div className="week-page-buttons" role="group" aria-label="切换显示的日期">
           <button type="button" aria-label={visibleWeekCount===7?'上一周':'显示前一天'}
@@ -374,8 +375,9 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                     aria-label={timeText(event.startTime)+' '+event.title}
                     title={event.title}>
                     <span className="week-deadline-time">
-                      {isTimed(event)?timeText(event.startTime):'全天'}
-                      {event.type==='assignment'?' 截止':''}
+                      {isTimed(event)?timeText(event.startTime)+
+                        (event.type==='assignment'?' 截止':''):
+                        event.type==='assignment'?'当天截止':'全天'}
                     </span>
                     <strong>{event.title}</strong>
                   </button>
@@ -401,8 +403,8 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
                     title={many?overlaps.map(e=>timeText(e.startTime)+' '+e.title).join('\n'):primary.title}>
                     <span className="week-event-time">{timeText(primary.startTime)}
                       {many?' · '+overlaps.length+' 项':''}</span>
-                    <strong>{many?'同一时段 '+overlaps.length+' 项安排':primary.title}</strong>
-                    {many?<small className="week-overlap-preview">{overlaps.map(e=>e.title).join('、')}</small>:
+                    <strong>{many?'该时段 '+overlaps.length+' 项安排':primary.title}</strong>
+                    {many?(styleEnd>=66?<small className="week-overlap-preview">{overlaps.map(e=>e.title).join('、')}</small>:null):
                       (primary.type==='course'||primary.type==='exam')&&schedulePlace(primary)&&
                       <small className="week-classroom">{schedulePlace(primary)}</small>}
                   </button>
