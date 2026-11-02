@@ -6,7 +6,7 @@
     android:minResizeHeight="135dp"
     android:targetCellWidth="3"
     android:targetCellHeight="3"
-    android:updatePeriodMillis="1800000"
+    android:updatePeriodMillis="86400000"
     android:initialLayout="@layout/today_schedule_widget"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"

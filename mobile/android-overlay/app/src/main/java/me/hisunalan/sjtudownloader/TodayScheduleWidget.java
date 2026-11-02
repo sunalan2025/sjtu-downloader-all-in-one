@@ -356,6 +356,9 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 view.setTextViewText(R.id.widget_empty,
                     all.isEmpty() ? "暂无已同步安排" : "这一天暂无安排");
                 attachList(context,view,id,items);
+                // A new date starts at the top of the scrollable day's list.
+                // Updating school data keeps the actual rows intact; no row
+                // clicks or collection PendingIntent templates are installed.
                 // Only these arrows navigate. No app-launch PendingIntent on
                 // the root or list rows, so scrolling never opens the app.
                 view.setOnClickPendingIntent(R.id.widget_prev,pageIntent(context,id,-1));
@@ -386,8 +389,10 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
             .putInt("lastRenderedInstances",success)
             .putString("lastRenderError",failure);
         report.apply();
-        // A non-exact alarm updates the date and any changing task state.
-        long next=Math.min(midnight(now,1)+MINUTE,now+30*MINUTE);
+        // No countdown badge or live minute-by-minute text remains. Refresh
+        // after midnight (and whenever the app synchronizes its cache) rather
+        // than waking the phone every 30 minutes and resetting list scrolling.
+        long next=midnight(now,1)+MINUTE;
         if (ids.length>0)schedule(context,Math.max(now+MINUTE,next));
     }
 }
