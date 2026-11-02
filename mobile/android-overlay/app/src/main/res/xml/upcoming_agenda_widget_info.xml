@@ -7,7 +7,7 @@
     android:targetCellWidth="2"
     android:targetCellHeight="2"
     android:updatePeriodMillis="1800000"
-    android:initialLayout="@layout/upcoming_agenda_widget"
+    android:initialLayout="@layout/today_schedule_widget"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:description="@string/agenda_widget_description"/>

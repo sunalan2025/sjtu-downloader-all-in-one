@@ -204,11 +204,14 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         render(context, manager, ids);
     }
     @Override public void onEnabled(Context context) { refresh(context); }
-    @Override public void onDisabled(Context context) { cancelAlarm(context); }
-    @Override public void onDeleted(Context context, int[] ids) {
+    @Override public void onDisabled(Context context) { refresh(context); }
+    static void forgetOffsets(Context context,int[] ids) {
         SharedPreferences.Editor editor = preferences(context).edit();
         for (int id : ids) editor.remove(OFFSET + id);
         editor.apply();
+    }
+    @Override public void onDeleted(Context context, int[] ids) {
+        forgetOffsets(context,ids);
     }
 
     @Override public void onReceive(Context context, Intent intent) {
@@ -218,14 +221,17 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
             int id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1);
             int step = intent.getIntExtra("step", 0);
             AppWidgetManager manager = AppWidgetManager.getInstance(context);
-            boolean exists = false;
+            boolean mainWidget = false, compactWidget = false;
             for (int live : manager.getAppWidgetIds(new ComponentName(context,
-                    TodayScheduleWidget.class))) if (live == id) exists = true;
-            if (!exists || (step != -1 && step != 1)) return;
+                    TodayScheduleWidget.class))) if (live == id) mainWidget = true;
+            for (int live : manager.getAppWidgetIds(new ComponentName(context,
+                    UpcomingAgendaWidget.class))) if (live == id) compactWidget = true;
+            if ((!mainWidget && !compactWidget) || (step != -1 && step != 1)) return;
             SharedPreferences prefs = preferences(context);
             int next = Math.max(-7, Math.min(21, prefs.getInt(OFFSET + id, 0) + step));
             prefs.edit().putInt(OFFSET + id, next).apply();
-            render(context, manager, new int[]{id});
+            if (compactWidget) renderAgenda(context, manager, new int[]{id});
+            else render(context,manager,new int[]{id});
         } else if (ACTION_REFRESH.equals(action) ||
             Intent.ACTION_DATE_CHANGED.equals(action) ||
             Intent.ACTION_TIME_CHANGED.equals(action) ||
@@ -328,7 +334,16 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         view.setEmptyView(R.id.widget_list,R.id.widget_empty);
     }
 
+    static void renderAgenda(Context context, AppWidgetManager manager, int[] ids) {
+        render(context,manager,ids,true);
+    }
+
     private static void render(Context context, AppWidgetManager manager, int[] ids) {
+        render(context,manager,ids,false);
+    }
+
+    private static void render(Context context, AppWidgetManager manager,
+                               int[] ids,boolean compact) {
         long now = System.currentTimeMillis();
         ArrayList<Item> all = load(context);
         SharedPreferences prefs = preferences(context);
@@ -369,9 +384,13 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 }
             }
         }
-        prefs.edit().putLong("lastRenderAt",now)
+        SharedPreferences.Editor report = prefs.edit();
+        if (compact) report.putInt("agendaRenderedInstances",success)
+            .putString("agendaRenderError",failure.isEmpty()?"":"agenda:"+failure);
+        else report.putLong("lastRenderAt",now)
             .putInt("lastRenderedInstances",success)
-            .putString("lastRenderError",failure).apply();
+            .putString("lastRenderError",failure);
+        report.apply();
         // A non-exact alarm updates the date and any changing task state.
         long next=Math.min(midnight(now,1)+MINUTE,now+30*MINUTE);
         if (ids.length>0)schedule(context,Math.max(now+MINUTE,next));

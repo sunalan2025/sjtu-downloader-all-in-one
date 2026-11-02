@@ -47,7 +47,7 @@ if (!manifest.includes('UpcomingAgendaWidget')) {
   if (!manifest.includes('</application>')) throw new Error('Android application tag missing')
   manifest = manifest.replace('</application>', `
     <receiver android:name="me.hisunalan.sjtudownloader.UpcomingAgendaWidget"
-        android:label="SJTU 近期日程 · 迷你" android:exported="true">
+        android:label="SJTU 精简日程 · 可滚动" android:exported="true">
       <intent-filter>
         <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
         <action android:name="android.intent.action.DATE_CHANGED"/>
