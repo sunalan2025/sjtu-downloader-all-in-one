@@ -13,6 +13,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.view.View;
 import android.widget.RemoteViews;
+import android.widget.RemoteViewsService;
 import com.getcapacitor.JSObject;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -51,14 +52,16 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         final String place;
         final boolean deadline;
         final String category;
+        final boolean allDay;
         Item(long start, long end, String title, String place,
-             boolean deadline, String category) {
+             boolean deadline, String category, boolean allDay) {
             this.start = start;
             this.end = end;
             this.title = title;
             this.place = place;
             this.deadline = deadline;
             this.category = category;
+            this.allDay = allDay;
         }
     }
 
@@ -86,6 +89,7 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 clean.put("location", location.substring(0, Math.min(location.length(), 85)));
                 clean.put("kind", "deadline".equals(event.optString("kind", ""))
                     ? "deadline" : "course");
+                clean.put("allDay", event.optBoolean("allDay", false));
                 String category = event.optString("category", "");
                 clean.put("category", "exam".equals(category) ? "exam"
                     : "homework".equals(category) ? "homework"
@@ -115,7 +119,8 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                 items.add(new Item(start, end, title,
                     item.optString("location", "").trim(),
                     "deadline".equals(item.optString("kind", "")),
-                    item.optString("category", "")));
+                    item.optString("category", ""),
+                    item.optBoolean("allDay",false)));
             }
         } catch (Exception ignored) {}
         items.sort(Comparator.comparingLong(item -> item.start));
@@ -251,10 +256,76 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         else alarm.set(AlarmManager.RTC_WAKEUP, at, intent);
     }
 
-    private static String itemText(Item item, long now, boolean today) {
-        String label = format(item.start,"HH:mm") + "  " + item.title;
-        if (today && item.start <= now && item.end > now) label = "● " + label;
-        return label + (item.place.isEmpty() ? "" : "\n" + item.place);
+    /** This is one complete day's cached schedule, not just the first 3
+     * lessons: includes ordinary classes, personal events, homework and exams. */
+    static ArrayList<Item> itemsForDay(Context context, int id) {
+        int offset = Math.max(-7, Math.min(21,
+            preferences(context).getInt(OFFSET + id, 0)));
+        long now = System.currentTimeMillis();
+        long start = midnight(now, offset);
+        long finish = midnight(now, offset + 1);
+        ArrayList<Item> found = new ArrayList<>();
+        for (Item item : load(context)) {
+            if (item.start >= start && item.start < finish) found.add(item);
+        }
+        found.sort(Comparator.comparingLong(item -> item.start));
+        return found;
+    }
+
+    static RemoteViews rowView(Context context, Item item) {
+        RemoteViews view = new RemoteViews(context.getPackageName(),
+            R.layout.today_schedule_widget_row);
+        String kind = "exam".equals(item.category) ? "考试"
+            : "homework".equals(item.category) ? "作业"
+            : "event".equals(item.category) ? "日程" : "课程";
+        String time;
+        if (item.allDay) {
+            time = item.deadline ? "当天截止" : "全天";
+        } else if (item.deadline) {
+            time = format(item.start,"HH:mm") +
+                ("exam".equals(item.category) ? " 考试" : " 截止");
+        } else {
+            time = format(item.start,"HH:mm");
+            if (item.end > item.start && item.end-item.start <= DAY)
+                time += "–" + format(item.end,"HH:mm");
+        }
+        view.setTextViewText(R.id.widget_row_time, time + " · " + kind);
+        view.setTextViewText(R.id.widget_row_title, item.title);
+        if (item.place.isEmpty()) {
+            view.setViewVisibility(R.id.widget_row_place,View.GONE);
+        } else {
+            view.setTextViewText(R.id.widget_row_place,item.place);
+            view.setViewVisibility(R.id.widget_row_place,View.VISIBLE);
+        }
+        int color = "exam".equals(item.category)
+            ? android.graphics.Color.rgb(135,83,153)
+            : "homework".equals(item.category)
+                ? android.graphics.Color.rgb(152,104,48)
+                : android.graphics.Color.rgb(66,111,163);
+        view.setTextColor(R.id.widget_row_time,color);
+        return view;
+    }
+
+    // API 31+ offers an in-process collection adapter: no cold-start latency
+    // for a separate RemoteViewsService and no onDataSetChanged race.
+    // The service fallback supports devices running Android 11 and earlier.
+    private static void attachList(Context context, RemoteViews view, int id,
+                                   ArrayList<Item> items) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            RemoteViews.RemoteCollectionItems.Builder collection =
+                new RemoteViews.RemoteCollectionItems.Builder()
+                    .setHasStableIds(true).setViewTypeCount(1);
+            for (int i=0;i<items.size();i++) {
+                collection.addItem(i,rowView(context,items.get(i)));
+            }
+            view.setRemoteAdapter(R.id.widget_list,collection.build());
+        } else {
+            Intent intent = new Intent(context,TodayScheduleWidgetService.class);
+            intent.setData(Uri.parse("sjtu-widget://list/"+id));
+            intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,id);
+            view.setRemoteAdapter(R.id.widget_list,intent);
+        }
+        view.setEmptyView(R.id.widget_list,R.id.widget_empty);
     }
 
     private static void render(Context context, AppWidgetManager manager, int[] ids) {
@@ -264,59 +335,25 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         int success = 0;
         String failure = "";
         for (int id : ids) {
-            int offset = Math.max(-7, Math.min(21, prefs.getInt(OFFSET+id, 0)));
-            long start = midnight(now, offset);
-            long end = midnight(now, offset + 1);
-            ArrayList<Item> classes = new ArrayList<>();
-            for (Item item : all) if (!item.deadline && !"event".equals(item.category)
-                    && item.start >= start && item.start < end)
-                classes.add(item);
+            int offset = Math.max(-7, Math.min(21, prefs.getInt(OFFSET + id, 0)));
+            long day = midnight(now, offset);
+            ArrayList<Item> items = itemsForDay(context,id);
             try {
                 RemoteViews view = new RemoteViews(context.getPackageName(),
                     R.layout.today_schedule_widget);
-                view.setTextViewText(R.id.widget_date, format(start,"M/d E"));
-                String badge = offset == 0 ? "今日 " + classes.size() + " 节课" :
-                    offset > 0 ? "未来 · " + classes.size() + " 节课" :
-                    "已过去 · " + classes.size() + " 节课";
-                if (offset == 0) {
-                    for(Item item:classes){
-                        if(item.start<=now && item.end>now) {
-                            long minutes=Math.max(1L,(item.end-now+MINUTE-1)/MINUTE);
-                            badge="● 正在上课 · " + minutes + " 分后下课";
-                            break;
-                        }
-                        if(item.start>now){
-                            long minutes=Math.max(1L,(item.start-now+MINUTE-1)/MINUTE);
-                            badge=minutes<60 ? "下节还有 " + minutes + " 分钟" :
-                                "下一节 " + format(item.start,"HH:mm");
-                            break;
-                        }
-                    }
-                }
-                view.setTextViewText(R.id.widget_badge,badge);
-                int[] rowIds = {R.id.widget_class_one,R.id.widget_class_two,
-                    R.id.widget_class_three};
-                if (classes.isEmpty()) {
-                    view.setTextViewText(rowIds[0],all.isEmpty() ?
-                        "暂无已同步课程\n打开 App 获取课表" : "这一天没有课程");
-                    view.setViewVisibility(rowIds[0],View.VISIBLE);
-                } else {
-                    view.setTextViewText(rowIds[0],itemText(classes.get(0),now,offset==0));
-                    view.setViewVisibility(rowIds[0],View.VISIBLE);
-                }
-                for (int row=1;row<rowIds.length;row++) {
-                    boolean visible = classes.size()>row;
-                    view.setViewVisibility(rowIds[row],visible?View.VISIBLE:View.GONE);
-                    if (visible)view.setTextViewText(rowIds[row],
-                        itemText(classes.get(row),now,offset==0));
-                }
-                view.setTextViewText(R.id.widget_more,classes.size()>3
-                    ? "还有 " + (classes.size()-3) + " 项 · 点击查看"
-                    : offset==0 ? "‹  前一天       后一天  ›" : "切换日期查看课表");
-                view.setOnClickPendingIntent(R.id.widget_root,openApp(context));
+                view.setTextViewText(R.id.widget_date,format(day,"M/d E"));
+                view.setTextViewText(R.id.widget_badge,items.size()+" 项");
+                view.setTextViewText(R.id.widget_empty,
+                    all.isEmpty() ? "暂无已同步安排" : "这一天暂无安排");
+                attachList(context,view,id,items);
+                // Only these arrows navigate. No app-launch PendingIntent on
+                // the root or list rows, so scrolling never opens the app.
                 view.setOnClickPendingIntent(R.id.widget_prev,pageIntent(context,id,-1));
                 view.setOnClickPendingIntent(R.id.widget_next,pageIntent(context,id,1));
                 manager.updateAppWidget(id,view);
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                    manager.notifyAppWidgetViewDataChanged(new int[]{id},R.id.widget_list);
+                }
                 success++;
             } catch (Exception error) {
                 failure = error.getClass().getSimpleName();
@@ -324,11 +361,10 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
                     RemoteViews fallback = new RemoteViews(context.getPackageName(),
                         R.layout.today_schedule_widget_fallback);
                     fallback.setTextViewText(R.id.widget_fallback_message,
-                        "点击进入应用，重新同步课表");
-                    fallback.setOnClickPendingIntent(R.id.widget_fallback_root,openApp(context));
+                        "组件暂时无法显示日程，打开应用同步后会重试");
                     manager.updateAppWidget(id,fallback);
                     success++;
-                } catch(Exception fallbackError) {
+                } catch (Exception fallbackError) {
                     failure += "/" + fallbackError.getClass().getSimpleName();
                 }
             }
@@ -336,16 +372,8 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         prefs.edit().putLong("lastRenderAt",now)
             .putInt("lastRenderedInstances",success)
             .putString("lastRenderError",failure).apply();
-
-        // Refresh the "currently in class" state, midnight date change and
-        // the 15-minute start reminder; Doze may delay these inexact alarms.
-        long next = Math.min(midnight(now,1)+MINUTE,now+15*MINUTE);
-        for (Item item : all) {
-            if (item.deadline)continue;
-            long[] moments = {item.start-15*MINUTE,item.start,item.end};
-            for(long moment:moments)
-                if(moment>now+MINUTE)next=Math.min(next,moment);
-        }
-        if (ids.length > 0)schedule(context,Math.max(now+MINUTE,next));
+        // A non-exact alarm updates the date and any changing task state.
+        long next=Math.min(midnight(now,1)+MINUTE,now+30*MINUTE);
+        if (ids.length>0)schedule(context,Math.max(now+MINUTE,next));
     }
 }
