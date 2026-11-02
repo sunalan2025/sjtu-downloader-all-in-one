@@ -188,7 +188,7 @@ export function CalendarPage({month,onMonthChange,onWeekChange,events,busy,onOff
   const weekTimed=visibleWeekDates.flatMap(date=>
     (eventMap.get(date)||[]).filter(e=>isTimed(e)&&e.type!=='assignment'))
   const weekFirstHour=weekTimed.length
-    ? Math.max(6,Math.floor(Math.min(...weekTimed.map(e=>minute(e.startTime)))/60)-1) : 8
+    ? Math.max(0,Math.floor(Math.min(...weekTimed.map(e=>minute(e.startTime)))/60)-1) : 8
   const weekLastHour=weekTimed.length
     ? Math.min(24,Math.max(weekFirstHour+3,
         Math.ceil(Math.max(...weekTimed.map(e=>Math.max(
