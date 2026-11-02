@@ -282,8 +282,11 @@ public final class TodayScheduleWidget extends AppWidgetProvider {
         if (item.allDay) {
             time = item.deadline ? "当天截止" : "全天";
         } else if (item.deadline) {
-            time = format(item.start,"HH:mm") +
-                ("exam".equals(item.category) ? " 考试" : " 截止");
+            time = format(item.start,"HH:mm");
+            if ("exam".equals(item.category)) {
+                if(item.end>item.start && item.end-item.start<=DAY)
+                    time += "–" + format(item.end,"HH:mm");
+            } else time += " 截止";
         } else {
             time = format(item.start,"HH:mm");
             if (item.end > item.start && item.end-item.start <= DAY)

@@ -682,7 +682,7 @@ export default function App() {
       const deadline=kind==='homework'||kind==='exam'
       const startMs=eventMillis(event)
       const requestedEnd=Date.parse(event.endTime)
-      const endMs=deadline ? startMs :
+      const endMs=kind==='homework'?startMs:
         Number.isFinite(requestedEnd)&&requestedEnd>startMs
           ? requestedEnd : startMs+45*60*1000
       return {
