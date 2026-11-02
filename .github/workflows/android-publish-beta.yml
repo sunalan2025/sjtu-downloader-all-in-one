@@ -22,24 +22,24 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41324875052 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
+          gh run download 41368041401 --repo "$REPO" --name sjtu-downloader-android-debug --dir downloaded
           test -s downloaded/app-debug.apk
           unzip -t downloaded/app-debug.apk | tail -1
-          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.17-Beta.apk
-          sha256sum SJTU-Downloader-Android-v0.4.17-Beta.apk | tee SHA256SUMS.txt
+          cp downloaded/app-debug.apk SJTU-Downloader-Android-v0.4.18-Beta.apk
+          sha256sum SJTU-Downloader-Android-v0.4.18-Beta.apk | tee SHA256SUMS.txt
       - name: Create stable public prerelease download
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          TAG=android-v0.4.17-beta
+          TAG=android-v0.4.18-beta
           if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.17-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
+            gh release upload "$TAG" SJTU-Downloader-Android-v0.4.18-Beta.apk SHA256SUMS.txt --repo "$REPO" --clobber
           else
-            gh release create "$TAG" SJTU-Downloader-Android-v0.4.17-Beta.apk SHA256SUMS.txt \
+            gh release create "$TAG" SJTU-Downloader-Android-v0.4.18-Beta.apk SHA256SUMS.txt \
               --repo "$REPO" --target "${{ github.sha }}" --prerelease --latest=false \
-              --title "SJTU Downloader Android v0.4.17 Beta" \
-              --notes "Android v0.4.17 Beta: Replaces the tablet landscape sidebar's relocated glass sliding-pill navigation with a purpose-built collapsible vertical menu. Expanded: left-aligned 21px icon, main label, and short secondary description for Home/Courses/Calendar/Downloads in long horizontal rows; collapsed: compact accessible icon buttons with an expand control. Soft blue row gradients and a restrained active-side accent replace the raised white-glass selection pill. The former floating rail backdrop, hard glass border, and side shadow are removed. A single shared application background extends under the sidebar, with a broad feathered gradient toward the main content to avoid visible color seams. Main content and batch action adapt smoothly to sidebar width; tablet size and rotation choose compact/wide defaults unless the user has explicitly set a preference. Phone and portrait bottom navigation is unchanged. Accessibility and reduced-motion rules preserved. CI Android build 41324875052 passed all 14 steps; actual OEM launcher appearance, unusual DPI and split screen need physical-device inspection. Public test-signed beta only."
+              --title "SJTU Downloader Android v0.4.18 Beta" \
+              --notes "Android v0.4.18 Beta: fixed homework deadlines appearing as unreadable tiny strips, especially at 23:59. Deadlines are point-in-time items, not 28-minute lectures; in the weekly timetable they now appear in a shared-height, fully wrapped task/deadline lane above the hour grid, with the actual Shanghai deadline time or an honest day-only label. All titles remain visible, and DOM scrollHeight measurements protect them from clipping under narrow columns, OEM font scaling, and 3/5/7-day layouts. Timed classes, official exams, and personal events retain their real timeline positions. When overlapping or visually too-close events would be crushed into multiple slivers, the timetable groups them into a full-width N-events card; tapping any grouped card or deadline opens a scrollable details sheet with every complete event title, actual time, type, location, and a link to the full chronological day list. 00:00-06:00 events are no longer clamped to 06:00. Android CI run 41368041401 passed all 14 steps including APK validation. Actual phone/tablet/OEM visual behavior remains to be inspected on devices. Public test-signed prerelease."
           fi
           gh release view "$TAG" --repo "$REPO" --json url,assets | tee release.json
