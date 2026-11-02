@@ -59,8 +59,16 @@ if (!manifest.includes('UpcomingAgendaWidget')) {
     </receiver>
   ` + '\n</application>')
 }
+if (!manifest.includes('TodayScheduleWidgetService')) {
+  if (!manifest.includes('</application>')) throw new Error('Android <application> missing')
+  manifest = manifest.replace('</application>', `
+    <service android:name="me.hisunalan.sjtudownloader.TodayScheduleWidgetService"
+        android:exported="false"
+        android:permission="android.permission.BIND_REMOTEVIEWS"/>
+  ` + '\n</application>')
+}
 manifest = manifest.replace('android:label="SJTU 今日课表"',
-  'android:label="SJTU 迷你课表 · 可翻页"')
+  'android:label="SJTU 每日日程 · 可滚动"')
 writeFileSync(manifestPath, manifest)
 if (!manifest.includes('android:name="me.hisunalan.sjtudownloader.MainActivity"')) {
   throw new Error('Expected Android launcher activity override is missing')

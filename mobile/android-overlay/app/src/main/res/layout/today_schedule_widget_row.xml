@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingLeft="8dp"
+    android:paddingRight="8dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="9dp"
+    android:background="@drawable/today_widget_row_surface">
+    <TextView android:id="@+id/widget_row_time"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:includeFontPadding="false"
+        android:text="08:00–09:40 · 课程"
+        android:textStyle="bold"
+        android:textSize="10sp"
+        android:textColor="#426FA3"/>
+    <TextView android:id="@+id/widget_row_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:text="课程名称"
+        android:textSize="12sp"
+        android:textColor="#2F4E70"
+        android:lineSpacingExtra="2dp"/>
+    <TextView android:id="@+id/widget_row_place"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:text="教室"
+        android:textColor="#728DA8"
+        android:textSize="10sp"/>
+</LinearLayout>
