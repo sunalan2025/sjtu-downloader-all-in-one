@@ -1,0 +1,4 @@
+---
+const steps=[['登录并选择课程','通过学校的 jAccount 登录，在 Canvas、旁听课程或好大学在线中选择课程。需要校园网络的资源，请先连接校园网或交大 VPN。'],['找到需要的内容','进入课程文件夹，选择课件、视频或其他分类。只想保存部分资料时，可继续进入子文件夹或使用搜索。'],['确认去向，开始下载','确认保存目录与下载模式，再将选中的内容加入任务。在传输中心查看状态，在资源库查找归档与可恢复的任务。']];
+---
+<section id="guide" class="guide-band section"><div class="container"><div class="section-heading"><div><p class="eyebrow">第一次使用</p><h2>三步，开始整理这一学期。</h2></div><p>下面以桌面端下载课程资料为例。<br/>具体入口和操作见图文指南。</p></div><ol class="guide-steps">{steps.map(([title,text],i)=><li><span>{i+1}</span><div><h3>{title}</h3><p>{text}</p></div></li>)}</ol></div></section>

@@ -1,0 +1,5 @@
+---
+import {androidRelease,formatSize} from '../utils/releaseInfo';
+const apk=androidRelease.assets.find(a=>a.platform==='android');
+---
+<section id="android" class="container section android-section" aria-labelledby="android-title"><div class="android-image"><img src="/screenshots/android/home.png" width="585" height="1266" loading="lazy" alt="安卓首页与近期安排，使用示例数据"/></div><div class="android-copy"><p class="eyebrow">Android {androidRelease.version} · 手机与平板</p><h2 id="android-title">离开电脑，<br/>日程也在手边。</h2><p>安卓应用专注课程文件下载与日程：查看课程、考试、作业和个人安排，设置分类提醒，将每日安排或周课表放到桌面。</p><ul class="check-list"><li>手机底部导航，平板使用侧栏</li><li>日程提醒和后台同步分别设置</li><li>周末提前查看下周工作日，跨周日期分两行显示</li></ul><p class="muted">桌面端的旁听、好大学在线和完整云盘管理不包含在安卓端。</p><div class="button-row">{apk&&<a class="button primary" href={apk.url}>下载 Android APK ↓</a>}<a class="text-link" href="https://github.com/sunalan2025/sjtu-downloader-all-in-one/blob/master/docs/android.md">安卓介绍与更多截图 ↗</a></div><p class="small muted">{apk&&formatSize(apk.bytes)} · Android 6.0 及以上 · 安卓兼容系统</p></div></section>

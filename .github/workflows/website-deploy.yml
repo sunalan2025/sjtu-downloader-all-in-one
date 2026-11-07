@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'website/**'
+      - 'docs/images/**'
       - '.github/workflows/website-deploy.yml'
   release:
     types: [published]
@@ -37,6 +38,10 @@ jobs:
         working-directory: website
         run: npm ci
 
+      - name: Verify download metadata and platform selection
+        working-directory: website
+        run: npm test
+
       - name: Check website
         working-directory: website
         run: npm run check
@@ -46,6 +51,24 @@ jobs:
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check responsive website in browser
+        working-directory: website
+        run: |
+          if command -v google-chrome >/dev/null 2>&1; then
+            UI_TEST_BROWSER="$(command -v google-chrome)" npm run test:ui
+          else
+            npx playwright install --with-deps chromium
+            npm run test:ui
+          fi
+
+      - name: Upload website browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-browser-evidence
+          path: website/ui-results/
+          if-no-files-found: warn
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5

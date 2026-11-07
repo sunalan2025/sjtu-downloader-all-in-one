@@ -18,7 +18,8 @@ export default tseslint.config(
       'src/**/*.test.ts',
       'test/**',
       'src/test/**',
-      'website/**'
+      'website/**',
+      'mobile/**'
     ]
   },
   js.configs.recommended,

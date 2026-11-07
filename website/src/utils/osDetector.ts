@@ -1,56 +1,15 @@
 export interface ClientOSInfo {
-  os: 'windows' | 'mac' | 'linux' | 'unknown';
-  arch: 'arm64' | 'x64';
-  label: string;
-  recommendedFormat: string;
-  assetExt: string;
+  os: 'windows' | 'mac' | 'linux' | 'android' | 'ios' | 'unknown'
+  arch: 'arm64' | 'x64' | 'unknown'
 }
-
-export function detectClientOS(userAgent: string = ''): ClientOSInfo {
-  const ua = userAgent.toLowerCase();
-
-  if (ua.includes('win')) {
-    return {
-      os: 'windows',
-      arch: 'x64',
-      label: 'Windows',
-      recommendedFormat: '.exe',
-      assetExt: '.exe'
-    };
-  }
-
-  if (ua.includes('mac') || ua.includes('darwin')) {
-    const isArm =
-      ua.includes('arm64') ||
-      ua.includes('aarch64') ||
-      ua.includes('apple silicon') ||
-      (ua.includes('arm') && !ua.includes('darwin')) ||
-      (ua.includes('apple') && !ua.includes('applewebkit'));
-
-    return {
-      os: 'mac',
-      arch: isArm ? 'arm64' : 'x64',
-      label: isArm ? 'macOS (Apple Silicon)' : 'macOS',
-      recommendedFormat: '.dmg',
-      assetExt: '.dmg'
-    };
-  }
-
-  if (ua.includes('linux') || ua.includes('x11')) {
-    return {
-      os: 'linux',
-      arch: 'x64',
-      label: 'Linux',
-      recommendedFormat: '.AppImage',
-      assetExt: '.AppImage'
-    };
-  }
-
-  return {
-    os: 'unknown',
-    arch: 'x64',
-    label: '多平台通用',
-    recommendedFormat: 'Release',
-    assetExt: ''
-  };
+/** Browser user agents often hide the Mac CPU. Never infer Apple Silicon from Mac alone. */
+export function detectClientOS(userAgent='',maxTouchPoints=0): ClientOSInfo {
+  const ua=userAgent.toLowerCase()
+  if(ua.includes('android'))return {os:'android',arch:'unknown'}
+  if(/iphone|ipad|ipod/.test(ua)||(maxTouchPoints>1&&ua.includes('macintosh')))return {os:'ios',arch:'unknown'}
+  const arch=/arm64|aarch64/.test(ua)?'arm64':/x86_64|x64|win64|wow64|amd64/.test(ua)?'x64':'unknown'
+  if(/windows|win32|win64/.test(ua))return {os:'windows',arch}
+  if(/macintosh|mac os|darwin/.test(ua))return {os:'mac',arch}
+  if(/linux|x11/.test(ua))return {os:'linux',arch}
+  return {os:'unknown',arch:'unknown'}
 }

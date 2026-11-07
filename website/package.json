@@ -9,7 +9,11 @@
     "build": "node scripts/fetch-release-metadata.mjs && astro build",
     "preview": "astro preview",
     "check": "astro check",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run",
+    "predev": "node scripts/sync-assets.mjs",
+    "prebuild": "node scripts/sync-assets.mjs",
+    "test:ui": "node scripts/check-site.mjs",
+    "capture:desktop": "node scripts/capture-desktop.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",
@@ -19,6 +23,7 @@
     "typescript": "^5.7.2"
   },
   "devDependencies": {
+    "playwright": "^1.65.0",
     "vitest": "^4.1.12"
   },
   "overrides": {

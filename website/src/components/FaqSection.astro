@@ -1,66 +1,13 @@
 ---
-import Icons from './icons/Icons.astro';
-
-export interface Props {
-  class?: string;
-}
-
-const { class: className = '' } = Astro.props;
-
-const faqs = [
-  {
-    question: '在校外网络环境下，如何正常下载录播与课件？',
-    answer:
-      'Canvas 录播与教务排课受校园网络边界保护。在校外使用时，请提前连接交大 EasyConnect VPN（<code>vpn.sjtu.edu.cn</code>）；在校内连接 <code>SJTU</code> 或 <code>SJTU-Premium</code> 即可直接使用。'
-  },
-  {
-    question: 'Windows 首次运行提示“Windows 已保护你的电脑 (SmartScreen)”如何处理？',
-    answer:
-      '此为未购买昂贵商业代码签名证书的开源软件正常提示。点击弹窗内的「<strong>更多信息</strong>」，随后点击右下角出现的「<strong>仍要运行</strong>」即可正常启动。'
-  },
-  {
-    question: '下载的文件默认保存在哪里？可以自定义路径吗？',
-    answer:
-      '默认保存在系统「下载」目录下的 <code>SJTU-Downloader</code> 文件夹，完整保留学期与课程树状层级。可在客户端设置中随时更换为移动硬盘或自定义目录。'
-  }
+import {desktopRelease} from '../utils/releaseInfo';
+const macAnswer=desktopRelease.assets.some(a=>a.platform==='mac'&&a.arch==='x64')?'扩展名不能说明芯片类型，请按安装包标注的 arm64（Apple Silicon）或 x64（Intel）选择。':`不是。当前 ${desktopRelease.version} 的 macOS 安装包均为 arm64，适用于 Apple Silicon。不要只根据扩展名判断处理器架构。`;
+const faqs=[
+ ['校外使用需要校园网吗？','部分录播、课件和教务数据受学校网络或授权限制。校外请按需要连接交大 VPN。桌面端也可自行配置校内节点进行远端传输，具体见文档。'],
+ ['文件保存在哪里？','首次使用向导和“设置 → 存储与下载”中可以确认或修改目录。下载前也请确认是本地、云盘还是双份保存。'],
+ ['Mac 的 ZIP 是 Intel 版吗？',macAnswer],
+ ['所有任务都能断点续传吗？','不能统一保证。暂停、恢复与跨重启恢复取决于来源和传输方式，可在传输中心查看状态，在“资源库 → 任务恢复”处理可恢复任务。'],
+ ['桌面端和安卓端功能一样吗？','两者分别开发与发布。安卓端提供课程文件下载、日历、提醒与桌面组件；完整的旁听、好大学在线和交大云盘管理目前在桌面端。'],
+ ['系统提示未识别的应用怎么办？','先确认文件来自本仓库正式发布，必要时核对 SHA256。桌面端未购买商业代码签名；安卓沿用历史公开签名以保持升级兼容。请在确认来源后按系统提示安装。']
 ];
 ---
-
-<section
-  id="faq"
-  class={`py-20 sm:py-24 relative overflow-hidden bg-slate-50/50 dark:bg-sjtu-night/20 border-t border-slate-200/60 dark:border-slate-800/60 ${className}`}
-  aria-label="常见问题"
->
-  <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-    <!-- Header (干净无副标题) -->
-    <div class="text-center mb-12 sm:mb-14">
-      <h2 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-        常见问题
-      </h2>
-    </div>
-
-    <!-- Accordion List using Semantic <details> -->
-    <div class="space-y-4">
-      {
-        faqs.map((faq, index) => (
-          <details
-            class="group rounded-2xl bg-white dark:bg-sjtu-dark/80 border border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all duration-200 open:border-sjtu-blue/50 dark:open:border-blue-700/60"
-            open={index === 0}
-          >
-            <summary class="flex items-center justify-between p-5 cursor-pointer list-none select-none text-left rounded-2xl focus:outline-none">
-              <span class="text-base font-bold text-slate-900 dark:text-white group-hover:text-sjtu-blue dark:group-hover:text-blue-400 transition-colors pr-4">
-                {faq.question}
-              </span>
-              <span class="flex-shrink-0 w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center transition-transform duration-200 group-open:rotate-180 group-open:bg-blue-50 dark:group-open:bg-blue-950/60 group-open:text-sjtu-blue dark:group-open:text-blue-300">
-                <Icons name="chevron-down" class="w-3.5 h-3.5" />
-              </span>
-            </summary>
-            <div class="px-5 pb-5 pt-1 text-sm text-slate-600 dark:text-slate-300 leading-relaxed border-t border-slate-100 dark:border-slate-800/60 mt-1">
-              <p set:html={faq.answer} />
-            </div>
-          </details>
-        ))
-      }
-    </div>
-  </div>
-</section>
+<section id="faq" class="container section faq-section"><div class="section-heading"><div><p class="eyebrow">你可能还想知道</p><h2>常见问题。</h2></div></div><div class="faq-list">{faqs.map(([question,answer])=><details><summary>{question}<span aria-hidden="true">＋</span></summary><p>{answer}</p></details>)}</div></section>

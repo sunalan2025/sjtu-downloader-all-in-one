@@ -1,87 +1,57 @@
-# SJTU 课程下载器 — 开发与发布指南
+# 开发与发布
 
-本文档提供本项目的本地开发环境搭建、构建打包、测试规范以及基于 GitHub Actions 的自动化发布流程说明。
+桌面端、安卓端和介绍网站共用仓库，分别构建。本文只记录当前可用的维护流程，历史计划和一次性审计脚本不作为开发入口。
 
----
+## 环境与桌面端
 
-## 1. 环境准备
+需要 Node.js 22、npm，以及对应平台的 Electron 构建环境。依赖的 FFmpeg 和 Electron 安装脚本需要下载平台二进制；仅检查渲染器时可使用 `npm ci --ignore-scripts`，运行完整桌面应用前仍需完成对应安装。
 
-- **Node.js**：版本 $\ge 18.0.0$
-- **包管理器**：npm
-- **网络环境**：开发测试涉及交大内网资源抓取，请确保连接 SJTU 校园网或交大 VPN。
-
-> 💡 **关于 FFmpeg**：项目依赖 `ffmpeg-static`。在执行 `npm install` 时会自动拉取对应平台的预编译二进制文件至 `node_modules`。如遇网络原因下载缓慢，可设置环境变量 `FFMPEG_BIN` 指向系统本地已有路径。
-
----
-
-## 2. 常用开发命令
-
-```bash
-# 安装项目依赖
-npm install
-
-# 启动本地热重载开发调试
+```sh
+npm ci
 npm run dev
-
-# 执行全量单元测试与 E2E 测试 (Vitest)
-npm test
-
-# 执行单文件测试（例如凭据测试）
-npx vitest run test/e2e/credentials.test.ts
-
-# TypeScript 类型检查
 npm run typecheck
-
-# ESLint 代码风格与规范检查
 npm run lint
+npm test
 ```
 
----
+`npm run build` 构建当前平台安装包；`build:win`、`build:mac`、`build:linux` 构建指定平台，`build:unpack` 生成解包目录。实际支持的处理器架构以 Release 中的资产为准。
 
-## 3. 构建与打包
+桌面版本号来自根目录 `package.json`。发布 `v<版本>` 标签触发 `.github/workflows/release.yml`，生成安装包与 SHA256 校验和。安卓构建与发布见 [mobile/README.md](../mobile/README.md)。
 
-项目使用 `electron-vite` 与 `electron-builder` 构建流水线，构建产物将输出至 `release/` 目录：
+## 文档截图
 
-```bash
-# 打包当前操作系统平台的安装包
-npm run build
+截图直接运行 `src/renderer` 的真实 React 组件，通过隔离的 `window.api` 示例响应提供数据。不会调用真实登录、写入云盘、下载学校资源或读取用户会话。
 
-# Windows 打包 (生成 NSIS .exe 安装程序)
-npm run build:win
-
-# macOS 打包 (生成 .dmg 镜像与 .zip)
-npm run build:mac
-
-# Linux 打包 (生成 .AppImage)
-npm run build:linux
-
-# 仅构建解包目录（不生成安装包单文件，方便排查产物）
-npm run build:unpack
+```sh
+npm ci
+npm --prefix website ci
+# 使用已安装的 Chrome/Chromium，或先安装 Playwright Chromium
+UI_TEST_BROWSER=/usr/bin/chromium npm --prefix website run capture:desktop
 ```
 
----
+维护入口为 `website/scripts/capture-desktop.mjs` 和 `desktop-fixture.mjs`。图片写入 `docs/images/desktop/`；更新应用界面后可重新生成，确认截图无真实个人信息，再提交文档图片。截图用于说明界面，不代替真实学校账号的功能验证。
 
-## 4. 自动化版本发布与更新工作流
+## 介绍网站
 
-客户端内建了基于 GitHub Releases 的无感更新检测。当需要发布新版本并向用户推送时，请遵循以下流程：
+网站使用 Astro，部署到 GitHub Pages，自定义域名为 `sjtu.hisunalan.me`。
 
-### 4.1 发布规则说明
-- **Git Tag 驱动**：GitHub Actions 工作流（`.github/workflows/release.yml`）仅在监听到 `v*` 格式的 Tag 推送时触发全平台交叉编译；
-- **版本一致性门禁**：推送的 Git Tag 名称（如 `v2.4.0`）必须与 `package.json` 中的 `version` 字段（如 `2.4.0`）保持一致。
-
-### 4.2 标准发布操作步骤
-
-```bash
-# 1. 确认 package.json 中版本号已完成递增修改，提交并推送代码
-git add package.json
-git commit -m "chore: bump version to 2.4.0"
-git push origin master
-
-# 2. 本地打上对应的 Git Tag
-git tag v2.4.0
-
-# 3. 推送 Tag 触发 GitHub Actions 编译发布流水线
-git push origin v2.4.0
+```sh
+npm --prefix website ci
+npm --prefix website run dev
+npm --prefix website run check
+npm --prefix website test
+npm --prefix website run build
+UI_TEST_BROWSER=/usr/bin/chromium npm --prefix website run test:ui
 ```
 
-推送完成后，GitHub Actions 会并行启动 Ubuntu、macOS 与 Windows 三大虚拟机矩阵，编译全平台安装包并自动创建 Release 附带产物。客户端在启动或检查更新时即可自动提示升级。
+构建前将 `docs/images/desktop/`、`docs/images/android/` 和应用图标复制到网站公共目录，生成的副本不提交。构建期分别同步桌面端与安卓端正式 Release，依据实际文件名识别平台与架构；网络不可用时沿用仓库内已核对的元数据，不编造安装包或校验和。
+
+网站、图片及部署工作流的变更推送到 `master` 后，`.github/workflows/website-deploy.yml` 先检查并构建，再部署。功能单测覆盖发布筛选、架构和下载推荐；浏览器回归检查截图切换、大图、手机菜单、主题、下载链接及页面溢出。
+
+## 源码说明
+
+- [技术架构](architecture.md)
+- [前端结构](frontend-architecture.md)
+- [云盘能力边界](cloud-drive.md)
+- [资源库与恢复](backup-library.md)
+- [安全说明](../SECURITY.md)
