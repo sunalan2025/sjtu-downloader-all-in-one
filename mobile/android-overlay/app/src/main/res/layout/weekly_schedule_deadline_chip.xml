@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/week_deadline_chip"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:layout_marginTop="3dp" android:layout_marginBottom="2dp"
+    android:minHeight="44dp" android:paddingLeft="5dp"
+    android:paddingRight="4dp" android:paddingTop="5dp"
+    android:paddingBottom="5dp" android:gravity="top|left"
+    android:textColor="@color/sjtu_widget_on_surface" android:textStyle="bold"
+    android:textSize="9sp" android:maxLines="6" android:ellipsize="end"
+    android:background="@drawable/week_widget_deadline_chip_surface"/>

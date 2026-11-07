@@ -4,7 +4,7 @@
 [![stars](https://img.shields.io/github/stars/sunalan2025/sjtu-downloader-all-in-one?style=social)](https://github.com/sunalan2025/sjtu-downloader-all-in-one)
 [![release](https://img.shields.io/github/v/release/sunalan2025/sjtu-downloader-all-in-one?display_name=tag&include_prereleases)](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases)
 [![license](https://img.shields.io/github/license/sunalan2025/sjtu-downloader-all-in-one)](./LICENSE)
-[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#-快速获取与安装)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-blue)](#-快速获取与安装)
 
 专为上海交通大学师生打造的**课程资源批量下载与备份工具**。支持 **Canvas 在线课程课件与课堂录播**、**旁听课程视频**、以及**好大学在线**（CNMOOC）资源批量下载；深度集成**交大云盘**，支持本地多线程下载与云端备份。
 
@@ -19,6 +19,7 @@
 | **Windows** | `.exe` / `.msi` | 推荐使用 `.exe` 安装程序；企业与机房环境推荐使用 `.msi` |
 | **macOS** | `.dmg` / `.zip` | 支持 Intel 与 Apple Silicon (M 系列芯片)，拖拽至 Applications 即可 |
 | **Linux** | `.AppImage` | 赋予执行权限（`chmod +x *.AppImage`）后双击直接运行 |
+| **Android** | [Android 1.0.0 APK](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/download/android-v1.0.0/SJTU-Downloader-Android-v1.0.0.apk) | 手机与平板，课程下载、日程、作业状态、提醒和桌面组件；[介绍与截图](docs/android.md) |
 
 > 📌 **重要网络提示**：因交大教学服务器权限限制，使用过程中**建议连接 SJTU 校园网或交大 VPN**（若在校外亦可在「设置 → ⚡ 传输与网络」中启用校内私有中转服务，实现校外免 VPN 极速代传）。
 >
@@ -26,7 +27,15 @@
 
 ---
 
-## 📖 核心功能使用手册
+## 安卓应用
+
+安卓端提供课程资源浏览与批量下载、课程/考试/作业/个人日程、分类提醒和独立后台同步，支持手机底部导航、平板侧栏及完整明暗主题。桌面周组件在周末预览下周工作日，跨周日期范围分两行显示。
+
+[安卓正式版](https://github.com/sunalan2025/sjtu-downloader-all-in-one/releases/tag/android-v1.0.0) · [使用介绍与截图](docs/android.md) · [源码与构建](mobile/README.md)
+
+![安卓平板周课表，使用示例日程](docs/images/android/tablet-calendar.png)
+
+## 📖 桌面端核心功能使用手册
 
 ### 1. 登录与多账号凭据管理
 - **多种认证方式**：直接内嵌官方 jAccount 认证网关，支持「交我办」/ 微信扫码、账号密码、短信验证码及二次安全验证；

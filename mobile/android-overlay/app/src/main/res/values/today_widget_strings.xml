@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="today_widget_description">每日完整日程：上下滑动查看课程、作业、考试与个人日程，点击左右箭头切换日期</string>
+    <string name="agenda_widget_description">精简版每日日程：上下滚动完整当天安排，左右箭头切换日期</string>
+    <string name="week_widget_description">4×6 七日课表：周一至周日横向并列，每节课连续彩色色块，上下滑动时间轴</string>
+</resources>

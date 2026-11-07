@@ -1,0 +1,163 @@
+name: Android build, verification and release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths: ['mobile/**', '.github/workflows/android.yml']
+  pull_request:
+    branches: [master]
+    paths: ['mobile/**', '.github/workflows/android.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android build tools
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Build application UI
+        working-directory: mobile
+        run: |
+          npm ci --no-audit --no-fund
+          base64 --decode signing/legacy-upgrade.keystore.base64 > android-overlay/app/sjtu-upgrade.keystore
+          npm run build
+          npm run android:prepare
+          npm run android:icons
+      - name: Verify responsive UI and interactions
+        working-directory: mobile
+        run: |
+          if command -v google-chrome >/dev/null 2>&1; then
+            UI_TEST_BROWSER="$(command -v google-chrome)" npm run test:ui
+          else
+            npx playwright install --with-deps chromium
+            npm run test:ui
+          fi
+      - name: Upload UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-ui-evidence
+          path: mobile/ui-results/
+          if-no-files-found: warn
+      - name: Build signed release APK
+        working-directory: mobile/android
+        run: bash ./gradlew assembleRelease --no-daemon
+      - name: Verify installable release
+        run: bash mobile/scripts/verify-android-release.sh mobile/android/app/build/outputs/apk/release/app-release.apk
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android build tools
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build Android test and release packages
+        working-directory: mobile
+        run: |
+          npm ci --no-audit --no-fund
+          base64 --decode signing/legacy-upgrade.keystore.base64 > android-overlay/app/sjtu-upgrade.keystore
+          npm run build
+          npm run android:prepare
+          npm run android:icons
+          cd android
+          bash ./gradlew assembleDebug assembleRelease --no-daemon
+      - name: Grant KVM permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Boot Android emulator and launch app
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash -lc 'cd mobile/android && bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.notClass=me.hisunalan.sjtudownloader.WidgetClockColdStartProbeTest --no-daemon && cd ../.. && bash mobile/scripts/android-widget-clock-smoke.sh && bash mobile/scripts/android-emulator-smoke.sh && bash mobile/scripts/android-emulator-smoke.sh mobile/android/app/build/outputs/apk/release/app-release.apk'
+      - name: Upload emulator screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-emulator-smoke-evidence
+          path: |
+            mobile/emulator-results/
+            mobile/android/app/build/outputs/androidTest-results/connected/
+            mobile/android/app/build/reports/androidTests/connected/
+          if-no-files-found: warn
+
+  publish-android:
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      startsWith(github.event.head_commit.message, 'release(android): publish v')
+    needs: [build-android, emulator]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-release-apk
+          path: verified-apk
+      - name: Publish verified Android release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./mobile/package.json').version")"
+          TAG="android-v$VERSION"
+          APK="SJTU-Downloader-Android-v$VERSION.apk"
+          NOTES="mobile/docs/releases/v$VERSION.md"
+          test -s "$NOTES"
+          test "$(gh api "repos/$REPO/git/ref/heads/master" --jq '.object.sha')" = "$GITHUB_SHA"
+          if SHA="$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null)"; then
+            test "$SHA" = "$GITHUB_SHA"
+          else
+            gh api --method POST "repos/$REPO/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA"
+          fi
+          unzip -t verified-apk/app-release.apk >/dev/null
+          cp verified-apk/app-release.apk "$APK"
+          sha256sum "$APK" > SHA256SUMS.txt
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release download "$TAG" --repo "$REPO" --pattern SHA256SUMS.txt --dir previous
+            cmp previous/SHA256SUMS.txt SHA256SUMS.txt
+          else
+            gh release create "$TAG" "$APK" SHA256SUMS.txt --repo "$REPO" --verify-tag --latest=false \
+              --title "SJTU Downloader Android $VERSION" --notes-file "$NOTES"
+          fi
