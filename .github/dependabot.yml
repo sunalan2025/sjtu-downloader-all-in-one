@@ -5,11 +5,14 @@ version: 2
 updates:
   # npm 生产依赖
   - package-ecosystem: npm
+    # Disable automatic PRs, including security updates; keep security alerts.
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
     groups:
       # 同类依赖合并为一个 PR，减少噪音
       electron:
@@ -39,11 +42,23 @@ updates:
 
   # GitHub Actions 工作流依赖
   - package-ecosystem: github-actions
+    # Disable automatic PRs, including security updates; keep security alerts.
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
     directory: /
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 3
     commit-message:
       prefix: chore(ci)
       include: scope
+
+  # Security updates can also target the mobile manifest.
+  - package-ecosystem: npm
+    directory: /mobile
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    ignore:
+      - dependency-name: "*"
