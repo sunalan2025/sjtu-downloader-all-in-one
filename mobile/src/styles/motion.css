@@ -1,0 +1,84 @@
+/* Shared Material motion, including interruptions and reverse transitions. */
+::view-transition{pointer-events:none;}
+:root{view-transition-name:none;--motion-standard:cubic-bezier(.2,0,0,1);}
+.screen-motion{view-transition-name:main-content;}
+/* The tall content snapshot paints in the top layer. Give persistent navigation
+ * its own live snapshot above it, without replaying a fade on each tab change. */
+.bottom-dock{view-transition-name:app-navigation;}
+::view-transition-group(main-content){z-index:1;}
+::view-transition-group(app-navigation){z-index:2;animation:none;}
+::view-transition-image-pair(app-navigation){isolation:isolate;}
+::view-transition-old(app-navigation){display:none;}
+::view-transition-new(app-navigation){animation:none;mix-blend-mode:normal;opacity:1;}
+:root[data-motion-engine=view-transition] .screen-motion,:root[data-motion-engine=view-transition] .course-screen,:root[data-motion-engine=view-transition] .calendar-panel-transition{animation:none!important;}
+:root[data-motion-engine=css] [data-motion-complete=true]{animation:none!important;}
+::view-transition-group(main-content){animation-duration:.34s;animation-timing-function:var(--motion-standard);}
+::view-transition-old(main-content){animation:contentOut .24s var(--motion-standard) both;}
+::view-transition-new(main-content){animation:contentIn .34s var(--motion-standard) both;}
+@keyframes contentOut{to{opacity:0;translate:-16px 0;scale:.985;}}
+@keyframes contentIn{from{opacity:0;translate:22px 0;scale:.985;}to{opacity:1;translate:0 0;scale:1;}}
+:root[data-navigation-direction=backward]::view-transition-old(main-content){animation-name:contentBackOut;}
+:root[data-navigation-direction=backward]::view-transition-new(main-content){animation-name:contentBackIn;}
+@keyframes contentBackOut{to{opacity:0;translate:16px 0;scale:.985;}}
+@keyframes contentBackIn{from{opacity:0;translate:-22px 0;scale:.985;}to{opacity:1;translate:0 0;scale:1;}}
+@media(orientation:landscape) and (min-width:740px) and (min-height:420px){
+ @keyframes contentOut{to{opacity:0;translate:0 -16px;scale:.99;}}
+ @keyframes contentIn{from{opacity:0;translate:0 22px;scale:.99;}to{opacity:1;translate:0 0;scale:1;}}
+ @keyframes contentBackOut{to{opacity:0;translate:0 16px;scale:.99;}}
+ @keyframes contentBackIn{from{opacity:0;translate:0 -22px;scale:.99;}to{opacity:1;translate:0 0;scale:1;}}
+}
+.motion-press-target{overflow:clip;isolation:isolate;}.press-wave{position:absolute;pointer-events:none;border-radius:50%;background:currentColor;z-index:2;}
+.motion-collapse{height:0;overflow:hidden;overflow:clip;overflow-anchor:none;}
+.motion-collapse.is-open{height:auto;opacity:1;}.motion-collapse-inner{display:flow-root;min-height:0;}
+.settings-disclosure{overflow:hidden;border-radius:24px;background:var(--md-surface-container-lowest);margin-top:16px;}
+.disclosure-trigger{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:56px;padding:16px 20px;text-align:left;border:0;background:transparent;color:var(--md-on-surface);font-weight:550;font-size:14px;}
+.disclosure-trigger svg{rotate:0deg;transition:rotate .3s cubic-bezier(.55,.055,.675,.19);}
+.disclosure-trigger[aria-expanded=true] svg{rotate:90deg;transition-duration:.36s;transition-timing-function:cubic-bezier(.215,.61,.355,1);}
+.disclosure-content{padding:0 20px 12px;}
+.disclosure-content>[data-unfold-entry]{display:flow-root;}
+.settings-disclosure--group{margin:0 0 16px;padding:0;overflow-anchor:none;}
+.settings-disclosure--group h3{margin:0;}
+.settings-disclosure--group .disclosure-trigger{padding:18px 20px;color:var(--md-primary);font-weight:600;}
+.settings-disclosure--group .disclosure-trigger svg{color:var(--md-on-surface-variant);}
+.settings-disclosure--group .disclosure-content{padding-bottom:20px;}
+.animated-select{min-width:0;}
+.select-trigger{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;min-height:48px;width:100%;padding:10px 14px;border:1px solid var(--md-outline-variant);border-radius:14px;background:var(--md-surface-container-low);font-size:14px;text-align:left;color:var(--md-on-surface);}
+.select-trigger>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.select-trigger>svg{rotate:90deg;color:var(--md-on-surface-variant);transition:rotate .26s cubic-bezier(.215,.61,.355,1);}
+.select-trigger[aria-expanded=true]{background:var(--md-secondary-container);border-color:var(--md-primary);}
+.select-trigger[aria-expanded=true]>svg{rotate:-90deg;}
+.settings-select-row>.animated-select{max-width:60%;flex-shrink:0;}
+.animated-select.semester-select{display:block;padding:0;border:0;background:none;}
+.semester-select .select-trigger{min-height:56px;border-radius:16px;padding-left:16px;}
+.select-overlay{position:fixed;inset:0;z-index:1500;}
+.select-overlay[data-phase=exit]{pointer-events:none;}
+.select-menu{position:fixed;transform-origin:top left;border-radius:24px;background:var(--md-surface-container-lowest);color:var(--md-on-surface);box-shadow:0 10px 32px #0003,0 2px 8px #0001;overflow:hidden;outline:1px solid color-mix(in srgb,var(--md-outline-variant) 35%,transparent);}
+.select-options{height:100%;max-height:368px;padding:8px;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;}
+.select-option{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:48px;padding:12px;border-radius:16px;font-size:14px;line-height:1.5;cursor:pointer;touch-action:pan-y;}
+.select-option[aria-selected=true]{background:var(--md-primary-container);color:var(--md-on-primary-container);}
+.select-option[data-active=true]:not([aria-selected=true]){background:var(--md-surface-container-high);}
+.select-check-hidden{visibility:hidden;}
+@media(prefers-contrast:more){.select-menu{outline:2px solid var(--md-outline);}}
+.settings-scrim .settings-sheet[data-container-motion]{animation:none!important;transform-origin:top left;}
+.settings-scrim[data-motion=exit]{pointer-events:auto;}
+.settings-scrim,.schedule-modal-backdrop,.week-detail-scrim,.confirmation-scrim{animation:scrimIn .26s var(--motion-standard) both;}
+@keyframes scrimIn{from{background-color:#0000;}to{background-color:#0006;}}
+[data-motion=exit]{animation:scrimOut .2s var(--motion-standard) both!important;pointer-events:none;}
+[data-motion=exit]>.settings-sheet,[data-motion=exit]>.schedule-modal,[data-motion=exit]>.week-detail-sheet{animation:sheetOut .2s var(--motion-standard) both;}
+[data-motion=exit]>.confirmation-dialog{animation:dialogOut .2s var(--motion-standard) both;}
+@keyframes scrimOut{to{background-color:#0000;}}
+@keyframes sheetOut{to{translate:0 32px;opacity:0;scale:.99;}}
+@keyframes dialogOut{to{scale:.94;opacity:0;}}
+@keyframes materialSheetIn{from{translate:0 40px;scale:.985;opacity:0;}to{translate:0 0;scale:1;opacity:1;}}
+.settings-sheet,.schedule-modal,.week-detail-sheet{animation-duration:.36s;}.confirmation-dialog{animation:dialogIn .3s var(--motion-standard) both;}
+@keyframes dialogIn{from{scale:.92;opacity:0;}to{scale:1;opacity:1;}}
+@media(min-width:700px) and (min-height:560px){@keyframes materialSheetIn{from{translate:0 16px;scale:.96;opacity:0;}to{translate:0 0;scale:1;opacity:1;}}}
+@media(prefers-reduced-motion:reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important;}}
+:root[data-effects=reduced]::view-transition-group(*),:root[data-effects=reduced]::view-transition-old(*),:root[data-effects=reduced]::view-transition-new(*){animation:none!important;}
+
+.disclosure-trigger:focus-visible{outline-offset:-3px;border-radius:24px;}
+
+/* Container and backdrop finish together at transparent endpoints. */
+.settings-scrim[data-settings-motion]{animation:none!important;}
+.settings-scrim[data-settings-motion]>.settings-sheet{animation:none!important;}
+.settings-scrim[data-settings-motion]{overflow:hidden;overflow:clip;overscroll-behavior:contain;}

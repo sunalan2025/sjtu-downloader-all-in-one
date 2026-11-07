@@ -1,0 +1,10 @@
+<resources>
+    <color name="sjtu_widget_surface">#FAF9FD</color>
+    <color name="sjtu_widget_container">#EEEDF1</color>
+    <color name="sjtu_widget_low">#F4F3F7</color>
+    <color name="sjtu_widget_on_surface">#1B1B1F</color>
+    <color name="sjtu_widget_muted">#44464F</color>
+    <color name="sjtu_widget_primary">#005AC1</color>
+    <color name="sjtu_widget_primary_container">#D8E2FF</color>
+    <color name="sjtu_widget_outline">#C4C6D0</color>
+</resources>

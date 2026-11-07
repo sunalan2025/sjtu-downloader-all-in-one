@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout android:id="@+id/week_grid_body_surface" xmlns:android="http://schemas.android.com/apk/res/android"
+ android:forceDarkAllowed="false" android:layout_width="match_parent" android:layout_height="wrap_content"
+ android:orientation="vertical" android:paddingBottom="4dp">
+ <LinearLayout android:id="@+id/week_grid_deadline_row"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:gravity="top"
+    android:paddingBottom="5dp">
+    <TextView android:id="@+id/week_deadline_axis_label" android:layout_width="36dp" android:layout_height="wrap_content"
+        android:minHeight="57dp" android:gravity="center" android:text="全天\n截止"
+        android:textSize="9sp" android:textStyle="bold"
+        android:textColor="@color/sjtu_widget_on_surface"/>
+    <LinearLayout android:id="@+id/week_deadlines_mon"
+       android:layout_width="0dp" android:layout_weight="1"
+       android:layout_height="wrap_content" android:minHeight="57dp"
+       android:paddingLeft="2dp" android:paddingRight="2dp"
+       android:paddingBottom="5dp" android:orientation="vertical"
+       android:background="@drawable/week_widget_empty_surface"/>
+    <LinearLayout android:id="@+id/week_deadlines_tue"
+       android:layout_width="0dp" android:layout_weight="1"
+       android:layout_height="wrap_content" android:minHeight="57dp"
+       android:paddingLeft="2dp" android:paddingRight="2dp"
+       android:paddingBottom="5dp" android:orientation="vertical"
+       android:background="@drawable/week_widget_empty_surface"/>
+    <LinearLayout android:id="@+id/week_deadlines_wed"
+       android:layout_width="0dp" android:layout_weight="1"
+       android:layout_height="wrap_content" android:minHeight="57dp"
+       android:paddingLeft="2dp" android:paddingRight="2dp"
+       android:paddingBottom="5dp" android:orientation="vertical"
+       android:background="@drawable/week_widget_empty_surface"/>
+    <LinearLayout android:id="@+id/week_deadlines_thu"
+       android:layout_width="0dp" android:layout_weight="1"
+       android:layout_height="wrap_content" android:minHeight="57dp"
+       android:paddingLeft="2dp" android:paddingRight="2dp"
+       android:paddingBottom="5dp" android:orientation="vertical"
+       android:background="@drawable/week_widget_empty_surface"/>
+    <LinearLayout android:id="@+id/week_deadlines_fri"
+       android:layout_width="0dp" android:layout_weight="1"
+       android:layout_height="wrap_content" android:minHeight="57dp"
+       android:paddingLeft="2dp" android:paddingRight="2dp"
+       android:paddingBottom="5dp" android:orientation="vertical"
+       android:background="@drawable/week_widget_empty_surface"/>
+    <LinearLayout android:id="@+id/week_deadlines_sat"
+       android:layout_width="0dp" android:layout_weight="1"
+       android:layout_height="wrap_content" android:minHeight="57dp"
+       android:paddingLeft="2dp" android:paddingRight="2dp"
+       android:paddingBottom="5dp" android:orientation="vertical"
+       android:background="@drawable/week_widget_empty_surface"/>
+    <LinearLayout android:id="@+id/week_deadlines_sun"
+       android:layout_width="0dp" android:layout_weight="1"
+       android:layout_height="wrap_content" android:minHeight="57dp"
+       android:paddingLeft="2dp" android:paddingRight="2dp"
+       android:paddingBottom="5dp" android:orientation="vertical"
+       android:background="@drawable/week_widget_empty_surface"/>
+ </LinearLayout>
+ <FrameLayout android:id="@+id/week_timeline_host" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+</LinearLayout>

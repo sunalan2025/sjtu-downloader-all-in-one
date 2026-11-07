@@ -1,0 +1,40 @@
+/* Material 3 role defaults; MaterialTheme.ts installs the complete HCT scheme
+   before first paint and updates it for light, dark and Android dynamic color. */
+:root{
+  color-scheme:light;--md-primary:#005ac1;--md-on-primary:#fff;--md-primary-container:#d8e2ff;--md-on-primary-container:#001a41;
+  --md-secondary:#565e71;--md-on-secondary:#fff;--md-secondary-container:#dae2f9;--md-on-secondary-container:#131c2b;
+  --md-tertiary:#705574;--md-tertiary-container:#fad8fd;--md-on-tertiary-container:#28132e;
+  --md-surface:#faf9fd;--md-on-surface:#1b1b1f;--md-on-surface-variant:#44464f;
+  --md-surface-container-lowest:#fff;--md-surface-container-low:#f4f3f7;--md-surface-container:#eeedf1;
+  --md-surface-container-high:#e9e7ec;--md-surface-container-highest:#e3e2e6;
+  --md-outline:#74777f;--md-outline-variant:#c4c6d0;--md-error:#ba1a1a;--md-error-container:#ffdad6;--md-on-error-container:#410002;
+  --md-course-container:#d9e2ff;--md-on-course-container:#001944;--md-event-container:#92f5df;--md-on-event-container:#00201b;
+  --md-homework-container:#ffddb3;--md-on-homework-container:#2c1700;--md-exam-container:#ffd6ff;--md-on-exam-container:#340c3f;
+  --safe-top:0px;--safe-bottom:0px;--safe-left:0px;--safe-right:0px;
+  --radius-sm:12px;--radius-md:20px;--radius-lg:28px;--radius-full:100px;
+  --page-duration:.36s;--page-ease:cubic-bezier(.2,0,0,1);--md-elevation:0 4px 16px #00000016;
+  font-family:Roboto,"Noto Sans SC","PingFang SC",system-ui,sans-serif;
+  color:var(--md-on-surface);background:var(--md-surface);font-synthesis:none;text-rendering:optimizeLegibility;
+  -webkit-font-smoothing:antialiased;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body,#root{min-height:100%;margin:0;}
+body{background:var(--md-surface);color:var(--md-on-surface);}
+button,input,select,textarea{font:inherit;}button{cursor:pointer;touch-action:manipulation;color:inherit;}
+button,input,select,textarea{max-width:100%;}
+button:disabled{cursor:default;opacity:.38;}input:disabled,select:disabled{opacity:.5;}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{
+  outline:3px solid var(--md-primary);outline-offset:3px;
+}
+button,svg,.course-card,.file-row{-webkit-user-select:none;user-select:none;}svg{display:block;flex-shrink:0;}
+button{transition:background-color .18s,color .18s,box-shadow .18s;}
+button:active:not(:disabled){filter:brightness(.94);}
+:root[data-theme=dark] button:active:not(:disabled){filter:brightness(1.12);}
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;}
+.surface-card{background:var(--md-surface-container-low);border-radius:var(--radius-lg);}
+@media(pointer:fine){html{scrollbar-gutter:stable;}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;}}
+:root[data-effects=reduced] *,:root[data-effects=reduced] *::before,:root[data-effects=reduced] *::after{
+  animation:none!important;transition:none!important;scroll-behavior:auto!important;
+}
+@media(prefers-contrast:more){:root{--md-outline-variant:var(--md-outline);}.surface-card,.settings-group{border:1px solid var(--md-outline);}}

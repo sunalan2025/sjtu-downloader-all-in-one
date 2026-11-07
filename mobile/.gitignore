@@ -1,0 +1,13 @@
+node_modules/
+dist/
+android/
+*.log
+
+# Generated brand asset and UI regression evidence
+public/desktop-logo.png
+ui-results/
+
+# Local signing files and instrumentation evidence
+*.keystore
+*.jks
+emulator-results/

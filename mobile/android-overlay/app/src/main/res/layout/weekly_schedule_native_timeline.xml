@@ -1,0 +1,16 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/week_native_timeline" android:forceDarkAllowed="false" android:layout_width="match_parent" android:layout_height="800dp">
+ <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="horizontal">
+  <FrameLayout android:id="@+id/week_native_axis" android:layout_width="36dp" android:layout_height="match_parent"/>
+  <FrameLayout android:id="@+id/week_native_mon" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"/>
+  <FrameLayout android:id="@+id/week_native_tue" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"/>
+  <FrameLayout android:id="@+id/week_native_wed" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"/>
+  <FrameLayout android:id="@+id/week_native_thu" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"/>
+  <FrameLayout android:id="@+id/week_native_fri" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"/>
+  <FrameLayout android:id="@+id/week_native_sat" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"/>
+  <FrameLayout android:id="@+id/week_native_sun" android:layout_width="0dp" android:layout_weight="1" android:layout_height="match_parent"/>
+ </LinearLayout>
+ <LinearLayout android:id="@+id/week_now_row" android:layout_width="match_parent" android:layout_height="18dp" android:gravity="center_vertical" android:orientation="horizontal">
+  <TextView android:id="@+id/week_now_label" android:layout_width="36dp" android:layout_height="18dp" android:gravity="center_vertical" android:textSize="9sp" android:textStyle="bold" android:textColor="#b52b3a" android:includeFontPadding="false"/>
+  <ImageView android:layout_width="0dp" android:layout_weight="1" android:layout_height="2dp" android:src="@drawable/widget_now_line" android:scaleType="fitXY" android:importantForAccessibility="no"/>
+ </LinearLayout>
+</FrameLayout>
